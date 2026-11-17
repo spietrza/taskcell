@@ -5,7 +5,7 @@ import { configuredFlow, readAppConfig } from './app-config.js';
 import { auditActorOf, reportAuditFailure, type Actor, type AuditAction, type AuditLog, type AuditOutcome } from './audit.js';
 import type { ProjectAllowlist } from './allowlist.js';
 import type { CredentialService } from './credentials.js';
-import { editHubTask, hubTimeZone, listHubBoards, resetAndListHubTasks, resetStaleRunning, type HubTask } from './hub-tasks.js';
+import { ASKED_REASON, editHubTask, hubTimeZone, listHubBoards, resetAndListHubTasks, resetStaleRunning, type HubTask } from './hub-tasks.js';
 import { parallelLimit } from './hub-board.js';
 import { failureMessage } from './projects.js';
 import type { RunSession } from './run-session.js';
@@ -33,7 +33,14 @@ export interface SchedulerState {
 export const schedulerState = (): SchedulerState => ({ ticking: new Set(), live: new Set(), pending: new Map() });
 const key = (repoPath: string, id: string): string => `${repoPath}\n${id}`;
 
-function ended(result: CreateRunResult): Pick<HubTask, 'status' | 'reason' | 'result'> {
+export { ASKED_REASON };
+
+export function ended(result: CreateRunResult): Pick<HubTask, 'status' | 'reason' | 'result'> {
+  // A partial result is not done: the agent asked instead of finishing, so dependents must not start.
+  if (result.implementerIncomplete === true) {
+    const where = result.prUrl ?? (result.branch !== undefined ? `branch ${result.branch}` : undefined);
+    return { status: 'failed', reason: ASKED_REASON, ...(where !== undefined ? { result: where } : {}) };
+  }
   if (result.verificationFailed === true && (result.prUrl !== undefined || result.branch !== undefined)) {
     const where = result.prUrl ?? `branch ${result.branch}`;
     return { status: 'failed', reason: `verify failed on the delivered result (${where}); dependents do not start. Accept the result to mark it done, or Retry (a second run delivers a second branch or pull request)`, result: where };
@@ -54,6 +61,8 @@ export async function scheduleTick({ ticking, live, pending }: SchedulerState, c
       if (!k.startsWith(`${repoPath}\n`)) continue;
       await editHubTask(configDir, repoPath, k.slice(repoPath.length + 1), (t) => {
         delete t.runId;
+        delete t.reason;
+        delete t.result;
         Object.assign(t, end);
       });
       pending.delete(k);
@@ -88,6 +97,9 @@ export async function scheduleTick({ ticking, live, pending }: SchedulerState, c
       const record = (end: Pick<HubTask, 'status' | 'reason' | 'result'>): Promise<unknown> =>
         editHubTask(configDir, repoPath, id, (t) => {
           delete t.runId;
+          // The end replaces what an earlier end or a stale-run reset left: a done task never keeps an old failure reason.
+          delete t.reason;
+          delete t.result;
           Object.assign(t, end);
         });
       const finish = (end: Pick<HubTask, 'status' | 'reason' | 'result'>): Promise<void> =>
@@ -137,7 +149,8 @@ async function startHubTask(ctx: SweepContext, repoPath: string, task: HubTask, 
   const log = (action: AuditAction, target: string, outcome: AuditOutcome): void => {
     if (who === undefined || actor === undefined) return;
     logged = true;
-    void ctx.audit?.record({ login: actor.login, actor: auditActorOf(actor), action, target, outcome }).catch(reportAuditFailure);
+    // The subject names the repository: Home's activity feed places the start by it (the target is the run id and the task).
+    void ctx.audit?.record({ login: actor.login, actor: auditActorOf(actor), action, target, subject: { repo: repoPath, runId: target.split(' ')[0]! }, outcome }).catch(reportAuditFailure);
   };
   try {
     if (who === undefined) throw new BadRequestError('this task has no owner on this hub — save its schedule to run it as you');

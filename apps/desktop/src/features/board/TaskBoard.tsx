@@ -8,6 +8,7 @@ import type { BoardTask, RepoReadFailure, RepoStamp } from '../../wire';
 import { useAsync, usePhone } from '../../hooks';
 import { setUrlParam, urlParam } from '../../screenUrl';
 import { publishCards, type PaletteCard } from '../../paletteIndex';
+import { ASKED_WORDS, NEEDS_YOU_CHIP } from '../../runLabels';
 import { useApproverDecisions } from './useApproverDecisions';
 import { decisionForTask, decisionWords } from './approverDecision';
 import { QuickView, TRACKER_NAME, type QuickTask } from './QuickView';
@@ -336,7 +337,7 @@ export function TaskBoard({
                           {t.skills && (
                             <div className="break-words pt-0.5 text-[11px] text-muted-foreground">skills: {t.skills.join(', ')}</div>
                           )}
-                          <ScheduleLines task={t} />
+                          {t.asked === true ? <div className={cn('inline-block text-[11px]', NEEDS_YOU_CHIP)}>{ASKED_WORDS}</div> : <ScheduleLines task={t} />}
                           {t.baseBranch && (
                             <div className="pt-0.5 font-mono text-[11px] text-muted-foreground">→ {t.baseBranch}</div>
                           )}

@@ -193,7 +193,7 @@ test('a Moving row with a live run opens it', async () => {
   await waitFor(() => expect(cmds).toContain('read_session'));
   await new Promise((r) => setTimeout(r, 50));
   expect(screen.getAllByText('running').length).toBeGreaterThan(0);
-  expect(window.location.search).toBe('?screen=runs');
+  expect(new URLSearchParams(window.location.search).get('run')).toBe(`RUN${p.path}`);
 });
 
 test('a Moving row clicked after an open run detail opens the live run, on every click', async () => {
@@ -312,4 +312,17 @@ test('the address names a Settings section; picking another from the Settings me
   await waitFor(() => expect(window.location.search).toBe('?screen=settings&section=runners'));
   // A section change replaces the address; Back leaves Settings, not a section.
   expect(window.history.length).toBe(history);
+});
+
+test('the address names the open run: a reload of ?screen=runs&run=<taskId>@<timestamp> opens that run, not the live one', async () => {
+  const p = projects[0]!;
+  const linked = { ...runs[1]!, repoPath: p.path, repoName: p.name };
+  const ref = `${linked.taskId}@${linked.timestamp}`;
+  window.history.replaceState(null, '', `/?screen=runs&run=${encodeURIComponent(ref)}`);
+  stubTeamHub([], () => [p], { list_runs_all: { runs: [{ ...runs[0]!, repoPath: p.path, repoName: p.name }, linked], failures: [] }, read_run: { ...runDetail, taskId: linked.taskId, timestamp: linked.timestamp } });
+  render(<App />);
+  const crumbs = (): HTMLElement => screen.getByRole('navigation', { name: /breadcrumb/i });
+  await waitFor(() => expect(crumbs()).toHaveTextContent(linked.taskId));
+  expect(crumbs()).not.toHaveTextContent(`RUN${p.path}`);
+  expect(new URLSearchParams(window.location.search).get('run')).toBe(ref);
 });

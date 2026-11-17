@@ -719,6 +719,19 @@ describe('beginRun → listRuns/readRun round trip', () => {
     expect(byId.get('TES-ONCE')).not.toHaveProperty('extraAttempts');
   });
 
+  it('summarises an agent that stopped to ask: the failed stage and its last reply; a red proof marks verify failed', async () => {
+    const asking = { ...result, taskId: 'TES-ASK', completed: false, exitReason: 'incomplete' as const, finalText: 'To finish, I still need: which config file?' };
+    const run = beginRun(repo, 'TES-ASK', TS);
+    await run.writeProof({ ...verResult, passed: false, exitCode: 1 });
+    await run.writeStages([{ name: 'implementer', result: asking }], {});
+    await beginRun(repo, 'TES-OK', TS).writeStages([{ name: 'implementer', result: { ...result, taskId: 'TES-OK' } }], {});
+    const byId = new Map((await listRuns(runsRoot(repo))).map((r) => [r.taskId, r]));
+    expect(byId.get('TES-ASK')).toMatchObject({ anyFailed: true, failedStage: 'implementer', verifyFailed: true, asked: 'To finish, I still need: which config file?' });
+    expect(byId.get('TES-OK')).not.toHaveProperty('asked');
+    expect(byId.get('TES-OK')).not.toHaveProperty('failedStage');
+    expect(byId.get('TES-OK')).not.toHaveProperty('verifyFailed');
+  });
+
   it('keeps a run failed when one failed stage is genuine and another stopped on a provider limit', async () => {
     const failed = { ...result, taskId: 'TES-MIXED', completed: false, exitReason: 'error' as const, finalText: 'tests failed' };
     const limited = { ...failed, finalText: 'provider stopped', stoppedBy: 'provider-limit' as const };

@@ -25,6 +25,7 @@ describe('inboxKind', () => {
     [{ kind: 'issue', reason: 'needs info' }, 'Question', 'Answer', false],
     [{ kind: 'issue', reason: 'needs info', ask: 'question' }, 'Question', 'Answer', false],
     [{ kind: 'issue', reason: 'needs info', ask: 'too-vague' }, 'Too vague', 'Answer', false],
+    [{ kind: 'card', reason: 'asked', ask: 'question' }, 'Question', 'Answer', false],
   ] as const)('%j', (item, caption, action, broken) => {
     expect(inboxKind(item)).toEqual({ caption, action, broken });
   });

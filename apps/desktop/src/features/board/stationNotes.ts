@@ -1,17 +1,8 @@
 import type { AppConfig, BoardTask, RunDetail, RunRecord } from '../../wire';
-import type { Station } from '../../stations';
+import { stationOfStage } from '../../stations';
 import { stationSummary } from '../line/stationSummary';
 import { fmtDuration } from '../inspector/runStages';
 import type { StageStep } from './stageLine';
-
-/** The station a run record's stage belongs to; undefined for a stage the line does not show (sandbox, simplifier). */
-export function stationOfStage(stage: string | undefined): Station | undefined {
-  if (stage === undefined) return undefined;
-  if (/spec|plan|triage/i.test(stage)) return 'spec';
-  if (/implement|repair|revis/i.test(stage)) return 'cell';
-  if (/review|adversar|conformance/i.test(stage)) return 'review';
-  return undefined;
-}
 
 const join = (...parts: (string | undefined | false)[]): string => parts.filter((p): p is string => typeof p === 'string' && p !== '').join(' · ');
 
@@ -29,6 +20,8 @@ export interface NoteContext {
   /** The card's latest finished run. Ignored while the card runs: that record is an older run's. */
   detail?: RunDetail;
   prUrl?: string;
+  /** The hub's word that the pull request merged (RunSummary.prState); "merged" is said only with it. */
+  merged?: boolean;
 }
 
 /**
@@ -51,7 +44,7 @@ export function stationNote(step: Pick<StageStep, 'key' | 'status' | 'note'>, ct
       case 'cell': return join('building now', task.stage);
       case 'gates': return join(`running ${cfg?.verifyCmd || 'verify'}`, step.note);
       case 'review': return task.column === 'running' ? 'second AI reading the diff' : join('review pending', recordLine(records));
-      case 'pr': return 'you sign off';
+      case 'pr': return prUrl === undefined && detail !== undefined ? 'no PR opened' : 'you sign off';
     }
   }
   // done
@@ -65,8 +58,9 @@ export function stationNote(step: Pick<StageStep, 'key' | 'status' | 'note'>, ct
       return join(verdict === 'pass' ? 'passed' : verdict === 'changes' ? 'changes requested' : verdict, recordLine(records));
     }
     case 'pr': {
-      const n = prUrl === undefined ? undefined : /(\d+)\/?$/.exec(prUrl)?.[1];
-      return join(task.column === 'done' ? 'merged' : 'opened', n !== undefined && `#${n}`);
+      if (prUrl === undefined) return 'branch pushed, no PR';
+      const n = /(\d+)\/?$/.exec(prUrl)?.[1];
+      return join(ctx.merged === true ? 'merged' : 'opened', n !== undefined && `#${n}`);
     }
   }
 }

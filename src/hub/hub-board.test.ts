@@ -2,7 +2,7 @@ import { mkdir, mkdtemp, readFile, readdir, rm, symlink, writeFile } from 'node:
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, expect, test, vi } from 'vitest';
-import { createHubTask, editHubTask, listHubBoards, listHubTasks, readHubTasks, resetStaleRunning, updateHubTask, type HubTask, type HubTaskOwner } from './hub-tasks.js';
+import { ASKED_REASON, createHubTask, editHubTask, listHubBoards, listHubTasks, readHubTasks, resetStaleRunning, updateHubTask, type HubTask, type HubTaskOwner } from './hub-tasks.js';
 import { listHubBoard } from './hub-board.js';
 import { scheduleTick as tick, schedulerState, type StartTask } from './task-scheduler.js';
 import { OWNER } from './test-kit.js';
@@ -194,4 +194,34 @@ test('a project that is not auto-run shows startable cards as waiting for a hand
   expect((await listHubBoard(cfg, repo)).tasks.map((t) => t.state)).toEqual(['auto-run is off — start it by hand', 'blocked by hub-1']);
   await writeFile(join(cfg, 'local-worker.json'), JSON.stringify({ [repo]: { enabled: true } }));
   expect((await listHubBoard(cfg, repo)).tasks.map((t) => t.state)).toEqual(['starts next', 'blocked by hub-1']);
+});
+
+test('auto-run off: a card started by hand reads "starts next" even when earlier cards fill the plan', async () => {
+  await createHubTask(cfg, repo, { title: 'A', body: '', owner });
+  await createHubTask(cfg, repo, { title: 'B', body: '', owner });
+  await createHubTask(cfg, repo, { title: 'C', body: '', owner });
+  await editHubTask(cfg, repo, 'hub-3', (t) => { t.startRequested = true; });
+  expect((await listHubBoard(cfg, repo)).tasks.map((t) => t.state)).toEqual(['auto-run is off — start it by hand', 'auto-run is off — start it by hand', 'starts next']);
+});
+
+test('a done card whose newest run failed or stopped to ask is shown failed, unless a person accepted it', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'hubrepo-'));
+  try {
+    for (const title of ['A', 'B', 'C']) await createHubTask(cfg, dir, { title, body: '', owner });
+    for (const id of ['hub-1', 'hub-2', 'hub-3']) await editHubTask(cfg, dir, id, (t) => { t.status = 'done'; t.result = 'branch x'; });
+    await editHubTask(cfg, dir, 'hub-3', (t) => { t.accepted = true; });
+    const record = (taskId: string, extra: Record<string, unknown>): Promise<void> =>
+      mkdir(join(dir, '.taskcell', 'runs', taskId), { recursive: true }).then(() =>
+        writeFile(join(dir, '.taskcell', 'runs', taskId, '2026-11-17T15-53-58-120Z-implementer.json'), JSON.stringify({ taskId, timestamp: '2026-11-17T15:53:58.120Z', stage: 'implementer', turns: 1, durationMs: 1, worktreePath: '', worktreePreserved: false, ...extra })));
+    await record('hub-1', { completed: false, exitReason: 'incomplete', finalText: 'Which config file?' });
+    await record('hub-2', { completed: true, exitReason: 'completed', finalText: 'done' });
+    await record('hub-3', { completed: false, exitReason: 'incomplete', finalText: 'Which config file?' });
+    const cards = (await listHubBoard(cfg, dir)).tasks;
+    expect(cards.map((t) => t.column)).toEqual(['verify-failed', 'done', 'done']);
+    expect(cards.map((t) => t.stage)).toEqual(['implementer', undefined, undefined]);
+    expect(cards.map((t) => t.asked)).toEqual([true, undefined, undefined]);
+    expect(cards[0]!.state).toBe(`failed: ${ASKED_REASON}`);
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
 });

@@ -1,7 +1,6 @@
 import { Fragment, useMemo, useState, type KeyboardEvent, type ReactElement, type ReactNode } from 'react';
 import { Button, Chip, Empty, Input, Timestamp, cn } from '@/ui';
 import { Inbox, RefreshCw, Search } from 'lucide-react';
-import { verdictColor } from '../../status';
 import { contrastColor } from '../../color';
 import { FilterBar, NoMatch, pill } from '../../FilterBar';
 import { DEFAULT_FILTER, canClearFilters, clearFilters, effectiveFilter, filterActive, filterNames, filterRuns, groupRows, offeredSources, runKeys, runSource, saveChange, searchText, type RunMeta, type CardSource, type HubFilter } from '../../filterState';
@@ -10,7 +9,7 @@ import { costLabel, estTitle } from '../../cost';
 import { RunsSplit } from './RunsSplit';
 import { StationMark } from '../../components/StationMark';
 import { runStationOf, stationOf } from '../../stations';
-import { issueNumber, repoInitials, runStateWord, titleKey } from '../../runLabels';
+import { issueNumber, repoInitials, runStateTone, runStateWord, titleKey } from '../../runLabels';
 import type { ActiveRun, RunSummary } from '../../taskcell-output';
 import type { RepoStamp } from '../../wire';
 
@@ -209,7 +208,7 @@ export function RunList({
       r.taskId,
       r.repoPath,
       runStationOf(r),
-      <Chip color={r.stoppedBy ? 'secondary' : verdictColor(!r.anyFailed)} variant="outlined">
+      <Chip color={runStateTone(runStateWord(r))} variant="outlined">
         {runStateWord(r)}
       </Chip>,
       <>

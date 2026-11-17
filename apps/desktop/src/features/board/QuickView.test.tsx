@@ -33,6 +33,13 @@ beforeEach(() => {
 });
 
 describe('QuickView', () => {
+  test('a card whose run stopped to ask says "Waiting for your answer" as needs you, not "Verify failed"', async () => {
+    open({ id: 'hub-4', title: 'Validate', column: 'verify-failed', state: 'failed', asked: true });
+    const chip = await screen.findByText('Waiting for your answer');
+    expect(chip.className).toContain('text-primary-text');
+    expect(screen.queryByText('Verify failed')).toBeNull();
+  });
+
   test('shows the stage line, the receipt with missing facts, the issue link on the id and the pull request link', async () => {
     open();
     const receipt = await screen.findByLabelText('Receipt');

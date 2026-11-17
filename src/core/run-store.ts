@@ -189,6 +189,23 @@ function recordEst(r: RunRecord): number | undefined {
   return r.costUsd === undefined && typeof est === 'number' && Number.isFinite(est) && est >= 0 ? est : undefined;
 }
 
+/** Longest `RunSummary.asked` text: the end of the agent's last reply, where its questions are. */
+const ASKED_MAX = 2000;
+const askedText = (text: unknown): string => {
+  const t = typeof text === 'string' ? text.trim() : '';
+  return t.length > ASKED_MAX ? `…${t.slice(-ASKED_MAX)}` : t;
+};
+
+/** A proof file's `passed`, or undefined when it cannot be read. */
+async function tryReadProofPassed(path: string): Promise<boolean | undefined> {
+  try {
+    const passed: unknown = (JSON.parse(await readTextNoSymlink(path)) as { passed?: unknown }).passed;
+    return typeof passed === 'boolean' ? passed : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
 async function parseRunSummaries(root: string): Promise<RunSummary[]> {
   const summaries: RunSummary[] = [];
 
@@ -236,6 +253,13 @@ async function parseRunSummaries(root: string): Promise<RunSummary[]> {
       const startedBy = records.find((r) => r.startedBy !== undefined)?.startedBy;
       const trigger = records.some((r) => r.trigger === 'watch') ? 'watch' : undefined;
       const extraAttempts = records.reduce((n, r) => n + (typeof r.attempts === 'number' && r.attempts > 1 ? Math.floor(r.attempts) - 1 : 0), 0);
+      const failedStage = failed.find((r) => r.stage !== undefined)?.stage;
+      // `incomplete`: the agent stopped on its own without its done signal (no turn cap, no timeout): it waits on a person.
+      const stoppedEarly = records.find((r) => r.stage === 'implementer' && r.exitReason === 'incomplete' && r.stoppedBy === undefined);
+      const asked = stoppedEarly === undefined ? undefined : askedText(stoppedEarly.finalText);
+      // shortcut: only a proof stamped with the run's own timestamp counts (not readRunDetail's fallback for older runs).
+      const proofName = `${sanitizeTimestamp(timestamp)}.proof.json`;
+      const verifyFailed = files.some((f) => f.name === proofName) && (await tryReadProofPassed(join(taskPath, proofName))) === false;
       summaries.push({
         taskId: first.taskId,
         timestamp,
@@ -251,6 +275,9 @@ async function parseRunSummaries(root: string): Promise<RunSummary[]> {
         ...(startedBy !== undefined ? { startedBy } : {}),
         ...(trigger !== undefined ? { trigger } : {}),
         ...(extraAttempts > 0 ? { extraAttempts } : {}),
+        ...(failedStage !== undefined ? { failedStage } : {}),
+        ...(verifyFailed ? { verifyFailed: true as const } : {}),
+        ...(asked !== undefined ? { asked } : {}),
       });
     }
   }

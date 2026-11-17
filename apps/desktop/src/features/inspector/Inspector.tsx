@@ -25,7 +25,8 @@ import {
 import { RunList, activeKey, runKey } from './RunList';
 import { projectColor } from '../../color';
 import { RunPane } from './RunPane';
-import { issueNumber, titleKey } from '../../runLabels';
+import { cardIdOf, issueNumber, titleKey } from '../../runLabels';
+import { setUrlParam, urlParam } from '../../screenUrl';
 import { CostBreakdown } from './CostBreakdown';
 import { ConflictStats } from './ConflictStats';
 import { RunDetail } from './RunDetail';
@@ -197,12 +198,18 @@ export function Inspector({
 
   // Report the current drill-down up to the top-bar breadcrumb.
   useEffect(() => {
-    // An issue reads as #904 in the breadcrumb, not as the internal task id gh-owner-repo-904.
+    // The card id the Board shows (gh-904, hub-4), not the internal task id gh-owner-repo-904.
     const id = detail ? detail.taskId : liveRun ? liveRun.taskId : (taskDetailId ?? null);
-    const n = id !== null ? issueNumber(id) : undefined;
-    onCrumb(n !== undefined ? `#${n}` : id);
+    onCrumb(id !== null ? cardIdOf(id) : null);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [detail, liveRun, taskDetailId]);
+
+  // `?screen=runs&run=<taskId>@<timestamp>` opens that run once Runs has it; from then on the address follows the open run.
+  const linkedRun = useRef<string | null>(screen === 'runs' ? urlParam('run') : null);
+  useEffect(() => {
+    if (screen !== 'runs' || linkedRun.current !== null) return;
+    setUrlParam('run', detail ? `${detail.taskId}@${detail.timestamp}` : liveRun ? liveRun.taskId : null);
+  }, [screen, detail, liveRun]);
 
   // A breadcrumb crumb click, or a rail click on the screen already open, clears the open drill-down and folds
   // a run's strip to its toolbar chip: "Runs" then shows the list. Only on a click made while this screen is
@@ -314,6 +321,20 @@ export function Inspector({
   }, [screen, project, allRepos, teamId, taskCount]);
 
   useEffect(() => {
+    if (screen === 'runs' && linkedRun.current !== null) {
+      const [taskId, timestamp] = linkedRun.current.split('@');
+      // Wait for the list the link names (finished runs, or live ones); nothing else opens meanwhile.
+      if (loading || (timestamp !== undefined ? runs.length === 0 : active.length === 0)) return;
+      linkedRun.current = null;
+      const r = timestamp !== undefined ? runs.find((x) => x.source !== 'ci' && x.taskId === taskId && x.timestamp === timestamp) : undefined;
+      const a = timestamp === undefined ? active.find((x) => x.taskId === taskId) : undefined;
+      if (r || a) {
+        autoPicked.current = true;
+        if (a) setLiveRun(a);
+        else if (r) void open(r);
+        return;
+      }
+    }
     if (screen !== 'runs' || loading || autoPicked.current || detail || liveRun || typedRun !== null) return;
     // Narrow screens show the list first: a run opens only when the user picks it.
     if (window.matchMedia?.('(max-width: 767px)').matches) return;

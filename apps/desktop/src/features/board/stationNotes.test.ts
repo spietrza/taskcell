@@ -15,8 +15,15 @@ const detail: RunDetail = {
 
 describe('stationNote', () => {
   test('done stations say what the record shows; the PR its number', () => {
-    const notes = stageLine({ column: 'done' }).map((s) => stationNote(s, { task: { column: 'done' }, detail, prUrl: 'https://github.com/o/r/pull/9' }));
+    const notes = stageLine({ column: 'done' }).map((s) => stationNote(s, { task: { column: 'done' }, detail, prUrl: 'https://github.com/o/r/pull/9', merged: true }));
     expect(notes).toEqual(['picked up', '', 'sonnet · 1m 15s', 'tests passed', 'passed · codex · 30s', 'merged · #9']);
+  });
+
+  test('"merged" only with a merged PR: a done card with an open PR says opened, one with no PR says the branch', () => {
+    const pr = stageLine({ column: 'done' })[5]!;
+    expect(stationNote(pr, { task: { column: 'done' }, detail, prUrl: 'https://github.com/o/r/pull/9' })).toBe('opened · #9');
+    expect(stationNote(pr, { task: { column: 'done' }, detail })).toBe('branch pushed, no PR');
+    expect(stationNote({ ...pr, status: 'current' }, { task: { column: 'review' }, detail })).toBe('no PR opened');
   });
 
   test('waiting stations say what the Line config will do; nothing before it loads', () => {

@@ -47,7 +47,7 @@ test('a finished run: header with the issue link and one PR chip, the six statio
   expect(within(pane).queryByText(/Started by/)).toBeNull();
   expect(screen.queryByText(/\btoken\b/)).toBeNull();
   // One issue link and one PR link, both in the header; no "Open in GitHub".
-  expect(within(pane).getByRole('link', { name: /Issue #3/ })).toHaveAttribute('href', 'https://github.com/o/r/issues/3');
+  expect(within(pane).getByRole('link', { name: /gh-3/ })).toHaveAttribute('href', 'https://github.com/o/r/issues/3');
   expect(within(pane).getAllByRole('link', { name: /PR #5/ })).toHaveLength(1);
   expect(within(pane).queryByRole('link', { name: /Open in GitHub/ })).toBeNull();
   const stations = within(screen.getByRole('list', { name: 'Stations' })).getAllByRole('listitem');
@@ -68,7 +68,7 @@ test('a finished run: header with the issue link and one PR chip, the six statio
 
 test('the board task url is the issue link when known', async () => {
   render(<RunPane {...props} detail={{ ...detail, prUrl: undefined }} issueHref="https://github.com/o/r/issues/3" />);
-  expect(screen.getByRole('link', { name: /Issue #3/ })).toHaveAttribute('href', 'https://github.com/o/r/issues/3');
+  expect(screen.getByRole('link', { name: /gh-3/ })).toHaveAttribute('href', 'https://github.com/o/r/issues/3');
   await waitFor(() => expect(readRunEvents).toHaveBeenCalled());
 });
 
@@ -188,4 +188,22 @@ test('the Tests and PR cards stay when the live run turns terminal', async () =>
   await waitFor(() => expect(screen.getByTestId('stage-5')).toHaveTextContent('PR'));
   expect(screen.getByTestId('stage-0')).toHaveTextContent('Cell');
   expect(screen.getByTestId('stage-2')).toHaveTextContent('Gates');
+});
+
+test('a run whose agent stopped to ask: the chip word and colour come from one state, the header says why, the stations show the cell', async () => {
+  const asking: RunDetail = {
+    taskId: 'hub-4',
+    timestamp: '2026-11-17T15:53:58.120Z',
+    proof: { command: 'npm test', exitCode: 0, passed: true, sha256: 'x', outputTail: 'ok' } as never,
+    stages: [stage('implementer', 25_000, { taskId: 'hub-4', completed: false, exitReason: 'incomplete', finalText: 'To finish, I still need: which config file?' })],
+  };
+  const row = { taskId: 'hub-4', timestamp: asking.timestamp, stages: ['implementer'], anyFailed: true, failedStage: 'implementer', asked: 'To finish, I still need: which config file?', totalCostUsd: 0.2 } as never;
+  render(<RunPane {...props} taskId="hub-4" issue={undefined} detail={asking} summary={row} />);
+  const pane = screen.getByRole('region', { name: 'Run hub-4' });
+  // The proof passed, yet the run did not: never a green chip next to a "failed"/"asks you" word.
+  const chip = within(pane).getByText('Waiting for your answer');
+  expect(chip.closest('[class*="success"]')).toBeNull();
+  expect(within(pane).getByRole('note')).toHaveTextContent('Stopped to ask you');
+  expect(within(pane).getByRole('note')).toHaveTextContent('which config file?');
+  expect(within(pane).getAllByText('hub-4').length).toBeGreaterThan(0);
 });

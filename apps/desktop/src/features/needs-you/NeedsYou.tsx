@@ -178,7 +178,13 @@ export function NeedsYou({
                     <div className="mt-0.5 flex flex-wrap items-center gap-x-2 text-xs text-muted-foreground">
                       {item.repoName !== undefined && <span className="font-mono">{item.repoName}</span>}
                       <span>
-                        {item.kind === 'pr' ? 'PR' : 'Card'} <span className="font-mono tabular-nums">#{item.number}</span>
+                        {item.kind === 'card' ? (
+                          <span className="font-mono">{item.id}</span>
+                        ) : (
+                          <>
+                            {item.kind === 'pr' ? 'PR' : 'Card'} <span className="font-mono tabular-nums">#{item.number}</span>
+                          </>
+                        )}
                       </span>
                       {item.baseBranch && <span className="font-mono" title="target branch">→ {item.baseBranch}</span>}
                     </div>

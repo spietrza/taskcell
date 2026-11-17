@@ -311,6 +311,7 @@ export const commands = defineCommands<TasksCommands>({
       t.status = 'todo';
       delete t.reason;
       delete t.result;
+      delete t.accepted;
       t.owner = ownerOf(call);
     });
     if (task === undefined) throw new BadRequestError(`no hub task ${id}`);
@@ -333,6 +334,7 @@ export const commands = defineCommands<TasksCommands>({
     const task = await editHubTask(call.ctx.configDir, real, id, (t) => {
       if (t.status !== 'failed' || t.result === undefined) throw new BadRequestError(`${id} has no failed result to accept`);
       t.status = 'done';
+      t.accepted = true;
       delete t.reason;
     });
     if (task === undefined) throw new BadRequestError(`no hub task ${id}`);
