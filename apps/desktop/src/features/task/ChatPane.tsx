@@ -439,12 +439,13 @@ export function ChatPane({
         <div className="mt-1 flex items-center justify-between gap-2">
           <select
             aria-label="chat model"
+            title="Project default: the Doc chat model in Settings → General"
             value={model ?? ''}
             onChange={(e) => onModelChange(e.target.value === '' ? undefined : e.target.value)}
             disabled={disabled || state.busy}
             className="max-w-[60%] truncate bg-transparent font-mono text-xs text-muted-foreground outline-none"
           >
-            <option value="">default · {defaultModel}</option>
+            <option value="">project default · {defaultModel}</option>
             {modelOptions.map((m) => (
               <option key={m} value={m}>
                 {m}
