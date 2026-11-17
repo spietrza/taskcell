@@ -1,4 +1,4 @@
-import type { ReactNode } from 'react';
+import { useEffect, useRef, type ReactNode } from 'react';
 import { Button, cn } from '@/ui';
 import { useNavGuardRegistry } from '../../navGuard';
 import { SETTINGS_SECTIONS, type SettingsSection } from './sections';
@@ -36,6 +36,11 @@ export function SettingsScreen({
   onSection: (s: SettingsSection) => void;
 }) {
   const registry = useNavGuardRegistry();
+  const tabs = useRef<HTMLDivElement>(null);
+  // On a phone the open section's tab can sit past the edge (a link to Team & hub): bring it into view.
+  useEffect(() => {
+    tabs.current?.querySelector<HTMLElement>('[aria-selected="true"]')?.scrollIntoView?.({ block: 'nearest', inline: 'nearest' });
+  }, [section]);
   // Switching sections unmounts a dirty editor, so it confirms like any other navigation.
   const choose = (key: SettingsSection): void => {
     if (key === section || registry?.confirm() === false) return;
@@ -45,7 +50,7 @@ export function SettingsScreen({
   return (
     <div className="flex h-full min-h-0 flex-col gap-4">
       {/* A phone cannot fit every tab: the row scrolls sideways under an edge fade. */}
-      <div role="tablist" aria-label="Settings sections" className="flex shrink-0 gap-1 overflow-x-auto border-b border-border scroll-cue-x">
+      <div ref={tabs} role="tablist" aria-label="Settings sections" className="flex shrink-0 gap-1 overflow-x-auto border-b border-border scroll-cue-x">
         {SETTINGS_SECTIONS.map((s) => (
           <button
             key={s.key}

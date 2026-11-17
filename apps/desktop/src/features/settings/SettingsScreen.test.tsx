@@ -61,3 +61,11 @@ test('opens on the section the app names', () => {
   expect(screen.getByText('line content')).toBeInTheDocument();
   expect(screen.getByRole('tab', { name: 'Line' })).toHaveAttribute('aria-selected', 'true');
 });
+
+test('the open section\'s tab is scrolled into view (a phone link to Team & hub)', () => {
+  const spy = vi.fn();
+  Element.prototype.scrollIntoView = spy;
+  render(<SettingsScreen project="/r" fleet={null} remote={null} start="audit" />);
+  expect(spy).toHaveBeenCalled();
+  expect(spy.mock.contexts[0]).toHaveAttribute('aria-selected', 'true');
+});
