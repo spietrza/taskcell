@@ -40,7 +40,7 @@ export function AutoRun({ project, taskSource }: { project: string; taskSource: 
       <Button variant="outlined" color="secondary" className="h-8 px-2 text-xs" {...gateProps(gate)} onClick={() => setOpen(true)}>
         Set up auto-run
       </Button>
-      {open && <EnableFactoryDialog project={{ path: project, name: project.split('/').pop() || project }} onClose={() => setOpen(false)} />}
+      {open && <EnableFactoryDialog project={{ path: project, name: project.split('/').pop() || project }} onClose={() => setOpen(false)} startLocal={taskSource === 'hub'} />}
     </div>
   );
 }

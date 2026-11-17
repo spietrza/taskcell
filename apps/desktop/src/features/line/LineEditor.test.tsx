@@ -146,7 +146,8 @@ test('a station deep link opens Card with the Auto-run setup; a never-switched h
     expect(screen.getByRole('button', { name: /Card/ })).toHaveAttribute('aria-pressed', 'true');
     expect(await screen.findByTestId('line-auto-run')).toHaveTextContent('Auto-run: off');
     fireEvent.click(screen.getByRole('button', { name: 'Set up auto-run' }));
-    expect(await screen.findByRole('dialog', { name: 'Set up auto-run' })).toBeInTheDocument();
+    // A hub board opens straight on the Local hub switch, its only way to run by itself.
+    expect(await screen.findByRole('switch', { name: 'Run this project on the local hub' })).not.toBeChecked();
     // Picking another station names it in the address, so a reload stays there.
     fireEvent.click(screen.getByRole('button', { name: /Gates/ }));
     expect(new URLSearchParams(window.location.search).get('station')).toBe('gates');

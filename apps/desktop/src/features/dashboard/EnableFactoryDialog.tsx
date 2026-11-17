@@ -47,7 +47,7 @@ function errorText(err: unknown): string {
  * (callers, labels, the secret command), confirm to open the PR, then dispatch the doctor workflow.
  * The secret is only ever shown as a command for the user to run — this dialog never takes a token.
  */
-export function EnableFactoryDialog({ project, onClose }: { project: { path: string; name: string }; onClose: () => void }) {
+export function EnableFactoryDialog({ project, onClose, startLocal = false }: { project: { path: string; name: string }; onClose: () => void; /** A hub-board project: open on the Local hub checklist, its only way to run by itself. */ startLocal?: boolean }) {
   const dialogRef = useRef<HTMLDivElement>(null);
   useFocusTrap(dialogRef);
   const [plan, setPlan] = useState<FactoryPlan | null>(null);
@@ -148,6 +148,11 @@ export function EnableFactoryDialog({ project, onClose }: { project: { path: str
     step('local', async () => {
       setLocal(await localWorkerDoctor(project.path));
     });
+  useEffect(() => {
+    if (startLocal) void loadLocal();
+    // Once, on open: Back still leads to the full picker.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
   const existingFiles = new Set(plan?.existingCallerFiles ?? []);
   // A caller counts as present under its legacy `vanguard-` name too (the hub adds no `taskcell-` twin).
   const existing = { has: (f: string): boolean => existingFiles.has(f) || existingFiles.has(f.replace('/taskcell-', '/vanguard-')) };
