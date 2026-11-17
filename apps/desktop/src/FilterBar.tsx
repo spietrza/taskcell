@@ -118,11 +118,11 @@ function ProjectTabs({ repos, withCards, selected, onChange }: { repos: Repo[]; 
   return (
     <div className="flex basis-full items-end gap-2 border-b border-border">
       <div role="tablist" aria-label="Project tabs" className="flex min-w-0 gap-1 overflow-x-auto">
-        {tab('all', 'All', selected.length === 0, [])}
+        {tab('all', 'All projects', selected.length === 0, [])}
         {tabs.map((r) => tab(r.path, r.name, selected.length === 1 && selected[0] === r.path, [r.path]))}
       </div>
       {several && !overflow && (
-        <span data-testid="tabs-several" title="Picked in Projects. A tab narrows to one project; All shows every one." className="mb-1 shrink-0 rounded border border-foreground px-1.5 py-0.5 text-xs font-medium">
+        <span data-testid="tabs-several" title="Picked in Projects. A tab narrows to one project; All projects shows every one." className="mb-1 shrink-0 rounded border border-foreground px-1.5 py-0.5 text-xs font-medium">
           {selected.length} projects
         </span>
       )}
@@ -144,7 +144,8 @@ function SecondaryControls({ filter, onChange, sources }: Props) {
     <>
       {sources.length === 1 && <span className="text-xs text-muted-foreground">Card source: {SOURCES.find((s) => s.value === sources[0])?.label}</span>}
       {sources.length > 1 && (
-      <div role="group" aria-label="Card source" className="flex flex-wrap gap-1">
+      <div role="group" aria-label="Card source" className="flex flex-wrap items-center gap-1">
+        <span className="text-xs text-muted-foreground" aria-hidden>Card source</span>
         {SOURCES.filter((s) => sources.includes(s.value)).map((s) => (
           <button key={s.value} type="button" aria-pressed={filter.sources.includes(s.value)} onClick={() => toggleSource(s.value)} className={pill(filter.sources.includes(s.value))}>
             {s.label}

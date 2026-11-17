@@ -209,7 +209,7 @@ test('typing a search on a single-source screen keeps the saved sources and grou
 test('up to six projects: a tab each and no second control', () => {
   render(<Harness projects={repos} />);
   const tabs = screen.getByRole('tablist', { name: 'Project tabs' });
-  expect(within(tabs).getAllByRole('tab').map((t) => t.textContent)).toEqual(['All', 'alpha-repo', 'beta-repo', 'gamma']);
+  expect(within(tabs).getAllByRole('tab').map((t) => t.textContent)).toEqual(['All projects', 'alpha-repo', 'beta-repo', 'gamma']);
   expect(screen.queryByRole('button', { name: /Projects:/ })).toBeNull();
   fireEvent.click(within(tabs).getByRole('tab', { name: 'gamma' }));
   expect(state().repos).toEqual(['/c']);
@@ -218,9 +218,9 @@ test('up to six projects: a tab each and no second control', () => {
 test('past six projects: tabs for the busy ones, the rest behind More…; several picked light no tab', () => {
   render(<Harness withCards={['/a', '/b']} />);
   const tabs = screen.getByRole('tablist', { name: 'Project tabs' });
-  expect(within(tabs).getAllByRole('tab').map((t) => t.textContent)).toEqual(['All', 'alpha-repo', 'beta-repo']);
+  expect(within(tabs).getAllByRole('tab').map((t) => t.textContent)).toEqual(['All projects', 'alpha-repo', 'beta-repo']);
   expect(screen.getByRole('button', { name: /Projects:/ })).toHaveTextContent('More…');
-  expect(within(tabs).getByRole('tab', { name: 'All' })).toHaveAttribute('aria-selected', 'true');
+  expect(within(tabs).getByRole('tab', { name: 'All projects' })).toHaveAttribute('aria-selected', 'true');
   fireEvent.click(within(tabs).getByRole('tab', { name: 'beta-repo' }));
   expect(state().repos).toEqual(['/b']);
   expect(within(tabs).getByRole('tab', { name: 'beta-repo' })).toHaveAttribute('aria-selected', 'true');
@@ -230,7 +230,14 @@ test('past six projects: tabs for the busy ones, the rest behind More…; severa
   expect(state().repos).toEqual(['/b', '/c']);
   expect(within(tabs).getAllByRole('tab').filter((t) => t.getAttribute('aria-selected') === 'true')).toEqual([]);
   expect(screen.getByRole('button', { name: /Projects:/ })).toHaveTextContent('2 projects');
-  fireEvent.click(within(tabs).getByRole('tab', { name: 'All' }));
+  fireEvent.click(within(tabs).getByRole('tab', { name: 'All projects' }));
   expect(state().repos).toEqual([]);
   expect(screen.getByRole('button', { name: /Projects:/ })).toHaveTextContent('More…');
+});
+
+test('the source chips carry a visible "Card source" label, and the project tab says "All projects"', () => {
+  render(<Harness />);
+  const group = screen.getAllByRole('group', { name: 'Card source' })[0]!;
+  expect(group).toHaveTextContent(/^Card source/);
+  expect(screen.getByRole('tab', { name: 'All projects' })).toBeInTheDocument();
 });
