@@ -8,6 +8,7 @@ import { LineEditor } from '../line/LineEditor';
 import { AuditLog } from '../audit/AuditLog';
 import { Lessons } from '../lessons/Lessons';
 import { Skills } from '../skills/Skills';
+import { LocalRunner } from './LocalRunner';
 
 /**
  * Settings, with the sections the prototype puts under it: General (the project's settings), Line (the
@@ -78,6 +79,7 @@ export function SettingsScreen({
       ) : section === 'runners' ? (
         <div className="min-h-0 flex-1 space-y-6 overflow-y-auto pr-4">
           {fleet && <section className="space-y-2">{fleet}</section>}
+          <LocalRunner project={project} />
           <section className="flex min-h-96 flex-col space-y-2">
             <h3 className="text-lg font-semibold">Remote</h3>
             {remote}

@@ -30,6 +30,12 @@ function StatusChip({ r }: { r: RemoteRun }) {
   );
 }
 
+/** What started a CI run, in words (GitHub's `event`): the workflow name alone reads the same on every row. */
+export function ciOrigin(event: string): string {
+  const words: Record<string, string> = { issues: 'issue label', pull_request: 'pull request', pull_request_target: 'pull request', push: 'push', schedule: 'schedule', workflow_dispatch: 'started by hand', workflow_call: 'called by a workflow', issue_comment: 'comment' };
+  return words[event] ?? event.replace(/_/g, ' ');
+}
+
 /** Per-row state of the record fetch; absent = not asked yet. */
 type Records = { loading: true } | { error: string } | { data: RemoteImport };
 
@@ -89,7 +95,10 @@ export function RemoteRuns({
           const cached = r.cached || (rec !== undefined && 'data' in rec);
           return [
             <Table.Row key={r.id}>
-              <Table.Cell className="font-medium">{r.workflow}</Table.Cell>
+              <Table.Cell className="font-medium">
+                {r.workflow}
+                {r.event !== '' && <span className="block text-xs font-normal text-muted-foreground">CI · {ciOrigin(r.event)}</span>}
+              </Table.Cell>
               <Table.Cell className="max-w-64 truncate text-muted-foreground" title={r.title}>
                 {r.title}
               </Table.Cell>
