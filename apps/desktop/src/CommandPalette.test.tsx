@@ -79,9 +79,9 @@ test('a card outside the shown projects, or naming none, is not offered', () => 
 });
 
 test('Board and Runs name what they show; project commands name the project', () => {
-  render(<CommandPalette {...base} projectName="taskcell-demo-form" scopeName="All repositories" onScreen={vi.fn()} onNewTask={vi.fn()} />);
-  expect(screen.getByText('Board · All repositories')).toBeInTheDocument();
-  expect(screen.getByText('Runs · All repositories')).toBeInTheDocument();
+  render(<CommandPalette {...base} projectName="taskcell-demo-form" scopeName="All projects" onScreen={vi.fn()} onNewTask={vi.fn()} />);
+  expect(screen.getByText('Board · All projects')).toBeInTheDocument();
+  expect(screen.getByText('Runs · All projects')).toBeInTheDocument();
   expect(screen.getByText('Settings · taskcell-demo-form')).toBeInTheDocument();
   expect(screen.getByText('New card · taskcell-demo-form')).toBeInTheDocument();
 });

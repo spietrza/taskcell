@@ -1031,6 +1031,7 @@ export function TaskDraftScreen({
             <DocEditor
               value={body}
               onChange={onBodyChange}
+              placeholder="# Card title, then what should change and how you will know it works"
               // confirming/creating too (review #349 r4): a keystroke while the create is in
               // flight would arm an archived:false debounce that lands AFTER the archive write.
               readOnly={chat.pending !== undefined || archived || confirming || creating}

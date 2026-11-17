@@ -42,6 +42,10 @@ test('runs filter by triage (merged from prState), source and search', () => {
   expect(filterRuns(runs, f({ sources: ['taskcell'] })).map((r) => r.taskId)).toEqual(['x-3']);
   expect(filterRuns(runs, f({ query: 'gl' })).map((r) => r.taskId)).toEqual(['gl-2']);
   expect(runSource('linear-9')).toBe('linear');
+  // A run whose card is done sits under Merged, as the card does on the Board: a done card's asked run no longer needs you.
+  const done = [run('hub-1', { cardDone: true }), run('hub-4', { anyFailed: true, asked: 'Which file?', cardDone: true })];
+  expect(filterRuns(done, f({ triage: 'merged' })).map((r) => r.taskId)).toEqual(['hub-1', 'hub-4']);
+  expect(filterRuns(done, f({ triage: 'needs' }))).toEqual([]);
 });
 
 test('grouping by project, source and triage', () => {

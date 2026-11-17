@@ -691,10 +691,10 @@ export default function App() {
                 // Board and Runs show the filter's repositories, not the open project.
                 scopeName:
                   filter.repos.length === 0
-                    ? 'All repositories'
+                    ? 'All projects'
                     : filter.repos.length === 1
                       ? (projects.find((p) => p.path === filter.repos[0])?.name ?? filter.repos[0])
-                      : `${filter.repos.length} repositories`,
+                      : `${filter.repos.length} projects`,
                 onScreen: (s: 'board' | 'runs' | 'settings') => navigate(() => setScreen(s)),
                 ...(caps?.project?.canCreateTask.allowed === false
                   ? {}

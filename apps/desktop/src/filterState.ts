@@ -86,9 +86,12 @@ export function cardTriage(t: Pick<BoardTask, 'column'>): Exclude<Triage, 'all'>
   return 'other';
 }
 
-/** The same bucket for a finished run: failed needs you; merged needs the hub's `prState`. `running` is for active runs only. */
-export function runTriage(r: Pick<RunSummary, 'anyFailed' | 'prState' | 'stoppedBy'>): Exclude<Triage, 'all'> | 'other' {
-  if (r.prState === 'merged') return 'merged';
+/**
+ * The same bucket for a finished run: failed needs you; merged needs the hub's `prState`, or `cardDone` (its card sits in
+ * Done, as the Board's Merged pill reads it). `running` is for active runs only.
+ */
+export function runTriage(r: Pick<RunSummary, 'anyFailed' | 'prState' | 'stoppedBy' | 'cardDone'>): Exclude<Triage, 'all'> | 'other' {
+  if (r.prState === 'merged' || r.cardDone === true) return 'merged';
   return r.anyFailed && r.stoppedBy === undefined ? 'needs' : 'other';
 }
 

@@ -40,7 +40,7 @@ export function CommandPalette({
   onNeedsYou?: () => void;
   /** The open project, named in the commands that act on it (Settings, New card, Auto-run). */
   projectName?: string;
-  /** What Board and Runs show: "All repositories", one project's name, or a count. Defaults to `projectName`. */
+  /** What Board and Runs show: "All projects", one project's name, or a count. Defaults to `projectName`. */
   scopeName?: string;
   /** Screens of the open project (Board, Runs, Settings); omitted while none is open. */
   onScreen?: (s: 'board' | 'runs' | 'settings') => void;
