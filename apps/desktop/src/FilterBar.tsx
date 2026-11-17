@@ -31,8 +31,16 @@ function ProjectPicker({ repos, withCards, selected, onChange }: { repos: Repo[]
     return () => document.removeEventListener('keydown', onKey);
   }, [open]);
   const shown = repos.filter((r) => r.name.toLowerCase().includes(q.trim().toLowerCase()));
-  const toggle = (path: string): void => onChange(selected.includes(path) ? selected.filter((p) => p !== path) : [...selected, path]);
-  const label = selected.length === 0 ? 'All projects' : selected.length === 1 ? (repos.find((r) => r.path === selected[0])?.name ?? '1 project') : `${selected.length} projects`;
+  // An empty selection means every project (all boxes show checked). Picking every project, or unpicking the
+  // last one, goes back to that, so the board is never filtered down to nothing.
+  const all = selected.length === 0;
+  const isOn = (path: string): boolean => all || selected.includes(path);
+  const set = (paths: string[]): void => onChange(paths.length === 0 || repos.every((r) => paths.includes(r.path)) ? [] : paths);
+  const toggle = (path: string): void => {
+    const on = all ? repos.map((r) => r.path) : selected;
+    set(on.includes(path) ? on.filter((p) => p !== path) : [...on, path]);
+  };
+  const label = all ? 'All projects' : selected.length === 1 ? (repos.find((r) => r.path === selected[0])?.name ?? '1 project') : `${selected.length} projects`;
   return (
     <div className="relative">
       <button ref={trigger} type="button" aria-expanded={open} onClick={() => setOpen(!open)} className="rounded border border-border px-2 py-1 text-xs">
@@ -42,20 +50,30 @@ function ProjectPicker({ repos, withCards, selected, onChange }: { repos: Repo[]
         <div role="group" aria-label="Projects" className="absolute left-0 top-full z-50 mt-1 w-64 rounded-md border border-border bg-background p-2 shadow-md max-md:static max-md:w-full max-md:shadow-none">
           <Input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search projects…" aria-label="Search projects" startAdornment={<Search className="size-4" />} />
           <div className="mt-2 flex gap-2 text-xs">
-            <button type="button" className="underline" onClick={() => onChange(repos.filter((r) => withCards.includes(r.path)).map((r) => r.path))}>
+            <button type="button" className="underline" onClick={() => set(repos.filter((r) => withCards.includes(r.path)).map((r) => r.path))}>
               Has cards
             </button>
-            <button type="button" className="underline" onClick={() => onChange([])}>
-              Clear
-            </button>
           </div>
-          <ul className="mt-2 max-h-60 overflow-y-auto">
+          <label className="mt-2 flex cursor-pointer items-center gap-2 border-b border-border px-1 pb-1.5 text-sm font-medium">
+            <input type="checkbox" checked={all} disabled={all} onChange={() => onChange([])} />
+            All projects
+          </label>
+          <ul className="mt-1 max-h-60 overflow-y-auto">
             {shown.map((r) => (
-              <li key={r.path}>
-                <label className="flex cursor-pointer items-center gap-2 rounded px-1 py-0.5 text-sm hover:bg-muted">
-                  <input type="checkbox" checked={selected.includes(r.path)} onChange={() => toggle(r.path)} />
+              <li key={r.path} className="group flex items-center rounded hover:bg-muted">
+                <label className="flex min-w-0 flex-1 cursor-pointer items-center gap-2 px-1 py-0.5 text-sm">
+                  <input type="checkbox" checked={isOn(r.path)} onChange={() => toggle(r.path)} />
                   <span className="min-w-0 flex-1 truncate">{r.name}</span>
                 </label>
+                {/* "Only": the one-click way to narrow to a single project (Datadog/Grafana pattern). */}
+                <button
+                  type="button"
+                  aria-label={`Only ${r.name}`}
+                  onClick={() => set([r.path])}
+                  className="px-1 text-xs text-primary-text opacity-0 hover:underline focus-visible:opacity-100 group-hover:opacity-100 max-md:opacity-100"
+                >
+                  Only
+                </button>
               </li>
             ))}
             {shown.length === 0 && <li className="px-1 py-1 text-sm text-muted-foreground">{q.trim() === '' ? 'No projects' : 'No projects match.'}</li>}

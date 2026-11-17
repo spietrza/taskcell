@@ -53,9 +53,18 @@ test('the project picker is searchable, multi-select, with a has-cards shortcut'
   render(<Harness />);
   fireEvent.click(screen.getByRole('button', { name: /Projects:/ }));
   const picker = screen.getByRole('group', { name: 'Projects' });
-  fireEvent.click(within(picker).getByLabelText('alpha-repo'));
-  fireEvent.click(within(picker).getByLabelText('beta-repo'));
+  // Every box starts checked (all projects); unchecking one keeps the rest.
+  expect(within(picker).getByLabelText('alpha-repo')).toBeChecked();
+  fireEvent.click(within(picker).getByLabelText('gamma'));
   expect(state().repos).toEqual(['/a', '/b']);
+  // "Only" narrows to one project; checking the rest back returns to all.
+  fireEvent.click(within(picker).getByRole('button', { name: 'Only beta-repo' }));
+  expect(state().repos).toEqual(['/b']);
+  fireEvent.click(within(picker).getByLabelText('beta-repo'));
+  expect(state().repos).toEqual([]);
+  fireEvent.click(within(picker).getByRole('button', { name: 'Only alpha-repo' }));
+  fireEvent.click(within(picker).getByLabelText('All projects'));
+  expect(state().repos).toEqual([]);
   fireEvent.change(within(picker).getByLabelText('Search projects'), { target: { value: 'gam' } });
   expect(within(picker).queryByLabelText('alpha-repo')).toBeNull();
   fireEvent.click(within(picker).getByRole('button', { name: 'Has cards' }));
