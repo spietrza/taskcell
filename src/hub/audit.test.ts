@@ -1,8 +1,8 @@
-import { mkdtemp, readFile, readdir, stat, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, readdir, rm, stat, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, test, vi } from 'vitest';
-import { AuditLog, ROUTINE_AUDIT_WINDOW_MS, SETTINGS_VALUE_KEYS, safeUrl } from './audit.js';
+import { AuditLog, ROUTINE_AUDIT_WINDOW_MS, ROUTINE_SEEN_MAX, SETTINGS_VALUE_KEYS, safeUrl } from './audit.js';
 import { localAdapter, verifyAudit } from '../core/audit.js';
 import { dispatchRpc as dispatch, ForbiddenError, type RpcContext } from './rpc.js';
 import { ProjectAllowlist } from './allowlist.js';
@@ -99,6 +99,30 @@ describe('audit log', () => {
     expect(parsed.map((p) => `${p.action}:${p.outcome}`)).toEqual([
       'project-watch:ok', 'project-watch:refused', 'project-watch:refused', 'settings-change:ok', 'settings-change:ok', 'sign-in:ok', 'sign-in:refused', 'sign-in:ok',
     ]);
+  });
+
+  test('a routine line whose write failed is not remembered: the next one is written', async () => {
+    const { configDir, audit } = await setup();
+    const file = join(configDir, 'audit.jsonl');
+    await mkdir(file); // a directory where the log goes: the append fails
+    await expect(audit.record({ login: 'a', action: 'sign-in', outcome: 'ok' })).rejects.toThrow();
+    await rm(file, { recursive: true });
+    await audit.record({ login: 'a', action: 'sign-in', outcome: 'ok' });
+    expect(await lines(configDir)).toHaveLength(1);
+  });
+
+  test('routine keys use the cleaned target and stay bounded: expired keys go, and the cap holds', async () => {
+    const { configDir, audit } = await setup();
+    const seen = (audit as unknown as { routineSeen: Map<string, number> }).routineSeen;
+    const t0 = Date.now();
+    await audit.record({ login: 'a', action: 'project-watch', target: `https://u:${CANARY}@h.example/r?k=${CANARY}`, outcome: 'ok' }, t0);
+    expect([...seen.keys()].join()).not.toContain(CANARY);
+    await audit.record({ login: 'a', action: 'project-watch', target: 'https://h.example/r', outcome: 'ok' }, t0 + 1);
+    expect(await lines(configDir)).toHaveLength(1); // the same cleaned target
+    await audit.record({ login: 'b', action: 'project-watch', target: '/r', outcome: 'ok' }, t0 + ROUTINE_AUDIT_WINDOW_MS + 1);
+    expect(seen.size).toBe(1); // the expired key was evicted
+    for (let i = 0; i < ROUTINE_SEEN_MAX + 5; i++) await audit.record({ login: 'c', action: 'project-watch', target: `/r${i}`, outcome: 'ok' }, t0 + ROUTINE_AUDIT_WINDOW_MS + 2);
+    expect(seen.size).toBe(ROUTINE_SEEN_MAX);
   });
 
   test('read_audit is admin-only and filters by login, newest first', async () => {

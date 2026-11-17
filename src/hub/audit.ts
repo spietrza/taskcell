@@ -100,6 +100,8 @@ function allowedChanges(changes: readonly SettingsValueChange[] | undefined): Se
  */
 const ROUTINE_ACTIONS: ReadonlySet<AuditAction> = new Set(['sign-in', 'project-watch', 'project-unwatch']);
 export const ROUTINE_AUDIT_WINDOW_MS = 10 * 60_000;
+/** At most this many routine keys are remembered; the oldest go first (a dropped key only means one more line). */
+export const ROUTINE_SEEN_MAX = 1000;
 
 const SETTINGS_HISTORY_DEFAULT = 20;
 const SETTINGS_HISTORY_MAX = 100;
@@ -125,11 +127,12 @@ export class AuditLog {
    * the caller reports the failure instead of carrying on unrecorded.
    */
   record(input: AuditRecordInput & { actor?: AuditActor; subject?: AuditSubject }, now = Date.now()): Promise<void> {
-    if (input.outcome === 'ok' && ROUTINE_ACTIONS.has(input.action)) {
-      const key = JSON.stringify([input.actor?.id ?? input.login, input.action, input.target ?? '']);
-      const last = this.routineSeen.get(key);
+    const routine = input.outcome === 'ok' && ROUTINE_ACTIONS.has(input.action)
+      ? JSON.stringify([input.actor?.id ?? input.login, input.action, input.target === undefined ? '' : cleanTarget(input.target)])
+      : undefined;
+    if (routine !== undefined) {
+      const last = this.routineSeen.get(routine);
       if (last !== undefined && now - last < ROUTINE_AUDIT_WINDOW_MS) return Promise.resolve();
-      this.routineSeen.set(key, now);
     }
     const entry: AuditEntry = {
       time: new Date().toISOString(),
@@ -143,7 +146,20 @@ export class AuditLog {
     const actor = input.actor ?? auditActorOf({ login: input.login, admin: false });
     const subject = input.subject ?? subjectOf(input.action, entry.target);
     // The adapter serialises appends per file, so concurrent requests keep the chain in order.
-    return appendAudit(STREAMS.hub, this.adapter, { ...entry }, { actor, ...(subject !== undefined ? { subject } : {}) }).then(() => undefined);
+    return appendAudit(STREAMS.hub, this.adapter, { ...entry }, { actor, ...(subject !== undefined ? { subject } : {}) }).then(() => {
+      // Remembered only once written: a failed write leaves the next identical event to be logged.
+      if (routine !== undefined) this.rememberRoutine(routine, now);
+    });
+  }
+
+  /** Map order is insertion order, so re-inserting keeps the oldest first: expired keys and any over the cap go from the front. */
+  private rememberRoutine(key: string, now: number): void {
+    this.routineSeen.delete(key);
+    this.routineSeen.set(key, now);
+    for (const [k, t] of this.routineSeen) {
+      if (now - t < ROUTINE_AUDIT_WINDOW_MS && this.routineSeen.size <= ROUTINE_SEEN_MAX) break;
+      this.routineSeen.delete(k);
+    }
   }
 
   /** Newest first across the live and rotated files, optionally for one login. */
