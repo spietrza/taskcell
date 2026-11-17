@@ -7,7 +7,7 @@ import { ExternalLink, hostName } from '../../components/ExternalLink';
 import { repoInitials, startedByLabel } from '../../runLabels';
 import { RunDetail } from './RunDetail';
 import { StageLine } from './StageLine';
-import { foldRunEvents, fmtDuration, stagesFromRecords, withGateSteps, withPendingGateSteps, toLogLines, transcriptLines, type LoggedEvent, type LogLine } from './runStages';
+import { foldRunEvents, fmtDuration, gateMs, stagesFromRecords, withGateSteps, withPendingGateSteps, toLogLines, transcriptLines, type LoggedEvent, type LogLine } from './runStages';
 import type { ActiveRun, RunDetail as RunDetailT, SessionRead } from '../../taskcell-output';
 
 /** The open run, for the Runs split view: header, stage line, log tail, and (finished) the full record below. */
@@ -90,7 +90,7 @@ export function RunPane({
 
   // The sealed cell is no stage record: its card comes from the event log (a run logged before it existed has none), live and finished alike.
   const sealed = timeline.stages[0]?.name === 'sandbox' ? timeline.stages.slice(0, 1) : [];
-  const stages = detail ? [...sealed, ...withGateSteps(stagesFromRecords(detail.stages), detail.proof, detail.prUrl)] : timeline.stages.length > 0 ? withPendingGateSteps(timeline.stages) : timeline.stages;
+  const stages = detail ? [...sealed, ...withGateSteps(stagesFromRecords(detail.stages), detail.proof, detail.prUrl, gateMs(timeline.stages))] : timeline.stages.length > 0 ? withPendingGateSteps(timeline.stages) : timeline.stages;
   const lastSelectable = (() => {
     // Only a stage with a record has a log to open: the first failed one, else the last.
     const withLog = stages.flatMap((s, i) => (s.src !== undefined ? [i] : []));
@@ -172,7 +172,7 @@ export function RunPane({
       </div>
 
       {stages.length > 0 ? (
-        <StageLine stages={stages} now={now} selected={detail ? selected : undefined} {...(detail ? { onSelect: setPicked } : {})} />
+        <StageLine stages={stages} now={now} selected={detail && picked !== null ? selected : undefined} {...(detail ? { onSelect: setPicked } : {})} />
       ) : (
         <p className="text-sm text-muted-foreground">{running ? 'Waiting for the first stage…' : 'This run has no stage records.'}</p>
       )}
