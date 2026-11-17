@@ -56,7 +56,10 @@ test('act is not offered while it is blocked, and nothing is written directly', 
   mockRpc((cmd) => (cmd === 'read_approver_scorecard' ? card({ actOffered: false }) : undefined));
   render(<AutoMerge project="/repo" />);
   await waitFor(() => expect(screen.getByRole('button', { name: 'Act' })).toBeDisabled());
-  expect(screen.getByText(/Act mode, where the approver merges pull requests by itself, can't be turned on yet/)).toBeInTheDocument();
+  expect(screen.getByText(/Act is not available yet/)).toBeInTheDocument();
+  // Each mode says what it does, not just its name.
+  expect(screen.getByText(/Merges the factory pull requests it approves/)).toBeInTheDocument();
+  expect(screen.getByText(/Merges nothing/)).toBeInTheDocument();
 });
 
 test('a command in the hub hint is shown as code, and a locked switch says why', async () => {
