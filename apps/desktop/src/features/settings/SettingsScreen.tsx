@@ -44,7 +44,8 @@ export function SettingsScreen({
 
   return (
     <div className="flex h-full min-h-0 flex-col gap-4">
-      <div role="tablist" aria-label="Settings sections" className="flex shrink-0 gap-1 border-b border-border">
+      {/* A phone cannot fit every tab: the row scrolls sideways under an edge fade. */}
+      <div role="tablist" aria-label="Settings sections" className="flex shrink-0 gap-1 overflow-x-auto border-b border-border scroll-cue-x">
         {SETTINGS_SECTIONS.map((s) => (
           <button
             key={s.key}
@@ -53,7 +54,7 @@ export function SettingsScreen({
             aria-selected={section === s.key}
             onClick={() => choose(s.key)}
             className={cn(
-              '-mb-px border-b-2 px-3 py-1.5 text-sm transition-colors',
+              '-mb-px shrink-0 whitespace-nowrap border-b-2 px-3 py-1.5 text-sm transition-colors',
               section === s.key ? 'border-foreground font-medium' : 'border-transparent text-muted-foreground hover:text-foreground',
             )}
           >

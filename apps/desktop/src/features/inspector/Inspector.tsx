@@ -652,12 +652,8 @@ export function Inspector({
         <div className="ml-auto flex flex-wrap items-center justify-end gap-3">
           {/* S10 (D3): the toolbar path to the provider form is gone — runs start from the board
               (TaskDetail keeps the only setShowNewRun entry). Authoring starts here instead. */}
-          <Button
-            variant="outlined"
-            color="secondary"
-            onClick={onNewTask}
-            startIcon={<FilePlus className="size-4" />}
-          >
+          {/* Filled, as on the Board: New card is the one way to start work on both screens. */}
+          <Button onClick={onNewTask} startIcon={<FilePlus className="size-4" />}>
             New card
           </Button>
           <Button variant="text" color="secondary" onClick={load} loading={loading} startIcon={<RefreshCw className="size-4" />}>

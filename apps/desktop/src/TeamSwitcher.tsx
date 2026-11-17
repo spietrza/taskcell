@@ -24,7 +24,7 @@ export function TeamSwitcher({
       aria-label="Team"
       value={active.id}
       onChange={(e) => onSelect(e.target.value)}
-      className="h-8 w-full min-w-0 max-w-40 rounded border border-border bg-background px-2 text-sm font-semibold max-md:max-w-24"
+      className="h-8 w-full min-w-0 max-w-40 truncate rounded border border-border bg-background pl-2 pr-7 text-sm font-semibold max-md:max-w-28"
     >
       {teams.map((t) => (
         <option key={t.id} value={t.id}>

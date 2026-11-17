@@ -37,7 +37,7 @@ export function ProjectCombobox({
         <Combobox.Input
           placeholder="Project…"
           title={active.name}
-          className="w-36 truncate bg-transparent py-0.5 pr-5 text-sm font-medium outline-none md:w-60"
+          className="w-36 truncate bg-transparent py-0.5 pr-7 text-sm font-medium outline-none md:w-60"
         />
         <Combobox.Trigger aria-label="Switch project" className="absolute right-1 text-muted-foreground">
           <ChevronsUpDown className="size-3.5" />

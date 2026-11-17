@@ -103,6 +103,11 @@ export function HomeSkeleton() {
         <Skeleton className="h-6 w-28" />
         <Skeleton className="h-32 w-full rounded-lg" />
       </div>
+      {/* The week and activity block: reserved, so the Projects list below does not jump when Home's data lands. */}
+      <div className="space-y-3">
+        <Skeleton className="h-6 w-36" />
+        <Skeleton className="h-24 w-full rounded-lg" />
+      </div>
     </div>
   );
 }
