@@ -70,7 +70,7 @@ export function ScheduleEditor({ repoPath, task, onSaved }: { repoPath: string; 
 }
 
 /** Adds a task to a hub-board project. It runs as whoever adds it, once its dependencies and start date allow. */
-export function NewHubTask({ repoPath, onCreated }: { repoPath: string; onCreated: () => void }) {
+export function NewHubTask({ repoPath, onCreated, onCancel }: { repoPath: string; onCreated: () => void; onCancel?: () => void }) {
   const [title, setTitle] = useState('');
   const [body, setBody] = useState('');
   const [blockedBy, setBlockedBy] = useState('');
@@ -95,7 +95,7 @@ export function NewHubTask({ repoPath, onCreated }: { repoPath: string; onCreate
     <form aria-label="New card" onSubmit={add} className="mb-3 flex shrink-0 flex-col gap-2 rounded-lg border border-border/60 p-3 sm:flex-row sm:items-start">
       <label className="block min-w-0 text-xs sm:w-64">
         Title
-        <input className={FIELD} value={title} maxLength={300} onChange={(e) => setTitle(e.target.value)} />
+        <input className={FIELD} value={title} maxLength={300} autoFocus onChange={(e) => setTitle(e.target.value)} />
       </label>
       <label className="block min-w-0 flex-1 text-xs">
         What to do, with acceptance criteria
@@ -111,6 +111,7 @@ export function NewHubTask({ repoPath, onCreated }: { repoPath: string; onCreate
       </label>
       <div className="sm:pt-4">
         <Button type="submit" disabled={title.trim() === ''}>Add card</Button>
+        {onCancel && <Button variant="text" className="ml-2" onClick={onCancel}>Cancel</Button>}
         {error !== null && <div role="alert" className="mt-1 text-xs text-destructive-text">{error}</div>}
       </div>
     </form>

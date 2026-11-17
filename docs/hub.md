@@ -920,7 +920,7 @@ Calls: `list_skills` (`repoPath`; read-only, not audited) returns the installed 
 
 ## Hub board: tasks, dependencies and start dates
 
-A project whose card source is **Taskcell board** (Settings → Card source, `taskSource: hub` in `.taskcell/app.json`) has its tasks in the hub itself instead of a tracker. With such a project open (the project picked in the Board or Runs filter, or in the "Project:" picker at the top of Settings and New Task), the Board shows a **New card** form (title, what to do, blocked by and start date, with **Add card**) in place of the tracker's **New card** button; a card's quick view has a **Schedule** section, and **Full page** shows the task's text. Projects on GitHub, GitLab or Linear are not touched by any of this: the hub-board commands refuse them and the scheduler never looks at them.
+A project whose card source is **Taskcell board** (Settings → Card source, `taskSource: hub` in `.taskcell/app.json`) has its tasks in the hub itself instead of a tracker. With such a project open (the project picked in the Board or Runs filter, or in the "Project:" picker at the top of Settings and New card), the Board's **New card** button opens a card form above the board (title, what to do, blocked by and start date, with **Add card** and **Cancel**) instead of the tracker's new-card drawer; the form is closed until you ask for it and closes after a card is added; a card's quick view has a **Schedule** section, and **Full page** shows the task's text. Projects on GitHub, GitLab or Linear are not touched by any of this: the hub-board commands refuse them and the scheduler never looks at them.
 
 ### Where tasks live
 

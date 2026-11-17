@@ -59,15 +59,20 @@ describe('TaskBoard on a hub-board project', () => {
 
   const card = (label: string): BoardTask => ({ id: 'hub-1', title: 'Hub one', column: 'queued', state: label, schedule: { state: 'ready', label } });
 
-  test('offers the hub task form instead of the tracker\'s New Task, and reloads after adding', async () => {
+  test('New card opens the hub card form on demand (closed at first), and adding reloads and closes it', async () => {
     mockListTasks.mockResolvedValue({ tasks: [], capped: false, hubBoard: true });
-    render(<TaskBoard project="/repo" repos={[]} onOpenTask={() => {}} onNewTask={() => {}} />);
-    const form = await screen.findByRole('form', { name: 'New card' });
-    expect(screen.queryByRole('button', { name: 'New card' })).not.toBeInTheDocument();
+    const onNewTask = vi.fn();
+    render(<TaskBoard project="/repo" repos={[]} onOpenTask={() => {}} onNewTask={onNewTask} />);
+    const open = await screen.findByRole('button', { name: 'New card' });
+    expect(screen.queryByRole('form', { name: 'New card' })).not.toBeInTheDocument();
+    fireEvent.click(open);
+    expect(onNewTask).not.toHaveBeenCalled();
+    const form = screen.getByRole('form', { name: 'New card' });
     const calls = mockListTasks.mock.calls.length;
     fireEvent.change(within(form).getByLabelText('Title'), { target: { value: 'A' } });
     fireEvent.click(within(form).getByRole('button', { name: 'Add card' }));
     await vi.waitFor(() => expect(mockListTasks.mock.calls.length).toBe(calls + 1));
+    expect(screen.queryByRole('form', { name: 'New card' })).not.toBeInTheDocument();
   });
 
   test('the open quick view shows the card as reloaded after a save, not the snapshot that was clicked', async () => {
@@ -119,6 +124,7 @@ describe('TaskBoard on a hub-board project', () => {
     mockListTasks.mockResolvedValue({ tasks: [{ ...card('starts next'), title: 'Back' }], capped: false, hubBoard: true });
     render(<TaskBoard project="/repo" repos={[]} onOpenTask={() => {}} onNewTask={() => {}} />);
     await act(() => vi.advanceTimersByTimeAsync(0));
+    fireEvent.click(screen.getByRole('button', { name: 'New card' }));
     const title = within(screen.getByRole('form', { name: 'New card' })).getByLabelText('Title');
     fireEvent.change(title, { target: { value: 'my draft' } });
     await act(() => vi.advanceTimersByTimeAsync(5000));
@@ -147,6 +153,7 @@ describe('TaskBoard on a hub-board project', () => {
     await act(() => vi.advanceTimersByTimeAsync(0));
     const reply = screen.getByLabelText('reply to o/r#7');
     fireEvent.change(reply, { target: { value: 'my reply' } });
+    fireEvent.click(screen.getByRole('button', { name: 'New card' }));
     const title = within(screen.getByRole('form', { name: 'New card' })).getByLabelText('Title');
     fireEvent.change(title, { target: { value: 'my draft' } });
     await act(() => vi.advanceTimersByTimeAsync(20000));
@@ -452,8 +459,8 @@ describe('TaskBoard team scope', () => {
   test('the open project being a hub board offers the hub task form in the all-repositories view', async () => {
     vi.mocked(listTasksAll).mockResolvedValue({ tasks: [], capped: false, failures: [], hubBoards: ['/r/alpha'] });
     render(<TaskBoard project="/r/alpha" allRepos repos={['/r/alpha']} onOpenTask={() => {}} onNewTask={() => {}} />);
-    await screen.findByRole('form', { name: 'New card' });
-    expect(screen.queryByRole('button', { name: 'New card' })).not.toBeInTheDocument();
+    fireEvent.click(await screen.findByRole('button', { name: 'New card' }));
+    expect(screen.getByRole('form', { name: 'New card' })).toBeInTheDocument();
   });
 
   test('the selected team is sent with the all-repositories read', async () => {

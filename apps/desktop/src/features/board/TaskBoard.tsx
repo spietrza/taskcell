@@ -141,6 +141,7 @@ export function TaskBoard({
   // stay until a user action or a successful read of it drops them.
   const [polled, setPolled] = useState<BoardList | null>(null);
   const [stale, setStale] = useState(false);
+  const [adding, setAdding] = useState(false);
   useEffect(() => { setPolled(null); setStale(false); }, [loaded]);
   const data = polled ?? loaded;
   const shownRef = useRef(data);
@@ -290,13 +291,12 @@ export function TaskBoard({
           {`Running ${counts.running} · Queued ${counts.queued} · Needs you ${counts.needsYou}`}
         </span>
       )}
-      {!hubBoard && (
-        <Button className="ml-auto" onClick={onNewTask} startIcon={<FilePlus className="size-4" />}>
-          New card
-        </Button>
-      )}
+      <Button className="ml-auto" onClick={hubBoard ? () => setAdding((a) => !a) : onNewTask} startIcon={<FilePlus className="size-4" />} aria-expanded={hubBoard ? adding : undefined}>
+        New card
+      </Button>
     </div>
-    {hubBoard && <NewHubTask repoPath={project} onCreated={reload} />}
+    {/* A hub board authors cards inline, but only on demand: an always-open form pushed the board down. */}
+    {hubBoard && adding && <NewHubTask repoPath={project} onCreated={() => { setAdding(false); reload(); }} onCancel={() => setAdding(false)} />}
     {bar}
     {hiddenOpen && selected !== null && (
       <p role="status" className="text-xs text-muted-foreground">
@@ -467,7 +467,7 @@ export function TaskBoard({
               <div className="mb-2 flex shrink-0 items-center gap-2 px-1 py-0.5">
                 <span className={cn('size-2 rounded-full', col.dot, col.pulse && items.length > 0 && 'animate-pulse')} />
                 <span className="text-sm font-semibold text-foreground" title={col.title}>{col.label}</span>
-                <span className={cn('ml-auto rounded-full px-2 py-0.5 text-xs font-medium tabular-nums', col.pill)}>
+                <span className={cn('ml-auto rounded-full px-2 py-0.5 text-xs font-medium tabular-nums', items.length > 0 ? col.pill : 'bg-muted-foreground/10 text-muted-foreground')}>
                   {items.length}
                 </span>
               </div>
