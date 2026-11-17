@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.16.4](https://github.com/spietrza/taskcell/compare/v1.16.3...v1.16.4) (2026-11-17)
+
+
+### Bug Fixes
+
+* **hub:** Board launch switches to Runs; an ended run opens its record ([#1208](https://github.com/spietrza/taskcell/issues/1208)) ([80b8ff2](https://github.com/spietrza/taskcell/commit/80b8ff2d7393883eb731a50c9385a68a3a4d3457))
+
 ## [1.16.3](https://github.com/spietrza/taskcell/compare/v1.16.2...v1.16.3) (2026-11-16)
 
 
