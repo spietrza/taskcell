@@ -110,3 +110,16 @@ test('list_activity scans past another team\'s newer lines for its own events', 
   const feed = (await dispatchRpc(ctx, 'list_activity', {}, ann)) as { repoPath: string; kind: string }[];
   expect(feed).toMatchObject([{ repoPath: a, kind: 'card-created' }]);
 });
+
+test('a hub-board card created through the hub names its id in the audit line and the feed', async () => {
+  const a = await tmpGitRepo();
+  const { ctx } = await makeCtx(a);
+  ctx.allowlist = new ProjectAllowlist(async () => [a]);
+  ctx.audit = new AuditLog(ctx.configDir);
+  await savePaths(ctx.configDir, [a]);
+  const owner: Caller = { user: { id: 'own', email: 'own@x.test', name: 'own' }, owner: true };
+  await dispatchRpc(ctx, 'write_app_config', { repoPath: a, config: { taskSource: 'hub' } }, owner);
+  const { id } = (await dispatchRpc(ctx, 'hub_task_create', { repoPath: a, title: 'Add a 404 page' }, owner)) as { id: string };
+  const feed = (await dispatchRpc(ctx, 'list_activity', {}, owner)) as { kind: string; subject?: string }[];
+  expect(feed).toContainEqual(expect.objectContaining({ kind: 'card-created', subject: id }));
+});

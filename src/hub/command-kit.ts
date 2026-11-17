@@ -34,6 +34,8 @@ export type CommandHandler = (call: CommandCall) => Promise<unknown>;
 export interface AuditSpec {
   action: AuditAction;
   target: (a: Args) => string | undefined;
+  /** The target of a call that succeeded, from its result (e.g. the id a create assigned); `target` otherwise. */
+  resultTarget?: (result: unknown, a: Args) => string | undefined;
   /** When set and false for the call, no audit line is written (e.g. a read-only dry run). */
   applies?: (a: Args) => boolean;
   /** Names only — computed before the command runs. */

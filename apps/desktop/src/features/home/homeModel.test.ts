@@ -129,6 +129,7 @@ describe('activityText', () => {
     [{ kind: 'run-failed', subject: 'gh-2' }, 'Run gh-2 failed'],
     [{ kind: 'run-asked', subject: 'hub-4' }, 'Run hub-4 stopped to ask'],
     [{ kind: 'card-created', login: 'ann' }, 'ann created a card'],
+    [{ kind: 'card-created', login: 'token', subject: 'hub-4' }, 'You created card hub-4'],
     [{ kind: 'pr-merged', login: 'ann', subject: '#12' }, 'ann merged PR #12'],
     [{ kind: 'settings-changed', login: 'bob', keys: ['budgetUsd', 'label'] }, 'bob changed settings: budgetUsd, label'],
   ])('%j', (e, text) => {

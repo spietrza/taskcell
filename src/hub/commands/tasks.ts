@@ -401,7 +401,15 @@ export const commands = defineCommands<TasksCommands>({
   api_create_task: { action: 'task-create', target: repoTarget },
   set_task_skills: { action: 'task-edit', target: repoItemTarget('taskId'), detail: async () => ['skills'] },
   api_create_tasks: { action: 'task-create', target: repoTarget },
-  hub_task_create: { action: 'task-create', target: repoTarget },
+  // The card's id exists only once it is created: the line names it (`<repo>:hub-4`) so the feed can say which card.
+  hub_task_create: {
+    action: 'task-create',
+    target: repoTarget,
+    resultTarget: (r, a) => {
+      const id = (r as { id?: unknown } | null)?.id;
+      return typeof id === 'string' ? `${repoTarget(a) ?? ''}:${id}` : undefined;
+    },
+  },
   hub_task_schedule: { action: 'task-schedule', target: repoItemTarget('id') },
   hub_task_retry: { action: 'task-schedule', target: repoItemTarget('id') },
   hub_task_start: { action: 'task-schedule', target: repoItemTarget('id') },

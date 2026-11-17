@@ -33,6 +33,7 @@ export function fromAudit(e: AuditEntry, repos: ReadonlyMap<string, string>): Ac
     if (e.action === 'settings-change' && (e.detail ?? []).length > 0) return { ...base, kind: 'settings-changed', keys: [...(e.detail ?? [])] };
     return undefined;
   }
+  if (e.action === 'task-create') return { ...base, kind: 'card-created', subject: owner.item };
   const num = /#(\d+)$/.exec(owner.item);
   if (e.action === 'needs-merge' && num !== null) return { ...base, kind: 'pr-merged', subject: `#${num[1]}` };
   return undefined;

@@ -165,7 +165,7 @@ export function activityText(e: ActivityEvent): string {
     case 'run-asked':
       return `Run ${e.subject ?? ''} stopped to ask`.replace('  ', ' ');
     case 'card-created':
-      return `${who(e.login)} created a card`;
+      return e.subject === undefined ? `${who(e.login)} created a card` : `${who(e.login)} created card ${e.subject}`;
     case 'pr-merged':
       return `${who(e.login)} merged PR ${e.subject ?? ''}`.trim();
     case 'settings-changed':
