@@ -2,7 +2,7 @@ import { mkdtemp, readFile, readdir, stat, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, test, vi } from 'vitest';
-import { AuditLog, safeUrl } from './audit.js';
+import { AuditLog, SETTINGS_VALUE_KEYS, safeUrl } from './audit.js';
 import { localAdapter, verifyAudit } from '../core/audit.js';
 import { dispatchRpc as dispatch, ForbiddenError, type RpcContext } from './rpc.js';
 import { ProjectAllowlist } from './allowlist.js';
@@ -186,6 +186,39 @@ describe('audit log', () => {
     await dispatchRpc(ctx, 'write_app_config', { repoPath: repo, config: { label: 'b', source: 'github' } });
     const out = (await lines(configDir)).map((l) => JSON.parse(l) as { detail: string[] });
     expect(out[1]!.detail).toEqual(['label']);
+  });
+
+  test('settings-change keeps old → new values for allowlisted keys only, and the history returns them', async () => {
+    const { ctx, configDir, repo } = await setup();
+    const secretish = { verifyCmd: `TOKEN=${CANARY} pnpm test`, runCommand: `x ${CANARY}`, chatBaseUrl: `https://u:${CANARY}@h.example`, customProviders: [{ name: 'p', baseUrl: `https://h.example/?key=${CANARY}`, keyEnv: 'P_KEY' }] };
+    await dispatchRpc(ctx, 'write_app_config', { repoPath: repo, config: { label: 'a', budgetUsd: 5 } });
+    await dispatchRpc(ctx, 'write_app_config', { repoPath: repo, config: { label: 'b', budgetUsd: 7, baseBranches: ['dev', 'rc'], ...secretish } });
+    const raw = (await lines(configDir)).join('\n');
+    expect(raw).not.toContain(CANARY);
+    expect(raw).not.toContain('P_KEY');
+    const last = JSON.parse((await lines(configDir)).at(-1)!) as { detail: string[]; changes: unknown };
+    expect(last.detail).toEqual(['baseBranches', 'budgetUsd', 'chatBaseUrl', 'customProviders', 'label', 'runCommand', 'verifyCmd']);
+    expect(last.changes).toEqual([
+      { key: 'baseBranches', to: 'dev, rc' },
+      { key: 'budgetUsd', from: '5', to: '7' },
+      { key: 'label', from: 'a', to: 'b' },
+    ]);
+    const [row] = (await dispatchRpc(ctx, 'read_settings_history', { repoPath: repo })) as { changes?: unknown }[];
+    expect(row!.changes).toEqual(last.changes);
+  });
+
+  test('the audit log drops a value change for a key off the allowlist, whoever passes it', async () => {
+    const { audit, repo } = await setup();
+    await audit.record({ login: 'a', action: 'settings-change', target: repo, outcome: 'ok', detail: ['verifyCmd', 'color'], changes: [{ key: 'verifyCmd', to: CANARY }, { key: 'color', from: '#000000', to: `#fff\n${'x'.repeat(200)}` }] });
+    await audit.record({ login: 'a', action: 'clone', target: repo, outcome: 'ok', changes: [{ key: 'color', to: '#111111' }] });
+    const [clone, save] = await audit.read();
+    expect(clone).not.toHaveProperty('changes');
+    expect(JSON.stringify(save)).not.toContain(CANARY);
+    expect(save!.changes).toEqual([{ key: 'color', from: '#000000', to: `#fff ${'x'.repeat(75)}…` }]);
+  });
+
+  test('SETTINGS_VALUE_KEYS is the reviewed allowlist: no command, URL or provider key', () => {
+    expect([...SETTINGS_VALUE_KEYS].sort()).toEqual(['baseBranch', 'baseBranches', 'budgetUsd', 'chatModel', 'color', 'concurrency', 'flow', 'label', 'provider', 'reviewProvider', 'runLocation', 'source', 'taskSource', 'team', 'usageCapPct']);
   });
 
   test('creates a missing config dir and writes the file owner-only', async () => {

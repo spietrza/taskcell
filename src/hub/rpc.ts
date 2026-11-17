@@ -119,9 +119,10 @@ export async function dispatchRpc(ctx: RpcContext, cmd: string, rawArgs: unknown
   const actor = actorOf(ctx);
   const target = spec.target(args);
   const detail = await spec.detail?.(ctx, args);
+  const changes = await spec.changes?.(ctx, args);
   const okOutcome = spec.okOutcome?.(ctx, args) ?? 'ok';
   const line = (outcome: AuditOutcome): Promise<void> =>
-    audit.record({ login: actor.login, actor: auditActorOf(actor), action: spec.action, ...(target !== undefined ? { target } : {}), outcome, ...(detail !== undefined ? { detail } : {}) });
+    audit.record({ login: actor.login, actor: auditActorOf(actor), action: spec.action, ...(target !== undefined ? { target } : {}), outcome, ...(detail !== undefined ? { detail } : {}), ...(changes !== undefined ? { changes } : {}) });
   try {
     const result = await dispatchInner(ctx, cmd, rawArgs, caller);
     // Fail closed: the change is already applied, so the caller is told it went unrecorded rather than that it failed.

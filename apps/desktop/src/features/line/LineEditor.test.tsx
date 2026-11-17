@@ -129,6 +129,15 @@ test('every field the old General form edited is still editable in General or Li
   }
 });
 
+test('history shows old → new for keys the hub recorded values for, and names only for the rest', async () => {
+  history.mockResolvedValueOnce([{ time: '2026-11-17T10:00:00Z', login: 'ann', outcome: 'ok', target: '/repo', detail: ['budgetUsd', 'label', 'verifyCmd'], changes: [{ key: 'budgetUsd', from: '5', to: '8' }, { key: 'label', to: 'go' }] }]);
+  await open();
+  const row = (await screen.findByText('ann')).closest('li')!;
+  expect(row).toHaveTextContent('budgetUsd: 5 → 8');
+  expect(row).toHaveTextContent('label: unset → go');
+  expect(row.querySelector('li:last-child')).toHaveTextContent(/· verifyCmd$/);
+});
+
 test('history shows the token-auth placeholder as "you (local hub)"', async () => {
   history.mockResolvedValueOnce([{ time: '2026-11-17T10:00:00Z', login: 'token', outcome: 'ok', target: '/repo', detail: ['label'] }]);
   await open();
