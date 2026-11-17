@@ -114,6 +114,13 @@ test('the result pills say "All results", so Runs has one "All" (triage) beside 
   expect(screen.getByRole('button', { name: 'All results' })).toBeInTheDocument();
 });
 
+test('the count names its unit: "1 of 2 runs"', () => {
+  const base = { timestamp: '2026-07-06T19:12:02.123Z', stages: ['implement'], totalCostUsd: 0, anyFailed: false };
+  render(<RunList runs={[{ ...base, taskId: 'task-ok' }, { ...base, taskId: 'task-red', verifyFailed: true }]} active={[]} onSelect={noop} onOpenActive={noop} />);
+  fireEvent.click(screen.getByRole('button', { name: 'passed' }));
+  expect(screen.getByText('1 of 2 runs')).toBeInTheDocument();
+});
+
 test('a list emptied by filters names them; Clear filters resets search, source, triage and the result pill', () => {
   const runs: RunSummary[] = [{ taskId: 'task-7', timestamp: '2026-07-06T19:12:02.123Z', stages: ['implement'], totalCostUsd: 0.1, anyFailed: false }];
   const onHub = vi.fn();

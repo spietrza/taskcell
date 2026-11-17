@@ -268,8 +268,8 @@ export function RunList({
               ))}
             </div>
             <span className="ml-auto text-xs tabular-nums text-muted-foreground">
-              {shown.length + shownActive.length} /{' '}
-              {runs.length + (filter === 'all' ? active.length : 0)}
+              {shown.length + shownActive.length} of {runs.length + (filter === 'all' ? active.length : 0)}{' '}
+              {runs.length + (filter === 'all' ? active.length : 0) === 1 ? 'run' : 'runs'}
             </span>
           </>
         );
