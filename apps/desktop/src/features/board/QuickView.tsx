@@ -12,6 +12,7 @@ import { costLabel, estTitle } from '../../cost';
 import { ASKED_WORDS, NEEDS_YOU_CHIP, startedByLabel } from '../../runLabels';
 import { verdictWord } from '../../status';
 import { AgentText } from '../../components/AgentText';
+import { AgentQuestion } from '../../components/AgentQuestion';
 import { ExternalLink, hostName } from '../../components/ExternalLink';
 import { MergeButton, ReplyBox } from '../needs-you/NeedsYou';
 import { PausedPanel } from './paused';
@@ -360,7 +361,10 @@ export function QuickView({
             <span className="inline-block rounded bg-primary/15 px-2 py-0.5 text-xs font-medium text-primary-text">
               Needs you · {waitingWhy(item)}
             </span>
-            {item.lastComment && <div className="break-words rounded bg-muted/40 px-3 py-2 text-sm"><AgentText>{item.lastComment.body}</AgentText></div>}
+            {/* A card's question is our run's own agent text; a tracker comment is anyone's and stays plain text. */}
+            {item.lastComment && (item.kind === 'card'
+              ? <div className="break-words rounded bg-muted/40 px-3 py-2 text-sm"><AgentQuestion>{item.lastComment.body}</AgentQuestion></div>
+              : <div className="whitespace-pre-wrap break-words rounded bg-muted/40 px-3 py-2 text-sm">{item.lastComment.body}</div>)}
             <ReplyBox project={repoPath} item={item} onReplied={reload} />
           </div>
         )}

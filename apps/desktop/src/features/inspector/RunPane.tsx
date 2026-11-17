@@ -4,7 +4,7 @@ import { ArrowLeft, Clock, GitBranch, RefreshCw, Square } from 'lucide-react';
 import { readRunEvents, readSession } from '../../ipc';
 import { subscribe } from '../../transport';
 import { ExternalLink, hostName, issueUrl } from '../../components/ExternalLink';
-import { AgentText } from '../../components/AgentText';
+import { AgentQuestion } from '../../components/AgentQuestion';
 import { askedOf, cardIdOf, repoInitials, runStateTone, runStateWord, startedByLabel } from '../../runLabels';
 import { detailOutcome, runStationOf } from '../../stations';
 import { costLabel, estLabel } from '../../cost';
@@ -200,8 +200,8 @@ export function RunPane({
       {asked !== undefined && (
         <div role="note" className="shrink-0 rounded-lg border border-warning/40 bg-warning/10 px-3 py-2 text-sm">
           <div className="font-medium text-warning-text">Stopped to ask you: the agent ended before finishing and waits for your answer (Home → Waiting for you).</div>
-          {/* Agent text as the app renders agent output (markdown, no raw HTML). */}
-          <div className="mt-1 max-h-32 overflow-y-auto break-words text-muted-foreground"><AgentText>{asked}</AgentText></div>
+          {/* The run's own agent question: light markdown, no images, http(s) links only. */}
+          <div className="mt-1 max-h-32 overflow-y-auto break-words text-muted-foreground"><AgentQuestion>{asked}</AgentQuestion></div>
         </div>
       )}
       <StationTrack

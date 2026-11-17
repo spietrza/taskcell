@@ -33,6 +33,15 @@ beforeEach(() => {
 });
 
 describe('QuickView', () => {
+  test('a tracker comment is plain text: markdown images and links stay literal', async () => {
+    const body = 'see ![x](http://evil/img) and [a](javascript:alert(1))';
+    vi.mocked(listNeedsYou).mockResolvedValue({ items: [item({ kind: 'issue', id: 'o/r#7', number: 7, url: 'https://github.com/o/r/issues/7', lastComment: { author: 'someone', body } })] });
+    const { container } = open({ ...task, column: 'queued' });
+    expect(await screen.findByText(body)).toBeInTheDocument();
+    expect(container.querySelector('img')).toBeNull();
+    expect(container.querySelector('a[href^="javascript"]')).toBeNull();
+  });
+
   test('a card whose run stopped to ask says "Waiting for your answer" as needs you, not "Verify failed"', async () => {
     open({ id: 'hub-4', title: 'Validate', column: 'verify-failed', state: 'failed', asked: true });
     const chip = await screen.findByText('Waiting for your answer');

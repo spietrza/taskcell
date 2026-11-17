@@ -3,7 +3,7 @@ import { Button, Textarea } from '@/ui';
 import { errorClause } from '../../errors';
 import { RefreshCw } from 'lucide-react';
 import { mergeNeedsYou, replyNeedsYou, type NeedsYouItem, type RepoReadFailure, type RepoStamp } from '../../ipc';
-import { AgentText } from '../../components/AgentText';
+import { AgentQuestion } from '../../components/AgentQuestion';
 import { gateProps, useCallerCapabilities } from '../../hooks';
 import { RepoFailures } from '../../RepoViews';
 import { inboxKind } from '../home/homeModel';
@@ -209,7 +209,8 @@ export function NeedsYou({
                       // Untrusted GitHub text, rendered as a plain text node (React escapes it), never as HTML/Markdown.
                       <div className="rounded bg-muted/40 px-3 py-2 text-sm">
                         <div className="text-xs text-muted-foreground">{item.lastComment.author}</div>
-                        <div className="break-words"><AgentText>{item.lastComment.body}</AgentText></div>
+                        {/* A card's question is our run's own agent text; a tracker comment is anyone's and stays plain text. */}
+                        {item.kind === 'card' ? <div className="break-words"><AgentQuestion>{item.lastComment.body}</AgentQuestion></div> : <div className="whitespace-pre-wrap break-words">{item.lastComment.body}</div>}
                       </div>
                     )}
                     {item.kind === 'pr' && <MergeButton project={item.repoPath ?? project} item={item} onMerged={onReload} />}
