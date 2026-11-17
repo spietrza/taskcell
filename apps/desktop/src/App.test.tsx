@@ -224,7 +224,8 @@ test('a tab the hub refuses shows only how to reconnect, not an empty project li
   render(<App />);
   const banner = await screen.findByRole('alert');
   expect(banner).toHaveTextContent('open the URL that taskcell hub printed');
-  expect(banner.querySelector('code')).toHaveTextContent('taskcell hub');
+  expect(banner.textContent).toContain('needs that link');
+  expect(banner.textContent).toContain('Reloading will not help');
   await waitFor(() => expect(screen.queryByRole('button', { name: /Add/ })).toBeNull());
   expect(screen.queryByText(/No projects yet/)).toBeNull();
   expect(screen.queryByRole('button', { name: 'Try the demo project' })).toBeNull();

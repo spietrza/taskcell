@@ -454,9 +454,10 @@ export default function App() {
           role="alert"
           className="shrink-0 border-b border-destructive/40 bg-destructive/10 px-4 py-2 text-sm text-destructive"
         >
-          This tab has no valid hub token (the hub restarted, or the page was opened without its launch
-          URL). To reconnect, reload the page, or open the URL that <code className="font-mono">taskcell hub</code> printed in its
-          terminal. In the desktop app, the hub restarts on its own: quit and reopen the app if this stays. Your projects are still there.
+          This tab has no valid hub token. The token lives only in the tab that opened the launch link, so a new browser
+          or tab opened by hand needs that link (<code className="font-mono">…/#token=…</code>): open the URL that{' '}
+          <code className="font-mono">taskcell hub</code> printed in its terminal. Reloading will not help there. In the desktop app, the hub
+          restarts on its own: quit and reopen the app if this stays. Your projects are still there.
         </div>
       )}
       {!hubRestarted && hubConnectionIssue && (

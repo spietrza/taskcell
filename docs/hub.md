@@ -29,7 +29,8 @@ pnpm hub --repo /path/to/your/repo
 
 On a loopback bind this opens a browser at the printed launch URL, `http://127.0.0.1:7777/#token=…`. The
 fragment holds the per-launch token the UI needs; the served page itself carries none, so open that
-exact URL from the terminal rather than the bare address. A hub bound beyond loopback (server mode,
+exact URL from the terminal rather than the bare address. The token lives only in the tab that opened
+that link, so a new browser or tab opened by hand needs the link too; reloading does not help. A hub bound beyond loopback (server mode,
 including the container hub) has no launch URL: open its public URL and sign in at `/sign-in`
 (see Server mode sign-in).
 
