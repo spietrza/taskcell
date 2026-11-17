@@ -5,7 +5,7 @@ import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { parseJsonlLines } from '../core/stats.js';
 import { appendAudit, hubAuditFile, localAdapter, STREAMS, TOKEN_AUDIT_ACTOR, type AuditActor, type AuditAdapter, type AuditSubject } from '../core/audit.js';
-import type { AuditAction, AuditEntry, AuditOutcome } from '../wire.js';
+import type { AuditAction, AuditEntry, AuditOutcome, SettingsHistoryEntry } from '../wire.js';
 import { readEnv } from '../core/env.js';
 
 export type { AuditAction, AuditEntry, AuditOutcome };
@@ -50,6 +50,8 @@ function cleanTarget(raw: string): string {
 }
 
 const NAME = /^[\w.-]{1,64}$/;
+const SETTINGS_HISTORY_DEFAULT = 20;
+const SETTINGS_HISTORY_MAX = 100;
 
 export class AuditLog {
   private readonly adapter: AuditAdapter;
@@ -95,6 +97,33 @@ export class AuditLog {
         if (opts.login === undefined || records[i]!.login === opts.login) out.push(records[i]!);
       }
       if (out.length >= limit) break;
+    }
+    return out;
+  }
+
+  /**
+   * `settings-change` lines for one repository, newest first, from the live file only (rotated files are
+   * not scanned). `repoPaths` are the raw argument and its realpath: the audit target is the raw argument.
+   * Kept: the app.json save (target is the repo, with a non-empty key list) and `<repo>:<file>.hcl` flow
+   * writes. Skills, lessons and local-worker lines also log `settings-change` and are left out. Only
+   * {@link SettingsHistoryEntry} fields leave: never the actor, subject or chain hashes.
+   */
+  async readSettingsHistory(repoPaths: readonly string[], limit?: number): Promise<SettingsHistoryEntry[]> {
+    const max = Math.min(Math.max(1, Math.floor(limit ?? SETTINGS_HISTORY_DEFAULT)), SETTINGS_HISTORY_MAX);
+    const repos = new Set(repoPaths.flatMap((p) => [p, cleanTarget(p)]));
+    const out: SettingsHistoryEntry[] = [];
+    for await (const f of this.adapter.newestFirst()) {
+      const records = parseJsonlLines(f.text) as unknown as AuditEntry[];
+      for (let i = records.length - 1; i >= 0 && out.length < max; i--) {
+        const r = records[i]!;
+        const target = r.target;
+        if (r.action !== 'settings-change' || target === undefined) continue;
+        const detail = r.detail ?? [];
+        const isConfig = repos.has(target) && detail.length > 0;
+        const isFlow = target.endsWith('.hcl') && [...repos].some((p) => target.startsWith(`${p}:`));
+        if (isConfig || isFlow) out.push({ time: r.time, login: r.login, outcome: r.outcome, detail: isFlow ? [] : detail, target });
+      }
+      break; // live file only
     }
     return out;
   }

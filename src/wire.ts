@@ -738,6 +738,17 @@ export type AuditAction =
   | 'project-unwatch';
 export type AuditOutcome = 'ok' | 'refused' | 'failed';
 
+/** One saved change to a repository's settings, as the Line screen's history shows it: no actor, subject or chain fields. */
+export interface SettingsHistoryEntry {
+  time: string;
+  login: string;
+  outcome: AuditOutcome;
+  /** `app.json` top-level key names that changed (never values); empty for a flow file. */
+  detail: string[];
+  /** The repository path, or `<repo>:<file>.hcl` for a flow file. */
+  target: string;
+}
+
 /** One line of `audit.jsonl`. `login` is a GitHub login, or `token` for header access. */
 export interface AuditEntry {
   time: string;

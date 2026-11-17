@@ -98,6 +98,28 @@ describe('audit log', () => {
     expect(only.map((e) => e.login)).toEqual(['b']);
   });
 
+  test('read_settings_history: a member gets the repo slice (app.json keys, flow files) without actor or chain fields', async () => {
+    const { ctx, audit, repo } = await setup({ login: 'carol', admin: false });
+    await audit.record({ login: 'a', action: 'settings-change', target: repo, outcome: 'ok', detail: ['budgetUsd', 'verifyCmd'] });
+    await audit.record({ login: 'b', action: 'settings-change', target: `${repo}:flows/x.hcl`, outcome: 'ok' });
+    await audit.record({ login: 'c', action: 'settings-change', target: `${repo}:my-skill`, outcome: 'ok' }); // skills / lessons
+    await audit.record({ login: 'c', action: 'settings-change', target: repo, outcome: 'ok' }); // local_worker_set: bare target
+    await audit.record({ login: 'd', action: 'settings-change', target: `${repo}2`, outcome: 'ok', detail: ['color'] }); // another repo
+    await audit.record({ login: 'e', action: 'clone', target: repo, outcome: 'ok', detail: ['x'] });
+    const rows = (await dispatchRpc(ctx, 'read_settings_history', { repoPath: repo })) as Record<string, unknown>[];
+    expect(rows.map((r) => r.login)).toEqual(['b', 'a']);
+    expect(rows[1]).toMatchObject({ detail: ['budgetUsd', 'verifyCmd'], outcome: 'ok', target: repo });
+    for (const r of rows) expect(Object.keys(r).sort()).toEqual(['detail', 'login', 'outcome', 'target', 'time']);
+  });
+
+  test('read_settings_history caps the limit and is empty without a log', async () => {
+    const { ctx, audit, repo } = await setup();
+    for (let i = 0; i < 5; i++) await audit.record({ login: 'a', action: 'settings-change', target: repo, outcome: 'ok', detail: ['color'] });
+    expect(await dispatchRpc(ctx, 'read_settings_history', { repoPath: repo, limit: 2 })).toHaveLength(2);
+    const { audit: _omit, ...bare } = ctx;
+    expect(await dispatchRpc(bare as RpcContext, 'read_settings_history', { repoPath: repo })).toEqual([]);
+  });
+
   test('rotates at the size cap, keeps the chain, and prunes rotated files by age', async () => {
     const dir = await mkdtemp(join(tmpdir(), 'vg-audit-rot-'));
     const audit = new AuditLog(dir, { maxBytes: 100 });

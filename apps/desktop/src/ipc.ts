@@ -154,6 +154,11 @@ export function readAudit(login?: string): Promise<AuditEntry[]> {
   return call('read_audit', { login });
 }
 
+/** Hub-only: a repository's settings saves (app.json key names, flow files), newest first, for any member. */
+export function readSettingsHistory(repoPath: string): Promise<Commands['read_settings_history']['result']> {
+  return call('read_settings_history', { repoPath });
+}
+
 /** Hub-only: one issue's history over the audit streams, run records and Git host events. */
 export function readIssueHistory(repoPath: string, issue: number): Promise<Commands['read_issue_history']['result']> {
   return call('read_issue_history', { repoPath, issue });

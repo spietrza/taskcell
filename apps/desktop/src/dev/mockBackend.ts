@@ -165,6 +165,9 @@ const commandHandlers = {
   read_audit: () => [
     { time: minsAgo(30), login: 'token', action: 'run-start', target: 'run-0', outcome: 'ok' },
   ],
+  read_settings_history: () => [
+    { time: minsAgo(60), login: 'you', outcome: 'ok', detail: ['budgetUsd', 'verifyCmd'], target: '/mock/repo' },
+  ],
   read_issue_history: () => ({ repo: 'acme/app', issue: 1, prs: [], entries: [], chains: [], unavailable: [] }),
   list_needs_you: () => ({ items: waitingNeedsYou }),
   list_lessons: () => ({ lessons: mockLessons, branchFound: true }),

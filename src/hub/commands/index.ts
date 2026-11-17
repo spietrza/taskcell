@@ -144,6 +144,7 @@ export const COMMAND_NAMES = [
   'read_run',
   'read_run_events',
   'read_session',
+  'read_settings_history',
   'remove_project',
   'remove_skill_pr',
   'remove_team_member',

@@ -739,6 +739,17 @@ export type AuditAction =
   | 'project-unwatch';
 export type AuditOutcome = 'ok' | 'refused' | 'failed';
 
+/** One saved change to a repository's settings, as the Line screen's history shows it: no actor, subject or chain fields. */
+export interface SettingsHistoryEntry {
+  time: string;
+  login: string;
+  outcome: AuditOutcome;
+  /** `app.json` top-level key names that changed (never values); empty for a flow file. */
+  detail: string[];
+  /** The repository path, or `<repo>:<file>.hcl` for a flow file. */
+  target: string;
+}
+
 /** One line of `audit.jsonl`. `login` is a GitHub login, or `token` for header access. */
 export interface AuditEntry {
   time: string;
@@ -1202,6 +1213,8 @@ export interface Commands {
   set_approver_mode: { args: { repoPath: string; mode: 'off' | 'shadow' | 'act'; confirmBelowBar?: boolean }; result: ApproverModeChange };
   /** HUB_ONLY, admin-only (403 otherwise): the audit log newest first, optionally for one login. */
   read_audit: { args: { login?: string; limit?: number }; result: AuditEntry[] };
+  /** HUB_ONLY, read-only, same gate as read_app_config: the repository's settings saves (app.json key names, flow files), newest first. */
+  read_settings_history: { args: { repoPath: string; limit?: number }; result: SettingsHistoryEntry[] };
   /** HUB_ONLY, read-only: what the caller may do on the hub and, with `repoPath`, on that project. Every `false` carries its reason. */
   caller_capabilities: { args: { repoPath?: string } | undefined; result: CallerCapabilities };
   /** HUB_ONLY, read-only: a project's cost by model and by stage for a period (default `all`), read from the metrics branch like `taskcell stats --branch`; cached, never a model call. A repo without the branch answers `status: 'no-branch'` with a setup hint. */
@@ -1486,6 +1499,7 @@ export const COMMAND_NAMES = [
   'read_run',
   'read_run_events',
   'read_session',
+  'read_settings_history',
   'remove_project',
   'remove_skill_pr',
   'remove_team_member',
