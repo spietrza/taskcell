@@ -8,15 +8,15 @@ const base = { projects: [], onOpenProject: vi.fn(), onHome: vi.fn(), onAddProje
 test('offers the open project\'s screens and actions, naming the project', () => {
   const onScreen = vi.fn();
   const onNewTask = vi.fn();
-  const onEnableFactory = vi.fn();
-  render(<CommandPalette {...base} projectName="demo" onScreen={onScreen} onNewTask={onNewTask} onEnableFactory={onEnableFactory} />);
-  for (const l of ['Board', 'Runs', 'Settings', 'New task', 'Enable factory']) expect(screen.getByText(`${l} · demo`)).toBeInTheDocument();
+  const onAutoRun = vi.fn();
+  render(<CommandPalette {...base} projectName="demo" onScreen={onScreen} onNewTask={onNewTask} onAutoRun={onAutoRun} />);
+  for (const l of ['Board', 'Runs', 'Settings', 'New task', 'Auto-run']) expect(screen.getByText(`${l} · demo`)).toBeInTheDocument();
   fireEvent.click(screen.getByText('Settings · demo'));
   expect(onScreen).toHaveBeenCalledWith('settings');
   fireEvent.click(screen.getByText('New task · demo'));
   expect(onNewTask).toHaveBeenCalled();
-  fireEvent.click(screen.getByText('Enable factory · demo'));
-  expect(onEnableFactory).toHaveBeenCalled();
+  fireEvent.click(screen.getByText('Auto-run · demo'));
+  expect(onAutoRun).toHaveBeenCalled();
 });
 
 test('omits project commands when no project is open', () => {

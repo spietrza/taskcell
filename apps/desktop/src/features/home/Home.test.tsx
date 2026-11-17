@@ -120,7 +120,7 @@ test('the can’t-start banner appears only when a waiting card meets a broken r
   const banner = await screen.findByRole('alert');
   expect(banner).toHaveTextContent("1 card can't start.");
   expect(banner).toHaveTextContent('The Local hub worker for alpha is off.');
-  fireEvent.click(within(banner).getByRole('button', { name: 'Open hub worker' }));
+  fireEvent.click(within(banner).getByRole('button', { name: 'Open auto-run' }));
   expect(onOpenFactory).toHaveBeenCalledWith({ path: alpha.path, name: 'alpha' });
 });
 

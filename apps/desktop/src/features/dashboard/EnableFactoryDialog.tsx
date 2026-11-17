@@ -198,11 +198,11 @@ export function EnableFactoryDialog({ project, onClose }: { project: { path: str
         ref={dialogRef}
         role="dialog"
         aria-modal="true"
-        aria-label="Enable factory"
+        aria-label="Set up auto-run"
         className="max-h-[80vh] w-[34rem] overflow-y-auto rounded-lg border border-border bg-background p-4 shadow-lg"
         onClick={(e) => e.stopPropagation()}
       >
-        <h2 className="font-semibold">Enable factory on {project.name}</h2>
+        <h2 className="font-semibold">Set up auto-run on {project.name}</h2>
 
         {showChecklist ? (
           <>
@@ -444,7 +444,7 @@ export function EnableFactoryDialog({ project, onClose }: { project: { path: str
               </ul>
               {gitlab && plan.gitlabManualInclude && (
                 <p className="mt-1 text-xs text-muted-foreground">
-                  The hub cannot edit <code>{plan.gitlabCiPath ?? '.gitlab-ci.yml'}</code> automatically. {manualOnly ? 'The jobs file is already on the default branch, so there is no merge request to open: add' : 'Before merging the merge request, add'} this line under its top-level <code>include:</code>{manualOnly ? ', then open Enable factory again' : ''}: <code>- local: .gitlab/taskcell.yml</code>
+                  The hub cannot edit <code>{plan.gitlabCiPath ?? '.gitlab-ci.yml'}</code> automatically. {manualOnly ? 'The jobs file is already on the default branch, so there is no merge request to open: add' : 'Before merging the merge request, add'} this line under its top-level <code>include:</code>{manualOnly ? ', then open Set up auto-run again' : ''}: <code>- local: .gitlab/taskcell.yml</code>
                 </p>
               )}
               {nothingToAdd && (

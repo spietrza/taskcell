@@ -6,13 +6,16 @@ import { inRepos } from '../../repoFilter';
 import { isNoTaskSource, RepoFailures, RepoLabel, TaskSourceHint } from '../../RepoViews';
 import type { BoardTask, RepoReadFailure, RepoStamp } from '../../wire';
 import { useAsync } from '../../hooks';
+import { setUrlParam, urlParam } from '../../screenUrl';
 import { useApproverDecisions } from './useApproverDecisions';
 import { decisionForTask, decisionWords } from './approverDecision';
-import { COLUMN_LABEL, QuickView, TRACKER_NAME, type QuickTask } from './QuickView';
+import { QuickView, TRACKER_NAME, type QuickTask } from './QuickView';
 import { NewHubTask, ScheduleLines } from './Schedule';
 import { boardCountLabels } from './counts';
 import { PausedBanner, PausedLine } from './paused';
 import { ExternalLink } from '../../components/ExternalLink';
+import { StationMark } from '../../components/StationMark';
+import { STATION_SHORT, stationOf } from '../../stations';
 import { FilterBar, NoMatch } from '../../FilterBar';
 import { DEFAULT_FILTER, canClearFilters, cardKeys, cardSource, clearFilters, effectiveFilter, filterCards, filterNames, groupRows, offeredSources, saveChange, type CardSource, type HubFilter } from '../../filterState';
 
@@ -34,14 +37,20 @@ const CHIP_TONE: Record<string, string> = {
   failed: 'bg-destructive/15 text-destructive-text',
 };
 
+// The Board's columns are the line's stations (prototype v3): a card sits in the column of `stationOf`. Review and
+// PR share one column, since a tracker card does not say whether its pull request exists yet; the card's mark does.
 const COLUMNS: Column[] = [
-  { key: 'queued', label: COLUMN_LABEL['queued'], dot: 'bg-muted-foreground', pill: 'bg-muted-foreground/15 text-muted-foreground', cardHover: 'hover:border-muted-foreground' },
-  { key: 'claimed', label: COLUMN_LABEL['claimed'], dot: 'bg-warning', pill: 'bg-warning/15 text-warning-text', cardHover: 'hover:border-warning' },
-  { key: 'running', label: COLUMN_LABEL['running'], dot: 'bg-foreground', pill: 'bg-foreground text-background', cardHover: 'hover:border-foreground', pulse: true },
-  { key: 'verify-failed', label: COLUMN_LABEL['verify-failed'], dot: 'bg-destructive', pill: 'bg-destructive/15 text-destructive-text', cardHover: 'hover:border-destructive' },
-  { key: 'review', label: COLUMN_LABEL['review'], dot: 'bg-foreground/60', pill: 'bg-foreground/10 text-foreground', cardHover: 'hover:border-foreground/60' },
-  { key: 'done', label: COLUMN_LABEL['done'], dot: 'bg-success', pill: 'bg-success/15 text-success-text', cardHover: 'hover:border-success' },
+  { key: 'card', label: STATION_SHORT.card, dot: 'bg-muted-foreground', pill: 'bg-muted-foreground/15 text-muted-foreground', cardHover: 'hover:border-muted-foreground' },
+  { key: 'spec', label: STATION_SHORT.spec, dot: 'bg-warning', pill: 'bg-warning/15 text-warning-text', cardHover: 'hover:border-warning' },
+  { key: 'cell', label: STATION_SHORT.cell, dot: 'bg-foreground', pill: 'bg-foreground text-background', cardHover: 'hover:border-foreground', pulse: true },
+  { key: 'gates', label: STATION_SHORT.gates, dot: 'bg-foreground/80', pill: 'bg-foreground/10 text-foreground', cardHover: 'hover:border-foreground' },
+  { key: 'review', label: `${STATION_SHORT.review} · ${STATION_SHORT.pr}`, dot: 'bg-foreground/60', pill: 'bg-foreground/10 text-foreground', cardHover: 'hover:border-foreground/60' },
+  { key: 'done', label: 'Done', dot: 'bg-success', pill: 'bg-success/15 text-success-text', cardHover: 'hover:border-success' },
 ];
+
+/** The Board column of a station index (`stationOf(...).at`; 6 is past the line). */
+const COLUMN_OF_STATION = ['card', 'spec', 'cell', 'gates', 'review', 'review', 'done'] as const;
+export const boardColumn = (t: Pick<BoardTask, 'column' | 'stage'>): string => COLUMN_OF_STATION[stationOf(t).at] ?? 'done';
 
 /** How often an open hub board re-reads its tasks: their statuses change in the hub's store, not here. */
 const HUB_POLL_MS = 5000;
@@ -76,7 +85,7 @@ export function TaskBoard({
   onNewTask,
   onOpenSettings,
   onStartRun,
-  onOpenRuns,
+  onOpenRun,
   onOpenSkills,
 }: {
   project: string;
@@ -99,8 +108,8 @@ export function TaskBoard({
   onOpenSettings?: () => void;
   /** Opens the run form for a card of `project` (the quick view's Start run). */
   onStartRun?: (taskId: string, skills?: string[]) => void;
-  /** Opens the Runs screen (a running card's live run). */
-  onOpenRuns?: () => void;
+  /** Opens a running or claimed card's live run (the quick view's Open the run). */
+  onOpenRun?: (taskId: string, repoPath: string | undefined) => void;
   /** Opens Settings → Skills. */
   onOpenSkills?: () => void;
 }) {
@@ -172,6 +181,19 @@ export function TaskBoard({
   };
   // A card of another repository must not linger when the project (or "all repositories") changes.
   useEffect(() => setSelected(null), [project, allRepos]);
+  // `?screen=board&card=<id>` opens that card once the board has it; from then on the address follows the open card.
+  const linked = useRef<string | null>(urlParam('card'));
+  useEffect(() => {
+    if (linked.current === null || !allTasks) return;
+    const t = allTasks.find((x) => x.id === linked.current);
+    linked.current = null;
+    if (t) setSelected(t);
+  }, [allTasks]);
+  useEffect(() => {
+    if (linked.current === null) setUrlParam('card', selected?.id ?? null);
+  }, [selected]);
+  // Leaving the Board (a card's full page, another screen) leaves its card behind: coming back shows the board.
+  useEffect(() => () => setUrlParam('card', null), []);
   // Nor may a card the filter now hides.
   useEffect(() => {
     if (selected !== null && tasks && !tasks.some((t) => t.id === selected.id && t.repoPath === selected.repoPath)) setSelected(null);
@@ -291,10 +313,12 @@ export function TaskBoard({
         )}
         <div className="flex min-h-0 min-w-0 flex-1 gap-3 overflow-x-auto">
         {COLUMNS.map((col) => {
-          const items = lane.rows.filter((t) => t.column === col.key);
+          const items = lane.rows.filter((t) => boardColumn(t) === col.key);
           return (
             <div
               key={col.key}
+              role="group"
+              aria-label={col.label}
               // From xl the six columns share the row (narrowing to 11rem) so all fit at 1440; below it they keep their width and scroll.
               className="flex h-full min-h-0 w-72 shrink-0 flex-col rounded-xl border border-border/60 bg-muted/20 p-2 xl:w-auto xl:min-w-44 xl:max-w-72 xl:flex-1"
             >
@@ -328,6 +352,7 @@ export function TaskBoard({
                             {allRepos && <RepoLabel name={t.repoName} />}
                           </div>
                           <div className="text-sm leading-snug">{t.title}</div>
+                          <StationMark {...stationOf(t)} />
                           {t.column === 'running' && t.stage && <div className="font-mono text-[11px]">stage: {t.stage}</div>}
                           {(t.column === 'review' || t.column === 'done') && !!t.chips?.length && (
                             <div className="flex flex-wrap gap-1">
@@ -347,7 +372,7 @@ export function TaskBoard({
                             <div className="pt-0.5 font-mono text-[11px] text-muted-foreground">→ {t.baseBranch}</div>
                           )}
                           {/* The tracker's bare open/closed adds nothing the column does not say. */}
-                          {t.state && t.state !== col.key && !/^(open|opened|closed)$/i.test(t.state) && t.schedule === undefined && (
+                          {t.state && t.state !== t.column && !/^(open|opened|closed)$/i.test(t.state) && t.schedule === undefined && (
                             <div className="pt-0.5 text-[11px] text-muted-foreground">{t.state}</div>
                           )}
                         </Card.Content>
@@ -378,7 +403,7 @@ export function TaskBoard({
           onSkillsSaved={(skills) => setSavedSkills((m) => ({ ...m, [cardKey(shown)]: skills }))}
           onChanged={reload}
           {...(onStartRun && (shown.repoPath === undefined || shown.repoPath === project) ? { onStartRun: () => { onStartRun(shown.id, savedSkills[cardKey(shown)] ?? shown.skills); close(); } } : {})}
-          {...(onOpenRuns ? { onOpenRuns } : {})}
+          {...(onOpenRun ? { onOpenRuns: () => onOpenRun(shown.id, shown.repoPath) } : {})}
           {...(onOpenSkills ? { onOpenSkills } : {})}
         />
       )}

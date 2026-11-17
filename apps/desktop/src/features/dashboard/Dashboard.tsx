@@ -1,13 +1,13 @@
 import { useState, type CSSProperties } from 'react';
 import { Button, Card, Chip, Empty } from '@/ui';
-import { Factory, FolderPlus, LayoutGrid, X } from 'lucide-react';
+import { FolderPlus, LayoutGrid, X } from 'lucide-react';
 import { projectColor } from '../../color';
 import { combinationNote, effectiveRunLocation, runLocationLabel, taskSourceLabel } from '../../platform';
 import { relTime } from '../../time';
 import type { Project } from '../../taskcell-output';
 import { gateProps } from '../../hooks';
 import type { CallerCapability, FactoryState, LocalWorkerState } from '../../wire';
-import { factoryLabel, localWorkerLabel } from './factoryLabel';
+import { autoRunLabel } from './factoryLabel';
 
 export function Dashboard({
   projects,
@@ -15,8 +15,7 @@ export function Dashboard({
   onAdd,
   addGate,
   onRemove,
-  onEnableFactory,
-  factoryGate,
+  onOpenAutoRun,
   onOpenSetup,
   factory,
   localWorker,
@@ -27,15 +26,13 @@ export function Dashboard({
   /** The hub's answer on adding a project: refused, the buttons are disabled with its reason. */
   addGate?: CallerCapability | undefined;
   onRemove: (path: string) => void;
-  /** Hub-only (the `enable_factory_*` commands are HUB_ONLY): omitted, the card has no button. */
-  onEnableFactory?: (p: { path: string; name: string }) => void;
-  /** The hub's answer on enabling a factory. */
-  factoryGate?: CallerCapability | undefined;
+  /** Opens the project's auto-run setup (Settings → Line, station Card); omitted, the state is plain text. */
+  onOpenAutoRun?: (p: { path: string; name: string }) => void;
   /** Opens the first-run guide; offered in the empty state. */
   onOpenSetup?: () => void;
-  /** Each project's factory checklist state by path (hub-only); a project without an entry shows no factory line. */
+  /** Each project's CI factory checklist state by path; with `localWorker`, it makes the card's Auto-run line. */
   factory?: Record<string, FactoryState>;
-  /** Each project's Local hub worker state by path (hub-only); shown on cards whose switch is on or has an error. */
+  /** Each project's Local hub worker state by path. A project in neither map shows no Auto-run line (not read yet). */
   localWorker?: Record<string, LocalWorkerState>;
 }) {
   // Path of the card whose × was clicked: removal waits for a second, explicit click.
@@ -100,7 +97,7 @@ export function Dashboard({
                       <Card.Title className="flex items-center gap-2 truncate">
                         {/* Stretched over the whole card (after:inset-0) so the card opens by click
                             and by keyboard without nesting buttons; the card's own buttons (Remove,
-                            Enable factory) sit above it with `relative z-10`. */}
+                            the Auto-run link) sit above it with `relative z-10`. */}
                         <button
                           type="button"
                           onClick={() => onOpen({ path: p.path, name: p.name })}
@@ -172,30 +169,26 @@ export function Dashboard({
                       <Chip color="secondary" variant="outlined">{runLocationLabel(location)}</Chip>
                     </div>
                     {note && <p className="mt-1 text-xs text-muted-foreground">{note}</p>}
-                    {fs && !(p.taskSource === 'hub' && fs.state === 'none') && (
-                      <p
-                        data-testid="factory-state"
-                        className={`mt-1 text-xs ${fs.state === 'broken' ? 'text-destructive-text' : fs.state === 'ready' ? 'text-success-text' : 'text-muted-foreground'}`}
-                      >
-                        {factoryLabel(fs)}
-                      </p>
-                    )}
-                    {lw && (lw.enabled || lw.lastPickupAt !== undefined || location === 'local') && <p data-testid="local-worker-state" className={`mt-1 text-xs ${lw.enabled && lw.lastError ? 'text-destructive-text' : 'text-muted-foreground'}`}>{localWorkerLabel(lw)}</p>}
-                    {onEnableFactory && (
-                      <Button
-                        className="relative z-10 mt-3 h-7 px-2 text-xs"
-                        variant="outlined"
-                        color="secondary"
-                        {...gateProps(factoryGate)}
-                        startIcon={<Factory className="size-3.5" />}
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          onEnableFactory({ path: p.path, name: p.name });
-                        }}
-                      >
-                        {fs && fs.state !== 'none' ? 'Factory checklist' : p.taskSource === 'hub' ? 'Hub worker' : 'Enable factory'}
-                      </Button>
-                    )}
+                    {(fs || lw) && (() => {
+                      const run = autoRunLabel(p.taskSource, fs, lw);
+                      const tone = run.tone === 'bad' ? 'text-destructive-text' : run.tone === 'on' ? 'text-success-text' : 'text-muted-foreground';
+                      return onOpenAutoRun ? (
+                        <button
+                          type="button"
+                          data-testid="auto-run"
+                          title="Set up auto-run in Settings → Line"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            onOpenAutoRun({ path: p.path, name: p.name });
+                          }}
+                          className={`relative z-10 mt-2 block max-w-full truncate text-left text-xs hover:underline ${tone}`}
+                        >
+                          {run.text}
+                        </button>
+                      ) : (
+                        <p data-testid="auto-run" className={`mt-2 truncate text-xs ${tone}`}>{run.text}</p>
+                      );
+                    })()}
                   </Card.Content>
                 </Card.Root>
               );

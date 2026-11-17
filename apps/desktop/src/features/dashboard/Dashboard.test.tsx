@@ -2,16 +2,18 @@ import { describe, expect, test, vi } from 'vitest';
 import { fireEvent, render, screen } from '@testing-library/react';
 import { Dashboard } from './Dashboard';
 import { factoryStateNone, factoryStateSettingUp, projects } from '../../dev/fixtures';
-import type { FactoryState } from '../../wire';
+import type { FactoryState, LocalWorkerState } from '../../wire';
+
+const worker = (enabled: boolean): LocalWorkerState => ({ enabled, source: 'hub', credentials: { present: true, names: [] } }) as LocalWorkerState;
 
 const [first] = projects;
 
-function setup(): { onOpen: ReturnType<typeof vi.fn>; onRemove: ReturnType<typeof vi.fn>; onEnableFactory: ReturnType<typeof vi.fn> } {
+function setup(): { onOpen: ReturnType<typeof vi.fn>; onRemove: ReturnType<typeof vi.fn>; onOpenAutoRun: ReturnType<typeof vi.fn> } {
   const onOpen = vi.fn();
   const onRemove = vi.fn();
-  const onEnableFactory = vi.fn();
-  render(<Dashboard projects={[first]} onOpen={onOpen} onAdd={() => {}} onRemove={onRemove} onEnableFactory={onEnableFactory} />);
-  return { onOpen, onRemove, onEnableFactory };
+  const onOpenAutoRun = vi.fn();
+  render(<Dashboard projects={[first]} onOpen={onOpen} onAdd={() => {}} onRemove={onRemove} onOpenAutoRun={onOpenAutoRun} factory={{ [first!.path]: factoryStateNone }} />);
+  return { onOpen, onRemove, onOpenAutoRun };
 }
 
 describe('Dashboard platform', () => {
@@ -34,13 +36,24 @@ describe('Dashboard platform', () => {
 describe('Dashboard hub-board project', () => {
   const hub = { ...first!, taskSource: 'hub' as const, runLocation: undefined };
 
-  test('an unset run location reads as Local hub, with no CI mismatch note and no "not enabled" line', () => {
-    render(<Dashboard projects={[hub]} onOpen={() => {}} onAdd={() => {}} onRemove={() => {}} onEnableFactory={() => {}} factory={{ [hub.path]: factoryStateNone }} />);
+  test('an unset run location reads as Local hub, with no CI mismatch note', () => {
+    render(<Dashboard projects={[hub]} onOpen={() => {}} onAdd={() => {}} onRemove={() => {}} onOpenAutoRun={() => {}} factory={{ [hub.path]: factoryStateNone }} />);
     expect(screen.getByText('Hub board')).toBeInTheDocument();
     expect(screen.getByText('Local hub')).toBeInTheDocument();
     expect(screen.queryByText('GitHub Actions')).toBeNull();
-    expect(screen.queryByTestId('factory-state')).toBeNull();
-    expect(screen.getByRole('button', { name: /Hub worker/ })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /Enable factory|Hub worker|Factory checklist/ })).toBeNull();
+  });
+
+  test('a never-switched worker is off even with a ready CI factory; only the switch turns a board on', () => {
+    const tile = (w: LocalWorkerState | undefined): string => {
+      const { unmount } = render(<Dashboard projects={[hub]} onOpen={() => {}} onAdd={() => {}} onRemove={() => {}} factory={{ [hub.path]: { ...factoryStateNone, state: 'ready' } }} {...(w ? { localWorker: { [hub.path]: w } } : {})} />);
+      const text = screen.getByTestId('auto-run').textContent ?? '';
+      unmount();
+      return text;
+    };
+    expect(tile(undefined)).toBe('Auto-run: off');
+    expect(tile(worker(false))).toBe('Auto-run: off');
+    expect(tile(worker(true))).toBe('Auto-run: on · this hub');
   });
 });
 
@@ -55,14 +68,14 @@ describe('Dashboard project card', () => {
     expect(onOpen).toHaveBeenCalledWith({ path: first.path, name: first.name });
   });
 
-  test('Remove and Enable factory run their own action without opening the project', () => {
-    const { onOpen, onRemove, onEnableFactory } = setup();
+  test('Remove and Auto-run run their own action without opening the project', () => {
+    const { onOpen, onRemove, onOpenAutoRun } = setup();
     fireEvent.click(screen.getByRole('button', { name: `Remove ${first.name}` }));
     expect(onRemove).not.toHaveBeenCalled();
     fireEvent.click(screen.getByRole('button', { name: 'Remove' }));
-    fireEvent.click(screen.getByRole('button', { name: /Enable factory/ }));
+    fireEvent.click(screen.getByRole('button', { name: /Auto-run/ }));
     expect(onRemove).toHaveBeenCalledWith(first.path);
-    expect(onEnableFactory).toHaveBeenCalledWith({ path: first.path, name: first.name });
+    expect(onOpenAutoRun).toHaveBeenCalledWith({ path: first.path, name: first.name });
     expect(onOpen).not.toHaveBeenCalled();
   });
 
@@ -78,7 +91,7 @@ describe('Dashboard project card', () => {
     // jsdom has no layout, so guard the stacking classes the browser relies on: the overlay is the
     // name button's ::after, and any action without `relative z-10` would be painted under it.
     setup();
-    for (const name of [`Remove ${first.name}`, /Enable factory/]) {
+    for (const name of [`Remove ${first.name}`, /Auto-run/]) {
       expect(screen.getByRole('button', { name })).toHaveClass('relative', 'z-10');
     }
   });
@@ -97,23 +110,25 @@ describe('Dashboard empty state', () => {
   });
 });
 
-describe('Dashboard factory state', () => {
-  const label = (f: FactoryState): string => {
-    const { unmount } = render(<Dashboard projects={[first!]} onOpen={() => {}} onAdd={() => {}} onRemove={() => {}} factory={{ [first!.path]: f }} />);
-    const text = screen.getByTestId('factory-state').textContent ?? '';
+describe('Dashboard auto-run state', () => {
+  const label = (f: FactoryState | undefined, w?: LocalWorkerState): string => {
+    const { unmount } = render(<Dashboard projects={[first!]} onOpen={() => {}} onAdd={() => {}} onRemove={() => {}} {...(f ? { factory: { [first!.path]: f } } : {})} {...(w ? { localWorker: { [first!.path]: w } } : {})} />);
+    const text = screen.getByTestId('auto-run').textContent ?? '';
     unmount();
     return text;
   };
 
-  test('shows not enabled / setting up with the step / ready / broken with the reason', () => {
-    expect(label(factoryStateNone)).toBe('Factory: not enabled');
-    expect(label(factoryStateSettingUp)).toBe('Factory: setting up — Secret set');
-    expect(label({ ...factoryStateNone, state: 'ready' })).toBe('Factory: ready');
-    expect(label({ ...factoryStateNone, state: 'broken', reason: 'the doctor run failure' })).toBe('Factory: broken — the doctor run failure');
+  test('GitHub/GitLab: on in CI once the factory is ready, on this hub when the switch is on; off says why when broken or setting up', () => {
+    expect(label(factoryStateNone)).toBe('Auto-run: off');
+    expect(label(factoryStateSettingUp)).toBe('Auto-run: off — setting up: Secret set');
+    expect(label({ ...factoryStateNone, state: 'ready' })).toBe('Auto-run: on · CI');
+    expect(label({ ...factoryStateNone, state: 'broken', reason: 'the doctor run failure' })).toBe('Auto-run: off — CI broken: the doctor run failure');
+    expect(label(factoryStateNone, worker(true))).toBe('Auto-run: on · this hub');
+    expect(label(undefined, { ...worker(true), lastError: 'no credential' })).toBe('Auto-run: on · this hub — last error: no credential');
   });
 
-  test('without factory data the card has no factory line', () => {
+  test('without factory or worker data the card has no auto-run line', () => {
     render(<Dashboard projects={[first!]} onOpen={() => {}} onAdd={() => {}} onRemove={() => {}} />);
-    expect(screen.queryByTestId('factory-state')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('auto-run')).not.toBeInTheDocument();
   });
 });

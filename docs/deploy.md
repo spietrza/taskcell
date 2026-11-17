@@ -2,7 +2,7 @@
 
 Run `taskcell watch` always-on so the factory pulls ready Linear or GitHub issues by itself, runs them, and opens PRs. Optionally run `taskcell watch-prs` as a second loop so Taskcell reviews external PRs by label. This guide gives three concrete recipes: Synology (step by step, the one that was actually deployed), Hetzner native Docker, and Hetzner with Coolify. All three are the same idea: Docker on Linux, one controller container that starts sibling sandboxes.
 
-Using the hub? **Enable factory → Self-hosted (watch)** generates the compose service, the `taskcell watch` command and the credential names for one repository; see [hub.md](hub.md#self-hosted-watch).
+Using the hub? **Settings → Line → Card → Set up auto-run → Self-hosted (watch)** generates the compose service, the `taskcell watch` command and the credential names for one repository; see [hub.md](hub.md#self-hosted-watch).
 
 ## Architecture (docker-out-of-docker)
 

@@ -10,10 +10,13 @@ import { STATIONS, STATION_SHORT } from '../../stations';
 vi.mock('../../ipc.js', () => ({
   readAppConfigStrict: vi.fn(async () => ({})),
   writeAppConfig: vi.fn(async () => {}),
-  callerCapabilities: vi.fn(async () => ({})),
+  callerCapabilities: vi.fn(async () => ({ mutationsAllowed: true })),
   apiCapabilitiesCached: vi.fn(async () => ({ flows: [{ name: 'plan' }] })),
   apiListFlows: vi.fn(async () => ({ flows: [] })),
   readSettingsHistory: vi.fn(async () => []),
+  factoryState: vi.fn(async () => ({ state: 'none', steps: [] })),
+  localWorkerState: vi.fn(async () => ({ enabled: false, source: 'hub', credentials: { names: [], present: true } })),
+  enableFactoryHost: vi.fn(async () => ({ host: 'none' })),
 }));
 vi.mock('../settings/AutoMerge', () => ({ AutoMerge: () => <div>auto-merge panel</div> }));
 vi.mock('../settings/CredentialsPanel', async (importOriginal) => ({ ...(await importOriginal<typeof import('../settings/CredentialsPanel')>()), CredentialsPanel: () => null }));
@@ -134,4 +137,33 @@ test('history shows the token-auth placeholder as "you (local hub)"', async () =
   await open();
   expect(await screen.findByText('you (local hub)')).toBeInTheDocument();
   expect(screen.queryByText('token')).toBeNull();
+});
+
+test('a station deep link opens Card with the Auto-run setup; a never-switched hub board is off', async () => {
+  window.history.replaceState(null, '', '/?screen=settings&section=line&station=card');
+  try {
+    await open({ taskSource: 'hub' });
+    expect(screen.getByRole('button', { name: /Card/ })).toHaveAttribute('aria-pressed', 'true');
+    expect(await screen.findByTestId('line-auto-run')).toHaveTextContent('Auto-run: off');
+    fireEvent.click(screen.getByRole('button', { name: 'Set up auto-run' }));
+    expect(await screen.findByRole('dialog', { name: 'Set up auto-run' })).toBeInTheDocument();
+    // Picking another station names it in the address, so a reload stays there.
+    fireEvent.click(screen.getByRole('button', { name: /Gates/ }));
+    expect(new URLSearchParams(window.location.search).get('station')).toBe('gates');
+  } finally {
+    window.history.replaceState(null, '', '/');
+  }
+});
+
+test('Set up auto-run keeps the hub\'s factory gate: refused, it is disabled with the reason', async () => {
+  vi.mocked(ipc.callerCapabilities).mockResolvedValue({ project: { canEnableFactory: { allowed: false, reason: 'members cannot' } } } as Awaited<ReturnType<typeof ipc.callerCapabilities>>);
+  window.history.replaceState(null, '', '/?station=card');
+  try {
+    await open();
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Set up auto-run' })).toBeDisabled());
+    expect(screen.getByRole('button', { name: 'Set up auto-run' })).toHaveAttribute('title', 'members cannot');
+  } finally {
+    window.history.replaceState(null, '', '/');
+    vi.mocked(ipc.callerCapabilities).mockResolvedValue({ mutationsAllowed: true } as Awaited<ReturnType<typeof ipc.callerCapabilities>>);
+  }
 });

@@ -28,13 +28,9 @@ beforeEach(() => {
 });
 afterEach(() => vi.useRealTimers());
 
-// A lane is the column container carrying `rounded-xl`; scope queries to it so a task asserted
-// "in Running" really renders under Running, not just somewhere on the board.
-function lane(label: string): HTMLElement {
-  const el = screen.getByText(label).closest('[class*="rounded-xl"]');
-  if (!el) throw new Error(`lane "${label}" not found`);
-  return el as HTMLElement;
-}
+// A lane is a station column (a group named by its label); scope queries to it so a task asserted
+// "in Cell" really renders under Cell, not just somewhere on the board.
+const lane = (label: string): HTMLElement => screen.getByRole('group', { name: label });
 
 const TASKS: BoardTask[] = [
   { id: 't-q1', title: 'Queued one', column: 'queued', state: 'Todo' },
@@ -178,19 +174,52 @@ describe('TaskBoard', () => {
     expect(onOpenTask).toHaveBeenCalledWith('gh-1', undefined, ['db', 'release']);
   });
 
-  test('renders all six workflow columns', async () => {
+  test('the columns are the line\'s stations (Review and PR share one), then Done', async () => {
     mockListTasks.mockResolvedValue({ tasks: [], capped: false });
     render(<TaskBoard project="/repo" repos={[]} onOpenTask={() => {}} onNewTask={() => {}} />);
-    for (const label of ['Queued', 'Claimed', 'Running', 'Verify failed', 'Review', 'Done']) {
-      expect(await screen.findByText(label)).toBeInTheDocument();
+    await screen.findByRole('group', { name: 'Card' });
+    expect(screen.getAllByRole('group').map((g) => g.getAttribute('aria-label')).filter((l) => l !== 'Triage')).toEqual(['Card', 'Spec', 'Cell', 'Gates', 'Review · PR', 'Done']);
+  });
+
+  test('every card shows its station: a failed verify is Gates, failed; a running card follows its stage', async () => {
+    mockListTasks.mockResolvedValue({ tasks: [...TASKS, { id: 't-s', title: 'Speccing', column: 'running', state: '', stage: 'spec' }], capped: false });
+    render(<TaskBoard project="/repo" repos={[]} onOpenTask={() => {}} onNewTask={() => {}} />);
+    await screen.findByText('Queued one');
+    expect(within(lane('Gates')).getByRole('img', { name: 'Station: Gates (failed)' })).toBeInTheDocument();
+    expect(within(lane('Spec')).getByText('Speccing')).toBeInTheDocument();
+    expect(within(lane('Spec')).getByRole('img', { name: 'Station: Spec' })).toBeInTheDocument();
+    expect(within(lane('Done')).getByRole('img', { name: 'Station: Done' })).toBeInTheDocument();
+  });
+
+  test('?card=<id> opens that card\'s quick view; closing it drops the parameter', async () => {
+    window.history.replaceState(null, '', '/?screen=board&card=t-r1');
+    try {
+      mockListTasks.mockResolvedValue({ tasks: TASKS, capped: false });
+      render(<TaskBoard project="/repo" repos={[]} onOpenTask={() => {}} onNewTask={() => {}} />);
+      expect(await screen.findByRole('complementary', { name: /Quick view: Running one/ })).toBeInTheDocument();
+      fireEvent.keyDown(document, { key: 'Escape' });
+      await waitFor(() => expect(window.location.search).toBe('?screen=board'));
+      fireEvent.click(screen.getByText('Queued two').closest('button')!);
+      await waitFor(() => expect(window.location.search).toBe('?screen=board&card=t-q2'));
+    } finally {
+      window.history.replaceState(null, '', '/');
     }
+  });
+
+  test('a running card\'s Open the run opens that card\'s run', async () => {
+    mockListTasks.mockResolvedValue({ tasks: TASKS, capped: false });
+    const onOpenRun = vi.fn();
+    render(<TaskBoard project="/repo" repos={[]} onOpenTask={() => {}} onNewTask={() => {}} onOpenRun={onOpenRun} />);
+    fireEvent.click((await screen.findByText('Running one')).closest('button')!);
+    fireEvent.click(await screen.findByRole('button', { name: 'Open the run' }));
+    expect(onOpenRun).toHaveBeenCalledWith('t-r1', undefined);
   });
 
   test('from xl the columns share the row down to 11rem, so all six fit at 1440; below it they keep their width and scroll', async () => {
     mockListTasks.mockResolvedValueOnce({ tasks: TASKS, capped: false });
     render(<TaskBoard project="/repo" repos={[]} onOpenTask={() => {}} onNewTask={() => {}} />);
     await screen.findByText('Queued one');
-    const cls = lane('Review').className.split(' ');
+    const cls = lane('Review · PR').className.split(' ');
     expect(cls).toEqual(expect.arrayContaining(['w-72', 'shrink-0', 'xl:w-auto', 'xl:min-w-44', 'xl:max-w-72', 'xl:flex-1']));
   });
 
@@ -199,10 +228,10 @@ describe('TaskBoard', () => {
     render(<TaskBoard project="/repo" repos={[]} onOpenTask={() => {}} onNewTask={() => {}} />);
     await screen.findByText('Queued one'); // wait for load
 
-    expect(within(lane('Queued')).getByText('Queued one')).toBeInTheDocument();
-    expect(within(lane('Queued')).getByText('Queued two')).toBeInTheDocument();
-    expect(within(lane('Running')).getByText('Running one')).toBeInTheDocument();
-    expect(within(lane('Verify failed')).getByText('Verify one')).toBeInTheDocument();
+    expect(within(lane('Card')).getByText('Queued one')).toBeInTheDocument();
+    expect(within(lane('Card')).getByText('Queued two')).toBeInTheDocument();
+    expect(within(lane('Cell')).getByText('Running one')).toBeInTheDocument();
+    expect(within(lane('Gates')).getByText('Verify one')).toBeInTheDocument();
     expect(within(lane('Done')).getByText('Done one')).toBeInTheDocument();
   });
 
@@ -211,9 +240,9 @@ describe('TaskBoard', () => {
     render(<TaskBoard project="/repo" repos={[]} onOpenTask={() => {}} onNewTask={() => {}} />);
     await screen.findByText('Queued one');
 
-    expect(within(lane('Queued')).getByText('2')).toBeInTheDocument();
-    expect(within(lane('Claimed')).getByText('0')).toBeInTheDocument();
-    expect(within(lane('Claimed')).getByText('No tasks')).toBeInTheDocument();
+    expect(within(lane('Card')).getByText('2')).toBeInTheDocument();
+    expect(within(lane('Spec')).getByText('0')).toBeInTheDocument();
+    expect(within(lane('Spec')).getByText('No tasks')).toBeInTheDocument();
   });
 
   test('shows the raw backend state only when it differs from the lane key', async () => {
@@ -222,7 +251,7 @@ describe('TaskBoard', () => {
     await screen.findByText('Running one');
 
     // running task: state "In Progress" !== column "running" → shown
-    expect(within(lane('Running')).getByText('In Progress')).toBeInTheDocument();
+    expect(within(lane('Cell')).getByText('In Progress')).toBeInTheDocument();
     // done task: state "done" === column "done" → the redundant state line is suppressed
     expect(within(lane('Done')).queryByText('done')).not.toBeInTheDocument();
   });
@@ -275,22 +304,22 @@ test('T26/T27/T28: stage and verdict pills stay in their intended lanes, with to
   ] });
   render(<TaskBoard project="/repo" repos={[]} onOpenTask={() => {}} onNewTask={() => {}} />);
   await screen.findByText('Running stage');
-  expect(within(lane('Running')).getByText('stage: implementer')).toBeInTheDocument();
-  for (const label of ['Review', 'Done']) {
+  expect(within(lane('Cell')).getByText('stage: implementer')).toBeInTheDocument();
+  for (const label of ['Review · PR', 'Done']) {
     const scope = within(lane(label));
     expect(scope.getByText('implementer: ok').className).toContain('success');
     expect(scope.getByText('reviewer: changes (2)').className).toContain('warning');
     expect(scope.getByText('proof: fail').className).toContain('destructive');
     expect(scope.getByText('future gate').className).toContain('bg-muted');
   }
-  expect(within(lane('Queued')).queryByText('implementer: ok')).not.toBeInTheDocument();
+  expect(within(lane('Card')).queryByText('implementer: ok')).not.toBeInTheDocument();
 });
 
 test('T26: a running card without a stage has no stage line', async () => {
   mockListTasks.mockResolvedValue({ tasks: TASKS, capped: false });
   render(<TaskBoard project="/repo" repos={[]} onOpenTask={() => {}} onNewTask={() => {}} />);
   await screen.findByText('Running one');
-  expect(within(lane('Running')).queryByText(/^stage:/)).not.toBeInTheDocument();
+  expect(within(lane('Cell')).queryByText(/^stage:/)).not.toBeInTheDocument();
 });
 
 describe('TaskBoard all repositories', () => {
@@ -396,7 +425,7 @@ describe('TaskBoard team scope', () => {
   test('the selected team is sent with the all-repositories read', async () => {
     vi.mocked(listTasksAll).mockResolvedValue({ tasks: [], capped: false, failures: [] });
     render(<TaskBoard project="/r/alpha" allRepos repos={['/r/alpha']} teamId="b" onOpenTask={() => {}} onNewTask={() => {}} />);
-    await screen.findByText('Queued');
+    await screen.findByRole('group', { name: 'Card' });
     expect(listTasksAll).toHaveBeenCalledWith('b');
   });
 });
