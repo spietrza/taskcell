@@ -25,7 +25,7 @@ export function StationStrip({ stations }: { stations: FloorStation[] }) {
           <div key={key} className="min-w-0 text-center" aria-hidden>
             <div className="flex h-5 items-center justify-center gap-1 rounded-sm border border-border">
               {dots.slice(0, MAX_DOTS).map((c, j) => (
-                <span key={j} className={`size-2 rounded-full ${c}`} />
+                <span key={j} className={`size-2 shrink-0 rounded-full ${c}`} />
               ))}
               {dots.length > MAX_DOTS && <span className="text-[10px] tabular-nums text-muted-foreground">+{dots.length - MAX_DOTS}</span>}
             </div>
@@ -53,7 +53,7 @@ export function Floor({ rows, idle, onOpen }: { rows: FloorRow[]; idle: number; 
                 type="button"
                 onClick={() => onOpen(r.path)}
                 aria-label={`Open ${r.name} on the Board`}
-                className="grid w-full items-center gap-x-6 gap-y-2 p-4 text-left transition-colors hover:bg-muted/40 md:grid-cols-[14rem_minmax(0,1fr)_6rem]"
+                className="grid w-full items-center gap-x-4 gap-y-2 p-4 text-left transition-colors hover:bg-muted/40 md:grid-cols-[11rem_minmax(0,1fr)_5.5rem]"
               >
                 <span className="flex min-w-0 items-center gap-2">
                   <span className="h-8 w-1 shrink-0 rounded-sm" style={{ backgroundColor: projectColor(r.project) }} aria-hidden />
