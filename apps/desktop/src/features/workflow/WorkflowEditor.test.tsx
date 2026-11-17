@@ -305,3 +305,36 @@ test('a failed load can be retried by clicking the same rail entry again (review
   await screen.findByTestId('stage-block-0');
   expect(vi.mocked(ipc.apiReadFlow)).toHaveBeenCalledTimes(2);
 });
+
+const BUILTIN_CAPS = {
+  providers: ['claude'],
+  flows: [
+    { name: 'default', label: 'Default', stages: ['implementer', 'reviewer'] },
+    { name: 'flow-b', label: 'Plan flow', stages: ['planner', 'implementer'], doc: { name: 'flow-b', label: 'Plan flow', stages: [{ name: 'planner', overrides: {} }, { name: 'implementer', overrides: {} }], loops: [] } },
+  ],
+  stages: ['planner', 'implementer'],
+  transports: ['github'],
+  defaults: { provider: 'claude', maxTurns: 30, maxCostUsd: 5, baseBranch: 'main' },
+};
+
+test('built-in flows are listed read-only; one with a doc can be duplicated into a new file and opened', async () => {
+  vi.mocked(ipc.apiCapabilitiesCached).mockResolvedValue(BUILTIN_CAPS);
+  render(<WorkflowEditor project="/repo" />);
+  fireEvent.click(await screen.findByRole('button', { name: 'built-in default' }));
+  expect(screen.getByText('This built-in can\'t be copied yet.')).toBeInTheDocument();
+  expect(screen.queryByRole('button', { name: 'Duplicate to edit' })).toBeNull();
+
+  fireEvent.click(screen.getByRole('button', { name: 'built-in flow-b' }));
+  const dup = screen.getByRole('button', { name: 'Duplicate to edit' });
+  const name = screen.getByLabelText('name of the copy');
+  fireEvent.change(name, { target: { value: 'my-flow' } }); // taken by a file in the repository
+  expect(dup).toBeDisabled();
+  expect(screen.getByText('"my-flow" is taken')).toBeInTheDocument();
+  fireEvent.change(name, { target: { value: 'flow-b' } }); // taken by the built-in itself
+  expect(dup).toBeDisabled();
+
+  fireEvent.change(name, { target: { value: 'my-copy' } });
+  fireEvent.click(dup);
+  await waitFor(() => expect(vi.mocked(ipc.apiWriteFlow)).toHaveBeenCalledWith('/repo', 'my-copy.hcl', { ...BUILTIN_CAPS.flows[1]!.doc, name: 'my-copy' }));
+  await waitFor(() => expect(vi.mocked(ipc.apiReadFlow)).toHaveBeenCalledWith('/repo', 'my-copy.hcl'));
+});

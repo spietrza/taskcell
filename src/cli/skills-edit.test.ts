@@ -8,7 +8,7 @@ import { sha256Hex, type SkillLockEntry } from '../context/skill-lock.js';
 import type { SkillSource } from '../context/skill-source.js';
 import { WorktreeManager } from '../worktree/manager.js';
 import { parseCli } from './args.js';
-import { cachedResolver, commitLink, skillsAdd, skillsAddPr, skillsChecked, skillsRemovePr, skillsCheck, skillsList, skillsRemove, recordedMetrics, skillsUpdate, skillUpdateBody, type SkillsDeps, type SkillUpdate } from '../core/skills.js';
+import { cachedResolver, commitLink, skillsAdd, skillsAddPr, skillsDiscover, skillsChecked, skillsRemovePr, skillsCheck, skillsList, skillsRemove, recordedMetrics, skillsUpdate, skillUpdateBody, type SkillsDeps, type SkillUpdate } from '../core/skills.js';
 import { skillsCommand } from './skills.js';
 
 // A rename that can be made to fail, for the install rollback tests.
@@ -331,6 +331,21 @@ describe('skills add/remove --pr', () => {
     expect(pr?.args.join(' ')).toContain('chore(skills): add a');
     await expect(lstat(join(repo, 'skills'))).rejects.toThrow();
   });
+  it('add with paths: several skills of one repository, pinned to one commit, in one PR', async () => {
+    const { repo, calls, committed, deps } = await setup();
+    const both = async (tree: string): Promise<void> => {
+      for (const n of ['a', 'b']) {
+        await mkdir(join(tree, `skills/${n}`), { recursive: true });
+        await writeFile(join(tree, `skills/${n}/SKILL.md`), n);
+      }
+    };
+    const src = stub({ [SRC]: C1 }, { [C1]: both });
+    expect(await skillsAddPr({ dir: join(repo, 'skills'), repo, source: SRC, ref: C1, paths: ['skills/a', 'skills/b'] }, deps(src))).toEqual({ prUrl: 'https://github.com/o/repo/pull/2' });
+    expect(committed[0]?.split('\n')).toEqual(expect.arrayContaining(['skills/a/SKILL.md', 'skills/b/SKILL.md', 'skills/skills.lock.json']));
+    expect(src.fetched).toEqual([C1, C1]);
+    expect(calls.filter((c) => c.file === 'gh')).toHaveLength(1);
+    expect(calls.find((c) => c.file === 'gh')?.args.join(' ')).toContain('chore(skills): add a, b');
+  });
   it('remove: deletes the skill and its lock entry in a PR', async () => {
     const { repo, committed, deps } = await setup(async (r) => add(stub({ [SRC]: C1 }, { [C1]: skillTree('one\n') }), {}, join(r, 'skills')));
     expect(await skillsRemovePr({ dir: join(repo, 'skills'), repo, name: 'a' }, deps())).toEqual({ prUrl: 'https://github.com/o/repo/pull/2' });
@@ -455,12 +470,25 @@ describe('hardening', () => {
     await expect(skillsRemove(root, 'src', () => {})).rejects.toThrow(/not a skill/);
     expect((await lstat(join(root, 'src'))).isDirectory()).toBe(true);
   });
+  it('discover lists every folder with a SKILL.md: shallowest name wins, dot-directory copies lose, bad names are skipped', async () => {
+    const files = ['README.md', 'skills/a/SKILL.md', 'skills/b/SKILL.md', '.openclaw/skills/a/SKILL.md', '.openclaw/skills/only-here/SKILL.md', 'skills/bad name/SKILL.md', 'skills/a/notes.md'];
+    const src = { ...stub({ [SRC]: C1 }, {}), list: async () => files };
+    expect(await skillsDiscover({ source: SRC }, { source: src })).toEqual({
+      commit: C1,
+      skills: [
+        { path: 'skills/a', name: 'a' },
+        { path: 'skills/b', name: 'b' },
+        { path: '.openclaw/skills/only-here', name: 'only-here' },
+      ],
+    });
+    await expect(skillsDiscover({ source: SRC }, { source: stub({ [SRC]: C1 }, {}) })).rejects.toThrow(/cannot list/);
+  });
   it('add --path ./ names the skill after the repo; enforces the file limit', async () => {
     const url = 'https://github.com/o/myskill.git';
     await skillsAdd({ dir, source: url, path: './' }, { source: stub({ [url]: C1 }, { [C1]: async (t) => writeFile(join(t, 'SKILL.md'), 'x') }) }, () => {});
     expect((await readdir(dir)).sort()).toEqual(['myskill', 'skills.lock.json']);
     const big = stub({ [SRC]: C1 }, { [C1]: async (t) => { await writeFile(join(t, 'SKILL.md'), 'x'); for (let i = 0; i < 201; i++) await writeFile(join(t, `f${i}`), 'x'); } });
-    await expect(skillsAdd({ dir, source: SRC, name: 'big' }, { source: big }, () => {})).rejects.toThrow(/more than 200 files/);
+    await expect(skillsAdd({ dir, source: SRC, name: 'big' }, { source: big }, () => {})).rejects.toThrow(/more than 200 files.*give the folder/);
   });
   it('--pr outside the repo is refused; a secret in the update blocks delivery', async () => {
     await expect(skillsUpdate({ dir: '/elsewhere/skills', repo: root, dryRun: false, pr: true }, {}, () => {})).rejects.toThrow(/inside the repo/);
@@ -863,6 +891,13 @@ describe('hardened git source', () => {
     expect((await readdir(join(tree, 'skills'))).sort()).toEqual(['a', 'b']);
     await src.dispose?.();
     await expect(lstat(tree)).rejects.toThrow();
+  });
+  it('list returns every file path from the tree alone, with no blobs checked out', async () => {
+    const { url } = await upstream();
+    const src = createGitSkillSource('file');
+    const head = (await src.resolve(url)) ?? '';
+    expect((await src.list?.(url, head))?.sort()).toEqual(['README.md', 'skills/a/SKILL.md', 'skills/a/run.sh', 'skills/b/SKILL.md']);
+    await src.dispose?.();
   });
   it('lists a file path as an empty tree, but refuses the fetch when ls-tree fails for another reason', async () => {
     const { url } = await upstream();

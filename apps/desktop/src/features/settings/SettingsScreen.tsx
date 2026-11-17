@@ -65,7 +65,7 @@ export function SettingsScreen({
         ))}
       </div>
       {section === 'general' ? (
-        <div className="min-h-0 flex-1 overflow-y-auto">
+        <div className="min-h-0 flex-1 overflow-y-auto pr-4">
           {onOpenSetup && (
             <div className="mb-4 flex items-center gap-3 rounded-lg border border-border p-3 text-sm">
               <span>Setup guide: sign-ins, model credential and first repository.</span>
@@ -81,7 +81,7 @@ export function SettingsScreen({
           <WorkflowEditor project={project} />
         </div>
       ) : section === 'runners' ? (
-        <div className="min-h-0 flex-1 space-y-6 overflow-y-auto">
+        <div className="min-h-0 flex-1 space-y-6 overflow-y-auto pr-4">
           {fleet && <section className="space-y-2">{fleet}</section>}
           <section className="flex min-h-96 flex-col space-y-2">
             <h3 className="text-lg font-semibold">Remote</h3>

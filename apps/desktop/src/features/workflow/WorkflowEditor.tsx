@@ -2,7 +2,7 @@ import { useCallback, useEffect, useReducer, useRef, useState } from 'react';
 import { useDiscardGuard } from '../../navGuard';
 import { Button, CodeBlock, Input } from '@/ui';
 import { AlertTriangle, Pencil, Plus, Trash2 } from 'lucide-react';
-import { apiCapabilitiesCached, apiDeleteFlow, apiListFlows, apiReadFlow, apiWriteFlow } from '../../ipc';
+import { apiCapabilitiesCached, apiDeleteFlow, apiListFlows, apiReadFlow, apiWriteFlow, readAppConfig } from '../../ipc';
 import type { Capabilities, RepoFlowInfo } from '../../ipc';
 import { FlowCanvas } from './FlowCanvas';
 import { StageInspector } from './StageInspector';
@@ -23,6 +23,10 @@ export function WorkflowEditor({ project }: { project: string }) {
   const [capsError, setCapsError] = useState<string | null>(null);
   const [tab, setTab] = useState<'canvas' | 'source'>('canvas');
   const [newName, setNewName] = useState('');
+  // A built-in flow shown read-only (not a file): the one selected, the flow this project runs on, and the copy's name.
+  const [builtin, setBuiltin] = useState<string | null>(null);
+  const [inUse, setInUse] = useState<string | undefined>(undefined);
+  const [dupName, setDupName] = useState('');
   const [state, dispatch] = useReducer(flowEditorReducer, initialFlowEditor);
   // Bumped on every project switch; an in-flight list/read whose generation is stale is dropped
   // so a resolved response can never land on another project's editor (async-per-context rule).
@@ -68,12 +72,24 @@ export function WorkflowEditor({ project }: { project: string }) {
     // anyone who clicks a flow before they resolve, leaving the palette empty for the session.
     // Guard only what is scoped to a context; caps aren't. (Review r3 asked for the guard; this is
     // the reasoned refusal.)
+    setBuiltin(null);
+    // Best effort: the "in use" mark is a hint, so a failed read just leaves it off.
+    // Not `gen`: it also bumps when a flow is opened, which must not drop this mark.
+    let current = true;
+    setInUse(undefined);
+    void Promise.resolve()
+      .then(() => readAppConfig(project))
+      .then((c) => current && setInUse(c.flow ?? 'default'))
+      .catch(() => undefined);
     apiCapabilitiesCached()
       .then((c) => {
         setCaps(c);
         setCapsError(null);
       })
       .catch((err) => setCapsError(String(err)));
+    return () => {
+      current = false;
+    };
   }, [project, refreshList]);
 
   const open = (file: string): void => {
@@ -83,6 +99,7 @@ export function WorkflowEditor({ project }: { project: string }) {
     // what this editor is for).
     if (file === state.file && state.doc !== null) return;
     if (!confirmDiscard()) return;
+    setBuiltin(null);
     setOpError(null); // a stale rename/delete message must not linger across navigation (r3 minor)
     // Bump, don't just read: opening a flow invalidates every in-flight read AND save for the one
     // we're leaving — a slower earlier read must not clobber this selection, and a late saveOk
@@ -217,6 +234,35 @@ export function WorkflowEditor({ project }: { project: string }) {
     }
   };
 
+  const selectBuiltin = (name: string): void => {
+    if (builtin === name || !confirmDiscard()) return;
+    gen.current += 1; // a late read/save of the file we leave must not land here
+    saving.current = false;
+    dispatch({ type: 'reset' });
+    setOpError(null);
+    setDupName('');
+    setBuiltin(name);
+  };
+
+  const builtinInfo = builtin !== null ? caps?.flows.find((f) => f.name === builtin) : undefined;
+  const dupProblem = nameProblem(dupName);
+
+  const duplicateBuiltin = async (): Promise<void> => {
+    if (builtinInfo?.doc === undefined || flows === null || dupName === '' || dupProblem !== null || opBusy.current) return;
+    opBusy.current = true;
+    try {
+      await apiWriteFlow(project, `${dupName}.hcl`, { ...builtinInfo.doc, name: dupName });
+      setOpError(null);
+      await refreshList();
+      setBuiltin(null);
+      open(`${dupName}.hcl`);
+    } catch (err) {
+      setOpError(String(err));
+    } finally {
+      opBusy.current = false;
+    }
+  };
+
   const palette = caps?.stages ?? [];
   const selectedStage = state.doc !== null && state.selected !== null ? state.doc.stages[state.selected] : undefined;
   const saveDisabled = !state.dirty || state.doc === null || state.doc.stages.length === 0;
@@ -285,10 +331,28 @@ export function WorkflowEditor({ project }: { project: string }) {
         ) : (
           <div className="grid grid-cols-1 gap-4 lg:grid-cols-[200px_1fr_280px]">
             <div className="rounded-lg border border-border p-2">
+              {(caps?.flows.length ?? 0) > 0 && (
+                <>
+                  <div className="mb-2 px-1 caption">Built-in</div>
+                  <div className="mb-3 space-y-1">
+                    {caps?.flows.map((f) => (
+                      <button
+                        key={f.name}
+                        onClick={() => selectBuiltin(f.name)}
+                        aria-label={`built-in ${f.name}`}
+                        className={`flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-sm ${builtin === f.name ? 'bg-muted font-medium' : 'hover:bg-muted/60'}`}
+                      >
+                        <span className="truncate">{f.name}</span>
+                        {inUse === f.name && <span className="ml-auto shrink-0 rounded bg-success/15 px-1.5 py-0.5 text-[11px] text-success-text">in use</span>}
+                      </button>
+                    ))}
+                  </div>
+                </>
+              )}
               <div className="mb-2 px-1 caption">In this repository</div>
               {listError !== null && <div className="px-1 pb-2 text-xs text-destructive">{listError}</div>}
               {flows !== null && flows.length === 0 && listError === null && (
-                <div className="px-1 pb-2 text-xs text-muted-foreground">No flows yet — create one below.</div>
+                <div className="px-1 pb-2 text-xs text-muted-foreground">No custom flows yet. Duplicate a built-in or create one below.</div>
               )}
               <div className="space-y-1">
                 {(flows ?? []).map((f) => {
@@ -370,11 +434,12 @@ export function WorkflowEditor({ project }: { project: string }) {
                     aria-label="create flow"
                     // caps gate: without the built-in flow names the collision check can't run, and a
                     // "plan" collision would surface first at Save — exactly what the form exists to prevent
-                    disabled={newName === '' || newNameProblem !== null || caps === null}
+                    disabled={newName === '' || newNameProblem !== null || caps === null || flows === null}
                     onClick={() => {
                       if (!confirmDiscard()) return;
                       gen.current += 1; // same invalidation as open(): a late read/save must not land on the new doc
                       saving.current = false;
+                      setBuiltin(null);
                       dispatch({ type: 'created', name: newName });
                       setNewName('');
                     }}
@@ -386,7 +451,33 @@ export function WorkflowEditor({ project }: { project: string }) {
               </div>
             </div>
 
-            {state.doc !== null ? (
+            {builtinInfo !== undefined ? (
+              <div className="min-h-[24rem] space-y-3 rounded-lg border border-border p-4">
+                <div className="text-sm font-medium">
+                  {builtinInfo.name} <span className="font-normal text-muted-foreground">— {builtinInfo.label} (built-in, read-only)</span>
+                </div>
+                <ol className="flex flex-wrap items-center gap-2 text-sm">
+                  {(builtinInfo.stages ?? []).map((stage, i) => (
+                    <li key={i} className="rounded border border-border px-2 py-1">
+                      {stage}
+                    </li>
+                  ))}
+                </ol>
+                {builtinInfo.doc !== undefined ? (
+                  <div className="space-y-1">
+                    <div className="flex items-center gap-1">
+                      <Input value={dupName} onChange={(e) => setDupName(e.target.value)} placeholder="name of your copy" aria-label="name of the copy" className="w-56 text-xs" />
+                      <Button disabled={dupName === '' || dupProblem !== null || caps === null || flows === null} onClick={() => void duplicateBuiltin()}>
+                        Duplicate to edit
+                      </Button>
+                    </div>
+                    {dupProblem !== null && <div className="px-1 text-[11px] text-destructive">{dupProblem}</div>}
+                  </div>
+                ) : (
+                  <div className="text-xs text-muted-foreground">This built-in can&apos;t be copied yet.</div>
+                )}
+              </div>
+            ) : state.doc !== null ? (
               <FlowCanvas
                 doc={state.doc}
                 palette={palette}

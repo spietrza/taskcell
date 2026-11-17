@@ -1,5 +1,5 @@
 import { beforeEach, expect, test } from 'vitest';
-import { DEFAULT_FILTER, cardKeys, filterCards, filterRuns, groupRows, loadFilter, runKeys, runSource, saveFilter, type HubFilter } from './filterState';
+import { DEFAULT_FILTER, cardKeys, configuredSources, effectiveFilter, filterCards, offeredSources, filterRuns, groupRows, loadFilter, runKeys, runSource, saveFilter, type HubFilter } from './filterState';
 import type { BoardTask, RunSummary } from './wire';
 
 const card = (id: string, column: BoardTask['column'], extra: Partial<BoardTask> & { repoPath?: string; repoName?: string } = {}): BoardTask & { repoPath: string; repoName: string } => ({
@@ -79,4 +79,20 @@ test('the demo keeps its own filter: a search typed there does not reach the rea
     delete window.__TASKCELL_DEMO__;
   }
   expect(loadFilter()).toEqual(DEFAULT_FILTER);
+});
+
+test('source chips: configured sources plus those present; one means no source filter; stale ones are ignored', () => {
+  const projects = [{ path: '/a', taskSource: 'gitlab' as const }, { path: '/b' }, { path: '/c', taskSource: 'hub' as const }];
+  expect(configuredSources(projects, ['/a', '/b'])).toEqual(['gitlab', 'github']);
+  expect(offeredSources(['gitlab'], ['taskcell'])).toEqual(['gitlab', 'taskcell']);
+  const f = { ...DEFAULT_FILTER, sources: ['linear' as const, 'github' as const], group: 'source' as const };
+  expect(effectiveFilter(f, ['github'])).toMatchObject({ sources: [], group: 'none' });
+  expect(effectiveFilter(f, ['github', 'gitlab']).sources).toEqual(['github']);
+  expect(effectiveFilter(f, undefined)).toBe(f);
+});
+
+test('card search matches the title, #issue, id and labels', () => {
+  const labelled = [card('gh-o-r-904', 'queued', { source: 'github', labels: ['billing'] }), card('gh-o-r-5', 'queued', { source: 'github' })];
+  expect(ids(filterCards(labelled, f({ query: 'billing' })))).toEqual(['gh-o-r-904']);
+  expect(ids(filterCards(labelled, f({ query: '#904' })))).toEqual(['gh-o-r-904']);
 });

@@ -3,7 +3,7 @@ import { Button, Chip, Empty, Input, Timestamp, cn } from '@/ui';
 import { Inbox, RefreshCw, Search } from 'lucide-react';
 import { verdictColor } from '../../status';
 import { FilterBar, NoMatch } from '../../FilterBar';
-import { DEFAULT_FILTER, canClearFilters, clearFilters, filterActive, filterNames, filterRuns, groupRows, runKeys, type HubFilter } from '../../filterState';
+import { DEFAULT_FILTER, canClearFilters, clearFilters, effectiveFilter, filterActive, filterNames, filterRuns, groupRows, offeredSources, runKeys, runSource, saveChange, searchText, type RunMeta, type CardSource, type HubFilter } from '../../filterState';
 import { ExternalLink, hostName } from '../../components/ExternalLink';
 import { costLabel, estTitle } from '../../cost';
 import { RunsSplit } from './RunsSplit';
@@ -37,14 +37,16 @@ export function RunList({
   runs,
   active,
   showRepo = false,
-  hub = DEFAULT_FILTER,
+  hub: savedHub = DEFAULT_FILTER,
   onHub,
+  configured = [],
   projects = [],
   onSelect,
   onOpenActive,
   onNewTask,
   selected,
   titles,
+  labels,
   pane,
   paneOpen = false,
   starting = false,
@@ -59,6 +61,8 @@ export function RunList({
   /** The filter Board and Runs share; its bar shows (and the local search goes) when `onHub` is given. */
   hub?: HubFilter;
   onHub?: (f: HubFilter) => void;
+  /** Card sources the projects in view are configured for; the Source filter offers these plus any a run has. */
+  configured?: CardSource[];
   /** Repositories the Projects picker offers (hub: all of the team's). */
   projects?: { path: string; name: string }[];
   onSelect: (r: Run) => void;
@@ -69,6 +73,8 @@ export function RunList({
   selected?: string | undefined;
   /** Task titles by `titleKey`, from the board; a run has none of its own, so a missing one shows the task id. */
   titles?: Map<string, string> | undefined;
+  /** Task labels by `titleKey`, from the board; the search matches them. */
+  labels?: Map<string, string[]> | undefined;
   /** The open run, shown beside the rows (the Runs split view); `paneOpen` says a run is open (narrow screens then show the pane alone). */
   pane?: ReactNode;
   paneOpen?: boolean;
@@ -76,28 +82,44 @@ export function RunList({
   const [query, setQuery] = useState('');
   const [filter, setFilter] = useState<Filter>('all');
 
+  const offered = useMemo(
+    () => (runs.length + active.length === 0 ? undefined : offeredSources(configured, [...runs, ...active].map((r) => runSource(r.taskId)))),
+    [runs, active, configured],
+  );
+  const hub = useMemo(() => effectiveFilter(savedHub, offered), [savedHub, offered]);
+
+  // What the search also matches on a row: its board title and labels.
+  const meta = useMemo<RunMeta>(
+    () => (repoPath, taskId) => {
+      const k = titleKey(repoPath, taskId);
+      return [titles?.get(k) ?? '', ...(labels?.get(k) ?? [])];
+    },
+    [titles, labels],
+  );
+  const matches = (q: string, repoPath: string | undefined, taskId: string): boolean => q === '' || searchText(taskId, meta(repoPath, taskId)).some((s) => s.toLowerCase().includes(q));
+
   const shown = useMemo(() => {
     const q = query.trim().toLowerCase();
-    return filterRuns(runs, hub).filter((r) => {
-      if (q && !r.taskId.toLowerCase().includes(q)) return false;
+    return filterRuns(runs, hub, meta).filter((r) => {
+      if (!matches(q, r.repoPath, r.taskId)) return false;
       if (filter === 'passed' && r.anyFailed) return false;
       if (filter === 'failed' && !isFailed(r)) return false;
       return true;
     });
-  }, [runs, query, filter, hub]);
+  }, [runs, query, filter, hub, meta]);
 
   // Running rows have no pass/fail verdict yet, so they only appear under the "all" filter.
   const shownActive = useMemo(() => {
     if (filter !== 'all') return [];
     const q = query.trim().toLowerCase();
-    return filterActive(active, hub).filter((a) => !q || a.taskId.toLowerCase().includes(q));
-  }, [active, query, filter, hub]);
+    return filterActive(active, hub, meta).filter((a) => matches(q, a.repoPath, a.taskId));
+  }, [active, query, filter, hub, meta]);
 
   // Would clearing the search bring rows back, or is it the pill / hub filter that empties the list?
   const searchHides = useMemo(() => {
     const h = { ...hub, query: '' };
-    return filterRuns(runs, h).some((r) => filter === 'all' || (filter === 'failed' ? isFailed(r) : !r.anyFailed)) || (filter === 'all' && filterActive(active, h).length > 0);
-  }, [runs, active, filter, hub]);
+    return filterRuns(runs, h, meta).some((r) => filter === 'all' || (filter === 'failed' ? isFailed(r) : !r.anyFailed)) || (filter === 'all' && filterActive(active, h, meta).length > 0);
+  }, [runs, active, filter, hub, meta]);
 
   // Rows of both kinds share the lanes; a running row sorts first within its lane.
   const lanes = useMemo(
@@ -225,14 +247,14 @@ export function RunList({
       {/* Narrow screens: with a run open the pane has the whole screen, so the filters step aside. */}
       <div className={cn('flex shrink-0 flex-col gap-3', paneOpen && 'max-md:hidden')}>
       {onHub && (
-        <FilterBar filter={hub} onChange={onHub} searchLabel="Search task id" searchHint="This matches the task id only (a title shown in a row is not searched). Board shares this search and also matches card titles." repos={projects} withCards={[...new Set([...runs, ...active].flatMap((r) => (r.repoPath ? [r.repoPath] : [])))]} />
+        <FilterBar filter={hub} onChange={(f) => onHub(saveChange(f, hub, savedHub))} sources={offered ?? configured} searchHint="Matches the row's title, #issue, task id and labels. Board shares this search." repos={projects} withCards={[...new Set([...runs, ...active].flatMap((r) => (r.repoPath ? [r.repoPath] : [])))]} />
       )}
       <div className="flex shrink-0 flex-wrap items-center gap-2">
         {!onHub && <Input
           value={query}
           onChange={(e) => setQuery(e.target.value)}
           startAdornment={<Search className="size-4" />}
-          placeholder="Filter by task…"
+          placeholder="Search title, #issue or id…"
           className="w-56"
         />}
         <div className="flex gap-1">
@@ -261,7 +283,7 @@ export function RunList({
           <NoMatch
             what="runs"
             query={searchHides ? (onHub ? hub.query : query) : ''}
-            onClear={onHub ? () => onHub({ ...hub, query: '' }) : () => setQuery('')}
+            onClear={onHub ? () => onHub(saveChange({ ...hub, query: '' }, hub, savedHub)) : () => setQuery('')}
             names={[...filterNames(hub), ...(!onHub && query.trim() !== '' ? [`search "${query.trim()}"`] : []), ...(filter !== 'all' ? [filter === 'passed' ? 'Passed' : 'Failed'] : [])]}
             onClearFilters={
               filter !== 'all' || query.trim() !== '' || (onHub && canClearFilters(hub))

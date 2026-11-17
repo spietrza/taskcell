@@ -65,6 +65,11 @@ describe('toBoardTask target branch', () => {
   it('shows the card\'s taskcell:base= label', () => {
     expect(toBoardTask('github', { ...base, ref: '1', state: 'open', labels: ['taskcell:base=uat'] }).baseBranch).toBe('uat');
   });
+  it('carries the tracker labels, minus Taskcell routing labels', () => {
+    const t = toBoardTask('github', { ...base, ref: '1', state: 'open', labels: ['bug', 'ready for agent', 'taskcell:running', 'taskcell:base=uat'] });
+    expect(t.labels).toEqual(['bug']);
+    expect(toBoardTask('github', { ...base, ref: '1', state: 'open', labels: ['taskcell:running'] }).labels).toBeUndefined();
+  });
   it('shows none for conflicting labels (the run refuses them)', () => {
     expect(toBoardTask('github', { ...base, ref: '1', state: 'open', labels: ['taskcell:base=dev', 'taskcell:base=uat'] }).baseBranch).toBeUndefined();
   });

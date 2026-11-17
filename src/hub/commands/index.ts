@@ -88,6 +88,7 @@ export const COMMAND_NAMES = [
   'delete_draft',
   'delete_instance_credential',
   'delete_user_credential',
+  'discover_skills',
   'dismiss_lesson',
   'enable_factory_apply',
   'enable_factory_host',

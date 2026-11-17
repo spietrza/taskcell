@@ -1,6 +1,6 @@
 import { expect, test } from 'vitest';
 import { render, screen } from '@testing-library/react';
-import { ExternalLink, hostName } from './ExternalLink';
+import { ExternalLink, hostName, issueUrl } from './ExternalLink';
 
 test('renders an ordinary new-tab link', () => {
   render(<ExternalLink href="https://github.com/o/r/pull/1">Open in GitHub</ExternalLink>);
@@ -36,4 +36,10 @@ test('in demo mode a link to the made-up repository goes nowhere; a real address
   } finally {
     delete window.__TASKCELL_DEMO__;
   }
+});
+
+test('issueUrl reads GitHub and GitLab PR/MR addresses, nothing else', () => {
+  expect(issueUrl('https://github.com/o/r/pull/28', 27)).toBe('https://github.com/o/r/issues/27');
+  expect(issueUrl('https://gitlab.com/g/r/-/merge_requests/9/', 4)).toBe('https://gitlab.com/g/r/-/issues/4');
+  expect(issueUrl('https://linear.app/x/issue/ABC-1', 1)).toBeUndefined();
 });

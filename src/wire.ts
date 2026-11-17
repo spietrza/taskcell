@@ -42,6 +42,10 @@ export type RunEvent =
 export interface FlowInfo {
   name: string;
   label: string;
+  /** Stage names in order, for built-ins. */
+  stages?: string[];
+  /** A built-in as an editable flow, present only when copying it is faithful; absent otherwise. */
+  doc?: FlowDoc;
 }
 
 /** What the run builder + flow editor render from — providers, flows, the stage palette, transports, defaults. */
@@ -132,6 +136,12 @@ export interface FlowDoc {
   stages: StageDecl[];
   loops: LoopDecl[];
   meta?: Record<string, unknown>;
+}
+
+/** A skill found in an upstream repository (`discover_skills`): its folder (`.` for the root) and its name. */
+export interface DiscoveredSkill {
+  path: string;
+  name: string;
 }
 
 /** One skill of a repository's skills directory on the wire: `skills list`, `skills check` and `stats --skills` joined. */
@@ -302,6 +312,8 @@ export interface BoardTask {
   baseBranch?: string;
   /** Skills the task names by hand (its `Skills:` line). Absent when none. */
   skills?: string[];
+  /** The tracker's labels, minus Taskcell's own routing labels; the Board and Runs search matches them. Absent when none. */
+  labels?: string[];
   /** The tracker the card came from; names the "Open in …" link. */
   source?: 'github' | 'gitlab' | 'linear';
   /** The issue's address in that tracker, as the tracker returned it. Absent ⇒ no link. */

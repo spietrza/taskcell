@@ -1,6 +1,7 @@
 /** The one filter state Board and Runs share (persisted): triage, projects, card source, search and grouping. */
-import type { BoardTask, RunSummary } from './wire';
+import type { BoardTask, RunSummary, TaskSourceId } from './wire';
 import { isDemoMode } from './transport';
+import { issueNumber } from './runLabels';
 
 export type Triage = 'all' | 'running' | 'needs' | 'merged';
 export type CardSource = 'github' | 'gitlab' | 'linear' | 'taskcell';
@@ -102,6 +103,37 @@ export function runSource(taskId: string): CardSource {
   return 'taskcell';
 }
 
+const SOURCE_OF: Record<TaskSourceId, CardSource> = { github: 'github', 'github-project': 'github', gitlab: 'gitlab', linear: 'linear', hub: 'taskcell' };
+
+/** The card sources the projects in scope are configured for (unset = GitHub Issues). */
+export function configuredSources(projects: { path: string; taskSource?: TaskSourceId | null }[], scope: string[]): CardSource[] {
+  return [...new Set(projects.filter((p) => scope.includes(p.path)).map((p) => SOURCE_OF[p.taskSource ?? 'github']))];
+}
+
+/** Sources worth a chip: the configured ones plus any a loaded row actually has (a legacy run stays filterable), in chip order. */
+export function offeredSources(configured: CardSource[], present: CardSource[]): CardSource[] {
+  const all = new Set([...configured, ...present]);
+  return SOURCES.map((s) => s.value).filter((v) => all.has(v));
+}
+
+/** The filter as applied: with one source on offer there is no source filter; a saved source no longer offered is ignored
+ * (the saved filter itself is never rewritten). `undefined` = rows not loaded yet, nothing to judge by. */
+export function effectiveFilter(f: HubFilter, offered: CardSource[] | undefined): HubFilter {
+  if (offered === undefined) return f;
+  const sources = offered.length <= 1 ? [] : f.sources.filter((s) => offered.includes(s));
+  const group = offered.length <= 1 && f.group === 'source' ? 'none' : f.group;
+  return sources.length === f.sources.length && group === f.group ? f : { ...f, sources, group };
+}
+
+/** A change made in the bar (which shows the effective filter) as it is saved: sources and grouping it did not touch keep their saved value. */
+export function saveChange(next: HubFilter, effective: HubFilter, saved: HubFilter): HubFilter {
+  return {
+    ...next,
+    sources: next.sources === effective.sources ? saved.sources : next.sources,
+    group: next.group === effective.group ? saved.group : next.group,
+  };
+}
+
 interface Row {
   triage: Exclude<Triage, 'all'> | 'other';
   source: CardSource;
@@ -119,17 +151,26 @@ function keep(f: HubFilter, r: Row): boolean {
 
 type RepoRow = { repoPath?: string };
 
-export function filterCards<T extends BoardTask & RepoRow>(cards: T[], f: HubFilter): T[] {
-  return cards.filter((t) => keep(f, { triage: cardTriage(t), source: cardSource(t), repoPath: t.repoPath, text: [t.title, t.id] }));
+/** What a row's search matches: the task id, `#issue`, and what the board knows of the task (title, labels). */
+export function searchText(taskId: string, extra: string[] = []): string[] {
+  const n = issueNumber(taskId);
+  return [taskId, ...(n !== undefined ? [`#${n}`] : []), ...extra];
 }
 
-export function filterRuns<T extends RunSummary & RepoRow>(runs: T[], f: HubFilter): T[] {
-  return runs.filter((r) => keep(f, { triage: runTriage(r), source: runSource(r.taskId), repoPath: r.repoPath, text: [r.taskId] }));
+/** The board's title and labels of a run's task, for its search text; a run record has neither. */
+export type RunMeta = (repoPath: string | undefined, taskId: string) => string[];
+
+export function filterCards<T extends BoardTask & RepoRow>(cards: T[], f: HubFilter): T[] {
+  return cards.filter((t) => keep(f, { triage: cardTriage(t), source: cardSource(t), repoPath: t.repoPath, text: searchText(t.id, [t.title, ...(t.labels ?? [])]) }));
+}
+
+export function filterRuns<T extends RunSummary & RepoRow>(runs: T[], f: HubFilter, meta?: RunMeta): T[] {
+  return runs.filter((r) => keep(f, { triage: runTriage(r), source: runSource(r.taskId), repoPath: r.repoPath, text: searchText(r.taskId, meta?.(r.repoPath, r.taskId)) }));
 }
 
 /** In-flight runs are "running"; they match no other triage. */
-export function filterActive<T extends { taskId: string } & RepoRow>(active: T[], f: HubFilter): T[] {
-  return active.filter((a) => keep(f, { triage: 'running', source: runSource(a.taskId), repoPath: a.repoPath, text: [a.taskId] }));
+export function filterActive<T extends { taskId: string } & RepoRow>(active: T[], f: HubFilter, meta?: RunMeta): T[] {
+  return active.filter((a) => keep(f, { triage: 'running', source: runSource(a.taskId), repoPath: a.repoPath, text: searchText(a.taskId, meta?.(a.repoPath, a.taskId)) }));
 }
 
 const TRIAGE_LABEL: Record<string, string> = { running: 'Running', needs: 'Needs you', merged: 'Merged', other: 'Other' };

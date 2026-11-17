@@ -2,7 +2,7 @@ import { expect, test, vi } from 'vitest';
 import { useState } from 'react';
 import { fireEvent, render, screen, within } from '@testing-library/react';
 import { FilterBar } from './FilterBar';
-import { DEFAULT_FILTER, type HubFilter } from './filterState';
+import { DEFAULT_FILTER, type CardSource, type HubFilter } from './filterState';
 import { RunList } from './features/inspector/RunList';
 import { TaskBoard } from './features/board/TaskBoard';
 
@@ -23,11 +23,13 @@ vi.mock('./ipc', () => ({
 
 const repos = [{ path: '/a', name: 'alpha-repo' }, { path: '/b', name: 'beta-repo' }, { path: '/c', name: 'gamma' }];
 
-function Harness({ withCards = ['/a'] }: { withCards?: string[] }) {
+const ALL: CardSource[] = ['github', 'gitlab', 'linear', 'taskcell'];
+
+function Harness({ withCards = ['/a'], sources = ALL }: { withCards?: string[]; sources?: CardSource[] }) {
   const [f, setF] = useState<HubFilter>(DEFAULT_FILTER);
   return (
     <>
-      <FilterBar filter={f} onChange={setF} repos={repos} withCards={withCards} />
+      <FilterBar filter={f} onChange={setF} repos={repos} withCards={withCards} sources={sources} />
       <output data-testid="state">{JSON.stringify(f)}</output>
     </>
   );
@@ -40,7 +42,7 @@ test('triage, source, search and grouping update the state; no runner control', 
   expect(state().triage).toBe('needs');
   fireEvent.click(screen.getAllByRole('button', { name: 'GitLab' })[0]);
   expect(state().sources).toEqual(['gitlab']);
-  fireEvent.change(screen.getByLabelText('Search title or id'), { target: { value: 'abc' } });
+  fireEvent.change(screen.getByLabelText('Search title, #issue or id'), { target: { value: 'abc' } });
   expect(state().query).toBe('abc');
   fireEvent.change(screen.getAllByLabelText('Group by')[0], { target: { value: 'source' } });
   expect(state().group).toBe('source');
@@ -68,7 +70,7 @@ test('the Filters drawer holds projects, source and grouping; triage and search 
   expect(within(drawer).getByRole('group', { name: 'Card source' })).toBeInTheDocument();
   expect(within(drawer).getByLabelText('Group by')).toBeInTheDocument();
   expect(within(drawer).queryByRole('group', { name: 'Triage' })).toBeNull();
-  expect(within(drawer).queryByLabelText('Search title or id')).toBeNull();
+  expect(within(drawer).queryByLabelText('Search title, #issue or id')).toBeNull();
 });
 
 test('Board and Runs apply the same filter and group', async () => {
@@ -94,7 +96,7 @@ test('a grouped Board with no matching card says so, and a grouped Runs table ha
   expect(screen.getByRole('button', { name: 'Clear search' })).toBeInTheDocument();
   board.unmount();
   // A source filter that empties the Board on its own: clearing the search would not help, so it is not offered.
-  const bySource = render(<TaskBoard project="/a" allRepos repos={['/a', '/b']} filter={{ ...DEFAULT_FILTER, query: 'a', sources: ['linear'] }} onFilter={() => {}} projects={repos} onOpenTask={() => {}} onNewTask={() => {}} />);
+  const bySource = render(<TaskBoard project="/a" allRepos repos={['/a', '/b']} filter={{ ...DEFAULT_FILTER, query: 'a', sources: ['linear'] }} configured={ALL} onFilter={() => {}} projects={repos} onOpenTask={() => {}} onNewTask={() => {}} />);
   expect(await screen.findByText('No cards match the current filters.')).toBeInTheDocument();
   expect(screen.queryByRole('button', { name: 'Clear search' })).toBeNull();
   bySource.unmount();
@@ -150,13 +152,41 @@ test('Escape closes the Filters sheet, one layer per press: an open Projects pop
 test('a Board emptied by filters names them and offers Clear filters, which keeps Projects and grouping', async () => {
   const onFilter = vi.fn();
   const f: HubFilter = { ...DEFAULT_FILTER, triage: 'merged', sources: ['linear'], repos: ['/a'], group: 'source' };
-  render(<TaskBoard project="/a" allRepos repos={['/a', '/b']} filter={f} onFilter={onFilter} projects={repos} onOpenTask={() => {}} onNewTask={() => {}} />);
+  render(<TaskBoard project="/a" allRepos repos={['/a', '/b']} filter={f} onFilter={onFilter} configured={ALL} projects={repos} onOpenTask={() => {}} onNewTask={() => {}} />);
   expect(await screen.findByText(/Active: Merged, Linear, Projects\./)).toBeInTheDocument();
   fireEvent.click(screen.getByRole('button', { name: 'Clear filters' }));
   expect(onFilter).toHaveBeenCalledWith({ ...f, triage: 'all', sources: [], query: '' });
 });
 
-test('the Board search box says Runs shares it and matches the task id only', () => {
+test('the Board search box says Runs shares it', () => {
   render(<Harness />);
-  expect(screen.getAllByLabelText('Search title or id')[0]).toHaveAttribute('title', expect.stringContaining('Runs shares this search'));
+  expect(screen.getAllByLabelText('Search title, #issue or id')[0]).toHaveAttribute('title', expect.stringContaining('Runs shares this search'));
+});
+
+test('one source on offer: a muted label, no chips and no Card source grouping', () => {
+  render(<Harness sources={['github']} />);
+  expect(screen.getAllByText('Source: GitHub').length).toBeGreaterThan(0);
+  expect(screen.queryByRole('group', { name: 'Card source' })).toBeNull();
+  expect(screen.queryByRole('option', { name: 'Card source' })).toBeNull();
+});
+
+test('two sources on offer: a chip each, nothing else', () => {
+  render(<Harness sources={['github', 'linear']} />);
+  const group = screen.getAllByRole('group', { name: 'Card source' })[0]!;
+  expect(within(group).getAllByRole('button').map((b) => b.textContent)).toEqual(['GitHub', 'Linear']);
+});
+
+test('a saved source that is no longer offered does not filter the Board', async () => {
+  render(<TaskBoard project="/a" allRepos repos={['/a', '/b']} filter={{ ...DEFAULT_FILTER, sources: ['linear'] }} onFilter={() => {}} configured={['github']} projects={repos} onOpenTask={() => {}} onNewTask={() => {}} />);
+  expect(await screen.findByText('Alpha')).toBeInTheDocument();
+  expect(screen.getByText('Beta')).toBeInTheDocument();
+});
+
+test('typing a search on a single-source screen keeps the saved sources and grouping', async () => {
+  const onFilter = vi.fn();
+  const saved: HubFilter = { ...DEFAULT_FILTER, sources: ['gitlab'], group: 'source' };
+  render(<TaskBoard project="/a" allRepos repos={['/a']} filter={saved} onFilter={onFilter} configured={['github']} projects={repos} onOpenTask={() => {}} onNewTask={() => {}} />);
+  await screen.findByText('Alpha');
+  fireEvent.change(screen.getAllByLabelText('Search title, #issue or id')[0]!, { target: { value: 'x' } });
+  expect(onFilter).toHaveBeenLastCalledWith({ ...saved, query: 'x' });
 });

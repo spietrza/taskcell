@@ -14,7 +14,7 @@ import { boardCountLabels } from './counts';
 import { PausedBanner, PausedLine } from './paused';
 import { ExternalLink } from '../../components/ExternalLink';
 import { FilterBar, NoMatch } from '../../FilterBar';
-import { DEFAULT_FILTER, canClearFilters, cardKeys, clearFilters, filterCards, filterNames, groupRows, type HubFilter } from '../../filterState';
+import { DEFAULT_FILTER, canClearFilters, cardKeys, cardSource, clearFilters, effectiveFilter, filterCards, filterNames, groupRows, offeredSources, saveChange, type CardSource, type HubFilter } from '../../filterState';
 
 // Each column owns a color identity used across its header dot, count pill and card
 // hover border. Classes are spelled out (not interpolated) so Tailwind's JIT keeps them — a
@@ -68,9 +68,10 @@ export function TaskBoard({
   allRepos = false,
   repos,
   teamId,
-  filter = DEFAULT_FILTER,
+  filter: savedFilter = DEFAULT_FILTER,
   onFilter,
   projects = [],
+  configured = [],
   onOpenTask,
   onNewTask,
   onOpenSettings,
@@ -87,6 +88,8 @@ export function TaskBoard({
   onFilter?: (f: HubFilter) => void;
   /** Repositories the Projects picker offers (hub: all of the team's). */
   projects?: { path: string; name: string }[];
+  /** Card sources the projects in view are configured for; the Source filter offers these plus any a card has. */
+  configured?: CardSource[];
   onOpenTask: (taskId: string, repoPath?: string, skills?: string[]) => void;
   onNewTask: () => void;
   /** Opens `project`'s Settings, for the "no task source yet" hint. */
@@ -139,6 +142,8 @@ export function TaskBoard({
     const { skills: _old, ...rest } = t;
     return saved.length > 0 ? { ...rest, skills: saved } : rest;
   });
+  const offered = allTasks && offeredSources(configured, allTasks.map(cardSource));
+  const filter = effectiveFilter(savedFilter, offered);
   const tasks = allTasks && filterCards(allTasks, filter);
   const lanes = groupRows(tasks ?? [], filter.group, cardKeys);
   // A hub-board project's cards are made here, not in a tracker.
@@ -192,7 +197,7 @@ export function TaskBoard({
   // The board is where work starts (S10): authoring a task lives one click away even when the
   // list itself failed to load.
   const bar = onFilter && (
-    <FilterBar filter={filter} onChange={onFilter} repos={allRepos ? projects : []} withCards={[...new Set((allTasks ?? []).flatMap((t) => (t.repoPath ? [t.repoPath] : [])))]} />
+    <FilterBar filter={filter} onChange={(f) => onFilter(saveChange(f, filter, savedFilter))} sources={offered ?? configured} repos={allRepos ? projects : []} withCards={[...new Set((allTasks ?? []).flatMap((t) => (t.repoPath ? [t.repoPath] : [])))]} />
   );
   const header = (
     <>
@@ -266,7 +271,7 @@ export function TaskBoard({
       <div className={cn('flex min-h-0 min-w-0 flex-1 flex-col gap-4', filter.group !== 'none' && 'overflow-y-auto')}>
         {/* Ungrouped, the one lane stays (its columns render empty), so "nothing matches" is asked of the cards. */}
         {(allTasks?.length ?? 0) > 0 && tasks?.length === 0 && (
-          <NoMatch what="cards" query={filterCards(allTasks ?? [], { ...filter, query: '' }).length > 0 ? filter.query : ''} onClear={onFilter && (() => onFilter({ ...filter, query: '' }))} names={filterNames(filter)} onClearFilters={onFilter && canClearFilters(filter) ? () => onFilter(clearFilters(filter)) : undefined} />
+          <NoMatch what="cards" query={filterCards(allTasks ?? [], { ...filter, query: '' }).length > 0 ? filter.query : ''} onClear={onFilter && (() => onFilter(saveChange({ ...filter, query: '' }, filter, savedFilter)))} names={filterNames(filter)} onClearFilters={onFilter && canClearFilters(filter) ? () => onFilter(clearFilters(filter)) : undefined} />
         )}
         {lanes.map((lane) => (
         <section key={lane.key} aria-label={lane.label || undefined} className={cn('flex min-h-0 flex-col gap-2', filter.group === 'none' ? 'flex-1' : 'h-[28rem] shrink-0')}>

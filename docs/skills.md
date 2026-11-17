@@ -183,6 +183,8 @@ Run these in the repo that holds the skills. The examples use `.github/vanguard-
 
    This deletes the directory and its lock entry; commit the change.
 
+In the Hub's Skills screen, **Add skill** takes a repository or a GitHub / GitLab link to a folder in it (`https://github.com/o/r/tree/main/skills/a`; a branch or tag name with a `/` in it is not parsed from a link). For a repository it first lists the folders holding a `SKILL.md` (from the tree listing only, nothing is downloaded) and lets you tick the skills to add. The ticked ones go in one pull request, all pinned to the commit that was listed. A name found twice keeps the shallowest copy outside dot-directories (`.openclaw/skills/x` does not shadow `skills/x`), and a repository with more than 200 files in one skill is still refused: give the folder of that skill.
+
 #### Reference
 
 - `taskcell skills add <git-url>[#ref] [--path <dir-in-repo>] [--name <name>] [--dir <skills dir>]` resolves `ref` (a branch name, a tag name or a full sha; default the head of the default branch) to a commit sha, fetches that commit, copies the skill directory (`SKILL.md` and the other files in it, nothing else from the repo), writes the lock entry and prints what was added. `--path` defaults to the repo root; `--name` defaults to the last segment of `--path` (or the repo name). Executable files stay executable. It refuses:
@@ -190,6 +192,7 @@ Run these in the repo that holds the skills. The examples use `.github/vanguard-
   - any symlink in the skill directory, and a path that escapes the repo. A symlink is refused from the commit's file listing, before anything is checked out, and none is ever created on the host;
   - a directory without `SKILL.md`, and a skill with more than 200 files or 5 MiB (the file count is checked before any file content is downloaded where the server supports partial clone, see "Git on the host"; the size limit is checked after the download);
   - a name that is not a plain directory name, is `skills.lock.json`, or already exists.
+
 - `taskcell skills remove <name> [--dir <skills dir>]` deletes the skill directory and its lock entry. It refuses a directory that is neither pinned nor holds a `SKILL.md`.
 - `taskcell skills update [name] [--dir <skills dir>] [--dry-run] [--pr [--base <branch>]] [--force]` moves each pinned skill (or the named one) to the head of its source's default branch, rewrites the skill directory and the lock, and prints one line per skill, then for each moved skill the names of the files that changed besides `SKILL.md` (`A` added, `M` modified, including a mode change, `D` deleted) and the `SKILL.md` diff. Scripts in a skill are what an agent runs, so read that list, not only the diff. The per-skill line is one of:
   - `<old> → <new> (+a −d lines)`: moved;

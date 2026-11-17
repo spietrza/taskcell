@@ -1,5 +1,6 @@
 import { execFile } from 'node:child_process';
 import { lstat, mkdir, mkdtemp, readFile, realpath, rename, rm, writeFile } from 'node:fs/promises';
+import type { DiscoveredSkill } from '../wire.js';
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 import { promisify } from 'node:util';
 import { neutralizeMentions, neutralizePromptTags } from '../context/escape.js';
@@ -240,6 +241,44 @@ export interface SkillsAddOptions {
   ref?: string;
   path?: string;
   name?: string;
+}
+
+const MAX_DISCOVERED = 50;
+
+/**
+ * The skills a repository holds: every folder with a SKILL.md, from the tree listing alone. Names that are not plain
+ * directory names are skipped (they could not be installed); a name found twice keeps the shallowest path outside
+ * dot-directories, so `.openclaw/skills/x` does not shadow `skills/x`.
+ */
+export async function skillsDiscover(opts: { source: string; ref?: string }, deps: SkillsDeps = {}): Promise<{ commit: string; skills: DiscoveredSkill[] }> {
+  const src = deps.source ?? gitSkillSource;
+  assertHttpsSource(opts.source);
+  if (src.list === undefined) throw new TaskcellError('This skill source cannot list a repository.');
+  try {
+    const commit = await src.resolve(opts.source, opts.ref);
+    if (commit === undefined) throw new TaskcellError(`Cannot resolve ${opts.ref ?? 'HEAD'} of ${opts.source}.`);
+    const repoName = basename(new URL(opts.source).pathname).replace(/\.git$/, '');
+    const dirs = (await src.list(opts.source, commit))
+      .filter((f) => f === 'SKILL.md' || f.endsWith('/SKILL.md'))
+      .map((f) => (f === 'SKILL.md' ? '.' : f.slice(0, -'/SKILL.md'.length)))
+      .filter((d) => oneLine(d) === d);
+    const rank = (d: string): [number, number, string] => [d.split('/').some((seg) => seg.startsWith('.') && seg !== '.') ? 1 : 0, d.split('/').length, d];
+    dirs.sort((a, b) => {
+      const [x, y] = [rank(a), rank(b)];
+      return x[0] - y[0] || x[1] - y[1] || x[2].localeCompare(y[2]);
+    });
+    const seen = new Set<string>();
+    const skills: DiscoveredSkill[] = [];
+    for (const path of dirs) {
+      const name = path === '.' ? repoName : basename(path);
+      if (!isName(name) || seen.has(name)) continue;
+      seen.add(name);
+      skills.push({ path, name });
+    }
+    return { commit, skills: skills.slice(0, MAX_DISCOVERED) };
+  } finally {
+    await src.dispose?.();
+  }
 }
 
 /** Resolves to the installed skill's name. */
@@ -610,11 +649,17 @@ async function skillsUpdatePr(opts: SkillsUpdateOptions, deps: SkillsDeps, out: 
 }
 
 /** `skills add`, delivered as a PR off the base branch instead of written in place. */
-export async function skillsAddPr(opts: SkillsAddOptions & { repo: string; baseBranch?: string }, deps: SkillsDeps = {}): Promise<SkillsPrResult> {
+export async function skillsAddPr(opts: SkillsAddOptions & { repo: string; baseBranch?: string; paths?: string[] }, deps: SkillsDeps = {}): Promise<SkillsPrResult> {
   return inSkillsWorktree(opts, 'skills-add', deps, async (w) => {
-    const name = await skillsAdd({ ...opts, dir: w.wtDir }, deps, () => {});
-    const body = `Adds the skill ${code(name)} from ${code(opts.source)}${opts.ref !== undefined ? ` at ${code(opts.ref)}` : ''}.\n\nOpened by \`taskcell skills add\`; review SKILL.md before merging.`;
-    return deliverSkillsPr(w, [name], `chore(skills): add ${name}`.slice(0, 100), () => body, deps);
+    // `paths` adds several skills of one repository in one PR; each is a separate fetch (skillsAdd disposes its tree), pinned by `ref`.
+    const names: string[] = [];
+    for (const path of opts.paths ?? [opts.path]) {
+      const { paths: _paths, ...one } = opts;
+      names.push(await skillsAdd({ ...one, dir: w.wtDir, ...(path !== undefined ? { path } : {}) }, deps, () => {}));
+    }
+    const list = names.map(code).join(', ');
+    const body = `Adds the skill${names.length > 1 ? 's' : ''} ${list} from ${code(opts.source)}${opts.ref !== undefined ? ` at ${code(opts.ref)}` : ''}.\n\nOpened by \`taskcell skills add\`; review SKILL.md before merging.`;
+    return deliverSkillsPr(w, names, `chore(skills): add ${names.join(', ')}`.slice(0, 100), () => body, deps);
   });
 }
 

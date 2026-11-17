@@ -12,6 +12,13 @@ const MODE_WORDS: Record<ApproverMode, string> = {
   act: 'Act — it merges the pull requests it approves',
 };
 
+/** What each mode does, shown on its own choice: the buttons alone ("Shadow", "Act") do not say it. */
+const MODES: { mode: ApproverMode; label: string; does: string }[] = [
+  { mode: 'off', label: 'Off', does: 'Factory pull requests wait for you. Nothing is judged or recorded.' },
+  { mode: 'shadow', label: 'Shadow', does: 'Judges each factory pull request and records whether it would merge it, so the scorecard fills up. Merges nothing.' },
+  { mode: 'act', label: 'Act', does: 'Merges the factory pull requests it approves, without you. The rest still wait for you.' },
+];
+
 /** Text from the hub with `command` spans, shown as code rather than with literal backticks. */
 function InlineCode({ text }: { text: string }) {
   return <>{text.split('`').map((part, i) => (i % 2 === 1 ? <code key={i}>{part}</code> : part))}</>;
@@ -93,15 +100,18 @@ export function AutoMerge({ project: repo }: { project: string }) {
           {data.status === 'ok' && data.topReasons.length > 0 && (
             <p className="text-xs text-muted-foreground">Most often left for you: {data.topReasons.map((r) => `${r.reason} (${r.count})`).join(', ')}</p>
           )}
-          <div className="flex flex-wrap gap-2" role="group" aria-label="Approver mode">
-            {(['off', 'shadow', 'act'] as const).map((m) => (
-              <Button key={m} variant="outlined" {...gateProps(gate)} disabled={gate?.allowed === false || data.mode === m || !data.policyFound || (m === 'act' && !data.actOffered)} onClick={() => setTarget(m)}>
-                {m === 'off' ? 'Turn off' : m === 'shadow' ? 'Shadow' : 'Act'}
-              </Button>
+          <div className="grid gap-2 sm:grid-cols-3" role="group" aria-label="Approver mode">
+            {MODES.map(({ mode: m, label, does }) => (
+              <div key={m} className={`flex flex-col gap-1.5 rounded-md border p-2.5 ${data.mode === m ? 'border-primary bg-primary/5' : 'border-border'}`}>
+                <Button variant="outlined" aria-pressed={data.mode === m} {...gateProps(gate)} disabled={gate?.allowed === false || data.mode === m || !data.policyFound || (m === 'act' && !data.actOffered)} onClick={() => setTarget(m)}>
+                  {data.mode === m ? `${label} (current)` : m === 'off' ? 'Turn off' : label}
+                </Button>
+                <p className="text-xs text-muted-foreground">{does}</p>
+              </div>
             ))}
           </div>
           {!data.policyFound && <p className="text-xs text-muted-foreground">The mode cannot be changed yet: this repository has no approver policy. Add <code>.taskcell/approver.json</code> to the base branch first.</p>}
-          {!data.actOffered && <p className="text-xs text-muted-foreground">Act mode, where the approver merges pull requests by itself, can't be turned on yet: {data.actHold !== undefined && data.actHold !== '' ? data.actHold : "it is waiting on another change that isn't finished."} Shadow mode shows what it would do without merging anything.</p>}
+          {!data.actOffered && <p className="text-xs text-muted-foreground">Act is not available yet: {data.actHold !== undefined && data.actHold !== '' ? data.actHold : 'this Taskcell version does not offer it.'} Shadow first: it shows what Act would merge.</p>}
           {prUrl !== null && <p className="text-sm">Pull request opened: <ExternalLink href={prUrl}>{prUrl}</ExternalLink> — merge it to apply.</p>}
           {target !== null && <Dialog repo={repo} card={data} mode={target} onClose={() => setTarget(null)} onDone={(u) => { setPrUrl(u); setTarget(null); }} />}
         </>

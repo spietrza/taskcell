@@ -4,8 +4,8 @@ import { stat } from 'node:fs/promises';
 import { join } from 'node:path';
 import { aggregateSkills } from '../../core/skill-stats.js';
 import { parseMetrics } from '../../core/stats.js';
-import { cachedResolver, recordedMetrics, skillsAddPr, skillsChecked, skillsRemovePr, skillsUpdate, type SkillsPrResult } from '../../core/skills.js';
-import type { RepoSkill } from '../../wire.js';
+import { cachedResolver, recordedMetrics, skillsAddPr, skillsDiscover, skillsChecked, skillsRemovePr, skillsUpdate, type SkillsPrResult } from '../../core/skills.js';
+import type { DiscoveredSkill, RepoSkill } from '../../wire.js';
 import { defineCommands, optionalString, requireString, repoItemTarget, repoTarget } from '../command-kit.js';
 import { safeUrl } from '../audit.js';
 import { BadRequestError } from '../../sidecar/sidecar.js';
@@ -15,8 +15,11 @@ export interface SkillsCommands {
   list_repo_skills: { args: { repoPath: string }; result: { skills: RepoSkill[] } };
   /** HUB_ONLY, owner only: `skills update <name> --pr`; the skill only ever changes on a new branch, delivered as a PR. Resolves to its URL. */
   update_skill_pr: { args: { repoPath: string; name: string }; result: { prUrl: string } };
-  /** HUB_ONLY, owner only: `skills add` delivered as a PR. A failure carries the command's reason. */
-  add_skill_pr: { args: { repoPath: string; source: string; ref?: string; path?: string; name?: string }; result: { prUrl: string } };
+  /** HUB_ONLY, owner only: `skills add` delivered as a PR. A failure carries the command's reason. `paths` adds several skills of
+   * one repository in one PR (the folders `discover_skills` found, `ref` pinned to its commit); `source` may be a GitHub or GitLab browse link to a folder. */
+  add_skill_pr: { args: { repoPath: string; source: string; ref?: string; path?: string; paths?: string[]; name?: string }; result: { prUrl: string } };
+  /** HUB_ONLY, owner only (it reads the network): the skills a repository holds, from its tree listing alone. `commit` is what to pin them to. */
+  discover_skills: { args: { repoPath: string; source: string }; result: { commit: string; skills: DiscoveredSkill[] } };
   /** HUB_ONLY, owner only: `skills remove` delivered as a PR. */
   remove_skill_pr: { args: { repoPath: string; name: string }; result: { prUrl: string } };
 }
@@ -24,13 +27,46 @@ export interface SkillsCommands {
 // One cache for the hub's lifetime: each pinned skill costs a `git ls-remote`.
 const upstreamHead = cachedResolver();
 
-/** `<git-url>[#ref]` as the CLI takes it; an explicit `ref` wins over the fragment. */
-export function splitSource(source: string, ref?: string): { source: string; ref?: string } {
+/**
+ * `<git-url>[#ref]` as the CLI takes it, or a GitHub / GitLab browse link to a folder (`/tree/<ref>/<path>`, `/blob/<ref>/<path>/SKILL.md`);
+ * an explicit `ref` wins over the fragment and the link.
+ * shortcut: a ref containing "/" is not parsed from a browse link (its first segment is taken); pass `ref` separately in that case.
+ */
+export function splitSource(source: string, ref?: string): { source: string; ref?: string; path?: string } {
   const hash = source.indexOf('#');
-  if (hash === -1) return { source, ...(ref !== undefined ? { ref } : {}) };
-  const frag = source.slice(hash + 1);
-  if (frag === '') throw new BadRequestError('empty #ref in the skill source');
-  return { source: source.slice(0, hash), ref: ref ?? frag };
+  if (hash !== -1 && source.slice(hash + 1) === '') throw new BadRequestError('empty #ref in the skill source');
+  const bare = hash === -1 ? source : source.slice(0, hash);
+  const frag = hash === -1 ? undefined : source.slice(hash + 1);
+  const browse = browseLink(bare);
+  const found = ref ?? frag ?? browse?.ref;
+  return { source: browse?.source ?? bare, ...(found !== undefined ? { ref: found } : {}), ...(browse?.path !== undefined ? { path: browse.path } : {}) };
+}
+
+function browseLink(url: string): { source: string; ref: string; path?: string } | undefined {
+  let u: URL;
+  try {
+    u = new URL(url);
+  } catch {
+    return undefined;
+  }
+  const segs = u.pathname.split('/').filter((x) => x !== '');
+  // github.com/<owner>/<repo>/(tree|blob)/<ref>/<path…>; gitlab: <group…>/<project>/-/(tree|blob)/<ref>/<path…>.
+  const at = u.hostname === 'github.com' ? 2 : segs.indexOf('-');
+  const kind = segs[at + (u.hostname === 'github.com' ? 0 : 1)];
+  if (at < 1 || (kind !== 'tree' && kind !== 'blob')) return undefined;
+  const rest = segs.slice(at + (u.hostname === 'github.com' ? 1 : 2));
+  const [ref, ...path] = rest;
+  if (ref === undefined) return undefined;
+  if (kind === 'blob' && path[path.length - 1] === 'SKILL.md') path.pop();
+  return { source: `${u.origin}/${segs.slice(0, at).join('/')}`, ref, ...(path.length > 0 ? { path: path.join('/') } : {}) };
+}
+
+/** `paths`, when given: a non-empty list of folder names, as many as discovery returns at most. */
+function optionalPaths(args: Record<string, unknown>): string[] | undefined {
+  const v = args.paths;
+  if (v === undefined) return undefined;
+  if (!Array.isArray(v) || v.length === 0 || v.length > 50 || v.some((p) => typeof p !== 'string')) throw new BadRequestError('paths must be 1-50 folder names');
+  return v as string[];
 }
 
 const skillsDir = (repo: string): string => join(repo, 'skills');
@@ -71,13 +107,28 @@ export const commands = defineCommands<SkillsCommands>({
   },
   add_skill_pr: async ({ args, allow }) => {
     const real = await allow(requireString(args, 'repoPath'));
-    const { source, ref } = splitSource(requireString(args, 'source'), optionalString(args, 'ref'));
-    const path = optionalString(args, 'path');
+    const parsed = splitSource(requireString(args, 'source'), optionalString(args, 'ref'));
+    const { source, ref } = parsed;
+    const paths = optionalPaths(args);
+    // An explicit path beats the one in a pasted browse link.
+    const path = optionalString(args, 'path') ?? parsed.path;
     const name = optionalString(args, 'name');
     return prUrlOf(
-      await skillsAddPr({ dir: skillsDir(real), repo: real, source, ...(ref !== undefined ? { ref } : {}), ...(path !== undefined ? { path } : {}), ...(name !== undefined ? { name } : {}) }),
+      await skillsAddPr({
+        dir: skillsDir(real),
+        repo: real,
+        source,
+        ...(ref !== undefined ? { ref } : {}),
+        ...(paths !== undefined ? { paths } : path !== undefined ? { path } : {}),
+        ...(name !== undefined && paths === undefined ? { name } : {}),
+      }),
       'The add',
     );
+  },
+  discover_skills: async ({ args, allow }) => {
+    await allow(requireString(args, 'repoPath'));
+    const { source, ref } = splitSource(requireString(args, 'source'), optionalString(args, 'ref'));
+    return skillsDiscover({ source, ...(ref !== undefined ? { ref } : {}) });
   },
   remove_skill_pr: async ({ args, allow }) => {
     const real = await allow(requireString(args, 'repoPath'));
@@ -88,6 +139,8 @@ export const commands = defineCommands<SkillsCommands>({
   list_repo_skills: { write: false, repo: 'repoPath' },
   update_skill_pr: { write: true, remote: true, owner: true, repo: 'repoPath' },
   add_skill_pr: { write: true, remote: true, owner: true, repo: 'repoPath' },
+  // Reads the network (the upstream's tree), writes nothing: the owner's, like browse_dirs.
+  discover_skills: { write: false, remote: true, owner: true, repo: 'repoPath' },
   remove_skill_pr: { write: true, remote: true, owner: true, repo: 'repoPath' },
 }, {
   update_skill_pr: { action: 'settings-change', target: repoItemTarget('name') },

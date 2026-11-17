@@ -43,6 +43,10 @@ export type RunEvent =
 export interface FlowInfo {
   name: string;
   label: string;
+  /** Stage names in order, for built-ins. */
+  stages?: string[];
+  /** A built-in as an editable flow, present only when copying it is faithful; absent otherwise. */
+  doc?: FlowDoc;
 }
 
 /** What the run builder + flow editor render from — providers, flows, the stage palette, transports, defaults. */
@@ -133,6 +137,12 @@ export interface FlowDoc {
   stages: StageDecl[];
   loops: LoopDecl[];
   meta?: Record<string, unknown>;
+}
+
+/** A skill found in an upstream repository (`discover_skills`): its folder (`.` for the root) and its name. */
+export interface DiscoveredSkill {
+  path: string;
+  name: string;
 }
 
 /** One skill of a repository's skills directory on the wire: `skills list`, `skills check` and `stats --skills` joined. */
@@ -303,6 +313,8 @@ export interface BoardTask {
   baseBranch?: string;
   /** Skills the task names by hand (its `Skills:` line). Absent when none. */
   skills?: string[];
+  /** The tracker's labels, minus Taskcell's own routing labels; the Board and Runs search matches them. Absent when none. */
+  labels?: string[];
   /** The tracker the card came from; names the "Open in …" link. */
   source?: 'github' | 'gitlab' | 'linear';
   /** The issue's address in that tracker, as the tracker returned it. Absent ⇒ no link. */
@@ -1315,8 +1327,11 @@ export interface Commands {
   list_repo_skills: { args: { repoPath: string }; result: { skills: RepoSkill[] } };
   /** HUB_ONLY, owner only: `skills update <name> --pr`; the skill only ever changes on a new branch, delivered as a PR. Resolves to its URL. */
   update_skill_pr: { args: { repoPath: string; name: string }; result: { prUrl: string } };
-  /** HUB_ONLY, owner only: `skills add` delivered as a PR. A failure carries the command's reason. */
-  add_skill_pr: { args: { repoPath: string; source: string; ref?: string; path?: string; name?: string }; result: { prUrl: string } };
+  /** HUB_ONLY, owner only: `skills add` delivered as a PR. A failure carries the command's reason. `paths` adds several skills of
+   * one repository in one PR (the folders `discover_skills` found, `ref` pinned to its commit); `source` may be a GitHub or GitLab browse link to a folder. */
+  add_skill_pr: { args: { repoPath: string; source: string; ref?: string; path?: string; paths?: string[]; name?: string }; result: { prUrl: string } };
+  /** HUB_ONLY, owner only (it reads the network): the skills a repository holds, from its tree listing alone. `commit` is what to pin them to. */
+  discover_skills: { args: { repoPath: string; source: string }; result: { commit: string; skills: DiscoveredSkill[] } };
   /** HUB_ONLY, owner only: `skills remove` delivered as a PR. */
   remove_skill_pr: { args: { repoPath: string; name: string }; result: { prUrl: string } };
   /** `hubBoard`: the project's task source is the hub's own board (its cards are created and scheduled in the hub). */
@@ -1406,6 +1421,7 @@ export const COMMAND_NAMES = [
   'delete_draft',
   'delete_instance_credential',
   'delete_user_credential',
+  'discover_skills',
   'dismiss_lesson',
   'enable_factory_apply',
   'enable_factory_host',
