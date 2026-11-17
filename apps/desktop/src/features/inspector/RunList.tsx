@@ -2,7 +2,8 @@ import { Fragment, useMemo, useState, type KeyboardEvent, type ReactElement, typ
 import { Button, Chip, Empty, Input, Timestamp, cn } from '@/ui';
 import { Inbox, RefreshCw, Search } from 'lucide-react';
 import { verdictColor } from '../../status';
-import { FilterBar, NoMatch } from '../../FilterBar';
+import { contrastColor } from '../../color';
+import { FilterBar, NoMatch, pill } from '../../FilterBar';
 import { DEFAULT_FILTER, canClearFilters, clearFilters, effectiveFilter, filterActive, filterNames, filterRuns, groupRows, offeredSources, runKeys, runSource, saveChange, searchText, type RunMeta, type CardSource, type HubFilter } from '../../filterState';
 import { ExternalLink, hostName } from '../../components/ExternalLink';
 import { costLabel, estTitle } from '../../cost';
@@ -52,6 +53,7 @@ export function RunList({
   pane,
   paneOpen = false,
   starting = false,
+  identity,
 }: {
   runs: Run[];
   /** In-flight runs discovered from `.taskcell` state, rendered as running rows at the top. */
@@ -80,6 +82,8 @@ export function RunList({
   /** The open run, shown beside the rows (the Runs split view); `paneOpen` says a run is open (narrow screens then show the pane alone). */
   pane?: ReactNode;
   paneOpen?: boolean;
+  /** A row's project, for its avatar: the project's name and colour (`projectColor`). Undefined: initials on a plain well. */
+  identity?: ((repoPath: string | undefined) => { name: string; color: string } | undefined) | undefined;
 }) {
   const [query, setQuery] = useState('');
   const [filter, setFilter] = useState<Filter>('all');
@@ -140,6 +144,7 @@ export function RunList({
   const row = (key: string, repoName: string | undefined, taskId: string, repoPath: string | undefined, station: { at: number; failed: boolean }, chip: ReactElement, age: ReactElement, open?: () => void, extra?: ReactElement): ReactElement => {
     const issue = issueNumber(taskId);
     const title = titles?.get(titleKey(repoPath, taskId));
+    const who = identity?.(repoPath);
     return (
       <li
         key={key}
@@ -153,14 +158,19 @@ export function RunList({
           selected === key && 'bg-muted',
         )}
       >
-        <span className="grid size-8 shrink-0 place-items-center rounded-full bg-muted text-[11px] font-bold" aria-hidden>
-          {repoInitials(repoName ?? taskId)}
+        <span
+          className={cn('grid size-8 shrink-0 place-items-center rounded-full text-[11px] font-bold', who === undefined && 'bg-muted')}
+          style={who && { backgroundColor: who.color, color: contrastColor(who.color) }}
+          aria-hidden
+        >
+          {repoInitials(who?.name ?? repoName ?? taskId)}
         </span>
         <span className="min-w-0 flex-1">
           {showRepo && repoName !== undefined && <span className="block truncate text-sm font-medium">{repoName}</span>}
-          <span className={cn('block truncate text-sm', showRepo ? 'text-muted-foreground' : 'font-medium')}>
-            {title ?? taskId}
-            {issue !== undefined ? <span className="tabular-nums text-muted-foreground"> · #{issue}</span> : title !== undefined && <span className="text-muted-foreground"> · {taskId}</span>}
+          {/* The card's id first, so a long title truncates without hiding it. */}
+          <span className={cn('flex min-w-0 gap-1.5 text-sm', showRepo ? 'text-muted-foreground' : 'font-medium')}>
+            {issue !== undefined ? <span className="shrink-0 tabular-nums text-muted-foreground">#{issue}</span> : title !== undefined && <span className="shrink-0 font-mono text-xs leading-5 text-muted-foreground">{taskId}</span>}
+            <span className="min-w-0 truncate">{title ?? taskId}</span>
           </span>
           <StationMark {...station} className="mt-0.5" />
           {extra}
@@ -180,8 +190,9 @@ export function RunList({
       a.repoPath,
       // A live run has no stage on its row; it is in the cell until its record says otherwise.
       stationOf({ column: 'running' }),
-      // Amber (live), not green, so a running row isn't mistaken for a green "passed" one.
-      <Chip color="primary" variant="outlined">
+      // Neutral ink (live, spinning), not green, so a running row isn't mistaken for a "passed" one, and not orange,
+      // which means "needs you".
+      <Chip color="secondary" variant="outlined">
         <span className="inline-flex items-center gap-1">
           <RefreshCw className="size-3 animate-spin motion-reduce:animate-none" aria-hidden />
           running
@@ -237,11 +248,11 @@ export function RunList({
         </Empty.Media>
         <Empty.Title>No runs found</Empty.Title>
         <Empty.Description>
-          No runs to show here. Create a task and the factory's runs show up on this page.
+          No runs to show here. Create a card and the factory's runs show up on this page.
         </Empty.Description>
         {onNewTask && (
           <Empty.Actions>
-            <Button onClick={onNewTask}>Create a task</Button>
+            <Button onClick={onNewTask}>Create a card</Button>
           </Empty.Actions>
         )}
       </Empty.Root>
@@ -252,36 +263,40 @@ export function RunList({
     <div className="flex min-h-0 flex-1 flex-col gap-3">
       {/* Narrow screens: with a run open the pane has the whole screen, so the filters step aside. */}
       <div className={cn('flex shrink-0 flex-col gap-3', paneOpen && 'max-md:hidden')}>
-      {onHub && (
-        <FilterBar filter={hub} onChange={(f) => onHub(saveChange(f, hub, savedHub))} sources={offered ?? configured} searchHint="Matches the row's title, #issue, task id and labels. Board shares this search." repos={projects} withCards={[...new Set([...runs, ...active].flatMap((r) => (r.repoPath ? [r.repoPath] : [])))]} />
-      )}
-      <div className="flex shrink-0 flex-wrap items-center gap-2">
-        {!onHub && <Input
-          value={query}
-          onChange={(e) => setQuery(e.target.value)}
-          startAdornment={<Search className="size-4" />}
-          placeholder="Search title, #issue or id…"
-          className="w-56"
-        />}
-        <div className="flex gap-1">
-          {(['all', 'passed', 'failed'] as Filter[]).map((f) => (
-            <button
-              key={f}
-              onClick={() => setFilter(f)}
-              className={`rounded px-2 py-1 text-xs first-letter:uppercase transition-colors ${
-                filter === f ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:bg-muted'
-              }`}
-            >
-              {f === 'all' ? 'All results' : f}
-            </button>
-          ))}
-        </div>
-        <span className="ml-auto text-xs tabular-nums text-muted-foreground">
-          {shown.length + shownActive.length} /{' '}
-          {runs.length + (filter === 'all' ? active.length : 0)}
-        </span>
-      </div>
-
+      {(() => {
+        // The verdict pills and the count sit in the filter bar's row, so Runs has one row of filters.
+        const results = (
+          <>
+            <div role="group" aria-label="Result" className="flex gap-1">
+              {(['all', 'passed', 'failed'] as Filter[]).map((f) => (
+                <button key={f} type="button" aria-pressed={filter === f} onClick={() => setFilter(f)} className={cn(pill(filter === f), 'first-letter:uppercase')}>
+                  {f === 'all' ? 'All results' : f}
+                </button>
+              ))}
+            </div>
+            <span className="ml-auto text-xs tabular-nums text-muted-foreground">
+              {shown.length + shownActive.length} /{' '}
+              {runs.length + (filter === 'all' ? active.length : 0)}
+            </span>
+          </>
+        );
+        return onHub ? (
+          <FilterBar filter={hub} onChange={(f) => onHub(saveChange(f, hub, savedHub))} sources={offered ?? configured} searchHint="Matches the row's title, #issue, card id and labels. Board shares this search." repos={projects} withCards={[...new Set([...runs, ...active].flatMap((r) => (r.repoPath ? [r.repoPath] : [])))]}>
+            {results}
+          </FilterBar>
+        ) : (
+          <div className="flex shrink-0 flex-wrap items-center gap-2">
+            <Input
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              startAdornment={<Search className="size-4" />}
+              placeholder="Search title, #issue or id…"
+              className="w-56"
+            />
+            {results}
+          </div>
+        );
+      })()}
       </div>
       {(() => {
         const rows = (

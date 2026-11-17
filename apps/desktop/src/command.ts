@@ -49,7 +49,7 @@ const flowArgs = (cfg: AppConfig): string[] => {
 
 const checkSource = (source: string): string => {
   if (!SOURCES.includes(source)) {
-    throw new Error(`Invalid Task Source "${source}" — set github / gitlab / linear in Settings.`);
+    throw new Error(`Invalid card source "${source}" — set github / gitlab / linear in Settings.`);
   }
   return source;
 };

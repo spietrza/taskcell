@@ -204,8 +204,10 @@ test('a project opened from Home narrows the Board for that visit only; the top-
   vi.stubGlobal('matchMedia', (q: string) => ({ matches: false, media: q, addEventListener: () => {}, removeEventListener: () => {}, addListener: () => {}, removeListener: () => {} }));
   render(<App />);
   fireEvent.click(await screen.findByText('storefront (demo)', { selector: '*' }));
-  expect((await screen.findAllByRole('button', { name: /^Projects: storefront/ })).length).toBeGreaterThan(0);
+  // One demo project: no project tabs to show the narrowing, so the check is that it is not saved.
+  expect((await screen.findAllByRole('search', { name: 'Filters' })).length).toBeGreaterThan(0);
   expect(localStorage.getItem('vanguard.hubFilter.demo') ?? '').not.toContain('storefront');
   fireEvent.click(screen.getByRole('button', { name: 'Board' }));
-  expect((await screen.findAllByRole('button', { name: 'Projects: All projects' })).length).toBeGreaterThan(0);
+  expect((await screen.findAllByRole('search', { name: 'Filters' })).length).toBeGreaterThan(0);
+  expect(localStorage.getItem('vanguard.hubFilter.demo') ?? '').not.toContain('storefront');
 });

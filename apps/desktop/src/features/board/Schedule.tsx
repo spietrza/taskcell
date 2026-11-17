@@ -16,12 +16,16 @@ export function ScheduleLines({ task }: { task: Pick<BoardTask, 'blockedBy' | 's
           {s.label}
         </div>
       )}
-      {s?.result !== undefined && <div className="truncate text-[11px] text-muted-foreground" title={s.result}>{s.result}</div>}
+      {/* What the run delivered (a pull request or `branch <name>`), labelled so it does not read as the heading's subtitle. */}
+      {s?.result !== undefined && <div className="truncate text-[11px] text-muted-foreground" title={s.result}>Delivered: {s.result}</div>}
       {s === undefined && !!task.blockedBy?.length && <div className="text-[11px] text-muted-foreground">blocked by {task.blockedBy.join(', ')}</div>}
       {s === undefined && task.startDate !== undefined && <div className="text-[11px] text-muted-foreground">starts {task.startDate}</div>}
     </>
   );
 }
+
+/** Example ids for a "Blocked by" field: never the card's own id, which it cannot wait for. */
+export const blockedByExample = (own?: string): string => ['hub-1', 'hub-2', 'hub-3'].filter((id) => id !== own).slice(0, 2).join(', ');
 
 /** Edits a hub-board task's "blocked by" (comma-separated task ids of this project) and start date; retries a failed one. */
 export function ScheduleEditor({ repoPath, task, onSaved }: { repoPath: string; task: BoardTask; onSaved: () => void }) {
@@ -41,25 +45,25 @@ export function ScheduleEditor({ repoPath, task, onSaved }: { repoPath: string; 
   // A stored instant (not a plain day) is shown and edited as it is: a date picker would cut its time off.
   const instant = stored.length > 10;
   return (
-    <section aria-label="Schedule" className="space-y-2">
+    <section aria-label="Schedule" className="mt-3 space-y-2 border-t border-border/50 pt-3">
       <h4 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Schedule</h4>
       <ScheduleLines task={task} />
       <label className="block text-xs">
         Blocked by
-        <input className={FIELD} value={blockedBy} onChange={(e) => setBlockedBy(e.target.value)} placeholder="hub-1, hub-2" />
+        <input className={FIELD} value={blockedBy} onChange={(e) => setBlockedBy(e.target.value)} placeholder={blockedByExample(task.id)} />
       </label>
       <label className="block text-xs">
         Start date{task.timeZone !== undefined ? ` (${instant ? 'hub time zone' : '00:00 in the hub time zone,'} ${task.timeZone})` : ''}
         <input type={instant ? 'text' : 'date'} className={cn(FIELD, !instant && 'w-auto')} value={date} onChange={(e) => setDate(e.target.value)} />
       </label>
-      <p className="text-[11px] text-muted-foreground">Saving or retrying makes you the task's owner: it runs as you, on your credential.</p>
+      <p className="text-[11px] text-muted-foreground">Saving or retrying makes you the card's owner: it runs as you, on your credential.</p>
       {error !== null && <div role="alert" className="text-xs text-destructive-text">{error}</div>}
       <div className="flex flex-wrap gap-2">
         <Button variant="outlined" onClick={save}>Save schedule</Button>
         {task.schedule?.state === 'failed' && task.schedule.result !== undefined && <Button variant="outlined" onClick={() => done(hubTaskAccept(repoPath, task.id))}>Accept result</Button>}
         {task.schedule?.state === 'failed' && <Button variant="outlined" onClick={() => done(hubTaskRetry(repoPath, task.id))}>Retry</Button>}
         {task.schedule?.state === 'done' && <Button variant="outlined" onClick={() => done(hubTaskArchive(repoPath, task.id))}>Archive</Button>}
-        {task.schedule?.state !== 'running' && <Button variant="outlined" onClick={() => done(hubTaskDelete(repoPath, task.id))}>Delete</Button>}
+        {task.schedule?.state !== 'running' && <Button variant="text" color="destructive" className="ml-auto" onClick={() => done(hubTaskDelete(repoPath, task.id))}>Delete</Button>}
       </div>
     </section>
   );
@@ -88,7 +92,7 @@ export function NewHubTask({ repoPath, onCreated }: { repoPath: string; onCreate
     );
   };
   return (
-    <form aria-label="New hub task" onSubmit={add} className="mb-3 flex shrink-0 flex-col gap-2 rounded-lg border border-border/60 p-3 sm:flex-row sm:items-start">
+    <form aria-label="New card" onSubmit={add} className="mb-3 flex shrink-0 flex-col gap-2 rounded-lg border border-border/60 p-3 sm:flex-row sm:items-start">
       <label className="block min-w-0 text-xs sm:w-64">
         Title
         <input className={FIELD} value={title} maxLength={300} onChange={(e) => setTitle(e.target.value)} />
@@ -99,14 +103,14 @@ export function NewHubTask({ repoPath, onCreated }: { repoPath: string; onCreate
       </label>
       <label className="block min-w-0 text-xs sm:w-32">
         Blocked by
-        <input className={FIELD} value={blockedBy} onChange={(e) => setBlockedBy(e.target.value)} placeholder="hub-1, hub-2" />
+        <input className={FIELD} value={blockedBy} onChange={(e) => setBlockedBy(e.target.value)} placeholder={blockedByExample()} />
       </label>
       <label className="block text-xs">
         Start date (00:00 in the hub time zone)
         <input type="date" className={cn(FIELD, 'w-auto')} value={date} onChange={(e) => setDate(e.target.value)} />
       </label>
       <div className="sm:pt-4">
-        <Button type="submit" disabled={title.trim() === ''}>Add task</Button>
+        <Button type="submit" disabled={title.trim() === ''}>Add card</Button>
         {error !== null && <div role="alert" className="mt-1 text-xs text-destructive-text">{error}</div>}
       </div>
     </form>

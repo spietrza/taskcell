@@ -82,7 +82,7 @@ export function MergeButton({ project, item, onMerged }: { project: string; item
   return (
     <div className="flex items-center gap-2">
       {/* Outlined, like Reply: the screen has one per item. A merge is irreversible, so it takes a second click. */}
-      <Button variant="outlined" disabled={merging || refused} title={blocked} onClick={() => (confirming ? void merge() : setConfirming(true))}>
+      <Button variant="outlined" color="primary" disabled={merging || refused} title={blocked} onClick={() => (confirming ? void merge() : setConfirming(true))}>
         {merging ? 'Merging…' : `${confirming ? 'Confirm merge' : 'Merge'}${item.baseRef ? ` into ${item.baseRef}` : ''}`}
       </Button>
       {confirming && (
@@ -148,7 +148,7 @@ export function NeedsYou({
       {items === null && !error && <div className="text-sm text-muted-foreground">Loading…</div>}
       {items?.length === 0 && (
         <p className="text-sm text-muted-foreground">
-          Nothing needs you — the factory is not waiting on an answer for any Task or PR. To start something, create a task
+          Nothing needs you — the factory is not waiting on an answer for any card or PR. To start something, create a card
           {onOpenBoard && (
             <>
               {' '}
@@ -178,7 +178,7 @@ export function NeedsYou({
                     <div className="mt-0.5 flex flex-wrap items-center gap-x-2 text-xs text-muted-foreground">
                       {item.repoName !== undefined && <span className="font-mono">{item.repoName}</span>}
                       <span>
-                        {item.kind === 'pr' ? 'PR' : 'Task'} <span className="font-mono tabular-nums">#{item.number}</span>
+                        {item.kind === 'pr' ? 'PR' : 'Card'} <span className="font-mono tabular-nums">#{item.number}</span>
                       </span>
                       {item.baseBranch && <span className="font-mono" title="target branch">→ {item.baseBranch}</span>}
                     </div>
@@ -186,13 +186,14 @@ export function NeedsYou({
                   <div className="flex items-center gap-2 max-md:w-full">
                     <Button
                       variant={kind.action === 'Review' && !kind.broken ? 'contained' : 'outlined'}
+                      color={kind.broken ? 'secondary' : 'primary'}
                       aria-expanded={expanded}
                       aria-label={`${kind.action} ${item.title}`}
                       onClick={() => setOpen(expanded ? null : key)}
                     >
                       {kind.action}
                     </Button>
-                    <ExternalLink href={item.url}>Open in GitHub</ExternalLink>
+                    <ExternalLink href={item.url} label={`Open ${item.title} in GitHub`}>Open in GitHub</ExternalLink>
                   </div>
                 </div>
                 {expanded && (

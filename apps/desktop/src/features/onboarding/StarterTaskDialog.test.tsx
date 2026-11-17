@@ -15,7 +15,7 @@ describe('StarterTaskDialog', () => {
     render(<StarterTaskDialog project={project} onCreated={onCreated} onClose={() => {}} />);
     expect(screen.getByText(STARTER_TASK.title)).toBeInTheDocument();
     expect(apiCreateTask).not.toHaveBeenCalled();
-    fireEvent.click(screen.getByRole('button', { name: 'Create this task' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Create this card' }));
     await waitFor(() => expect(onCreated).toHaveBeenCalled());
     expect(apiCreateTask).toHaveBeenCalledWith('/r/app', STARTER_TASK.title, STARTER_TASK.body);
   });
@@ -23,7 +23,7 @@ describe('StarterTaskDialog', () => {
   test('Create this task is closed, with the reason, when the hub refuses remote writes', async () => {
     vi.mocked(callerCapabilities).mockResolvedValueOnce({ project: { canCreateTask: { allowed: false, reason: 'the hub refuses remote writes' } } } as never);
     render(<StarterTaskDialog project={project} onCreated={() => {}} onClose={() => {}} />);
-    const button = screen.getByRole('button', { name: 'Create this task' });
+    const button = screen.getByRole('button', { name: 'Create this card' });
     await waitFor(() => expect(button).toBeDisabled());
     expect(button).toHaveAttribute('title', 'the hub refuses remote writes');
   });
@@ -32,8 +32,8 @@ describe('StarterTaskDialog', () => {
     vi.mocked(apiCreateTask).mockRejectedValue(new Error('no access'));
     const onCreated = vi.fn();
     render(<StarterTaskDialog project={project} onCreated={onCreated} onClose={() => {}} />);
-    fireEvent.click(screen.getByRole('button', { name: 'Create this task' }));
-    expect(await screen.findByRole('alert')).toHaveTextContent('Task not created');
+    fireEvent.click(screen.getByRole('button', { name: 'Create this card' }));
+    expect(await screen.findByRole('alert')).toHaveTextContent('Card not created');
     expect(onCreated).not.toHaveBeenCalled();
   });
 

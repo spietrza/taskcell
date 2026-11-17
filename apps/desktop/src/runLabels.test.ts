@@ -1,9 +1,9 @@
 import { expect, test } from 'vitest';
 import { issueNumber, repoInitials, startedByLabel, titleKey } from './runLabels';
 
-test('"started by" never says token: the shared hub identity and the local worker get plain names', () => {
-  expect(startedByLabel('token')).toBe('Hub');
-  expect(startedByLabel('local-worker')).toBe('Local worker');
+test('"started by" names a person only: the shared hub identity and the local worker show nothing', () => {
+  expect(startedByLabel('token')).toBeUndefined();
+  expect(startedByLabel('local-worker')).toBeUndefined();
   expect(startedByLabel('alice@example.com')).toBe('alice@example.com');
   expect(startedByLabel(undefined)).toBeUndefined();
 });

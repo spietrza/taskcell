@@ -53,7 +53,7 @@ export function Dashboard({
           </Empty.Media>
           <Empty.Title>No projects yet</Empty.Title>
           <Empty.Description>
-            Add a git repository (an existing folder, or clone one) to track its factory runs, tasks and spend. The setup guide also checks your sign-ins.
+            Add a git repository (an existing folder, or clone one) to track its factory runs, cards and spend. The setup guide also checks your sign-ins.
           </Empty.Description>
           <Empty.Actions>
             <Button {...gateProps(addGate)} onClick={onAdd} startIcon={<FolderPlus className="size-4" />}>
@@ -153,8 +153,8 @@ export function Dashboard({
                   </Card.Header>
                   <Card.Content className="pt-0">
                     <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs tabular-nums text-muted-foreground">
-                      <span>{p.runCount} runs</span>
-                      <span>{p.taskCount} tasks</span>
+                      <span>{p.runCount} {p.runCount === 1 ? 'run' : 'runs'}</span>
+                      <span>{p.taskCount} {p.taskCount === 1 ? 'card' : 'cards'}</span>
                       <span>${p.totalCostUsd.toFixed(2)}</span>
                       {p.ciRunCount !== undefined && <span>{p.ciRunCount} in CI</span>}
                       {p.failedCount > 0 && <span className="text-destructive-text">{p.failedCount} failed</span>}
@@ -164,7 +164,7 @@ export function Dashboard({
                     {/* Platform: where tasks come from and where work runs, so projects set up differently read side by side. */}
                     <div className="mt-2 flex flex-wrap items-center gap-1.5">
                       {/* Unset is not GitHub Issues: the board asks for an explicit source, and Settings shows it as "—". */}
-                      <Chip color="secondary" variant="outlined">{p.taskSource ? taskSourceLabel(p.taskSource) : 'No task source'}</Chip>
+                      <Chip color="secondary" variant="outlined">{p.taskSource ? taskSourceLabel(p.taskSource) : 'No card source'}</Chip>
                       <span className="text-xs text-muted-foreground" aria-hidden>→</span>
                       <Chip color="secondary" variant="outlined">{runLocationLabel(location)}</Chip>
                     </div>

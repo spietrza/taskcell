@@ -90,3 +90,17 @@ export function factoryGateOf(caps: CallerCapabilities | null): CallerCapability
 export function gateProps(cap: CallerCapability | undefined): { disabled?: true; title?: string } {
   return cap === undefined || cap.allowed ? {} : { disabled: true, ...(cap.reason !== undefined ? { title: cap.reason } : {}) };
 }
+
+const PHONE = '(max-width: 767px)';
+/** Under md (a phone): screens swap wide tables and columns for stacked lists. Follows the window as it is resized. */
+export function usePhone(): boolean {
+  const [phone, setPhone] = useState(() => window.matchMedia?.(PHONE).matches === true);
+  useEffect(() => {
+    const mq = window.matchMedia?.(PHONE);
+    if (!mq) return;
+    const on = (): void => setPhone(mq.matches);
+    mq.addEventListener?.('change', on);
+    return () => mq.removeEventListener?.('change', on);
+  }, []);
+  return phone;
+}

@@ -19,9 +19,29 @@ const KEY_STATION: Record<string, Station> = {
 /** The hub records the shared token identity as `token` (TOKEN_ACTOR in src/hub/audit.ts): a hub with no sign-in. */
 export const authorLabel = (login: string): string => (login === 'token' ? 'you (local hub)' : login);
 
+/** The name General and Line give each app.json key; the raw key only for one no screen edits. */
+const KEY_LABEL: Record<string, string> = {
+  label: 'Trigger label',
+  provider: 'Engine',
+  budgetUsd: 'Budget cap per run',
+  verifyCmd: 'Verify command',
+  reviewProvider: 'Review engine',
+  baseBranch: 'Default target branch',
+  flow: 'Runs with flow',
+  taskSource: 'Card source',
+  source: 'Card source',
+  runLocation: 'Runs on',
+  team: 'Linear team key',
+  concurrency: 'Parallel runs',
+  usageCapPct: 'Usage cap %',
+  chatModel: 'Doc chat model',
+  color: 'Project color',
+  customProviders: 'Anthropic-compatible endpoints',
+};
+
 export const keyLabel = (k: string): string => {
   const s = KEY_STATION[k];
-  return `${s === undefined ? 'General' : STATION_SHORT[s]} · ${k}`;
+  return `${s === undefined ? 'General' : STATION_SHORT[s]} · ${KEY_LABEL[k] ?? k}`;
 };
 
 /** "old → new" for a key the hub recorded values for (its non-secret allowlist); null for a names-only key. */

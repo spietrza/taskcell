@@ -40,8 +40,8 @@ test('an unset task source shows "—" (not a default the board would reject); p
   read.mockResolvedValueOnce({});
   render(<Settings project="/repo" />);
   await waitFor(() => expect(screen.getByPlaceholderText('claude-sonnet-5')).toBeInTheDocument());
-  expect(screen.getByLabelText('Task source')).toHaveValue('');
-  fireEvent.change(screen.getByLabelText('Task source'), { target: { value: 'github' } });
+  expect(screen.getByLabelText('Card source')).toHaveValue('');
+  fireEvent.change(screen.getByLabelText('Card source'), { target: { value: 'github' } });
   fireEvent.click(screen.getByRole('button', { name: /save/i }));
   await waitFor(() => expect(write).toHaveBeenLastCalledWith('/repo', expect.objectContaining({ taskSource: 'github', source: 'github' })));
 });
@@ -49,7 +49,7 @@ test('an unset task source shows "—" (not a default the board would reject); p
 test('a project configured before taskSource shows its legacy source', async () => {
   read.mockResolvedValueOnce({ source: 'gitlab' });
   render(<Settings project="/repo" />);
-  await waitFor(() => expect(screen.getByLabelText('Task source')).toHaveValue('gitlab'));
+  await waitFor(() => expect(screen.getByLabelText('Card source')).toHaveValue('gitlab'));
 });
 
 test('task source and run location are editable, saved per project, and bad pairs are explained', async () => {
@@ -57,7 +57,7 @@ test('task source and run location are editable, saved per project, and bad pair
   render(<Settings project="/repo" />);
   await waitFor(() => expect(screen.getByPlaceholderText('claude-sonnet-5')).toBeInTheDocument());
   expect(screen.queryByRole('note')).not.toBeInTheDocument();
-  fireEvent.change(screen.getByLabelText('Task source'), { target: { value: 'linear' } });
+  fireEvent.change(screen.getByLabelText('Card source'), { target: { value: 'linear' } });
   fireEvent.change(screen.getByLabelText('Runs on'), { target: { value: 'watch' } });
   expect(screen.getByRole('note')).toHaveTextContent(/still need a code host/);
   fireEvent.click(screen.getByRole('button', { name: /save/i }));
@@ -148,10 +148,10 @@ test('an out-of-range number names its range and blocks save', async () => {
 test('the hub board can be picked as a task source', async () => {
   read.mockResolvedValueOnce({ taskSource: 'hub' });
   render(<Settings project="/repo" />);
-  const select = (await screen.findByLabelText('Task source')) as HTMLSelectElement;
+  const select = (await screen.findByLabelText('Card source')) as HTMLSelectElement;
   expect(select).toHaveValue('hub');
-  expect(screen.getByRole('option', { name: 'Hub board' })).toBeEnabled();
-  expect(screen.getByRole('option', { name: 'GitHub Issues' })).toBeEnabled();
+  expect(screen.getByRole('option', { name: 'Taskcell board' })).toBeEnabled();
+  expect(screen.getByRole('option', { name: 'GitHub' })).toBeEnabled();
   expect(screen.getByRole('option', { name: 'Self-hosted (watch)' })).toBeEnabled();
 });
 
@@ -199,9 +199,9 @@ test('Save is closed, with the reason, when the hub refuses remote writes', asyn
 test('a setting explains itself behind an info button', async () => {
   read.mockResolvedValueOnce({});
   render(<Settings project="/repo" />);
-  expect(await screen.findByLabelText('Task source')).toBeInTheDocument();
+  expect(await screen.findByLabelText('Card source')).toBeInTheDocument();
   expect(screen.getAllByTestId('field-help').length).toBeGreaterThan(0);
-  expect(screen.getByText(/Where this project's tasks come from/)).toHaveClass('sr-only');
+  expect(screen.getByText(/Where this project's cards come from/)).toHaveClass('sr-only');
 });
 
 test('Discard changes puts back the config as last read, and Save goes quiet again', async () => {

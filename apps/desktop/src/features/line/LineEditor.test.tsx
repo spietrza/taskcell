@@ -127,7 +127,7 @@ test('every field the old General form edited is still editable in General or Li
     document.body.querySelectorAll('label').forEach((l) => rendered.add(l.textContent ?? ''));
   }
   const all = [generalText, ...rendered].join('|');
-  for (const label of ['Task source', 'Runs on', 'Linear team key', 'Parallel runs', 'Usage cap %', 'Doc chat model', 'Project color', 'Trigger label', 'Engine', 'Budget cap per run', 'Verify command', 'Review engine', 'Default target branch', 'Runs with flow']) {
+  for (const label of ['Card source', 'Runs on', 'Linear team key', 'Parallel runs', 'Usage cap %', 'Doc chat model', 'Project color', 'Trigger label', 'Engine', 'Budget cap per run', 'Verify command', 'Review engine', 'Default target branch', 'Runs with flow']) {
     expect(all).toContain(label);
   }
 });
@@ -136,9 +136,9 @@ test('history shows old → new for keys the hub recorded values for, and names 
   history.mockResolvedValueOnce([{ time: '2026-11-17T10:00:00Z', login: 'ann', outcome: 'ok', target: '/repo', detail: ['budgetUsd', 'label', 'verifyCmd'], changes: [{ key: 'budgetUsd', from: '5', to: '8' }, { key: 'label', to: 'go' }] }]);
   await open();
   const row = (await screen.findByText('ann')).closest('li')!;
-  expect(row).toHaveTextContent('budgetUsd: 5 → 8');
-  expect(row).toHaveTextContent('label: unset → go');
-  expect(row.querySelector('li:last-child')).toHaveTextContent(/· verifyCmd$/);
+  expect(row).toHaveTextContent('Budget cap per run: 5 → 8');
+  expect(row).toHaveTextContent('Trigger label: unset → go');
+  expect(row.querySelector('li:last-child')).toHaveTextContent(/· Verify command$/);
 });
 
 test('history shows the token-auth placeholder as "you (local hub)"', async () => {
@@ -175,5 +175,22 @@ test('Set up auto-run keeps the hub\'s factory gate: refused, it is disabled wit
   } finally {
     window.history.replaceState(null, '', '/');
     vi.mocked(ipc.callerCapabilities).mockResolvedValue({ mutationsAllowed: true } as Awaited<ReturnType<typeof ipc.callerCapabilities>>);
+  }
+});
+
+test('on a phone no station is preselected; a tap opens its panel and scrolls it into view', async () => {
+  vi.stubGlobal('matchMedia', vi.fn(() => ({ matches: true, addEventListener: vi.fn(), removeEventListener: vi.fn() })));
+  const scroll = vi.fn();
+  Element.prototype.scrollIntoView = scroll;
+  try {
+    await open();
+    expect(screen.queryAllByRole('button', { pressed: true })).toHaveLength(0);
+    expect(screen.queryByRole('region', { name: /settings$/ })).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: new RegExp(STATION_SHORT.gates) }));
+    expect(await screen.findByRole('region', { name: /Gates.* settings$/ })).toBeInTheDocument();
+    expect(scroll).toHaveBeenCalled();
+  } finally {
+    vi.unstubAllGlobals();
+    window.history.replaceState(null, '', '/');
   }
 });

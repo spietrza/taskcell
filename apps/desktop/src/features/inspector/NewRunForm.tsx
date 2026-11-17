@@ -140,8 +140,8 @@ export function NewRunForm({
       <div className="flex flex-wrap items-center gap-x-3 gap-y-2 text-xs text-muted-foreground">
         <Input value={issueRef} onChange={(e) => setIssueRef(e.target.value)} placeholder="issue ref (e.g. 322)" aria-label="Issue ref" aria-invalid={refError !== undefined} className="w-40" />
         <span className="flex items-center gap-1">
-          Task source
-          <EnumSelect label="Task source" value={transport} onValueChange={setTransport} options={capabilities.transports.map((t) => ({ value: t, label: t }))} />
+          Card source
+          <EnumSelect label="Card source" value={transport} onValueChange={setTransport} options={capabilities.transports.map((t) => ({ value: t, label: t }))} />
         </span>
         <span className="flex items-center gap-1">
           Provider

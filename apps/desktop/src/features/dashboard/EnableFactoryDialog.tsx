@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react';
-import { Button, Chip, CodeBlock, useFocusTrap } from '@/ui';
+import { Button, Chip, CodeBlock, LINK_CLASS, useFocusTrap } from '@/ui';
 import { enableFactoryApply, enableFactoryHost, enableFactoryPlan, enableFactoryStart, enableFactoryVerify, enableFactoryWatch, factoryRefresh, factoryState, localWorkerDoctor, localWorkerSet, localWorkerState } from '../../ipc';
 import { factoryStepLabel, localWorkerLabel } from './factoryLabel';
 import { ExternalLink } from '../../components/ExternalLink';
@@ -221,7 +221,7 @@ export function EnableFactoryDialog({ project, onClose, startLocal = false }: { 
                   </div>
                   {s.id === 'pr' && checklist.prUrl && (
                     <div className="ml-6 text-xs">
-                      <a href={checklist.prUrl} target="_blank" rel="noreferrer" className="text-primary-text underline">{checklist.prUrl}</a>
+                      <a href={checklist.prUrl} target="_blank" rel="noreferrer" className={LINK_CLASS}>{checklist.prUrl}</a>
                     </div>
                   )}
                   {s.id === 'secret' && s.status !== 'done' && checklist.secret && (
@@ -243,13 +243,13 @@ export function EnableFactoryDialog({ project, onClose, startLocal = false }: { 
                   {s.id === 'merged' && s.status !== 'done' && checklist.prUrl && (
                     <p className="ml-6 text-xs text-muted-foreground">
                       {s.status === 'failed' ? checklist.reason : 'Waiting for the merge — this page notices on its own.'}{' '}
-                      <a href={checklist.prUrl} target="_blank" rel="noreferrer" className="text-primary-text underline">Open the {mr}</a>
+                      <a href={checklist.prUrl} target="_blank" rel="noreferrer" className={LINK_CLASS}>Open the {mr}</a>
                     </p>
                   )}
                   {s.id === 'doctor' && (
                     <div className="ml-6 text-xs">
                       {checklist.doctor ? (
-                        <a href={checklist.doctor.url} target="_blank" rel="noreferrer" className="text-primary-text underline">
+                        <a href={checklist.doctor.url} target="_blank" rel="noreferrer" className={LINK_CLASS}>
                           Doctor run: {checklist.doctor.conclusion || checklist.doctor.status}
                         </a>
                       ) : checklist.doctorPending ? (
@@ -272,7 +272,7 @@ export function EnableFactoryDialog({ project, onClose, startLocal = false }: { 
         ) : local !== null ? (
           <>
             <p className="mt-1 text-xs text-muted-foreground">
-              The hub itself works this project: on a schedule it picks up {local.source === 'hub' ? 'tasks from the hub board' : 'open issues with the trigger label'}, within its parallel-run limit, on this machine. Off by default.
+              The hub itself works this project: on a schedule it picks up {local.source === 'hub' ? 'cards from the Taskcell board' : 'open issues with the trigger label'}, within its parallel-run limit, on this machine. Off by default.
             </p>
             <label className="mt-3 flex items-center gap-2 text-sm font-medium">
               <input
@@ -297,7 +297,7 @@ export function EnableFactoryDialog({ project, onClose, startLocal = false }: { 
             </Section>
             <Section title="2. Doctor passed (run on the hub's machine)">
               {local.source === 'hub' ? (
-                <p className="text-xs text-muted-foreground">Not needed: the board scheduler runs a hub-board project&apos;s tasks; there is no tracker to check.</p>
+                <p className="text-xs text-muted-foreground">Not needed: the board scheduler runs a Taskcell-board project&apos;s cards; there is no tracker to check.</p>
               ) : (<>              <p data-doctor={local.doctor === undefined ? 'unknown' : local.doctor.ok ? 'passed' : 'failed'}>
                 {local.doctor === undefined
                   ? 'Not run yet.'
@@ -312,7 +312,7 @@ export function EnableFactoryDialog({ project, onClose, startLocal = false }: { 
             </Section>
             <Section title="3. Worker state">
               <p data-testid="local-worker-dialog-state">{localWorkerLabel(local)}</p>
-              <p className="mt-1 text-xs text-muted-foreground">Turning it off stops new pick-ups; a task that is already running is left alone.</p>
+              <p className="mt-1 text-xs text-muted-foreground">Turning it off stops new pick-ups; a card that is already running is left alone.</p>
             </Section>
           </>
         ) : watch !== null ? (

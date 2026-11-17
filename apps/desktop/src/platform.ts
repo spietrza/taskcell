@@ -3,11 +3,11 @@ import type { RunLocationId, TaskSourceId } from './wire';
 /** Per-project factory setup: where tasks come from and where work runs (docs/task-sources.md). */
 /** `planned` = nothing reads it yet (no board, no task creation, no runner): Settings lists it but does not let it be picked. None is today. */
 export const TASK_SOURCES: { id: TaskSourceId; label: string; planned?: true }[] = [
-  { id: 'github', label: 'GitHub Issues' },
+  { id: 'github', label: 'GitHub' },
   { id: 'github-project', label: 'GitHub Projects' },
-  { id: 'gitlab', label: 'GitLab Issues' },
+  { id: 'gitlab', label: 'GitLab' },
   { id: 'linear', label: 'Linear' },
-  { id: 'hub', label: 'Hub board' },
+  { id: 'hub', label: 'Taskcell board' },
 ];
 
 /** `implemented` = Enable factory can set it up from the hub; the rest link to where it is tracked. */
@@ -61,25 +61,25 @@ export function combinationNote(source: string | null | undefined, location: str
   const s = taskSourceOf(source);
   const l = runLocationOf(location);
   if (s === 'linear' && l === 'gitlab-ci') {
-    return 'Linear only supplies tasks: the MR is opened on the code host, so the repo\'s origin must be on GitLab (set GITLAB_HOST for a self-hosted one).';
+    return 'Linear only supplies cards: the MR is opened on the code host, so the repo\'s origin must be on GitLab (set GITLAB_HOST for a self-hosted one).';
   }
   if (s === 'linear' && l === 'github-actions') {
-    return 'Linear only supplies tasks: the PR is opened on GitHub, so the repo\'s origin must be on github.com.';
+    return 'Linear only supplies cards: the PR is opened on GitHub, so the repo\'s origin must be on github.com.';
   }
   if (s === 'linear') {
-    return 'Linear only supplies tasks: you still need a code host (GitHub or GitLab) for the PR/MR.';
+    return 'Linear only supplies cards: you still need a code host (GitHub or GitLab) for the PR/MR.';
   }
   if (s === 'gitlab' && l === 'github-actions') {
-    return 'GitLab Issues with GitHub Actions: Actions cannot read GitLab issues, so use GitLab CI or run `watch` yourself.';
+    return 'GitLab cards with GitHub Actions: Actions cannot read GitLab issues, so use GitLab CI or run `watch` yourself.';
   }
   if (s === 'github' && l === 'gitlab-ci') {
-    return 'GitHub Issues with GitLab CI: GitLab CI cannot be triggered by GitHub issues, so use GitHub Actions or run `watch` yourself.';
+    return 'GitHub cards with GitLab CI: GitLab CI cannot be triggered by GitHub issues, so use GitHub Actions or run `watch` yourself.';
   }
   if (s === 'github-project' && l !== 'watch' && l !== 'local') {
     return 'GitHub Projects is read by `taskcell run --project` / `watch`, not by CI events: run it self-hosted (watch) or locally.';
   }
   if (s === 'hub' && (l === 'github-actions' || l === 'gitlab-ci')) {
-    return 'The hub board lives in the hub, which neither CI nor a `taskcell watch` worker can read: the hub runs its tasks itself.';
+    return 'The Taskcell board lives in the hub, which neither CI nor a `taskcell watch` worker can read: the hub runs its cards itself.';
   }
   return null;
 }

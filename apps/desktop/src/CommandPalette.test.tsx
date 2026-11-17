@@ -10,10 +10,10 @@ test('offers the open project\'s screens and actions, naming the project', () =>
   const onNewTask = vi.fn();
   const onAutoRun = vi.fn();
   render(<CommandPalette {...base} projectName="demo" onScreen={onScreen} onNewTask={onNewTask} onAutoRun={onAutoRun} />);
-  for (const l of ['Board', 'Runs', 'Settings', 'New task', 'Auto-run']) expect(screen.getByText(`${l} · demo`)).toBeInTheDocument();
+  for (const l of ['Board', 'Runs', 'Settings', 'New card', 'Auto-run']) expect(screen.getByText(`${l} · demo`)).toBeInTheDocument();
   fireEvent.click(screen.getByText('Settings · demo'));
   expect(onScreen).toHaveBeenCalledWith('settings');
-  fireEvent.click(screen.getByText('New task · demo'));
+  fireEvent.click(screen.getByText('New card · demo'));
   expect(onNewTask).toHaveBeenCalled();
   fireEvent.click(screen.getByText('Auto-run · demo'));
   expect(onAutoRun).toHaveBeenCalled();

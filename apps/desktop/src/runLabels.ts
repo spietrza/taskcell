@@ -1,10 +1,8 @@
 import { taskRefKey } from './features/board/taskref';
 
-/** Who started a run, in plain words: the hub's shared `token` identity and the local worker are not names. */
+/** Who started a run, when that is a person: the hub's shared `token` identity and the local worker are not, so they show nothing. */
 export function startedByLabel(startedBy: string | undefined): string | undefined {
-  if (startedBy === 'token') return 'Hub';
-  if (startedBy === 'local-worker') return 'Local worker';
-  return startedBy;
+  return startedBy === 'token' || startedBy === 'local-worker' ? undefined : startedBy;
 }
 
 /** The issue number a run's task id ends in (`gh-owner-repo-904` -> 904); undefined for a task id without one. */

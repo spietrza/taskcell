@@ -1,5 +1,4 @@
 import { Button, Input } from '@/ui';
-import { Members, type TeamScreen } from './Members';
 import { gateProps } from '../../hooks';
 import { CredentialsPanel } from './CredentialsPanel';
 import { combinationNote, effectiveRunLocation, legacySource, resolveTaskSource, RUN_LOCATIONS, runLocationOf, TASK_SOURCES, taskSourceOf } from '../../platform';
@@ -10,7 +9,8 @@ import { Field, SELECT_CLASS } from './fields';
 import { useConfigForm } from './configForm';
 import { ChatModelField } from './ChatModelField';
 
-export function Settings({ project, teamScreen }: { project: string; teamScreen?: TeamScreen }) {
+/** The open project's settings (`.taskcell/app.json`). The team's members and repositories are a separate section of the screen. */
+export function Settings({ project }: { project: string }) {
   const { cfg, cfgStatus, dirty, saved, saveError, saveGate, lastSaved, set, customs, customErrors, rangeErrors, savable, save, discard } = useConfigForm(project);
 
   const setCustoms = (rows: CustomProviderSpec[]): void => set('customProviders', rows.length > 0 ? rows : undefined);
@@ -25,7 +25,7 @@ export function Settings({ project, teamScreen }: { project: string; teamScreen?
     <div className="space-y-5">
       {/* Sticky: Save stays reachable however far the form scrolls. */}
       <div className="sticky top-0 z-10 flex items-center gap-3 bg-background py-1">
-        <h2 className="text-xl font-semibold">Settings</h2>
+        <h2 className="text-xl font-semibold">Project settings</h2>
         <code className="text-xs text-muted-foreground">.taskcell/app.json</code>
         {dirty && lastSaved !== null && (
           <Button className="ml-auto" variant="text" color="secondary" onClick={discard}>
@@ -41,8 +41,6 @@ export function Settings({ project, teamScreen }: { project: string; teamScreen?
           Settings were not saved: {errorClause(saveError)}. Fix it and save again.
         </p>
       )}
-
-      {teamScreen && <Members {...teamScreen} />}
 
       {cfgStatus === 'error' && (
         <div role="alert" className="rounded-md border border-destructive/40 bg-destructive/10 p-3 text-sm text-muted-foreground">
@@ -95,7 +93,7 @@ export function Settings({ project, teamScreen }: { project: string; teamScreen?
           </div>
         </div>
         <div className="grid grid-cols-2 gap-4">
-          <Field label="Task source" help="Where this project's tasks come from. The Board lists them, and the factory takes its work from here.">
+          <Field label="Card source" help="Where this project's cards come from. The Board lists them, and the factory takes its work from here.">
             <select
               value={taskSource ?? ''}
               onChange={(e) => {
@@ -115,7 +113,7 @@ export function Settings({ project, teamScreen }: { project: string; teamScreen?
               ))}
             </select>
           </Field>
-          <Field label="Runs on" help="Where a task's run happens: in your CI (GitHub Actions, GitLab CI), on a machine running taskcell watch, or in this hub on this computer.">
+          <Field label="Runs on" help="Where a card's run happens: in your CI (GitHub Actions, GitLab CI), on a machine running taskcell watch, or in this hub on this computer.">
             <select
               value={effectiveRunLocation(taskSource, cfg.runLocation)}
               onChange={(e) => set('runLocation', runLocationOf(e.target.value))}
@@ -146,7 +144,7 @@ export function Settings({ project, teamScreen }: { project: string; teamScreen?
           </Field>
         )}
         <div className="grid grid-cols-2 gap-4">
-          <Field label="Parallel runs" hint="— how many tasks run at once (1 or more)" error={rangeErrors.concurrency}>
+          <Field label="Parallel runs" hint="— how many cards run at once (1 or more)" error={rangeErrors.concurrency}>
             <Input
               type="number"
               min={1}

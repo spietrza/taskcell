@@ -1,5 +1,5 @@
 import { useEffect, useState, type ReactNode, type Ref } from 'react';
-import { Button, Timestamp, cn } from '@/ui';
+import { Button, LINK_CLASS, Timestamp, cn } from '@/ui';
 import { Check, Circle, CircleDot, Play, X } from 'lucide-react';
 import { apiSetTaskSkills, fetchSpec, hubTaskStart, listNeedsYou, listRuns, readRun, type NeedsYouItem } from '../../ipc';
 import { errorMessage } from '../../errors';
@@ -7,6 +7,8 @@ import { useAppConfig, useAsync } from '../../hooks';
 import { isDemoLink } from '../../transport';
 import type { BoardTask, RepoStamp, RunDetail, RunSummary } from '../../wire';
 import { STATION_SHORT } from '../../stations';
+import { taskSourceLabel } from '../../platform';
+import { startedByLabel } from '../../runLabels';
 import { costLabel, estTitle } from '../../cost';
 import { verdictWord } from '../../status';
 import { AgentText } from '../../components/AgentText';
@@ -26,7 +28,7 @@ export const isPullRequestCard = (id: string): boolean => /^gh-pr-\d+$/i.test(id
 const isHubTaskCard = (id: string): boolean => /^hub-[1-9]\d*$/.test(id);
 export const isInvalidHubCard = (id: string): boolean => id === 'hub-invalid';
 
-export const TRACKER_NAME = { github: 'GitHub', gitlab: 'GitLab', linear: 'Linear' } as const;
+export const TRACKER_NAME = { github: taskSourceLabel('github'), gitlab: taskSourceLabel('gitlab'), linear: taskSourceLabel('linear') } as const;
 
 /** The board's column names: the Board's headers and the quick view's status share them. */
 export const COLUMN_LABEL: Record<BoardTask['column'], string> = {
@@ -122,7 +124,7 @@ function CardSkills({ task, repoPath, onSaved, onOpenSkills }: { task: QuickTask
       {onOpenSkills && (
         <>
           {' · '}
-          <button type="button" onClick={onOpenSkills} className="text-primary-text hover:underline">
+          <button type="button" onClick={onOpenSkills} className={LINK_CLASS}>
             Settings → Skills
           </button>
         </>
@@ -160,7 +162,7 @@ function Description({ repoPath, taskId, title }: { repoPath: string; taskId: st
         {long && !all && <div aria-hidden className="pointer-events-none absolute inset-x-0 bottom-0 h-12 bg-gradient-to-t from-background" />}
       </div>
       {long && (
-        <button type="button" aria-expanded={all} onClick={() => setAll((v) => !v)} className="mt-1 text-xs text-primary-text hover:underline">
+        <button type="button" aria-expanded={all} onClick={() => setAll((v) => !v)} className={cn('mt-1 text-xs', LINK_CLASS)}>
           {all ? 'Show less' : 'Show all'}
         </button>
       )}
@@ -296,7 +298,7 @@ export function QuickView({
           <div className="flex min-w-0 flex-1 items-center gap-2 font-mono text-[11px] text-muted-foreground">
             <span className="max-w-[12rem] truncate rounded bg-muted px-1.5 py-0.5" title={repo}>{repo}</span>
             {task.url !== undefined && !isDemoLink(task.url) ? (
-              <a href={task.url} target="_blank" rel="noreferrer" className="shrink-0 rounded text-primary-text hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
+              <a href={task.url} target="_blank" rel="noreferrer" className={cn('shrink-0 rounded focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring', LINK_CLASS)}>
                 {task.id}
               </a>
             ) : (
@@ -328,7 +330,7 @@ export function QuickView({
           </span>
         )}
         {(task.column === 'running' || task.column === 'claimed') && onOpenRuns && (
-          <button type="button" onClick={onOpenRuns} className="text-xs text-primary-text hover:underline">
+          <button type="button" onClick={onOpenRuns} className={cn('text-xs', LINK_CLASS)}>
             Open the run
           </button>
         )}
@@ -397,7 +399,7 @@ export function QuickView({
         <Section label="Details">
           <dl className="divide-y divide-border/50">
             <Field label="Project"><span className="block truncate" title={repoPath}>{repo}</span></Field>
-            <Field label="Source">{task.source !== undefined ? TRACKER_NAME[task.source] : isHubTaskCard(task.id) || isInvalidHubCard(task.id) ? 'Taskcell board' : 'none'}</Field>
+            <Field label="Source">{task.source !== undefined ? TRACKER_NAME[task.source] : isHubTaskCard(task.id) || isInvalidHubCard(task.id) ? taskSourceLabel('hub') : 'none'}</Field>
             {branch !== undefined && <Field label="Target branch"><span className="font-mono text-xs">{branch}</span></Field>}
             {task.labels !== undefined && task.labels.length > 0 && <Field label="Labels">{task.labels.join(', ')}</Field>}
             {(task.source !== undefined || isHubTaskCard(task.id)) && !isPullRequestCard(task.id) && (
@@ -410,7 +412,7 @@ export function QuickView({
             <ScheduleEditor repoPath={repoPath} task={task} onSaved={onChanged} />
           ) : (
             (!!task.blockedBy?.length || task.startDate !== undefined || isInvalidHubCard(task.id)) && (
-              <section aria-label="Schedule" className="space-y-1">
+              <section aria-label="Schedule" className="mt-3 space-y-1 border-t border-border/50 pt-3">
                 <h4 className={HEADING}>Schedule</h4>
                 <ScheduleLines task={task} />
               </section>
@@ -456,8 +458,8 @@ export function QuickView({
                   <Timestamp ms={Date.parse(r.timestamp)} className="w-20 shrink-0 tabular-nums text-muted-foreground" />
                   <span className="min-w-0 flex-1 truncate">
                     Run {r.stoppedBy ? 'stopped: provider limit' : verdictWord(!r.anyFailed)}
-                    {r.startedBy !== undefined && <span className="text-muted-foreground"> · by {r.startedBy}</span>}
-                    {r.trigger === 'watch' && <span className="text-muted-foreground"> · by watch</span>}
+                    {/* A person only: the hub's shared token, the local worker and `watch` are not anyone. */}
+                    {startedByLabel(r.startedBy) !== undefined && <span className="text-muted-foreground"> · by {startedByLabel(r.startedBy)}</span>}
                     {r.prState === 'merged' && <span className="text-muted-foreground"> · merged</span>}
                   </span>
                   <span className="shrink-0 tabular-nums text-muted-foreground">{costLabel(r)}</span>

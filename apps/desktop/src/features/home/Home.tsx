@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { ArrowRight, CircleCheck, CircleX, GitMerge, Info, Play, Settings2, SquarePlus, type LucideIcon } from 'lucide-react';
-import { Button, cn } from '@/ui';
+import { Button, Skeleton, cn } from '@/ui';
 import { listActive, listActivity, listRunsAll, listTasksAll, type RepoReadFailure } from '../../ipc';
 import { onStreamReset, subscribe } from '../../transport';
 import { inRepos } from '../../repoFilter';
@@ -28,10 +28,13 @@ const ACTIVITY_ICON: Record<ActivityEvent['kind'], LucideIcon> = {
  * Reads `read` on mount, whenever the hub reports a change in one of `repos` (and after a stream gap), and, with
  * `pollMs`, on a timer while the page is visible. One read at a time; a failed read keeps the last answer.
  */
-function useHubRead<T>(read: () => Promise<T>, key: string, repos: string[], pollMs?: number): T | null {
+function useHubRead<T>(read: () => Promise<T>, key: string, repos: string[], pollMs?: number): [data: T | null, settled: boolean] {
   const [data, setData] = useState<T | null>(null);
+  // The first read has answered, either way: a failed one leaves `data` null but must not keep Home loading.
+  const [settled, setSettled] = useState(false);
   useEffect(() => {
     setData(null); // another scope: never show the old one's answer
+    setSettled(false);
     let alive = true;
     let busy = false;
     let again = false; // a change arrived mid-read: one trailing read
@@ -47,6 +50,7 @@ function useHubRead<T>(read: () => Promise<T>, key: string, repos: string[], pol
         }, () => {})
         .finally(() => {
           busy = false;
+          if (alive) setSettled(true);
           if (again && alive) {
             again = false;
             load();
@@ -66,7 +70,7 @@ function useHubRead<T>(read: () => Promise<T>, key: string, repos: string[], pol
     // `read` is rebuilt every render; `key` names what it reads.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [key, pollMs]);
-  return data;
+  return [data, settled];
 }
 
 const plural = (n: number, one: string, many: string): string => `${n} ${n === 1 ? one : many}`;
@@ -82,6 +86,23 @@ function StateSentence({ waiting, moving, paused }: { waiting: number; moving: n
       <span>{waiting === 0 ? 'Nothing waits for you.' : `${plural(waiting, 'card waits', 'cards wait')} for you.`}</span>
       {second !== null && <span className="block text-muted-foreground">{second}.</span>}
     </h1>
+  );
+}
+
+/** Home's first paint: the headline's two lines, the inbox and the floor as quiet blocks at their own heights. */
+export function HomeSkeleton() {
+  return (
+    <div role="status" aria-label="Loading Home" className="min-w-0 space-y-6">
+      <div className="space-y-2 py-1">
+        <Skeleton className="h-9 w-3/4 max-md:h-8" />
+        <Skeleton className="h-9 w-1/2 max-md:h-8" />
+      </div>
+      <Skeleton className="h-24 w-full rounded-lg" />
+      <div className="space-y-3">
+        <Skeleton className="h-6 w-28" />
+        <Skeleton className="h-32 w-full rounded-lg" />
+      </div>
+    </div>
   );
 }
 
@@ -125,16 +146,16 @@ export function Home({
 }) {
   const repoKey = repoPaths.join('\n');
   const shown = useMemo(() => projects.filter((p) => repoPaths.includes(p.path)), [projects, repoKey]); // eslint-disable-line react-hooks/exhaustive-deps
-  const tasks = useHubRead(
+  const [tasks, tasksSettled] = useHubRead(
     () => listTasksAll(teamId).then((l) => ({ tasks: inRepos(l.tasks, repoPaths) as Card[], failures: inRepos(l.failures, repoPaths) })),
     `${teamId ?? ''}|${repoKey}`,
     repoPaths,
     TASKS_POLL_MS,
   );
-  const runs = useHubRead(() => listRunsAll(teamId).then((l) => inRepos(l.runs, repoPaths) as RunRow[]), `${teamId ?? ''}|${repoKey}`, repoPaths);
+  const [runs, runsSettled] = useHubRead(() => listRunsAll(teamId).then((l) => inRepos(l.runs, repoPaths) as RunRow[]), `${teamId ?? ''}|${repoKey}`, repoPaths);
   // Live local runs come from the project poll the app already runs: only a project with a run in flight is asked.
   const runningKey = shown.filter((p) => p.runningCount > 0).map((p) => `${p.path}:${p.runningCount}`).join('\n');
-  const active = useHubRead(
+  const [active] = useHubRead(
     () =>
       Promise.all(
         runningKey === '' ? [] : runningKey.split('\n').map((l) => l.slice(0, l.lastIndexOf(':'))).map((path) => {
@@ -147,7 +168,7 @@ export function Home({
   );
 
   // Run records and hub actions only (no tracker read): on mount and on a hub change, no timer.
-  const activity = useHubRead(() => listActivity(teamId).then((l) => inRepos(l, repoPaths)), `${teamId ?? ''}|${repoKey}`, repoPaths);
+  const [activity] = useHubRead(() => listActivity(teamId).then((l) => inRepos(l, repoPaths)), `${teamId ?? ''}|${repoKey}`, repoPaths);
 
   const cards = tasks?.tasks ?? [];
   const counts = stateCounts(cards);
@@ -159,8 +180,12 @@ export function Home({
   const readFailures = (tasks?.failures ?? []).filter((f) => !isNoTaskSource(f.error));
   const projectCount = new Set(moving.map((m) => m.repoPath)).size;
 
+  // First paint: one skeleton until the headline, the inbox and the floor can all be drawn, so none of them pops in.
+  const loading = (needs === null && needsError === null) || !tasksSettled || !runsSettled;
+
   return (
     <div className="grid gap-x-8 gap-y-6 lg:grid-cols-[minmax(0,1fr)_20rem]">
+      {loading ? <HomeSkeleton /> : (
       <div className="min-w-0 space-y-6">
         {needs !== null && <StateSentence waiting={needs.items.length} moving={tasks === null ? null : counts.moving} paused={counts.paused} />}
         <RepoFailures failures={readFailures} total={repoPaths.length} />
@@ -224,6 +249,7 @@ export function Home({
         )}
         <Floor rows={floor.rows} idle={floor.idle} onOpen={onEnterProject} />
       </div>
+      )}
       <aside aria-label="This week" className="min-w-0 space-y-4 lg:pt-2">
         <div>
           <div className="caption">Last 7 days</div>

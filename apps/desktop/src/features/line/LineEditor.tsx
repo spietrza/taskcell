@@ -1,7 +1,7 @@
-import { useEffect, useState, type ReactNode } from 'react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { Box, FileText, GitPullRequest, ListChecks, Lock, ScanEye, Tag, type LucideIcon } from 'lucide-react';
 import { Button, CodeBlock, Input, cn } from '@/ui';
-import { gateProps } from '../../hooks';
+import { gateProps, usePhone } from '../../hooks';
 import { apiCapabilitiesCached, apiListFlows } from '../../ipc';
 import { STATIONS, STATION_LABEL, STATION_SHORT, type Station } from '../../stations';
 import { effectiveRunLocation, resolveTaskSource, runLocationLabel, taskSourceLabel } from '../../platform';
@@ -44,8 +44,17 @@ const Cell = ({ children }: { children: ReactNode }) => <div className="p-4">{ch
 export function LineEditor({ project }: { project: string }) {
   const form = useConfigForm(project);
   const { cfg, cfgStatus, dirty, saved, saveError, saveGate, lastSaved, set, customs, customErrors, customsValid, rangeErrors, savable, save, discard } = form;
-  // A deep link names its station (`…&section=line&station=card`, the Home tile's Auto-run); else Gates.
-  const [station, setStation] = useState<Station>(() => STATIONS.find((s) => s === urlParam('station')) ?? 'gates');
+  // A deep link names its station (`…&section=line&station=card`, the Home tile's Auto-run); else Gates. A phone
+  // preselects nothing: the station's panel sits below six tiles, off-screen, so it opens on a tap and scrolls in.
+  const phone = usePhone();
+  const [station, setStation] = useState<Station | null>(() => STATIONS.find((s) => s === urlParam('station')) ?? (phone ? null : 'gates'));
+  const panelRef = useRef<HTMLElement>(null);
+  const tapped = useRef(false);
+  useEffect(() => {
+    if (!tapped.current || !phone) return;
+    tapped.current = false;
+    panelRef.current?.scrollIntoView?.({ block: 'start', behavior: 'smooth' });
+  }, [station, phone]);
   const [flowNames, setFlowNames] = useState<string[]>([]);
   const [published, setPublished] = useState(0);
 
@@ -84,11 +93,11 @@ export function LineEditor({ project }: { project: string }) {
         return (
           <>
             <Cell>
-              <Field label="Trigger label" help="The label that hands an issue to the factory. The Board lists only issues that carry it, New Task adds it, and a hub that runs tasks itself starts the ones that get it. Empty: the Board lists every issue and the hub starts on the ready for agent label.">
+              <Field label="Trigger label" help="The label that hands an issue to the factory. The Board lists only issues that carry it, New card adds it, and a hub that runs cards itself starts the ones that get it. Empty: the Board lists every issue and the hub starts on the ready for agent label.">
                 <Input value={cfg.label ?? ''} onChange={(e) => set('label', e.target.value || undefined)} className="w-full" placeholder="ready for agent" />
               </Field>
             </Cell>
-            <FactRow label="Task source" value={taskSource === undefined ? 'not chosen' : taskSourceLabel(taskSource)} note="Chosen in General." />
+            <FactRow label="Card source" value={taskSource === undefined ? 'not chosen' : taskSourceLabel(taskSource)} note="Chosen in General." />
           </>
         );
       case 'spec':
@@ -202,12 +211,13 @@ export function LineEditor({ project }: { project: string }) {
                     type="button"
                     aria-pressed={on}
                     onClick={() => {
+                      tapped.current = true;
                       setStation(key);
                       setUrlParam('station', key);
                     }}
                     className={cn(
                       'flex min-w-0 flex-col items-stretch justify-start self-stretch rounded-lg border p-3 text-left transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary',
-                      on ? 'border-primary bg-primary/5' : 'border-border hover:bg-muted/40',
+                      on ? 'border-foreground bg-muted/40' : 'border-border hover:bg-muted/40',
                     )}
                   >
                     <span className="flex items-center justify-between text-muted-foreground">
@@ -225,7 +235,10 @@ export function LineEditor({ project }: { project: string }) {
               })}
             </div>
 
-            <section aria-label={`${STATION_LABEL[station]} settings`} className="overflow-hidden rounded-lg border border-border">
+            {station === null ? (
+              <p className="text-sm text-muted-foreground">Pick a station to see and edit its settings.</p>
+            ) : (
+            <section ref={panelRef} aria-label={`${STATION_LABEL[station]} settings`} className="scroll-mt-16 overflow-hidden rounded-lg border border-border">
               <div className="caption border-b border-border px-4 py-3">
                 {STATION_LABEL[station]} <span className="font-normal">· {String(STATIONS.indexOf(station) + 1).padStart(2, '0')}</span>
               </div>
@@ -252,6 +265,7 @@ export function LineEditor({ project }: { project: string }) {
                 </div>
               )}
             </section>
+            )}
 
             <details className="rounded-lg border border-border">
               <summary className="cursor-pointer px-4 py-3 text-sm font-semibold">Custom flows (advanced)</summary>

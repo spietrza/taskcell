@@ -45,7 +45,7 @@ export function PausedBanner({ tasks }: { tasks: Pick<BoardTask, 'paused'>[] }) 
   return (
     <div role="status" data-paused-banner className="mb-3 shrink-0 rounded-lg border border-warning/40 bg-warning/10 p-3 text-sm">
       <div className="font-medium">
-        {paused.length === 1 ? '1 task is' : `${paused.length} tasks are`} paused by a provider limit
+        {paused.length === 1 ? '1 card is' : `${paused.length} cards are`} paused by a provider limit
         {when !== undefined && <span className="font-normal"> · latest retry {when}</span>}
       </div>
       <p className="mt-1 text-muted-foreground">They retry automatically; you can wait, or add credit or switch the model in Settings.</p>

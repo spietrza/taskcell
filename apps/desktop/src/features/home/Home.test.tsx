@@ -205,3 +205,17 @@ test('after the scope changes the old scope’s data is not shown while the new 
   expect(screen.queryByText('Card gh-1')).toBeNull();
   release();
 });
+
+test('first paint is one skeleton until the cards and runs arrive: no half headline, no empty floor', async () => {
+  let release = (): void => {};
+  gate = new Promise<void>((r) => (release = r));
+  tasks = [card('gh-1', 'running', alpha)];
+  mount();
+  expect(screen.getByRole('status', { name: 'Loading Home' })).toBeInTheDocument();
+  expect(screen.queryByRole('heading', { level: 1 })).toBeNull();
+  expect(screen.queryByRole('region', { name: 'The floor' })).toBeNull();
+  release();
+  // Both lines of the headline arrive together.
+  expect(await screen.findByRole('heading', { level: 1 })).toHaveTextContent('1 card waits for you.1 is moving.');
+  expect(screen.queryByRole('status', { name: 'Loading Home' })).toBeNull();
+});

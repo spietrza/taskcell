@@ -2,6 +2,7 @@
 import type { BoardTask, RunSummary, TaskSourceId } from './wire';
 import { isDemoMode } from './transport';
 import { issueNumber } from './runLabels';
+import { taskSourceLabel } from './platform';
 
 export type Triage = 'all' | 'running' | 'needs' | 'merged';
 export type CardSource = 'github' | 'gitlab' | 'linear' | 'taskcell';
@@ -25,11 +26,12 @@ export const TRIAGES: { value: Triage; label: string }[] = [
   { value: 'needs', label: 'Needs you' },
   { value: 'merged', label: 'Merged' },
 ];
+/** Card sources by the names Settings gives them (`TASK_SOURCES`): one name per source on every screen. */
 export const SOURCES: { value: CardSource; label: string }[] = [
-  { value: 'github', label: 'GitHub' },
-  { value: 'gitlab', label: 'GitLab' },
-  { value: 'linear', label: 'Linear' },
-  { value: 'taskcell', label: 'Taskcell board' },
+  { value: 'github', label: taskSourceLabel('github') },
+  { value: 'gitlab', label: taskSourceLabel('gitlab') },
+  { value: 'linear', label: taskSourceLabel('linear') },
+  { value: 'taskcell', label: taskSourceLabel('hub') },
 ];
 export const GROUPINGS: { value: Grouping; label: string }[] = [
   { value: 'none', label: 'No grouping' },
@@ -105,7 +107,7 @@ export function runSource(taskId: string): CardSource {
 
 const SOURCE_OF: Record<TaskSourceId, CardSource> = { github: 'github', 'github-project': 'github', gitlab: 'gitlab', linear: 'linear', hub: 'taskcell' };
 
-/** The card sources the projects in scope are configured for (unset = GitHub Issues). */
+/** The card sources the projects in scope are configured for (unset = GitHub). */
 export function configuredSources(projects: { path: string; taskSource?: TaskSourceId | null }[], scope: string[]): CardSource[] {
   return [...new Set(projects.filter((p) => scope.includes(p.path)).map((p) => SOURCE_OF[p.taskSource ?? 'github']))];
 }

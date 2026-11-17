@@ -102,7 +102,7 @@ export function AutoMerge({ project: repo }: { project: string }) {
           )}
           <div className="grid gap-2 sm:grid-cols-3" role="group" aria-label="Approver mode">
             {MODES.map(({ mode: m, label, does }) => (
-              <div key={m} className={`flex flex-col gap-1.5 rounded-md border p-2.5 ${data.mode === m ? 'border-primary bg-primary/5' : 'border-border'}`}>
+              <div key={m} className={`flex flex-col gap-1.5 rounded-md border p-2.5 ${data.mode === m ? 'border-foreground bg-muted/40' : 'border-border'}`}>
                 <Button variant="outlined" aria-pressed={data.mode === m} {...gateProps(gate)} disabled={gate?.allowed === false || data.mode === m || !data.policyFound || (m === 'act' && !data.actOffered)} onClick={() => setTarget(m)}>
                   {data.mode === m ? `${label} (current)` : m === 'off' ? 'Turn off' : label}
                 </Button>
