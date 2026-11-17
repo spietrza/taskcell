@@ -533,7 +533,7 @@ Replies and merges are a remote mutation, gated like `clone_project`: loopback o
 - **Started by.** The hub's shared identity (`token` in the audit log and the run records) reads **Hub** here, the local worker reads **Local worker**; a signed-in user shows their login.
 - **Wide screens** open the running run, or else the newest finished one, by themselves. **Narrow screens** (under 768 px) show the list full width; opening a run shows the pane full width with a **Back to runs** button.
 
-A run started from the Board or New Task switches to Runs by itself and opens in this split view, with the new run selected in the pane (there is no separate full-screen strip). A run in the CI of the repository (metrics branch) has no local record: its row shows the pull request link and does not open.
+A run started from the Board or New Task switches to Runs by itself and opens in this split view, with the new run selected in the pane (there is no separate full-screen strip). When it ends, the pane swaps the live view for the finished record, with its test result and pull request. A run in the CI of the repository (metrics branch) has no local record: its row shows the pull request link and does not open.
 
 The tab icon is the Taskcell cell logo (`apps/desktop/public/favicon.svg`, with `favicon.ico` as the fallback), served by `taskcell hub` from the UI build.
 
