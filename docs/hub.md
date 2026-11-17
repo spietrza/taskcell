@@ -114,6 +114,15 @@ warning naming the provider rather than leaving the exposure silent:
   (proxy)"; a project already saved with `provider: "meridian"` keeps working and shows as "Anthropic-compatible
   endpoint (MERIDIAN_BASE_URL)".
 
+  **Only an OpenAI-compatible endpoint?** These providers drive the Claude CLI, which speaks only the
+  Anthropic Messages API (`/v1/messages`). No provider talks to an OpenAI `/v1/chat/completions`
+  endpoint (vLLM, LM Studio, Ollama's OpenAI API, a company LLM gateway) directly: `openrouter` uses
+  OpenRouter's Anthropic-compatible API, and `codex` speaks OpenAI's Responses API. To use such an
+  endpoint, put a proxy in front of it that translates to the Anthropic Messages API (for example LiteLLM
+  or CLIProxyAPI) and add that proxy here as an Anthropic-compatible endpoint. Tool use and streaming then
+  depend on how well the proxy and the model behind it handle the Claude CLI's requests, so try one run
+  before relying on it.
+
 If the proxy's trusted sidecar itself fails to start — usually a missing or stale sandbox image, since
 it runs inside `taskcell-sandbox:latest` like the egress enclave — the run fails fast rather than
 silently falling back to direct mode or hanging. The run view shows: `Failed to start llm proxy
