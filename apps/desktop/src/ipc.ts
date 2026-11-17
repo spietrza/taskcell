@@ -554,9 +554,14 @@ export function updateSkillPr(repoPath: string, name: string): Promise<Commands[
   return call('update_skill_pr', { repoPath, name });
 }
 
-/** Hub-only, owner only, a mutation: open a PR that adds the skill at `source`. */
-export function addSkillPr(repoPath: string, source: string): Promise<Commands['add_skill_pr']['result']> {
-  return call('add_skill_pr', { repoPath, source });
+/** Hub-only, owner only, a mutation: open a PR that adds the skill at `source`, or the `paths` found by `discoverSkills` (pinned by `ref`) in one PR. */
+export function addSkillPr(repoPath: string, source: string, pick?: { ref: string; paths: string[] }): Promise<Commands['add_skill_pr']['result']> {
+  return call('add_skill_pr', { repoPath, source, ...pick });
+}
+
+/** Hub-only, owner only: the skills a repository holds (reads the network, writes nothing). */
+export function discoverSkills(repoPath: string, source: string): Promise<Commands['discover_skills']['result']> {
+  return call('discover_skills', { repoPath, source });
 }
 
 /** Hub-only, owner only, a mutation: open a PR that removes a skill. */

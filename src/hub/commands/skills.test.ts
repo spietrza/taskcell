@@ -7,6 +7,7 @@ const cli = vi.hoisted(() => ({
   skillsChecked: vi.fn(),
   skillsUpdate: vi.fn(),
   skillsAddPr: vi.fn(),
+  skillsDiscover: vi.fn(),
   skillsRemovePr: vi.fn(),
   recordedMetrics: vi.fn(async () => ''),
   cachedResolver: vi.fn(() => async () => undefined),
@@ -85,6 +86,37 @@ test('a #ref on the source is split off as in the CLI', async () => {
   await dispatchRpc(ctx, 'add_skill_pr', { repoPath: repo, source: 'https://github.com/o/s#v1' });
   expect(cli.skillsAddPr).toHaveBeenLastCalledWith(expect.objectContaining({ source: 'https://github.com/o/s', ref: 'v1' }));
   await expect(dispatchRpc(ctx, 'add_skill_pr', { repoPath: repo, source: 'https://github.com/o/s#' })).rejects.toThrow('empty #ref');
+});
+
+test('a GitHub or GitLab browse link is split into source, ref and folder; explicit values win', async () => {
+  const { splitSource } = await import('./skills.js');
+  expect(splitSource('https://github.com/o/r/tree/main/skills/a')).toEqual({ source: 'https://github.com/o/r', ref: 'main', path: 'skills/a' });
+  expect(splitSource('https://github.com/o/r/blob/v1/skills/a/SKILL.md')).toEqual({ source: 'https://github.com/o/r', ref: 'v1', path: 'skills/a' });
+  expect(splitSource('https://github.com/o/r/tree/dev')).toEqual({ source: 'https://github.com/o/r', ref: 'dev' });
+  expect(splitSource('https://gitlab.com/g/sub/p/-/tree/main/skills/a')).toEqual({ source: 'https://gitlab.com/g/sub/p', ref: 'main', path: 'skills/a' });
+  expect(splitSource('https://gitlab.com/g/p/-/blob/main/s/SKILL.md')).toEqual({ source: 'https://gitlab.com/g/p', ref: 'main', path: 's' });
+  expect(splitSource('https://github.com/o/r/tree/main/skills/a', 'v2')).toMatchObject({ ref: 'v2', path: 'skills/a' });
+  expect(splitSource('https://github.com/o/r')).toEqual({ source: 'https://github.com/o/r' });
+  const repo = await tmpGitRepo('https://github.com/allowed/repo.git');
+  const { ctx } = await makeCtx(repo);
+  cli.skillsAddPr.mockImplementation(async () => ({ prUrl: PR }));
+  await dispatchRpc(ctx, 'add_skill_pr', { repoPath: repo, source: 'https://github.com/o/r/tree/main/skills/a' });
+  expect(cli.skillsAddPr).toHaveBeenLastCalledWith(expect.objectContaining({ source: 'https://github.com/o/r', ref: 'main', path: 'skills/a' }));
+});
+
+test('discover_skills lists a repository for the owner only, and add_skill_pr takes several paths', async () => {
+  const repo = await tmpGitRepo('https://github.com/allowed/repo.git');
+  const { ctx } = await makeCtx(repo);
+  const found = { commit: 'c'.repeat(40), skills: [{ path: 'skills/a', name: 'a' }] };
+  cli.skillsDiscover.mockResolvedValue(found);
+  expect(await dispatchRpc(ctx, 'discover_skills', { repoPath: repo, source: 'https://github.com/o/r' })).toEqual(found);
+  expect(cli.skillsDiscover).toHaveBeenCalledWith({ source: 'https://github.com/o/r' });
+  await expect(dispatchRpc(ctx, 'discover_skills', { repoPath: repo, source: 'https://github.com/o/r' }, outsider)).rejects.toThrow('only the hub owner');
+  cli.skillsAddPr.mockImplementation(async () => ({ prUrl: PR }));
+  await dispatchRpc(ctx, 'add_skill_pr', { repoPath: repo, source: 'https://github.com/o/r', ref: found.commit, paths: ['skills/a', 'skills/b'], name: 'ignored' });
+  expect(cli.skillsAddPr).toHaveBeenLastCalledWith(expect.objectContaining({ ref: found.commit, paths: ['skills/a', 'skills/b'] }));
+  expect(cli.skillsAddPr.mock.calls.at(-1)?.[0]).not.toHaveProperty('name');
+  await expect(dispatchRpc(ctx, 'add_skill_pr', { repoPath: repo, source: 'https://github.com/o/r', paths: [] })).rejects.toThrow('paths must be');
 });
 
 test('the audit target of an add never carries credentials or a query from the source', async () => {

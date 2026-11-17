@@ -10,7 +10,7 @@ const execFileP = promisify(execFile);
 
 const MAX_FILES = 200;
 const MAX_BYTES = 5 * 1024 * 1024;
-const TOO_BIG = `Refusing skill: more than ${MAX_FILES} files or ${MAX_BYTES} bytes.`;
+const TOO_BIG = `Refusing skill: more than ${MAX_FILES} files or ${MAX_BYTES} bytes. If the repository holds several skills, give the folder of one.`;
 
 /** The upstream could not be reached or the commit not fetched: update keeps the pin. */
 export class SkillFetchError extends TaskcellError {}
@@ -25,6 +25,8 @@ export class SkillFetchError extends TaskcellError {}
 export interface SkillSource {
   resolve(source: string, ref?: string): Promise<string | undefined>;
   fetch(source: string, commit: string, path?: string): Promise<string>;
+  /** Every file path of `commit`, from the tree listing alone (no blobs are transferred). Optional: only discovery needs it. */
+  list?(source: string, commit: string): Promise<string[]>;
   dispose?(): Promise<void>;
 }
 
@@ -106,6 +108,25 @@ export function createGitSkillSource(protocol: 'https' | 'file' = 'https'): Skil
   };
   // One tree per source and commit for the life of a command: skills sharing them share the fetch.
   const trees = new Map<string, { dir: string; patterns: string[] }>();
+  const openTree = async (source: string, commit: string): Promise<{ dir: string; patterns: string[] }> => {
+    const key = `${commit} ${source}`;
+    const known = trees.get(key);
+    if (known !== undefined) return known;
+    const dir = await mkdtemp(join(tmpdir(), 'vg-skill-'));
+    try {
+      await git(['init', '-q'], dir);
+      await git(['remote', 'add', '--', 'origin', source], dir);
+      // Only the pinned commit and its trees: the blobs come with the checkout, for the sparse
+      // path alone. A server without filter support sends the commit's whole snapshot instead.
+      await git(['fetch', '-q', '--depth', '1', '--filter=blob:none', 'origin', commit], dir);
+    } catch (cause) {
+      await rm(dir, { recursive: true, force: true });
+      throw cause;
+    }
+    const tree = { dir, patterns: [] };
+    trees.set(key, tree);
+    return tree;
+  };
   return {
     async resolve(source, ref) {
       check(source);
@@ -124,27 +145,20 @@ export function createGitSkillSource(protocol: 'https' | 'file' = 'https'): Skil
       const sha = names.map((n) => shas.get(n)).find((s) => s !== undefined);
       return sha !== undefined && /^[0-9a-f]{40}$/.test(sha) ? sha : undefined;
     },
+    async list(source, commit) {
+      check(source);
+      try {
+        const tree = await openTree(source, commit);
+        return (await git(['ls-tree', '-r', '-z', '--name-only', 'FETCH_HEAD'], tree.dir)).split('\0').filter((e) => e !== '');
+      } catch (cause) {
+        throw new SkillFetchError(`Could not list ${source} @ ${commit.slice(0, 7)}: ${gitFailure(cause)}`);
+      }
+    },
     async fetch(source, commit, path = '.') {
       check(source);
       const rel = assertRepoPath(path).split(sep).join('/');
-      const key = `${commit} ${source}`;
       try {
-        let tree = trees.get(key);
-        if (tree === undefined) {
-          const dir = await mkdtemp(join(tmpdir(), 'vg-skill-'));
-          try {
-            await git(['init', '-q'], dir);
-            await git(['remote', 'add', '--', 'origin', source], dir);
-            // Only the pinned commit and its trees: the blobs come with the checkout, for the sparse
-            // path alone. A server without filter support sends the commit's whole snapshot instead.
-            await git(['fetch', '-q', '--depth', '1', '--filter=blob:none', 'origin', commit], dir);
-          } catch (cause) {
-            await rm(dir, { recursive: true, force: true });
-            throw cause;
-          }
-          tree = { dir, patterns: [] };
-          trees.set(key, tree);
-        }
+        const tree = await openTree(source, commit);
         // Before any file content is transferred: the file limit, and no symlink in the skill. An
         // absent path lists nothing (exit 0), so any ls-tree failure is a real one; readSkillFiles reports the rest.
         // Literal: a path such as `:foo` is a directory name, not pathspec magic.

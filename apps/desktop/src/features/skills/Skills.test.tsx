@@ -13,6 +13,8 @@ const fixture: RepoSkill[] = [
   { name: 'simplify', source: 'https://github.com/o/simplify', commit: 'def5678', status: 'pinned', check: 'current' },
 ];
 
+let discovered: unknown = { commit: 'c'.repeat(40), skills: [{ path: 'skills/only', name: 'only' }] };
+
 function stubHub(fail: Record<string, string> = {}): { cmd: string; body: unknown }[] {
   const calls: { cmd: string; body: unknown }[] = [];
   window.__TASKCELL_HUB__ = true;
@@ -21,7 +23,7 @@ function stubHub(fail: Record<string, string> = {}): { cmd: string; body: unknow
     calls.push({ cmd, body: init?.body ? JSON.parse(String(init.body)) : undefined });
     const message = fail[cmd];
     if (message !== undefined) return new Response(JSON.stringify({ error: { kind: 'bad-request', message } }), { status: 400 });
-    const result = cmd === 'list_repo_skills' ? { skills: fixture } : { prUrl: 'https://github.com/o/r/pull/9' };
+    const result = cmd === 'list_repo_skills' ? { skills: fixture } : cmd === 'discover_skills' ? discovered : { prUrl: 'https://github.com/o/r/pull/9' };
     return new Response(JSON.stringify({ result }), { status: 200, headers: { 'content-type': 'application/json' } });
   }));
   return calls;
@@ -56,12 +58,44 @@ test('Open update PR calls update_skill_pr for that skill and shows the PR link'
   expect(calls.find((c) => c.cmd === 'update_skill_pr')?.body).toEqual({ repoPath: '/repo', name: 'caveman' });
 });
 
-test('Add skill opens a PR; a failed add shows the reason', async () => {
-  const calls = stubHub({ add_skill_pr: 'Cannot resolve HEAD of https://x/y.' });
+test('Add skill looks through the repository first; one skill found is ticked, and Add selected opens one PR pinned to the commit', async () => {
+  const calls = stubHub();
   render(<Skills project="/repo" />);
   await screen.findByText('caveman');
   fireEvent.change(screen.getByLabelText('Skill source'), { target: { value: 'https://x/y' } });
   fireEvent.click(screen.getByRole('button', { name: 'Add skill' }));
+  expect(await screen.findByText(/Found 1 skill in this repository/)).toBeInTheDocument();
+  expect(screen.getByLabelText(/skills\/only/)).toBeChecked();
+  expect(calls.some((c) => c.cmd === 'add_skill_pr')).toBe(false);
+  fireEvent.click(screen.getByRole('button', { name: 'Add selected' }));
+  expect(await screen.findByRole('link', { name: /Pull request opened/ })).toBeInTheDocument();
+  expect(calls.find((c) => c.cmd === 'add_skill_pr')?.body).toEqual({ repoPath: '/repo', source: 'https://x/y', ref: 'c'.repeat(40), paths: ['skills/only'] });
+});
+
+test('a repository of several skills shows a picker; only the ticked ones are added', async () => {
+  discovered = { commit: 'd'.repeat(40), skills: [{ path: 'skills/a', name: 'a' }, { path: 'skills/b', name: 'b' }, { path: 'skills/c', name: 'c' }] };
+  const calls = stubHub();
+  render(<Skills project="/repo" />);
+  await screen.findByText('caveman');
+  fireEvent.change(screen.getByLabelText('Skill source'), { target: { value: 'https://github.com/o/many' } });
+  fireEvent.click(screen.getByRole('button', { name: 'Add skill' }));
+  expect(await screen.findByText(/Found 3 skills in this repository/)).toBeInTheDocument();
+  expect(screen.getByRole('button', { name: 'Add selected' })).toBeDisabled();
+  fireEvent.click(screen.getByLabelText(/skills\/a/));
+  fireEvent.click(screen.getByLabelText(/skills\/c/));
+  fireEvent.click(screen.getByRole('button', { name: 'Add selected' }));
+  await screen.findByRole('link', { name: /Pull request opened/ });
+  expect(calls.find((c) => c.cmd === 'add_skill_pr')?.body).toMatchObject({ paths: ['skills/a', 'skills/c'] });
+  discovered = { commit: 'c'.repeat(40), skills: [{ path: 'skills/only', name: 'only' }] };
+});
+
+test('a link to a folder is added directly, without discovery; a failed add shows the reason', async () => {
+  const calls = stubHub({ add_skill_pr: 'Cannot resolve HEAD of https://x/y.' });
+  render(<Skills project="/repo" />);
+  await screen.findByText('caveman');
+  fireEvent.change(screen.getByLabelText('Skill source'), { target: { value: 'https://github.com/o/r/tree/main/skills/a' } });
+  fireEvent.click(screen.getByRole('button', { name: 'Add skill' }));
   expect(await screen.findByText(/Cannot resolve HEAD of https:\/\/x\/y/)).toBeInTheDocument();
-  expect(calls.find((c) => c.cmd === 'add_skill_pr')?.body).toEqual({ repoPath: '/repo', source: 'https://x/y' });
+  expect(calls.some((c) => c.cmd === 'discover_skills')).toBe(false);
+  expect(calls.find((c) => c.cmd === 'add_skill_pr')?.body).toEqual({ repoPath: '/repo', source: 'https://github.com/o/r/tree/main/skills/a' });
 });

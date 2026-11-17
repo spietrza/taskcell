@@ -138,6 +138,12 @@ export interface FlowDoc {
   meta?: Record<string, unknown>;
 }
 
+/** A skill found in an upstream repository (`discover_skills`): its folder (`.` for the root) and its name. */
+export interface DiscoveredSkill {
+  path: string;
+  name: string;
+}
+
 /** One skill of a repository's skills directory on the wire: `skills list`, `skills check` and `stats --skills` joined. */
 export interface RepoSkill {
   name: string;
