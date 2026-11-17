@@ -170,14 +170,16 @@ test('a project in both teams stays selected across a team switch, while the new
       return teamId === 'a' ? [p2] : teamId === 'b' ? slow : [];
     },
   );
+  // The project picker lives on Settings now, the place that acts on the one active project.
+  window.history.replaceState(null, '', '/?screen=settings');
   render(<App />);
   expect(await screen.findByTitle(p2.name)).toBeInTheDocument();
   fireEvent.change(screen.getByLabelText('Team'), { target: { value: 'b' } });
   await waitFor(() => expect(asked).toContain('b'));
   release([p1, p2]);
-  await screen.findByText(p1.name);
+  await waitFor(() => expect(screen.getByLabelText('Team')).toHaveValue('b'));
   await new Promise((r) => setTimeout(r, 50));
-  // Still the shared project in the switcher, not the new team's first.
+  // Still the shared project in the picker, not the new team's first.
   expect(screen.getByTitle(p2.name)).toBeInTheDocument();
   expect(screen.queryByTitle(p1.name)).toBeNull();
 });

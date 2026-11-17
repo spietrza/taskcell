@@ -9,7 +9,7 @@ interface Item {
   color: string;
 }
 
-/** Inline project switcher for the breadcrumb (replaces the sidebar's project select). Searchable.
+/** Project picker for the screens that act on one project (Settings, New Task). Searchable.
  * The Input is the in-flow anchor the popup positions against — keep it inside the control wrapper. */
 export function ProjectCombobox({
   projects,

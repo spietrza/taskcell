@@ -14,7 +14,7 @@ export function TeamSwitcher({
   if (!active) return null;
   if (teams.length < 2) {
     return (
-      <div className="max-w-40 truncate px-2 py-1 text-sm font-semibold max-md:hidden" title={active.name}>
+      <div className="max-w-40 truncate px-2 py-1 text-sm font-semibold max-md:max-w-24" title={active.name}>
         {active.name}
       </div>
     );

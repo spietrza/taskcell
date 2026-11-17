@@ -281,7 +281,7 @@ A team is a name, members (login + role `admin` or `member`) and repositories, s
 
 **Editing.** `team_add_member`, `team_set_role`, `team_remove_member`, `team_add_repository` and `team_remove_repository` need an admin and the same bind permission as `add_project`. The last admin of a team can be neither removed nor demoted.
 
-**UI.** The team switcher sits in the top bar (a menu with more than one team, the plain name with one) and the choice is remembered in the browser. Home (including Waiting for you), Board and Runs list the selected team's repositories. Settings has a Members section: an admin edits, a member reads.
+**UI.** The team switcher sits in the top bar next to the brand (a menu with more than one team, the plain name with one) and the choice is remembered in the browser. Home (including Waiting for you), Board and Runs list the selected team's repositories. Settings has a Members section: an admin edits, a member reads.
 
 ## Wire format
 
@@ -495,7 +495,7 @@ is the usual reference for "don't mount the docker socket without justification.
 
 ## Home
 
-Home is the landing screen, a command center built only from data the hub already serves. The main navigation (Home, Board, Runs, Settings) is in the top bar, and a tab bar at the bottom on a phone. **Settings** opens a menu of its sections (General, Line, Runners, Lessons, Skills, Audit); the address names the open one, `?screen=settings&section=line`, so a link or a reload lands on it. Top to bottom:
+Home is the landing screen, a command center built only from data the hub already serves. The main navigation (Home, Board, Runs, Settings) is in the top bar, and a tab bar at the bottom on a phone. The top bar has no project picker: Board and Runs choose repositories in their filter, Home shows every project, and Settings and New Task start with a **Project:** picker. **Settings** opens a menu of its sections (General, Line, Runners, Lessons, Skills, Audit); the address names the open one, `?screen=settings&section=line`, so a link or a reload lands on it. Top to bottom:
 
 - **State sentence.** "N cards wait for you." and, under it, "M are moving, K paused by a provider limit." N is the length of Waiting for you (the number badging Home in the top bar). M counts cards in `claimed` or `running` that are not paused; K counts cards held by a provider limit (the factory retries them itself).
 - **Waiting for you.** The list below. Review / Answer opens a row.
@@ -879,7 +879,7 @@ Calls: `list_skills` (`repoPath`; read-only, not audited) returns the installed 
 
 ## Hub board: tasks, dependencies and start dates
 
-A project whose task source is **Hub board** (Settings → Task source, `taskSource: hub` in `.taskcell/app.json`) has its tasks in the hub itself instead of a tracker. With such a project open (the project named in the top bar), the Board shows a **New hub task** form (title, what to do, blocked by and start date) in place of the tracker's **New Task**; a card's quick view has a **Schedule** section, and **Full page** shows the task's text. Projects on GitHub, GitLab or Linear are not touched by any of this: the hub-board commands refuse them and the scheduler never looks at them.
+A project whose task source is **Hub board** (Settings → Task source, `taskSource: hub` in `.taskcell/app.json`) has its tasks in the hub itself instead of a tracker. With such a project open (the project picked in the Board or Runs filter, or in the "Project:" picker at the top of Settings and New Task), the Board shows a **New hub task** form (title, what to do, blocked by and start date) in place of the tracker's **New Task**; a card's quick view has a **Schedule** section, and **Full page** shows the task's text. Projects on GitHub, GitLab or Linear are not touched by any of this: the hub-board commands refuse them and the scheduler never looks at them.
 
 ### Where tasks live
 

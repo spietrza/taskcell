@@ -14,10 +14,12 @@ test('the command palette button takes focus when clicked, so the palette can ha
   vi.unstubAllGlobals();
 });
 
-test('the nav and the switchers render in their slots', () => {
+test('the team sits next to the brand, before the nav; the switchers render on the right', () => {
   vi.stubGlobal('matchMedia', vi.fn(() => ({ matches: false, addEventListener: vi.fn(), removeEventListener: vi.fn() })));
-  render(<TopBar nav={<nav aria-label="Main" />} switchers={<span>switchers</span>} crumbs={[]} onHome={() => {}} onCommandK={() => {}} theme="light" onToggleTheme={() => {}} />);
+  render(<TopBar team={<span>acme team</span>} nav={<nav aria-label="Main" />} switchers={<span>switchers</span>} crumbs={[]} onHome={() => {}} onCommandK={() => {}} theme="light" onToggleTheme={() => {}} />);
   expect(screen.getByRole('navigation', { name: 'Main' })).toBeInTheDocument();
   expect(screen.getByText('switchers')).toBeInTheDocument();
+  const team = screen.getByText('acme team');
+  expect(team.compareDocumentPosition(screen.getByRole('navigation', { name: 'Main' })) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   vi.unstubAllGlobals();
 });

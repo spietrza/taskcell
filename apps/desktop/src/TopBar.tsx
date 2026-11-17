@@ -12,9 +12,9 @@ export interface Crumb {
 
 export function TopBar({
   nav,
+  team,
   switchers,
   crumbs,
-  projectSwitcher,
   onHome,
   onCommandK,
   theme,
@@ -23,11 +23,11 @@ export function TopBar({
 }: {
   /** The main navigation (MainNav): inline here, a tab bar at the bottom on a phone. */
   nav?: ReactNode;
-  /** Server and team switchers, before the search button. */
+  /** The workspace: the team, next to the brand. */
+  team?: ReactNode;
+  /** The server switcher, before the search button. */
   switchers?: ReactNode;
   crumbs: Crumb[];
-  /** Inline project switcher rendered as the first breadcrumb (null on the dashboard). */
-  projectSwitcher?: ReactNode;
   onHome: () => void;
   onCommandK: () => void;
   theme: Theme;
@@ -47,16 +47,16 @@ export function TopBar({
         <Logo className="size-5" />
         <span className="font-heading font-bold tracking-tight max-md:hidden">Taskcell Hub</span>
       </button>
+      {team}
       {nav}
-      {(projectSwitcher || crumbs.length > 0) && (
+      {crumbs.length > 0 && (
         <>
           <span className="text-border max-md:hidden">|</span>
           <Breadcrumb.Root className="min-w-0">
             <Breadcrumb.List>
-              {projectSwitcher && <Breadcrumb.Item>{projectSwitcher}</Breadcrumb.Item>}
               {crumbs.map((c, i) => (
                 <Fragment key={i}>
-                  {(i > 0 || projectSwitcher) && <Breadcrumb.Separator />}
+                  {i > 0 && <Breadcrumb.Separator />}
                   <Breadcrumb.Item>
                     {c.edit ? (
                       <Breadcrumb.Page>

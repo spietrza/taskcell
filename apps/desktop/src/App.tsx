@@ -216,6 +216,8 @@ export default function App() {
   const changeFilter = (f: HubFilter): void => {
     setFilter(f);
     saveFilter(f);
+    // One repository in the filter is the project New task and Settings act on.
+    if (f.repos.length === 1) setActiveProject(f.repos[0]);
   };
 
   // Window close is the third discard path. Tauri/WKWebView does not reliably fire beforeunload
@@ -412,7 +414,7 @@ export default function App() {
     task: 'New Task',
     settings: 'Settings',
   };
-  // Home lives on the logo now; the project lives in the switcher — so the breadcrumb is just the screen.
+  // Home lives on the logo now; the project is picked in the filter (Board, Runs) or on the screen that needs one (Settings, New Task).
   const crumbs: Crumb[] = [];
   if (active && screen === 'task' && taskCrumb) {
     crumbs.push({ label: SCREEN_LABEL[screen] });
@@ -428,9 +430,12 @@ export default function App() {
       crumbs.push({ label: SCREEN_LABEL[screen] });
     }
   }
-  const projectSwitcher =
-    active ? (
-      <ProjectCombobox projects={projects} active={active} onSelect={(v) => navigate(() => setActiveProject(v))} />
+  const projectPicker =
+    active && (screen === 'settings' || screen === 'task') ? (
+      <div className="flex shrink-0 items-center gap-2 border-b border-border px-4 py-2 text-sm">
+        <span className="text-muted-foreground">Project:</span>
+        <ProjectCombobox projects={projects} active={active} onSelect={(v) => navigate(() => setActiveProject(v))} />
+      </div>
     ) : null;
 
   return (
@@ -499,14 +504,9 @@ export default function App() {
           />
         }
         // Always shown: the server and team switchers live here, even when the selected team has no project yet.
-        switchers={
-          <>
-            <ServerSwitcher />
-            <TeamSwitcher teams={teams} active={team} onSelect={chooseTeam} />
-          </>
-        }
+        team={<TeamSwitcher teams={teams} active={team} onSelect={chooseTeam} />}
+        switchers={<ServerSwitcher />}
         crumbs={crumbs}
-        projectSwitcher={projectSwitcher}
         onHome={() => goto('home')}
         onCommandK={() => setPalette(true)}
         theme={theme}
@@ -574,6 +574,7 @@ export default function App() {
             </div>
           ) : (
             <NavGuardContext.Provider value={navGuard.current}>
+              {projectPicker}
               <Inspector
                 key={active.path}
                 project={active.path}
