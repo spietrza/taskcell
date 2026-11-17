@@ -40,11 +40,12 @@ test('a finished run: header, one card per stage record with its own duration, t
   render(<RunPane {...props} title="Disable the Send button while sending" detail={detail} />);
   const pane = screen.getByRole('region', { name: 'Run gh-r-3' });
   expect(within(pane).getByText('Disable the Send button while sending')).toBeInTheDocument();
-  expect(within(pane).getByText('#3')).toBeInTheDocument();
   expect(within(pane).getByTitle('Target branch')).toHaveTextContent('main');
   expect(within(pane).getByText('Started by Hub')).toBeInTheDocument();
   expect(screen.queryByText(/\btoken\b/)).toBeNull();
-  expect(within(pane).getAllByRole('link', { name: /Open in GitHub/ })[0]).toHaveAttribute('href', 'https://github.com/o/r/pull/5');
+  // The header links the issue; the PR is linked once, from the PR step, not again as "Open in GitHub".
+  expect(within(pane).getByRole('link', { name: /Issue #3/ })).toHaveAttribute('href', 'https://github.com/o/r/issues/3');
+  expect(within(pane).queryByRole('link', { name: /Open in GitHub/ })).toBeNull();
   const cards = [0, 1, 2, 3].map((i) => screen.getByTestId(`stage-${i}`));
   expect(cards.map((c) => c.getAttribute('data-phase'))).toEqual(['done', 'done', 'done', 'done']);
   expect(cards[3]).toHaveTextContent('PR#5');
@@ -54,6 +55,12 @@ test('a finished run: header, one card per stage record with its own duration, t
   expect(screen.getByText('PR open')).toBeInTheDocument();
   expect(screen.queryByRole('button', { name: 'Cancel' })).toBeNull();
   await waitFor(() => expect(readRunEvents).toHaveBeenCalledWith('/r', 'gh-r-3', detail.timestamp));
+});
+
+test('a run whose PR is merged says merged, like its row in the list', () => {
+  render(<RunPane {...props} detail={detail} merged />);
+  expect(screen.getByText('merged')).toBeInTheDocument();
+  expect(screen.queryByText('PR open')).toBeNull();
 });
 
 test('a finished run\'s log is the picked stage\'s transcript; the last stage is open to begin with', async () => {

@@ -6,6 +6,14 @@ export function hostName(url: string): 'GitHub' | 'GitLab' {
   return url.includes('/-/merge_requests/') ? 'GitLab' : 'GitHub';
 }
 
+const PR_URL = /^(.+)\/(pull|-\/merge_requests)\/\d+\/?$/;
+
+/** The issue's address in the same repository as its PR/MR (`…/pull/5` → `…/issues/<issue>`); undefined for any other address. */
+export function issueUrl(prUrl: string, issue: number): string | undefined {
+  const m = PR_URL.exec(prUrl);
+  return m ? `${m[1]}/${m[2] === 'pull' ? 'issues' : '-/issues'}/${issue}` : undefined;
+}
+
 /**
  * An ordinary link out to the original system (new tab, copyable). The address always comes from the
  * server; with none, nothing is rendered.

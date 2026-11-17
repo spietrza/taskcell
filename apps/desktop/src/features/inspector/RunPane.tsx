@@ -3,7 +3,7 @@ import { Button, Chip } from '@/ui';
 import { ArrowLeft, Clock, GitBranch, RefreshCw, Square } from 'lucide-react';
 import { readRunEvents, readSession } from '../../ipc';
 import { subscribe } from '../../transport';
-import { ExternalLink, hostName } from '../../components/ExternalLink';
+import { ExternalLink, issueUrl } from '../../components/ExternalLink';
 import { repoInitials, startedByLabel } from '../../runLabels';
 import { RunDetail } from './RunDetail';
 import { StageLine } from './StageLine';
@@ -18,6 +18,7 @@ export function RunPane({
   title,
   issue,
   startedBy,
+  merged,
   detail,
   active,
   tick,
@@ -32,6 +33,8 @@ export function RunPane({
   title?: string | undefined;
   issue?: number | undefined;
   startedBy?: string | undefined;
+  /** The run's pull request is merged (the hub's `prState`, as the runs list shows it). */
+  merged?: boolean | undefined;
   /** A finished run's record. */
   detail?: RunDetailT | undefined;
   /** A running run (its session file is the live log). */
@@ -127,8 +130,11 @@ export function RunPane({
   ) : timeline.terminal === 'error' || passed === false ? (
     <Chip color="destructive" variant="outlined">failed</Chip>
   ) : (
-    <Chip color="success" variant="outlined">{detail?.prUrl !== undefined ? 'PR open' : 'passed'}</Chip>
+    <Chip color="success" variant="outlined">{merged ? 'merged' : detail?.prUrl !== undefined ? 'PR open' : 'passed'}</Chip>
   );
+  // The PR itself is linked from the stage line's PR step; the header links the issue.
+  const prUrl = running ? undefined : detail?.prUrl;
+  const issueHref = prUrl !== undefined && issue !== undefined ? issueUrl(prUrl, issue) : undefined;
   const base = detail?.stages.find((s) => s.record.baseBranch !== undefined)?.record.baseBranch;
   const by = startedByLabel(startedBy ?? detail?.stages.find((s) => s.record.startedBy !== undefined)?.record.startedBy);
 
@@ -146,8 +152,12 @@ export function RunPane({
             <code className="rounded border border-border bg-muted px-1.5 py-0.5 text-xs" title="Target branch">{base}</code>
           </>
         )}
-        {issue !== undefined && <span className="tabular-nums text-muted-foreground">#{issue}</span>}
-        <span className="ml-auto flex items-center gap-2">
+        {issue !== undefined &&
+          (issueHref !== undefined ? (
+            <ExternalLink href={issueHref} className="text-sm tabular-nums">{`Issue #${issue}`}</ExternalLink>
+          ) : (
+            <span className="tabular-nums text-muted-foreground">#{issue}</span>
+          ))}        <span className="ml-auto flex items-center gap-2">
           {totalMs !== undefined && (
             <span className="flex items-center gap-1 font-mono text-xs tabular-nums" aria-label="Total time">
               <Clock className="size-3.5 text-muted-foreground" aria-hidden />
@@ -168,9 +178,7 @@ export function RunPane({
           <Button variant="outlined" color="secondary" onClick={() => onCancel(timeline.runId!)} startIcon={<Square className="size-3.5" />}>
             Cancel
           </Button>
-        )}
-        {!running && detail?.prUrl !== undefined && <ExternalLink href={detail.prUrl}>{`Open in ${hostName(detail.prUrl)}`}</ExternalLink>}
-      </div>
+        )}      </div>
 
       {stages.length > 0 ? (
         <StageLine stages={stages} now={now} selected={detail && picked !== null ? selected : undefined} {...(detail ? { onSelect: setPicked } : {})} />
@@ -194,7 +202,7 @@ export function RunPane({
 
       {detail && (
         <div className="max-md:shrink-0 md:min-h-0 md:flex-1">
-          <RunDetail detail={detail} project={repo} />
+          <RunDetail detail={detail} project={repo} prLink={false} />
         </div>
       )}
     </section>

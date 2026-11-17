@@ -9,7 +9,8 @@ import { AppliedLessons } from '../lessons/Lessons';
 import { ExternalLink, hostName } from '../../components/ExternalLink';
 import type { RunDetail as RunDetailT } from '../../taskcell-output';
 
-export function RunDetail({ detail, project }: { detail: RunDetailT; project: string }) {
+/** `prLink` off when the surrounding header already links the PR (the Runs split view). */
+export function RunDetail({ detail, project, prLink = true }: { detail: RunDetailT; project: string; prLink?: boolean }) {
   const [tab, setTab] = useState('overview');
   const baseBranch = detail.stages.find((s) => s.record.baseBranch !== undefined)?.record.baseBranch;
   const configPaths = detail.stages.find((s) => s.record.configPaths !== undefined)?.record.configPaths;
@@ -47,11 +48,9 @@ export function RunDetail({ detail, project }: { detail: RunDetailT; project: st
             Model usage billed to {credentialSource === 'user' ? "the starter's own account" : "the hub's account"}
           </div>
         )}
-        {(detail.prUrl !== undefined || detail.ciUrl !== undefined) && (
+        {((prLink && detail.prUrl !== undefined) || detail.ciUrl !== undefined) && (
           <div className="flex flex-wrap gap-3">
-            {detail.prUrl !== undefined && (
-              <ExternalLink href={detail.prUrl}>{`Open in ${hostName(detail.prUrl)}`}</ExternalLink>
-            )}
+            {prLink && detail.prUrl !== undefined && <ExternalLink href={detail.prUrl}>{`Open in ${hostName(detail.prUrl)}`}</ExternalLink>}
             <ExternalLink href={detail.ciUrl}>CI run</ExternalLink>
           </div>
         )}

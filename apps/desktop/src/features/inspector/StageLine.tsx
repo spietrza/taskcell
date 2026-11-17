@@ -25,9 +25,9 @@ export function StageLine({ stages, now, selected, onSelect }: { stages: PaneSta
         const pickable = onSelect !== undefined && s.src !== undefined && s.phase !== 'pending' && s.phase !== 'running';
         const body = (
           <>
-            <span className="flex items-center gap-2">
-              {ICON[s.phase]}
-              <span className="whitespace-nowrap text-sm font-medium">{label}</span>
+            <span className="flex items-start gap-2">
+              <span className="flex h-5 items-center">{ICON[s.phase]}</span>
+              <span className="min-w-0 text-sm font-medium leading-5 [overflow-wrap:anywhere]">{label}</span>
             </span>
             <span className="mt-1 block pl-6 text-sm tabular-nums">
               {s.href !== undefined ? <a href={s.href} target="_blank" rel="noreferrer" className="text-primary-text underline">{time}</a> : time}
