@@ -8,8 +8,8 @@ import type { RunSpecGeneratorDeps } from './spec.js';
 /** Injectable spec generator (the real one boots a sandbox; tests inject a fake). */
 export type GenerateSpec = (id: string, deps: RunSpecGeneratorDeps) => Promise<string>;
 
-/** Clarification comment posted when triage flags a ticket as too vague to proceed. */
-function clarifyMessage(mode: 'spec' | 'agent'): string {
+/** Clarification comment posted when triage flags a ticket as too vague to proceed. The hub's inbox reads it back (src/hub/needs-you.ts) to tell "too vague" from a question. */
+export function clarifyMessage(mode: 'spec' | 'agent'): string {
   return mode === 'spec'
     ? 'Taskcell could not start: this ticket is too vague to spec. Add a clear description (what and why) and re-trigger.'
     : 'Taskcell could not start: this ticket lacks acceptance criteria or a spec. Add testable acceptance criteria (or a spec comment) and re-trigger.';

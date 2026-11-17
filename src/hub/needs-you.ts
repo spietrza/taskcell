@@ -12,6 +12,7 @@ import { shownBaseFromLabels } from '../core/base-branch.js';
 import { TaskcellError } from '../core/errors.js';
 import { fanOut } from '../pipeline/fan-out.js';
 import { httpsUrl } from '../core/links.js';
+import { clarifyMessage } from '../runners/watch-shared.js';
 
 /** The revise-pr trigger (DEFAULT_TRIGGER_LABELS in src/runners/resume-rate-limited.ts). */
 export { NEEDS_REVISION_LABEL };
@@ -34,6 +35,8 @@ export interface NeedsYouItem {
   baseBranch?: string;
   /** Why the hub refuses to merge this PR (set only when it would); the UI shows it instead of offering Merge. */
   mergeBlocked?: string;
+  /** An issue only: `'too-vague'` when the factory's last comment is triage's too-vague notice, otherwise `'question'`. */
+  ask?: 'question' | 'too-vague';
 }
 
 /** The one merge rule that depends on the item, not the caller: a PR whose verify failed is fixed, not merged. */
@@ -134,6 +137,10 @@ const COMMENT_FETCH_CONCURRENCY = 4;
 /** Only the first this-many waiting items get `lastComment`: the rest are listed without it, to spare the API quota the factory shares. */
 export const MAX_COMMENT_FETCHES = 30;
 
+/** Triage records why it parked a ticket only in the comment it posts: its fixed too-vague notice (spec or agent pass). */
+const TOO_VAGUE = [clarifyMessage('spec'), clarifyMessage('agent')];
+export const isTooVague = (body: string | undefined): boolean => body !== undefined && TOO_VAGUE.some((m) => body.trim().startsWith(m));
+
 /** Builds a `NeedsYouItem` shared by issues and PRs — the two only differ in `kind` and `reason`. */
 function toItem(
   repoSlug: string,
@@ -156,6 +163,7 @@ function toItem(
     ...(lastComment !== undefined ? { lastComment } : {}),
     ...(baseBranch !== undefined && baseBranch !== '' ? { baseBranch } : {}),
     ...(kind === 'pr' && reason === GITHUB_VERIFY_FAILED_LABEL ? { mergeBlocked: VERIFY_FAILED_MERGE_BLOCK } : {}),
+    ...(kind === 'issue' ? { ask: isTooVague(lastComment?.body) ? ('too-vague' as const) : ('question' as const) } : {}),
   };
 }
 

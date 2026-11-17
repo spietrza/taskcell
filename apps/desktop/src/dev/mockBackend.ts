@@ -166,7 +166,12 @@ const commandHandlers = {
     { time: minsAgo(30), login: 'token', action: 'run-start', target: 'run-0', outcome: 'ok' },
   ],
   read_settings_history: () => [
-    { time: minsAgo(60), login: 'you', outcome: 'ok', detail: ['budgetUsd', 'verifyCmd'], target: '/mock/repo' },
+    { time: minsAgo(60), login: 'you', outcome: 'ok', detail: ['budgetUsd', 'verifyCmd'], target: '/mock/repo', changes: [{ key: 'budgetUsd', from: '5', to: '8' }] },
+  ],
+  list_chat_models: () => ({ source: 'static', models: ['claude-sonnet-5-5', 'claude-opus-5-5'] }),
+  list_activity: () => [
+    { time: minsAgo(15), kind: 'pr-merged', repoPath: '/mock/repo', repoName: 'repo', login: 'you', subject: '#12' },
+    { time: minsAgo(60), kind: 'settings-changed', repoPath: '/mock/repo', repoName: 'repo', login: 'you', keys: ['budgetUsd', 'verifyCmd'] },
   ],
   read_issue_history: () => ({ repo: 'acme/app', issue: 1, prs: [], entries: [], chains: [], unavailable: [] }),
   list_needs_you: () => ({ items: waitingNeedsYou }),

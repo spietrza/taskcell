@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'vitest';
-import type { BoardTask, FactoryState, LocalWorkerState, Project } from '../../wire';
-import { cantStart, floorRows, inboxKind, movingRows, stateCounts, thisWeek, type Card, type RunRow, type StampedActive, type StampedNeeds } from './homeModel';
+import type { ActivityEvent, BoardTask, FactoryState, LocalWorkerState, Project } from '../../wire';
+import { activityText, cantStart, floorRows, inboxKind, movingRows, stateCounts, thisWeek, type Card, type RunRow, type StampedActive, type StampedNeeds } from './homeModel';
 
 const NOW = Date.parse('2026-11-17T12:00:00Z');
 const DAY = 24 * 3600 * 1000;
@@ -23,6 +23,8 @@ describe('inboxKind', () => {
     [{ kind: 'pr', reason: 'taskcell:verify-failed' }, 'Verify failed', 'Review', true],
     [{ kind: 'pr', reason: 'vanguard:verify-failed' }, 'Verify failed', 'Review', true],
     [{ kind: 'issue', reason: 'needs info' }, 'Question', 'Answer', false],
+    [{ kind: 'issue', reason: 'needs info', ask: 'question' }, 'Question', 'Answer', false],
+    [{ kind: 'issue', reason: 'needs info', ask: 'too-vague' }, 'Too vague', 'Answer', false],
   ] as const)('%j', (item, caption, action, broken) => {
     expect(inboxKind(item)).toEqual({ caption, action, broken });
   });
@@ -103,8 +105,27 @@ describe('thisWeek', () => {
     expect(w.merged).toBe(2);
   });
 
+  test('failed leaves out a provider-limit stop; fixed themselves is a passed run that needed a repair', () => {
+    const w = thisWeek([run('gh-1', DAY, { anyFailed: true }), run('gh-2', DAY, { anyFailed: true, stoppedBy: 'provider-limit' }), run('gh-3', DAY, { repairs: 1 }), run('gh-4', DAY, { anyFailed: true, repairs: 3 }), run('gh-5', 8 * DAY, { repairs: 1 })], NOW);
+    expect(w).toMatchObject({ runs: 4, failed: 2, fixed: 1 });
+  });
+
   test('spend leaves out runs with no cost data', () => {
     expect(thisWeek([run('gh-1', DAY, { totalCostUsd: 3 }), run('gh-2', DAY, { totalCostUsd: 0, costUnknown: true })], NOW).spend).toBe(3);
+  });
+});
+
+describe('activityText', () => {
+  const ev = { time: '', repoPath: '/r/a', repoName: 'a' };
+  test.each<[Omit<ActivityEvent, 'time' | 'repoPath' | 'repoName'>, string]>([
+    [{ kind: 'run-started', login: 'token' }, 'You started a run'],
+    [{ kind: 'run-finished', subject: 'gh-1' }, 'Run gh-1 finished'],
+    [{ kind: 'run-failed', subject: 'gh-2' }, 'Run gh-2 failed'],
+    [{ kind: 'card-created', login: 'ann' }, 'ann created a card'],
+    [{ kind: 'pr-merged', login: 'ann', subject: '#12' }, 'ann merged PR #12'],
+    [{ kind: 'settings-changed', login: 'bob', keys: ['budgetUsd', 'label'] }, 'bob changed settings: budgetUsd, label'],
+  ])('%j', (e, text) => {
+    expect(activityText({ ...ev, ...e })).toBe(text);
   });
 });
 

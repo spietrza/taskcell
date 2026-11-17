@@ -159,6 +159,16 @@ export function readSettingsHistory(repoPath: string): Promise<Commands['read_se
   return call('read_settings_history', { repoPath });
 }
 
+/** Hub-only: the model ids the repository's saved doc-chat endpoint or provider offers; a provider key stays on the hub. */
+export function listChatModels(repoPath: string): Promise<Commands['list_chat_models']['result']> {
+  return call('list_chat_models', { repoPath });
+}
+
+/** HUB_ONLY: Home's activity feed across the team's repositories (run records and hub actions), newest first. */
+export function listActivity(teamId?: string): Promise<Commands['list_activity']['result']> {
+  return call('list_activity', teamArgs(teamId));
+}
+
 /** Hub-only: one issue's history over the audit streams, run records and Git host events. */
 export function readIssueHistory(repoPath: string, issue: number): Promise<Commands['read_issue_history']['result']> {
   return call('read_issue_history', { repoPath, issue });
