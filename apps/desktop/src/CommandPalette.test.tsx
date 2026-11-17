@@ -83,5 +83,5 @@ test('Board and Runs name what they show; project commands name the project', ()
   expect(screen.getByText('Board · All repositories')).toBeInTheDocument();
   expect(screen.getByText('Runs · All repositories')).toBeInTheDocument();
   expect(screen.getByText('Settings · taskcell-demo-form')).toBeInTheDocument();
-  expect(screen.getByText('New task · taskcell-demo-form')).toBeInTheDocument();
+  expect(screen.getByText('New card · taskcell-demo-form')).toBeInTheDocument();
 });

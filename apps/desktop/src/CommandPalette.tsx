@@ -38,7 +38,7 @@ export function CommandPalette({
   onHome: () => void;
   /** Hub only: opens Home at its Needs you section (the old Needs you screen). */
   onNeedsYou?: () => void;
-  /** The open project, named in the commands that act on it (Settings, New task, Auto-run). */
+  /** The open project, named in the commands that act on it (Settings, New card, Auto-run). */
   projectName?: string;
   /** What Board and Runs show: "All repositories", one project's name, or a count. Defaults to `projectName`. */
   scopeName?: string;
