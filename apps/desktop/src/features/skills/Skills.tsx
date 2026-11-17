@@ -261,7 +261,10 @@ export function Skills({ project }: { project: string }) {
             <Table.Body>
               {shown.map((s) => (
                 <Table.Row key={s.name}>
-                  <Table.Cell className="font-medium">{s.name}</Table.Cell>
+                  <Table.Cell>
+                    <span className="font-medium">{s.name}</span>
+                    {s.runs30d !== undefined && <span className="block text-xs text-muted-foreground">used in {s.runs30d} {s.runs30d === 1 ? 'run' : 'runs'} (30 days)</span>}
+                  </Table.Cell>
                   <Table.Cell className="break-all font-mono text-xs">{s.source}</Table.Cell>
                   <Table.Cell className="font-mono">{s.commit}</Table.Cell>
                   <Table.Cell>

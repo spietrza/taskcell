@@ -37,7 +37,7 @@ describe('QuickView', () => {
     open();
     const receipt = await screen.findByLabelText('Receipt');
     expect(within(receipt).getByText('Second-AI review').nextSibling).toHaveTextContent('passed');
-    expect(within(receipt).getByText('Tests').nextSibling).toHaveTextContent('not available');
+    expect(within(receipt).getByText('Tests').nextSibling).toHaveTextContent('not yet');
     expect(within(receipt).getByText('Cost').nextSibling).toHaveTextContent('$1.50');
     const steps = within(screen.getByRole('list', { name: 'Stage line' })).getAllByRole('listitem');
     expect(steps.map((s) => s.getAttribute('data-status'))).toEqual(['done', 'done', 'done', 'done', 'done', 'current']);

@@ -5,7 +5,7 @@ import { fmtDuration } from '../inspector/runStages';
 import type { StageStep } from './stageLine';
 
 /** The station a run record's stage belongs to; undefined for a stage the line does not show (sandbox, simplifier). */
-function stationOfStage(stage: string | undefined): Station | undefined {
+export function stationOfStage(stage: string | undefined): Station | undefined {
   if (stage === undefined) return undefined;
   if (/spec|plan|triage/i.test(stage)) return 'spec';
   if (/implement|repair|revis/i.test(stage)) return 'cell';

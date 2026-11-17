@@ -141,6 +141,7 @@ export function Inspector({
   // Task titles from the board, for the Runs rows (a run record has none). Best effort: a failed read leaves the task ids.
   const [titles, setTitles] = useState<Map<string, string>>(new Map());
   const [labels, setLabels] = useState<Map<string, string[]>>(new Map());
+  const [taskUrls, setTaskUrls] = useState<Map<string, string>>(new Map());
   // Wide screens open a run by themselves, once per visit: the running one, else the newest finished one.
   const autoPicked = useRef(false);
 
@@ -279,6 +280,7 @@ export function Inspector({
         if (!alive) return;
         setTitles(new Map(tasks.map((t) => [titleKey(t.repoPath, t.id), t.title])));
         setLabels(new Map(tasks.flatMap((t) => (t.labels ? [[titleKey(t.repoPath, t.id), t.labels] as const] : []))));
+        setTaskUrls(new Map(tasks.flatMap((t) => (t.url !== undefined ? [[titleKey(t.repoPath, t.id), t.url] as const] : []))));
       })
       .catch(() => {});
     return () => {
@@ -674,9 +676,9 @@ export function Inspector({
             paneOpen={detail !== null || liveRun !== null}
             pane={
               detail ? (
-                <RunPane key={selectedKey} repo={detailRepo} repoName={repoNameOf(detailRepo)} taskId={detail.taskId} title={titleOf(detailRepo, detail.taskId)} issue={issueNumber(detail.taskId)} merged={runs.some((r) => r.taskId === detail.taskId && r.timestamp === detail.timestamp && r.prState === 'merged')} detail={detail} tick={tick} onBack={closeRun} onCancel={cancelRun} />
+                <RunPane key={selectedKey} repo={detailRepo} repoName={repoNameOf(detailRepo)} taskId={detail.taskId} title={titleOf(detailRepo, detail.taskId)} issue={issueNumber(detail.taskId)} issueHref={taskUrls.get(titleKey(detailRepo, detail.taskId))} summary={runs.find((r) => r.taskId === detail.taskId && r.timestamp === detail.timestamp && (r.repoPath === undefined || r.repoPath === detailRepo))} detail={detail} tick={tick} onBack={closeRun} onCancel={cancelRun} />
               ) : liveRun ? (
-                <RunPane key={selectedKey} repo={liveRun.repoPath ?? project} repoName={liveRun.repoName ?? repoNameOf(liveRun.repoPath ?? project)} taskId={liveRun.taskId} title={titleOf(liveRun.repoPath ?? project, liveRun.taskId)} issue={issueNumber(liveRun.taskId)} active={shownActive.find((a) => a.taskId === liveRun.taskId && (a.repoPath ?? project) === (liveRun.repoPath ?? project)) ?? liveRun} tick={tick} onBack={closeRun} onCancel={cancelRun} />
+                <RunPane key={selectedKey} repo={liveRun.repoPath ?? project} repoName={liveRun.repoName ?? repoNameOf(liveRun.repoPath ?? project)} taskId={liveRun.taskId} title={titleOf(liveRun.repoPath ?? project, liveRun.taskId)} issue={issueNumber(liveRun.taskId)} issueHref={taskUrls.get(titleKey(liveRun.repoPath ?? project, liveRun.taskId))} active={shownActive.find((a) => a.taskId === liveRun.taskId && (a.repoPath ?? project) === (liveRun.repoPath ?? project)) ?? liveRun} tick={tick} onBack={closeRun} onCancel={cancelRun} />
               ) : (
                 <div className="grid h-full place-items-center text-sm text-muted-foreground">Select a run to see its stages and log.</div>
               )

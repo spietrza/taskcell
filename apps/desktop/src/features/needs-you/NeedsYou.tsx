@@ -9,7 +9,8 @@ import { inboxKind } from '../home/homeModel';
 import { isDemoLink } from '../../transport';
 import { ExternalLink } from '../../components/ExternalLink';
 
-export function ReplyBox({ project, item, onReplied }: { project: string; item: NeedsYouItem; onReplied: () => void }) {
+/** `placeholder` / `action` reword the box for a PR sent back ("Ask for changes"); the hub call is the same reply. */
+export function ReplyBox({ project, item, onReplied, placeholder = 'Answer the factory…', action = 'Reply' }: { project: string; item: NeedsYouItem; onReplied: () => void; placeholder?: string; action?: string }) {
   const [body, setBody] = useState('');
   const [sending, setSending] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -35,13 +36,13 @@ export function ReplyBox({ project, item, onReplied }: { project: string; item: 
         aria-label={`reply to ${item.id}`}
         value={body}
         onChange={(e) => setBody(e.target.value)}
-        placeholder="Answer the factory…"
+        placeholder={placeholder}
         rows={3}
       />
       <div className="flex items-center gap-2">
         {/* Outlined: the screen has one Reply per item, so none of them is the screen's primary action. */}
         <Button variant="outlined" {...gateProps(gate)} disabled={sending || body.trim() === '' || gate?.allowed === false} onClick={() => void send()}>
-          {sending ? 'Sending…' : 'Reply'}
+          {sending ? 'Sending…' : action}
         </Button>
         {gate?.allowed === false && gate.reason && <span className="text-xs text-muted-foreground">{gate.reason}</span>}
         {error && (

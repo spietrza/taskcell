@@ -36,49 +36,67 @@ const detail: RunDetail = {
 };
 const props = { repo: '/r', repoName: 'taskcell-demo-form', taskId: 'gh-r-3', issue: 3, tick: 0, onBack: () => {}, onCancel: () => {} };
 
-test('a finished run: header, one card per stage record with its own duration, the PR link, and who started it in words', async () => {
-  render(<RunPane {...props} title="Disable the Send button while sending" detail={detail} />);
+const summary = { taskId: 'gh-r-3', timestamp: detail.timestamp, stages: [], anyFailed: false, totalCostUsd: 0.5, prUrl: detail.prUrl } as never;
+
+test('a finished run: header with the issue link and one PR chip, the six stations, the receipt, and what the factory did', async () => {
+  render(<RunPane {...props} title="Disable the Send button while sending" detail={detail} summary={summary} />);
   const pane = screen.getByRole('region', { name: 'Run gh-r-3' });
   expect(within(pane).getByText('Disable the Send button while sending')).toBeInTheDocument();
   expect(within(pane).getByTitle('Target branch')).toHaveTextContent('main');
   expect(within(pane).getByText('Started by Hub')).toBeInTheDocument();
   expect(screen.queryByText(/\btoken\b/)).toBeNull();
-  // The header links the issue; the PR is linked once, from the PR step, not again as "Open in GitHub".
+  // One issue link and one PR link, both in the header; no "Open in GitHub".
   expect(within(pane).getByRole('link', { name: /Issue #3/ })).toHaveAttribute('href', 'https://github.com/o/r/issues/3');
+  expect(within(pane).getAllByRole('link', { name: /PR #5/ })).toHaveLength(1);
   expect(within(pane).queryByRole('link', { name: /Open in GitHub/ })).toBeNull();
-  const cards = [0, 1, 2, 3].map((i) => screen.getByTestId(`stage-${i}`));
-  expect(cards.map((c) => c.getAttribute('data-phase'))).toEqual(['done', 'done', 'done', 'done']);
-  expect(cards[3]).toHaveTextContent('PR#5');
-  expect(cards[0]).toHaveTextContent('Code27s');
-  expect(cards[1]).toHaveTextContent('Review1m 15s');
+  const stations = within(screen.getByRole('list', { name: 'Stations' })).getAllByRole('listitem');
+  expect(stations.map((s) => s.getAttribute('data-status'))).toEqual(['done', 'done', 'done', 'done', 'done', 'current']);
+  const receipt = screen.getByRole('region', { name: 'Receipt' });
+  expect(within(receipt).getByText('Cost').nextSibling).toHaveTextContent('$0.50');
+  expect(within(receipt).getByText('Spec').nextSibling).toHaveTextContent('not yet');
+  expect(within(receipt).queryByText('Skills used')).toBeNull(); // recorded before the field
+  expect(screen.getByRole('tab', { name: 'What the factory did', selected: true })).toBeInTheDocument();
+  expect(screen.getByTestId('step-0')).toHaveTextContent('Code');
+  expect(screen.getByTestId('step-0')).toHaveTextContent('27s');
+  expect(screen.getByTestId('step-1')).toHaveTextContent('1m 15s');
   expect(screen.getByLabelText('Total time')).toHaveTextContent('2m 16s');
   expect(screen.getByText('PR open')).toBeInTheDocument();
   expect(screen.queryByRole('button', { name: 'Cancel' })).toBeNull();
   await waitFor(() => expect(readRunEvents).toHaveBeenCalledWith('/r', 'gh-r-3', detail.timestamp));
 });
 
-test('a run whose PR is merged says merged, like its row in the list', () => {
-  render(<RunPane {...props} detail={detail} merged />);
-  expect(screen.getByText('merged')).toBeInTheDocument();
-  expect(screen.queryByText('PR open')).toBeNull();
-});
-
-test('a finished run\'s log is the picked stage\'s transcript; the last stage is open to begin with', async () => {
-  render(<RunPane {...props} detail={detail} />);
-  const log = screen.getByRole('log', { name: 'Stage log' });
-  expect(log).toHaveTextContent('Bash · pnpm test');
-  fireEvent.click(within(screen.getByTestId('stage-0')).getByRole('button'));
-  expect(log).toHaveTextContent('Bash · pnpm build');
-  expect(log).not.toHaveTextContent('pnpm test');
+test('the board task url is the issue link when known', async () => {
+  render(<RunPane {...props} detail={{ ...detail, prUrl: undefined }} issueHref="https://github.com/o/r/issues/3" />);
+  expect(screen.getByRole('link', { name: /Issue #3/ })).toHaveAttribute('href', 'https://github.com/o/r/issues/3');
   await waitFor(() => expect(readRunEvents).toHaveBeenCalled());
 });
 
-test('a failed stage is marked and its log opens first', async () => {
+test('a merged run says merged, from the same row the list shows', async () => {
+  render(<RunPane {...props} detail={detail} summary={{ ...(summary as object), prState: 'merged' } as never} />);
+  expect(screen.getByText('merged', { selector: '*:not(span span)' })).toBeInTheDocument();
+  expect(screen.queryByText('PR open')).toBeNull();
+  const stations = within(screen.getByRole('list', { name: 'Stations' })).getAllByRole('listitem');
+  expect(stations.every((s) => s.getAttribute('data-status') === 'done')).toBe(true);
+  await waitFor(() => expect(readRunEvents).toHaveBeenCalled());
+});
+
+test('skills used shows the recorded list, "none" when empty', async () => {
+  const withSkills: RunDetail = { ...detail, stages: [stage('implementer', 1_000, { skillsUsed: ['tdd'] }), stage('reviewer', 1_000, { skillsUsed: [] })] };
+  const { unmount } = render(<RunPane {...props} detail={withSkills} />);
+  expect(within(screen.getByRole('region', { name: 'Receipt' })).getByText('Skills used').nextSibling).toHaveTextContent('tdd');
+  unmount();
+  render(<RunPane {...props} detail={{ ...detail, stages: [stage('implementer', 1_000, { skillsUsed: [] })] }} />);
+  expect(within(screen.getByRole('region', { name: 'Receipt' })).getByText('Skills used').nextSibling).toHaveTextContent('none');
+  await waitFor(() => expect(readRunEvents).toHaveBeenCalled());
+});
+
+test('a failed stage is marked on its station and in the activity', async () => {
   const failed: RunDetail = { ...detail, stages: [detail.stages[0]!, stage('reviewer', 5_000, { completed: false, exitReason: 'error' }, toolLine('boom'))] };
   render(<RunPane {...props} detail={failed} />);
-  expect(screen.getByTestId('stage-1')).toHaveAttribute('data-phase', 'failed');
-  expect(screen.getByRole('log')).toHaveTextContent('boom');
-  expect(screen.getByText('failed', { selector: '*:not(button)' })).toBeInTheDocument();
+  expect(screen.getByTestId('step-1')).toHaveAttribute('data-phase', 'failed');
+  const stations = within(screen.getByRole('list', { name: 'Stations' })).getAllByRole('listitem');
+  expect(stations[4]).toHaveAttribute('data-status', 'failed');
+  expect(screen.getByRole('region', { name: 'Run gh-r-3' }).firstElementChild).toHaveTextContent(/failed$/);
   await waitFor(() => expect(readRunEvents).toHaveBeenCalled());
 });
 
@@ -148,16 +166,12 @@ const sealedEvents = (tail: Record<string, unknown>[] = []) => {
   };
 };
 
-test('a finished run keeps its Sealed cell card from the event log; a run logged without it has none', async () => {
+test('a finished run keeps its Sealed cell step from the event log', async () => {
   vi.mocked(readRunEvents).mockResolvedValue(sealedEvents());
-  const { unmount } = render(<RunPane {...props} detail={detail} />);
-  await waitFor(() => expect(screen.getByTestId('stage-0')).toHaveTextContent('Sealed cell4s'));
-  expect(screen.getByTestId('stage-1')).toHaveTextContent('Code27s');
-  expect(screen.getByTestId('stage-4')).toHaveTextContent('PR#5');
-  unmount();
-  vi.mocked(readRunEvents).mockResolvedValue(noEvents);
   render(<RunPane {...props} detail={detail} />);
-  expect(screen.getByTestId('stage-0')).toHaveTextContent('Code');
+  await waitFor(() => expect(screen.getByTestId('step-0')).toHaveTextContent('Sealed cell'));
+  expect(screen.getByTestId('step-0')).toHaveTextContent('4s');
+  expect(screen.getByTestId('step-1')).toHaveTextContent('Code');
 });
 
 test('the Tests and PR cards stay when the live run turns terminal', async () => {

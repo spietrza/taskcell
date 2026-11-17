@@ -21,3 +21,10 @@ export function repoInitials(name: string | undefined): string {
   const words = (name ?? '?').split(/[^A-Za-z0-9]+/).filter(Boolean);
   return ((words[0]?.[0] ?? '?') + (words[1]?.[0] ?? words[0]?.[1] ?? '')).toUpperCase();
 }
+
+/** A finished run's state word, one source for the Runs row and the run header: the hub's `prState` decides merged. */
+export function runStateWord(r: { anyFailed: boolean; stoppedBy?: string; prState?: string; prUrl?: string }): string {
+  if (r.stoppedBy !== undefined) return 'stopped: provider limit';
+  if (r.anyFailed) return 'failed';
+  return r.prState === 'merged' ? 'merged' : r.prUrl !== undefined ? 'PR open' : 'passed';
+}

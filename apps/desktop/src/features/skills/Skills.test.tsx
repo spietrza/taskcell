@@ -9,7 +9,7 @@ afterEach(() => {
 });
 
 const fixture: RepoSkill[] = [
-  { name: 'caveman', source: 'https://github.com/o/caveman', commit: 'abc1234', status: 'pinned', check: 'outdated', usage: { runs: 4, passRate: 0.75, avgRepairRounds: 0.5, avgCostUsd: 1.2 } },
+  { name: 'caveman', source: 'https://github.com/o/caveman', commit: 'abc1234', status: 'pinned', check: 'outdated', runs30d: 1, usage: { runs: 4, passRate: 0.75, avgRepairRounds: 0.5, avgCostUsd: 1.2 } },
   { name: 'simplify', source: 'https://github.com/o/simplify', commit: 'def5678', status: 'pinned', check: 'current' },
 ];
 
@@ -39,6 +39,9 @@ test('renders the skills table from fixture data', async () => {
   expect(screen.getByText('outdated')).toBeInTheDocument();
   expect(screen.getByText('75%')).toBeInTheDocument();
   expect(screen.getByText('1.2000')).toBeInTheDocument();
+  // The 30-day count shows when the hub sends it; an older hub sends none.
+  expect(screen.getByText('used in 1 run (30 days)')).toBeInTheDocument();
+  expect(screen.getAllByText(/used in/)).toHaveLength(1);
 });
 
 test('the outdated filter hides current skills', async () => {

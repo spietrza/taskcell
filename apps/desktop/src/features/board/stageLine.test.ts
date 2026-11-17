@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'vitest';
-import { repairAttempts, stageLine } from './stageLine';
+import { repairAttempts, runStations, stageLine } from './stageLine';
 import type { RunDetail } from '../../wire';
 
 const statuses = (column: Parameters<typeof stageLine>[0]['column'], stage?: string, opts?: Parameters<typeof stageLine>[1]): string =>
@@ -49,5 +49,21 @@ describe('repairAttempts', () => {
     expect(repairAttempts(run(1))).toBe(0);
     expect(repairAttempts(run())).toBe(0);
     expect(repairAttempts(undefined)).toBe(0);
+  });
+});
+
+describe('runStations', () => {
+  const rec = (stage: string, completed = true) => ({ record: { stage, completed } as never });
+  const status = (steps: { status: string }[]): string => steps.map((s) => s.status[0]).join('');
+  test('merged: every station done', () => {
+    expect(status(runStations({ stages: [rec('implementer')], prUrl: 'u' }, true))).toBe('dddddd');
+  });
+  test('open PR waits on you; no PR leaves the PR station waiting', () => {
+    expect(status(runStations({ stages: [rec('implementer')], prUrl: 'u' }, false))).toBe('dddddc');
+    expect(status(runStations({ stages: [rec('implementer')] }, false))).toBe('dddddw');
+  });
+  test('a failed gate or stage marks its station', () => {
+    expect(status(runStations({ stages: [rec('implementer')], proof: { passed: false } as never }, false))).toBe('dddfww');
+    expect(status(runStations({ stages: [rec('implementer'), rec('reviewer', false)] }, false))).toBe('ddddfw');
   });
 });
