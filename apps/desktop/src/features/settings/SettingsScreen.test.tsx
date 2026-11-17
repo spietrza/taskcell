@@ -6,7 +6,7 @@ import type { SettingsSection } from './sections';
 import { NavGuardContext, createNavGuardRegistry } from '../../navGuard';
 
 vi.mock('./Settings', () => ({ Settings: () => <div>general content</div> }));
-vi.mock('../workflow/WorkflowEditor', () => ({ WorkflowEditor: () => <div>line content</div> }));
+vi.mock('../line/LineEditor', () => ({ LineEditor: () => <div>line content</div> }));
 afterEach(() => vi.restoreAllMocks());
 
 // The app owns the open section; a test host stands in for it.

@@ -4,14 +4,14 @@ import { useNavGuardRegistry } from '../../navGuard';
 import { SETTINGS_SECTIONS, type SettingsSection } from './sections';
 import { Settings } from './Settings';
 import type { TeamScreen } from './Members';
-import { WorkflowEditor } from '../workflow/WorkflowEditor';
+import { LineEditor } from '../line/LineEditor';
 import { AuditLog } from '../audit/AuditLog';
 import { Lessons } from '../lessons/Lessons';
 import { Skills } from '../skills/Skills';
 
 /**
  * Settings, with the sections the prototype puts under it: General (the project's settings), Line (the
- * workflow editor) and Runners (Fleet where available, and Remote). Audit (hub only) lives here too.
+ * six stations, with the workflow editor under Custom flows) and Runners (Fleet where available, and Remote). Audit (hub only) lives here too.
  */
 export function SettingsScreen({
   project,
@@ -72,8 +72,8 @@ export function SettingsScreen({
           <Settings project={project} {...(teamScreen ? { teamScreen } : {})} />
         </div>
       ) : section === 'line' ? (
-        <div className="flex min-h-0 flex-1 flex-col">
-          <WorkflowEditor project={project} />
+        <div className="min-h-0 flex-1 overflow-y-auto pr-4">
+          <LineEditor project={project} />
         </div>
       ) : section === 'runners' ? (
         <div className="min-h-0 flex-1 space-y-6 overflow-y-auto pr-4">
