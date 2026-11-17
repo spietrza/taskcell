@@ -96,12 +96,13 @@ export function planSchedule(tasks: readonly HubTask[], opts: { now: Date; limit
     }
     candidates.push(t);
   }
-  // `only`: a candidate outside it never takes a slot (it reads as waiting; the caller knows why).
-  const start = candidates.filter((t) => opts.only?.(t) ?? true).slice(0, Math.max(0, free));
+  // `only`: a candidate outside it never takes a slot; it keeps the state it would have (the caller knows why it does not start).
+  const inOnly = (t: HubTask): boolean => opts.only?.(t) ?? true;
+  const start = candidates.filter(inOnly).slice(0, Math.max(0, free));
   for (const t of candidates) {
     out.set(
       t.id,
-      !start.includes(t) ? { state: 'waits-slot', label: 'waits for a free slot' }
+      inOnly(t) && !start.includes(t) ? { state: 'waits-slot', label: 'waits for a free slot' }
       // Its last start was refused (no credential, the run queue is full): still todo, tried again on the next tick.
       : t.reason !== undefined ? { state: 'refused', reason: t.reason, label: `not started: ${t.reason}` }
       : { state: 'ready', label: 'starts next' },

@@ -38,9 +38,14 @@ export interface HubTask {
   runId?: string;
   /** `failed`: why. `todo`: why its last start was refused. */
   reason?: string;
+  /** `done`: a person accepted a failed run's delivered result, so the task is done although its last run failed. */
+  accepted?: true;
   /** `done`: the pull request URL, or `branch <name>`. `failed` after a verify failure: the delivered result (accept it, or retry). */
   result?: string;
 }
+
+/** The reason a task fails with when its agent stopped before finishing: Home lists it under "Waiting for you". */
+export const ASKED_REASON = 'the agent stopped before finishing and is waiting for your answer (see "Waiting for you" on Home)';
 
 export const HUB_TASK_ID = /^hub-[1-9]\d{0,8}$/;
 export const MAX_TITLE_LENGTH = 300;

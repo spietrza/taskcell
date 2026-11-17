@@ -289,6 +289,8 @@ export interface RunIssueResult {
   baseRed?: boolean;
   /** True when a result was delivered (a PR or a local branch) but its verify command failed. */
   verificationFailed?: boolean;
+  /** True when the implementer stopped before signalling it was done (e.g. it asked a question): the result is partial. */
+  implementerIncomplete?: boolean;
 }
 
 /** Cap on implement-session resumes triggered by a failing conformance/verify gate, before falling back to a declared-partial PR. */
@@ -1077,7 +1079,7 @@ async function runSourcedIssueAttempt(
         await writer.writeStages(outcomes, stageMeta());
         await stepSummary('no-changes');
         onEvent({ type: 'run-end' });
-        return { task };
+        return { task, ...(!implementerDone ? { implementerIncomplete: true } : {}) };
       }
       // Computed before the delivery-kind split: a local branch is flagged like a PR (which also gets the label).
       const configPaths = delivery.kind === 'delivered-local' || delivery.kind === 'delivered-pr'
@@ -1087,7 +1089,7 @@ async function runSourcedIssueAttempt(
         await writer.writeStages(outcomes, { ...stageMeta(), ...(configPaths.length > 0 ? { configPaths } : {}) });
         await stepSummary(verificationFailed ? 'verify-failed' : 'completed');
         onEvent({ type: 'run-end' });
-        return { task, branch: delivery.branch, ...(verificationFailed ? { verificationFailed: true } : {}) };
+        return { task, branch: delivery.branch, ...(verificationFailed ? { verificationFailed: true } : {}), ...(!implementerDone ? { implementerIncomplete: true } : {}) };
       }
       if (delivery.kind !== 'delivered-pr') throw new TaskcellError(`unexpected delivery outcome ${delivery.kind} for a new-pr target`);
       const pr = { prUrl: delivery.prUrl, headSha: delivery.headSha };
@@ -1121,7 +1123,7 @@ async function runSourcedIssueAttempt(
       if (configPaths.length > 0) await host.addGateConfigLabel(pr.prUrl);
       if (!whiteLabel) await tracker.linkPr(issueRef, task, pr.prUrl);
       onEvent({ type: 'run-end', prUrl: pr.prUrl });
-      return { task, prUrl: pr.prUrl, ...(verificationFailed ? { verificationFailed: true } : {}) };
+      return { task, prUrl: pr.prUrl, ...(verificationFailed ? { verificationFailed: true } : {}), ...(!implementerDone ? { implementerIncomplete: true } : {}) };
     } catch (error) {
       if (isStructuredProviderLimit(error)) {
         // A pooled stage cools down the entry that hit the limit (and the implementer's fallback: a limit

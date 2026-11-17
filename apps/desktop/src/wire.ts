@@ -102,6 +102,8 @@ export interface CreateRunResult {
   baseRed?: boolean;
   /** The result was delivered (a PR or a local branch) but its verify command failed. */
   verificationFailed?: boolean;
+  /** The implementer stopped before signalling it was done (e.g. it asked a question): any delivered result is partial. */
+  implementerIncomplete?: boolean;
 }
 
 /** Per-stage routing/budget overrides expressible in HCL (snake_case keys map to these camelCase fields). */
@@ -546,6 +548,8 @@ export interface RunSummary {
   trigger?: 'watch';
   /** `'merged'` when the run's card is done (its pull request merged); set by the hub's list commands, absent when unknown or not merged. */
   prState?: 'merged';
+  /** The run passed and its card is done without a pull request (a hub card's local branch); set by the hub's list commands. */
+  cardDone?: true;
   /** `'ci'` for a run known only from the metrics branch (no local record to open); `prUrl` links its PR/MR. */
   source?: 'ci';
   /** `'provider-limit'` when the run ended on a provider usage or rate limit: not a failure of the change. */
@@ -559,6 +563,13 @@ export interface RunSummary {
   /** Extra agent calls the run's stages folded in (`RunRecord.attempts` − 1, summed); absent when every stage ran once. Not a repair count:
    *  the records fold gate repairs, auto-resumes and fork variants into one `attempts` and do not tell them apart. */
   extraAttempts?: number;
+  /** The stage of the run's first record that did not complete; absent when every stage completed. */
+  failedStage?: string;
+  /** The run's own proof says its verify command failed. */
+  verifyFailed?: true;
+  /** The implementer stopped on its own before finishing (`exitReason: 'incomplete'`): the end of its last reply, which
+   *  holds what it asks the person. Untrusted agent text, render as plain text. */
+  asked?: string;
 }
 
 /** Period a cost breakdown covers: the last 7 / 30 days, or everything on the branch. */
@@ -1024,9 +1035,10 @@ export interface StartTaskResult {
  * review requesting changes.
  */
 export interface NeedsYouItem {
-  /** `owner/repo#number` — also the id a reply targets. */
+  /** `owner/repo#number` — also the id a reply targets. A `card`: the card id (`hub-4`, `gh-27`). */
   id: string;
-  kind: 'issue' | 'pr';
+  /** `card`: a card whose newest run's agent stopped to ask (from run records, not the tracker); `lastComment` holds its question. */
+  kind: 'issue' | 'pr' | 'card';
   number: number;
   repoSlug: string;
   title: string;
@@ -1041,7 +1053,7 @@ export interface NeedsYouItem {
   baseBranch?: string;
   /** Why the hub refuses to merge this PR (set only when it would); the UI shows it instead of offering Merge. */
   mergeBlocked?: string;
-  /** An issue only: `'too-vague'` when the factory's last comment is triage's too-vague notice, otherwise `'question'` (also when the comment was not fetched). */
+  /** An issue or a card: `'too-vague'` when the factory's last comment is triage's too-vague notice, otherwise `'question'` (also when the comment was not fetched). */
   ask?: 'question' | 'too-vague';
 }
 
@@ -1355,8 +1367,9 @@ export interface Commands {
   list_needs_you: { args: { repoPath: string }; result: { items: NeedsYouItem[] } };
   /** HUB_ONLY: `list_needs_you` across every hub repository, each item stamped with its repository. */
   list_needs_you_all: { args: { teamId?: string } | undefined; result: { items: (NeedsYouItem & RepoStamp)[]; failures: RepoReadFailure[] } };
-  /** HUB_ONLY: post a reply with the caller's own `gh` identity and move the item on. */
-  reply_needs_you: { args: { repoPath: string; id: string; kind: 'issue' | 'pr'; body: string }; result: void };
+  /** HUB_ONLY: post a reply with the caller's own `gh` identity and move the item on. `card`: answer a card whose run stopped
+   *  to ask (src/hub/asking.ts): a hub-board card takes the answer into its body and goes back to To do. */
+  reply_needs_you: { args: { repoPath: string; id: string; kind: 'issue' | 'pr' | 'card'; body: string }; result: void };
   /** HUB_ONLY: merge a waiting PR (refused when not in "Needs you", verify failed on it, or required checks are not green). */
   merge_needs_you: { args: { repoPath: string; id: string }; result: void };
   list_projects: { args: { teamId?: string } | undefined; result: Project[] };
