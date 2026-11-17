@@ -77,9 +77,10 @@ test('a run started from the Board lands in the Runs split view, not the old str
   expect(screen.queryByText('Starting the run…')).toBeNull();
   // A running row opens in the pane beside the list, with no "running — view" chip.
   results.list_active = [{ taskId: 'gh-7', sessionFile: '/s', lastActivityMs: Date.now() }];
-  results.read_session = { entries: [], inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, estCostUsd: 0 };
-  fireEvent.click(screen.getByRole('button', { name: 'Reload' }));
-  fireEvent.click(await screen.findByText('Seven'));
+  results.read_session = { entries: [{ role: 'assistant', text: 'Reading the spec' }], inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, estCostUsd: 0 };
+  act(() => sse.get('stream-reset')?.());
+  // The pane already open on the placeholder follows the real entry: its transcript shows without a second click.
+  expect(await screen.findByText('Reading the spec')).toBeInTheDocument();
   expect(await screen.findByRole('region', { name: 'Run gh-7' })).toBeInTheDocument();
   expect(screen.queryByText('running — view')).toBeNull();
   // When the run ends, the pane swaps the live view for the finished record (with its PR).

@@ -659,7 +659,7 @@ export function Inspector({
               detail ? (
                 <RunPane key={selectedKey} repo={detailRepo} repoName={repoNameOf(detailRepo)} taskId={detail.taskId} title={titleOf(detailRepo, detail.taskId)} issue={issueNumber(detail.taskId)} detail={detail} tick={tick} onBack={closeRun} onCancel={cancelRun} />
               ) : liveRun ? (
-                <RunPane key={selectedKey} repo={liveRun.repoPath ?? project} repoName={liveRun.repoName ?? repoNameOf(liveRun.repoPath ?? project)} taskId={liveRun.taskId} title={titleOf(liveRun.repoPath ?? project, liveRun.taskId)} issue={issueNumber(liveRun.taskId)} active={liveRun} tick={tick} onBack={closeRun} onCancel={cancelRun} />
+                <RunPane key={selectedKey} repo={liveRun.repoPath ?? project} repoName={liveRun.repoName ?? repoNameOf(liveRun.repoPath ?? project)} taskId={liveRun.taskId} title={titleOf(liveRun.repoPath ?? project, liveRun.taskId)} issue={issueNumber(liveRun.taskId)} active={shownActive.find((a) => a.taskId === liveRun.taskId && (a.repoPath ?? project) === (liveRun.repoPath ?? project)) ?? liveRun} tick={tick} onBack={closeRun} onCancel={cancelRun} />
               ) : (
                 <div className="grid h-full place-items-center text-sm text-muted-foreground">Select a run to see its stages and log.</div>
               )
