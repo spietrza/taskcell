@@ -62,6 +62,7 @@ export function Inspector({
   onTaskCrumb,
   onNewTask,
   onOpenBoard,
+  onOpenRuns,
   onOpenSettings,
   onOpenSetup,
 }: {
@@ -86,6 +87,8 @@ export function Inspector({
   onTaskCrumb: (c: { name: string; onRename: (v: string) => void } | null) => void;
   onNewTask: () => void;
   onOpenBoard: () => void;
+  /** Switches to Runs, where a run launched from the Board opens in the split pane. */
+  onOpenRuns?: () => void;
   /** Opens this project's Settings (the Board's "no task source yet" hint). */
   onOpenSettings?: () => void;
   /** Reopen the first-run guide (Settings). */
@@ -292,6 +295,26 @@ export function Inspector({
     setLiveRun(a);
   }, [screen, typedRun?.taskId, active]);
 
+  // A live run that ends opens its finished record in the pane: the live view never fills in Tests or the PR.
+  // Records of the task that existed when the live run was opened are older runs, never this one.
+  const priorRecords = useRef<Set<string> | null>(null);
+  useEffect(() => {
+    if (!liveRun) {
+      priorRecords.current = null;
+      return;
+    }
+    const repo = liveRun.repoPath ?? project;
+    const mine = runs.filter((r) => r.taskId === liveRun.taskId && (r.repoPath ?? project) === repo && r.source !== 'ci');
+    if (priorRecords.current === null) {
+      priorRecords.current = new Set(mine.map((r) => r.timestamp));
+      return;
+    }
+    if (active.some((a) => a.taskId === liveRun.taskId && (a.repoPath ?? project) === repo)) return;
+    const done = mine.find((r) => !priorRecords.current!.has(r.timestamp));
+    if (done) void open(done);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [liveRun, runs, active]);
+
   // The listener is registered once, so it reaches the latest render's `refresh` through a ref.
   const refreshRef = useRef(refresh);
   refreshRef.current = refresh;
@@ -452,6 +475,7 @@ export function Inspector({
     setTypedRun(started); // "starting…" — "run live" derives from this
     setDetail(null);
     setLiveRun(null);
+    if (screen !== 'runs') onOpenRuns?.();
     void apiCreateRun(params)
       .then((res) => {
         if (runGen.current !== gen) return; // a newer run owns the strip

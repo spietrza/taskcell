@@ -589,6 +589,7 @@ export default function App() {
                   })
                 }
                 onOpenBoard={() => navigate(() => setScreen('board'))}
+                onOpenRuns={() => setScreen('runs')}
                 onOpenSettings={() => navigate(() => setScreen('settings'))}
                 onOpenSetup={() => navigate(() => {
                   setSetupOpen(true);
