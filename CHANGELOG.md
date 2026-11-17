@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.16.5](https://github.com/spietrza/taskcell/compare/v1.16.4...v1.16.5) (2026-11-17)
+
+
+### Bug Fixes
+
+* **hub:** live Tests card, one-line stage labels, issue number crumb ([#1210](https://github.com/spietrza/taskcell/issues/1210)) ([aa55315](https://github.com/spietrza/taskcell/commit/aa553155101cf65336091fa8fb63ed80d09ab5f7))
+
 ## [1.16.4](https://github.com/spietrza/taskcell/compare/v1.16.3...v1.16.4) (2026-11-17)
 
 
