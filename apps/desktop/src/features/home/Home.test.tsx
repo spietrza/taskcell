@@ -101,6 +101,7 @@ test('says what waits and what moves, lists the inbox, Moving, the floor and the
   // The floor folds the idle project and names the stations in one image per project.
   const floor = screen.getByRole('region', { name: 'The floor' });
   expect(within(floor).getByText('and 1 idle project')).toBeInTheDocument();
+  expect(within(floor).getByText(/Each card passes these stations: Card → Spec \(plan\)/)).toBeInTheDocument();
   expect(within(floor).getAllByRole('img').map((i) => i.getAttribute('aria-label'))).toContainEqual(expect.stringContaining('PR: 0 cards'));
   // This week
   const week = screen.getByRole('complementary', { name: 'This week' });

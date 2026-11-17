@@ -70,6 +70,11 @@ export function Floor({ rows, idle, onOpen }: { rows: FloorRow[]; idle: number; 
         </ul>
       )}
       {idle > 0 && <p className="text-xs text-muted-foreground">and {idle} idle {idle === 1 ? 'project' : 'projects'}</p>}
+      {rows.length > 0 && (
+        <p className="text-xs text-muted-foreground">
+          Each card passes these stations: Card → Spec (plan) → Cell (the agent codes in a sealed sandbox) → Gates (your tests) → Review → PR.
+        </p>
+      )}
     </section>
   );
 }

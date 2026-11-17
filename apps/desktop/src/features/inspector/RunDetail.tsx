@@ -71,7 +71,7 @@ export function RunDetail({ detail, project, prLink = true, steps }: { detail: R
           </div>
         )}
         {configPaths !== undefined && configPaths.length > 0 && (
-          <div role="note" className="text-sm text-warning-text">
+          <div role="note" className="text-sm text-warning-text" title="This run changed a file your test commands come from. Check it before merging.">
             Gate config changed: <code className="rounded bg-muted px-1 py-0.5">{configPaths.join(', ')}</code>
           </div>
         )}
