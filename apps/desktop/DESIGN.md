@@ -191,8 +191,8 @@ class on `<html>`. Dark is applied before first paint (`class="dark"` in `index.
 - **Signal Amber** (`primary`): `#f99a2c` in dark (the landing's `--accent`), deepened to `#c8730f`
   in light so a tab underline, the focus ring and the logo card keep 3:1 on the page. Ink on it is
   always the landing's `--accent-ink` `#14100a`. Means "needs you" only. Also the logo's
-  card, focus ring (solid, as on the landing) and text selection. Links and colored text use `text-primary-text`. Never a
-  surface fill.
+  card, focus ring (solid, as on the landing) and text selection. Links are ink with an underline
+  (`LINK_CLASS` in `@/ui`), never amber. Never a surface fill.
 
 ### Status
 - **Live Green** (`success`): running dot (`bg-success`, pulsing), passed chips, positive diff
@@ -332,8 +332,10 @@ wider edge is the dashboard card's 6px project-color strip, which is identity, n
 ## Components
 
 ### Buttons (chunks `Button`, 35px tall)
-- **Primary** (`contained`, default): one per screen, the action the screen exists for. Orange is
-  reserved for "needs you" (see The Orange Rule), so an ordinary primary should not be orange.
+- **Primary** (`contained`, default): one per screen, the action the screen exists for. `@/ui`'s
+  `Button` defaults to `color="secondary"` (a neutral fill), so an ordinary primary is not orange;
+  only a "needs you" action (Merge, Review, Answer) passes `color="primary"`.
+- **Destructive** (`variant="text" color="destructive"`): Delete, Kill. It never looks like Save.
 - **Outlined** (`variant="outlined"`): secondary actions in toolbars (New Task next to a primary,
   Fetch records).
 - **Text** (`variant="text"`, often `color="secondary"`): Cancel, Reload, Remove, icon-only
