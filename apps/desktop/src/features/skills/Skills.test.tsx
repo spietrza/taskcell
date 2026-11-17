@@ -90,14 +90,14 @@ test('a repository of several skills shows a picker; only the ticked ones are ad
   discovered = { commit: 'c'.repeat(40), skills: [{ path: 'skills/only', name: 'only' }] };
 });
 
-test('a link to a folder is added directly, without discovery; a failed add shows the reason', async () => {
+test('a link to a folder that is one skill is added directly after a scoped lookup; a failed add shows the reason', async () => {
+  discovered = { commit: 'c'.repeat(40), skills: [{ path: 'skills/a', name: 'a' }] };
   const calls = stubHub({ add_skill_pr: 'Cannot resolve HEAD of https://x/y.' });
   render(<Skills project="/repo" />);
   await screen.findByText('caveman');
   fireEvent.change(screen.getByLabelText('Skill source'), { target: { value: 'https://github.com/o/r/tree/main/skills/a' } });
   fireEvent.click(screen.getByRole('button', { name: 'Add skill' }));
   expect(await screen.findByText(/Cannot resolve HEAD of https:\/\/x\/y/)).toBeInTheDocument();
-  expect(calls.some((c) => c.cmd === 'discover_skills')).toBe(false);
   expect(calls.find((c) => c.cmd === 'add_skill_pr')?.body).toEqual({ repoPath: '/repo', source: 'https://github.com/o/r/tree/main/skills/a' });
 });
 
@@ -183,4 +183,38 @@ test('a refused pull shows the reason', async () => {
   await screen.findByText('caveman');
   fireEvent.click(screen.getByRole('button', { name: 'Pull checkout' }));
   expect(await screen.findByRole('alert')).toHaveTextContent(/Not pulled: .*uncommitted changes/);
+});
+
+test('a refused pull message clears when another Skills action starts', async () => {
+  stubHub({ pull_checkout: 'The checkout has uncommitted changes; commit or discard them first.' });
+  render(<Skills project="/repo" />);
+  await screen.findByText('caveman');
+  fireEvent.click(screen.getByRole('button', { name: 'Pull checkout' }));
+  await screen.findByRole('alert');
+  fireEvent.change(screen.getByLabelText('Skill source'), { target: { value: 'https://x/y' } });
+  fireEvent.click(screen.getByRole('button', { name: 'Add skill' }));
+  await screen.findByText(/Found \d+ skills? in this repository/);
+  expect(screen.queryByText(/Not pulled/)).toBeNull();
+});
+
+test('a folder link holding several skills opens the picker; a folder that is one skill adds it directly', async () => {
+  const link = 'https://github.com/o/r/tree/main/skills/eng';
+  discovered = { commit: 'e'.repeat(40), skills: [{ path: 'skills/eng/a', name: 'a' }, { path: 'skills/eng/b', name: 'b' }] };
+  let calls = stubHub();
+  const { unmount } = render(<Skills project="/repo" />);
+  await screen.findByText('caveman');
+  fireEvent.change(screen.getByLabelText('Skill source'), { target: { value: link } });
+  fireEvent.click(screen.getByRole('button', { name: 'Add skill' }));
+  expect(await screen.findByText(/Found 2 skills in this repository/)).toBeInTheDocument();
+  expect(calls.find((c) => c.cmd === 'discover_skills')?.body).toEqual({ repoPath: '/repo', source: link });
+  expect(calls.some((c) => c.cmd === 'add_skill_pr')).toBe(false);
+  unmount();
+  discovered = { commit: 'e'.repeat(40), skills: [{ path: 'skills/eng', name: 'eng' }] };
+  calls = stubHub();
+  render(<Skills project="/repo" />);
+  await screen.findByText('caveman');
+  fireEvent.change(screen.getByLabelText('Skill source'), { target: { value: link } });
+  fireEvent.click(screen.getByRole('button', { name: 'Add skill' }));
+  await screen.findByRole('link', { name: /Pull request #9 opened/ });
+  expect(calls.find((c) => c.cmd === 'add_skill_pr')?.body).toEqual({ repoPath: '/repo', source: link });
 });

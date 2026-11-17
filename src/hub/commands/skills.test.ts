@@ -113,6 +113,8 @@ test('discover_skills lists a repository for the owner only, and add_skill_pr ta
   cli.skillsDiscover.mockResolvedValue(found);
   expect(await dispatchRpc(ctx, 'discover_skills', { repoPath: repo, source: 'https://github.com/o/r' })).toEqual(found);
   expect(cli.skillsDiscover).toHaveBeenCalledWith({ source: 'https://github.com/o/r' });
+  await dispatchRpc(ctx, 'discover_skills', { repoPath: repo, source: 'https://github.com/o/r/tree/main/skills/eng' });
+  expect(cli.skillsDiscover).toHaveBeenLastCalledWith({ source: 'https://github.com/o/r', ref: 'main', path: 'skills/eng' });
   await expect(dispatchRpc(ctx, 'discover_skills', { repoPath: repo, source: 'https://github.com/o/r' }, outsider)).rejects.toThrow('only the hub owner');
   cli.skillsAddPr.mockImplementation(async () => ({ prUrl: PR }));
   await dispatchRpc(ctx, 'add_skill_pr', { repoPath: repo, source: 'https://github.com/o/r', ref: found.commit, paths: ['skills/a', 'skills/b'], name: 'ignored' });

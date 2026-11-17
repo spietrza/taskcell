@@ -1,4 +1,4 @@
-import { useState, type ReactNode } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
 import { Button, Chip, Input, ScrollTable, Table } from '@/ui';
 import { RefreshCw } from 'lucide-react';
 import { addSkillPr, discoverSkills, listPendingSkillPrs, listRepoSkills, pullCheckout, removeSkillPr, updateSkillPr } from '../../ipc';
@@ -60,7 +60,12 @@ export function Skills({ project }: { project: string }) {
   );
   const shown = (data?.skills ?? []).filter((s) => !onlyOutdated || isOutdated(s));
 
+  // The pull result is stale once another action starts or the project changes.
+  const clearPull = (): void => setPull(null);
+  useEffect(clearPull, [project]);
+
   const run = async (key: string, action: () => Promise<{ prUrl: string }>, names: string[] = []): Promise<boolean> => {
+    clearPull();
     setBusy(key);
     try {
       const { prUrl } = await action();
@@ -101,18 +106,21 @@ export function Skills({ project }: { project: string }) {
       )}
     </span>
   );
-  // A link to a folder already names its skill; a repository is looked through first, so a repository of several skills
-  // is not added whole.
+  // A repository or a folder link is looked through first (a folder may hold several skills); a folder that is itself
+  // one skill (the only hit is the linked folder) is added directly.
   const pointsAtFolder = (u: string): boolean => /\/(-\/)?(tree|blob)\/[^/]+\/[^/]/.test(u);
   const add = async (): Promise<void> => {
     const src = source.trim();
-    if (pointsAtFolder(src)) {
-      await run('add', () => addSkillPr(project, src));
-      return;
-    }
+    clearPull();
     setBusy('add');
     try {
       const r = await discoverSkills(project, src);
+      const folder = src.replace(/\/SKILL\.md$/, '').replace(/\/$/, '');
+      if (pointsAtFolder(src) && r.skills.length === 1 && folder.endsWith(`/${r.skills[0]!.path}`)) {
+        setBusy(null);
+        await run('add', () => addSkillPr(project, src));
+        return;
+      }
       if (r.skills.length === 0) throw new Error('No skill (a folder with SKILL.md) found in this repository.');
       setFound({ source: src, ...r });
       setPicked(r.skills.length === 1 ? [r.skills[0]!.path] : []);
@@ -145,7 +153,7 @@ export function Skills({ project }: { project: string }) {
           <input type="checkbox" checked={onlyOutdated} onChange={(e) => setOnlyOutdated(e.target.checked)} />
           Outdated only
         </label>
-        <Button className="ml-auto" variant="text" color="secondary" onClick={() => setNonce((n) => n + 1)} startIcon={<RefreshCw className="size-4" />}>
+        <Button className="ml-auto" variant="text" color="secondary" onClick={() => { clearPull(); setNonce((n) => n + 1); }} startIcon={<RefreshCw className="size-4" />}>
           Refresh
         </Button>
       </div>

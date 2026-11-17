@@ -21,7 +21,7 @@ export interface SkillsCommands {
    * one repository in one PR (the folders `discover_skills` found, `ref` pinned to its commit); `source` may be a GitHub or GitLab browse link to a folder. */
   add_skill_pr: { args: { repoPath: string; source: string; ref?: string; path?: string; paths?: string[]; name?: string }; result: { prUrl: string } };
   /** HUB_ONLY, owner only (it reads the network): the skills a repository holds, from its tree listing alone. `commit` is what to pin them to. */
-  discover_skills: { args: { repoPath: string; source: string }; result: { commit: string; skills: DiscoveredSkill[] } };
+  discover_skills: { args: { repoPath: string; source: string; ref?: string; path?: string }; result: { commit: string; skills: DiscoveredSkill[] } };
   /** HUB_ONLY, owner only (it reads the forge): the project's open skill-add PRs, by branch prefix. GitHub only; others get an empty list. */
   list_pending_skill_prs: { args: { repoPath: string }; result: { prs: PendingSkillPr[] } };
   /** HUB_ONLY, owner only, a write: fast-forward the hub's checkout to origin's default branch, so merged skills appear. Refuses (changing nothing)
@@ -134,8 +134,10 @@ export const commands = defineCommands<SkillsCommands>({
   },
   discover_skills: async ({ args, allow }) => {
     await allow(requireString(args, 'repoPath'));
-    const { source, ref } = splitSource(requireString(args, 'source'), optionalString(args, 'ref'));
-    return skillsDiscover({ source, ...(ref !== undefined ? { ref } : {}) });
+    const { source, ref, path: linked } = splitSource(requireString(args, 'source'), optionalString(args, 'ref'));
+    // A browse link to a folder scopes discovery to it.
+    const path = optionalString(args, 'path') ?? linked;
+    return skillsDiscover({ source, ...(ref !== undefined ? { ref } : {}), ...(path !== undefined ? { path } : {}) });
   },
   list_pending_skill_prs: async ({ args, allow }) => {
     const slug = await githubSlug(await allow(requireString(args, 'repoPath')));

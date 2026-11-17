@@ -251,9 +251,11 @@ const MAX_DISCOVERED = 50;
  * directory names are skipped (they could not be installed); a name found twice keeps the shallowest path outside
  * dot-directories, so `.openclaw/skills/x` does not shadow `skills/x`.
  */
-export async function skillsDiscover(opts: { source: string; ref?: string }, deps: SkillsDeps = {}): Promise<{ commit: string; skills: DiscoveredSkill[] }> {
+export async function skillsDiscover(opts: { source: string; ref?: string; path?: string }, deps: SkillsDeps = {}): Promise<{ commit: string; skills: DiscoveredSkill[] }> {
   const src = deps.source ?? gitSkillSource;
   assertHttpsSource(opts.source);
+  // A folder scope keeps the repo-relative paths, so a pick can be added as it is.
+  const scope = opts.path === undefined ? '.' : assertRepoPath(opts.path);
   if (src.list === undefined) throw new TaskcellError('This skill source cannot list a repository.');
   try {
     const commit = await src.resolve(opts.source, opts.ref);
@@ -262,6 +264,7 @@ export async function skillsDiscover(opts: { source: string; ref?: string }, dep
     const dirs = (await src.list(opts.source, commit))
       .filter((f) => f === 'SKILL.md' || f.endsWith('/SKILL.md'))
       .map((f) => (f === 'SKILL.md' ? '.' : f.slice(0, -'/SKILL.md'.length)))
+      .filter((d) => scope === '.' || d === scope || d.startsWith(`${scope}/`))
       .filter((d) => oneLine(d) === d);
     const rank = (d: string): [number, number, string] => [d.split('/').some((seg) => seg.startsWith('.') && seg !== '.') ? 1 : 0, d.split('/').length, d];
     dirs.sort((a, b) => {
