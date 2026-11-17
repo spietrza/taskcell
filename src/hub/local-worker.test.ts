@@ -136,13 +136,14 @@ test('a failing read is recorded as the last error and cleared by the next pick-
   expect((await readLocalWorker(cfg, repo)).lastError).toBeUndefined();
 });
 
-test('hub boards: served unless explicitly off; pick-ups are shown only while on', async () => {
+test('hub boards: served only while switched on; pick-ups are shown only while on', async () => {
   const repo = await tmpGitRepo();
   await writeAppConfig(repo, { taskSource: 'hub' });
-  expect(await boardServed(cfg, repo)).toBe(true);
+  expect(await boardServed(cfg, repo)).toBe(false); // never switched
   await recordBoardPickup(cfg, repo, ['hub-1']);
   expect((await readLocalWorker(cfg, repo)).lastPickup).toBeUndefined();
   await setLocalWorker(cfg, repo, true, undefined, deps());
+  expect(await boardServed(cfg, repo)).toBe(true);
   await recordBoardPickup(cfg, repo, ['hub-1']);
   expect((await readLocalWorker(cfg, repo)).lastPickup).toBe('hub-1');
   await setLocalWorker(cfg, repo, false, undefined, deps());
@@ -168,12 +169,12 @@ test('a failed author lookup is recorded and nothing starts', async () => {
   expect((await readLocalWorker(cfg, repo)).lastError).toMatch(/#7: author lookup failed: HTTP 502/);
 });
 
-test('hub boards: Run doctor is refused (no tracker to check) and the board stays served', async () => {
+test('hub boards: Run doctor is refused (no tracker to check) and the board stays unserved', async () => {
   const repo = await tmpGitRepo();
   await writeAppConfig(repo, { taskSource: 'hub' });
   await expect(runLocalDoctor(cfg, repo, undefined, deps())).rejects.toThrow(/hub-board project/);
   expect((await readLocalWorker(cfg, repo)).doctor).toBeUndefined();
-  expect(await boardServed(cfg, repo)).toBe(true);
+  expect(await boardServed(cfg, repo)).toBe(false);
 });
 
 test('the doctor command targets the project: its repo, the GitHub source, the trigger label and provider', () => {

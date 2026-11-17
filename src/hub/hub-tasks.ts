@@ -32,6 +32,8 @@ export interface HubTask {
   owner?: HubTaskOwner;
   /** Hand-picked skill ids (installed ones; checked when set): the task's run loads exactly these. */
   skills?: string[];
+  /** `todo`: a person pressed Start; the scheduler starts it even when its project's auto-run is off. Cleared when it starts. */
+  startRequested?: true;
   /** `running`: the run session's id for its run. */
   runId?: string;
   /** `failed`: why. `todo`: why its last start was refused. */

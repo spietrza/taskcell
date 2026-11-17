@@ -1383,6 +1383,8 @@ export interface Commands {
   hub_task_schedule: { args: { repoPath: string; id: string; blockedBy?: string[]; startDate?: string | null }; result: { id: string } };
   /** HUB_ONLY: put a failed hub-board task back to `todo`, to run as the caller; its old result is cleared. */
   hub_task_retry: { args: { repoPath: string; id: string }; result: { id: string } };
+  /** Start one `todo` hub task now as the caller, even while the project's auto-run is off (the scheduler's next tick, same gates). */
+  hub_task_start: { args: { repoPath: string; id: string }; result: { id: string } };
   /** HUB_ONLY: accept the delivered result of a hub-board task that failed verification: it becomes done (its dependents may start) without a second run. */
   hub_task_accept: { args: { repoPath: string; id: string }; result: { id: string } };
   /** HUB_ONLY: move a done hub-board task to the project's archive file, freeing room on the board. */
@@ -1469,6 +1471,7 @@ export const COMMAND_NAMES = [
   'hub_task_delete',
   'hub_task_retry',
   'hub_task_schedule',
+  'hub_task_start',
   'import_remote_run',
   'instance_credentials_status',
   'kill_run',
@@ -1564,6 +1567,7 @@ export const WRITE_COMMAND_NAMES: readonly (typeof COMMAND_NAMES)[number][] = [
   'hub_task_delete',
   'hub_task_retry',
   'hub_task_schedule',
+  'hub_task_start',
   'import_remote_run',
   'kill_run',
   'local_worker_doctor',

@@ -63,6 +63,7 @@ beforeEach(async () => {
   const uiDir = await mkdtemp(join(tmpdir(), 'vanguard-hubrun-ui-'));
   dirs = [repo, configDir, uiDir];
   await execa('git', ['init', '-q', repo]); // no origin at all
+  await writeFile(join(configDir, 'local-worker.json'), JSON.stringify({ [repo]: { enabled: true } })); // auto-run on: a hub board is off until switched
   await writeFile(join(uiDir, 'index.html'), '<html><head></head></html>');
   await saveTeams(configDir, [{ id: 't', name: 'T', members: [{ login: '1', role: 'member' }], repositories: [repo] }]);
   options = {
@@ -411,4 +412,21 @@ test('a refused start is audited against the task as well as the repository', as
   await create('A');
   await hub.sweepHubTasks();
   expect(await audit()).toContainEqual(expect.objectContaining({ action: 'run-start', outcome: 'refused', target: `${repo} hub-1` }));
+});
+
+test('auto-run off: a new card waits and says so; Start run starts that one task only, as its owner', async () => {
+  await writeFile(join(options.configDir, 'local-worker.json'), JSON.stringify({ [repo]: { enabled: false } }));
+  await useHubBoard();
+  await create('A');
+  await create('B');
+  await hub.sweepHubTasks();
+  expect(runs).toHaveLength(0);
+  expect((await board())['hub-1']).toMatchObject({ state: 'auto-run is off — start it by hand' });
+  expect((await rpc(alice, 'hub_task_start', { repoPath: repo, id: 'hub-9' })).status).toBe(400);
+  expect((await rpc(alice, 'hub_task_start', { repoPath: repo, id: 'hub-2' })).status).toBe(200);
+  await hub.sweepHubTasks();
+  expect(runs).toHaveLength(1);
+  expect(runs[0]!.params).toMatchObject({ issueRef: 'hub-2', startedBy: '1@example.com' });
+  expect((await board())['hub-1']).toMatchObject({ state: 'auto-run is off — start it by hand' });
+  expect((await rpc(alice, 'hub_task_start', { repoPath: repo, id: 'hub-2' })).status).toBe(400); // already running
 });

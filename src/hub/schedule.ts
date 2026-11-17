@@ -68,7 +68,7 @@ export interface SchedulePlan {
  * is free (`limit` minus the tasks already handed to the run session). A missing reference or a cycle is `invalid`
  * with the reason and never starts. `queued` maps a run id waiting in the run session's queue to its position.
  */
-export function planSchedule(tasks: readonly HubTask[], opts: { now: Date; limit: number; timeZone: string; queued?: ReadonlyMap<string, number> }): SchedulePlan {
+export function planSchedule(tasks: readonly HubTask[], opts: { now: Date; limit: number; timeZone: string; queued?: ReadonlyMap<string, number>; only?: (t: HubTask) => boolean }): SchedulePlan {
   const byId = new Map(tasks.map((t) => [t.id, t]));
   const cycles = cycleReasons(tasks, byId);
   const out = new Map<string, TaskSchedule>();
@@ -96,7 +96,8 @@ export function planSchedule(tasks: readonly HubTask[], opts: { now: Date; limit
     }
     candidates.push(t);
   }
-  const start = candidates.slice(0, Math.max(0, free));
+  // `only`: a candidate outside it never takes a slot (it reads as waiting; the caller knows why).
+  const start = candidates.filter((t) => opts.only?.(t) ?? true).slice(0, Math.max(0, free));
   for (const t of candidates) {
     out.set(
       t.id,

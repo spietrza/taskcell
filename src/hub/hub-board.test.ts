@@ -187,3 +187,11 @@ test('a future start date is not started even with a free slot', async () => {
   expect(await scheduleTick(cfg, repo, start, { limit: 2 })).toEqual([]);
   expect(await scheduleTick(cfg, repo, start, { limit: 2, now: new Date('2099-01-02T00:00:00Z') })).toEqual(['hub-1']);
 });
+
+test('a project that is not auto-run shows startable cards as waiting for a hand start; blocked ones keep their reason', async () => {
+  await createHubTask(cfg, repo, { title: 'A', body: '', owner });
+  await createHubTask(cfg, repo, { title: 'B', body: '', blockedBy: ['hub-1'], owner });
+  expect((await listHubBoard(cfg, repo)).tasks.map((t) => t.state)).toEqual(['auto-run is off — start it by hand', 'blocked by hub-1']);
+  await writeFile(join(cfg, 'local-worker.json'), JSON.stringify({ [repo]: { enabled: true } }));
+  expect((await listHubBoard(cfg, repo)).tasks.map((t) => t.state)).toEqual(['starts next', 'blocked by hub-1']);
+});

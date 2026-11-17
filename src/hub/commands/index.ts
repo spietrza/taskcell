@@ -108,6 +108,7 @@ export const COMMAND_NAMES = [
   'hub_task_delete',
   'hub_task_retry',
   'hub_task_schedule',
+  'hub_task_start',
   'import_remote_run',
   'instance_credentials_status',
   'kill_run',

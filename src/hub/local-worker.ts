@@ -24,7 +24,7 @@ import type { ProjectAllowlist } from './allowlist.js';
 import type { RunSession } from './run-session.js';
 import { STARTED_LABELS } from './start-task.js';
 
-/** Persisted per project (keyed by the allowlisted real path). `enabled` is the switch; absent = never switched (distinct from an explicit off). */
+/** Persisted per project (keyed by the allowlisted real path). `enabled` is the switch; absent = never switched, which is off (a board's cards do not start on their own until it is on). */
 interface LocalWorkerRecord {
   enabled?: boolean;
   lastPickupAt?: string;
@@ -52,7 +52,7 @@ async function readAll(configDir: string): Promise<Record<string, LocalWorkerRec
   }
 }
 
-/** One project's record; a never-switched project reads as off (`enabled: false`) but is stored without `enabled`. */
+/** One project's record; a never-switched project reads as off (`enabled: false`), as the board sweep treats it, but is stored without `enabled`. */
 export async function readLocalWorker(configDir: string, repoPath: string): Promise<LocalWorkerRecord & { enabled: boolean }> {
   const rec = (await readAll(configDir))[repoPath];
   return typeof rec === 'object' && rec !== null ? { ...rec, enabled: rec.enabled === true } : { enabled: false };
@@ -273,9 +273,9 @@ export async function sweepLocalWorkers(ctx: LocalWorkerContext): Promise<void> 
   }
 }
 
-/** The board sweep serves every hub-board project it always did, except one whose worker switch was set off explicitly. */
+/** The board sweep auto-starts cards only of a project whose worker switch is on; a never-switched one waits for a hand start (`hub_task_start`). */
 export async function boardServed(configDir: string, repoPath: string): Promise<boolean> {
-  return (await readAll(configDir))[repoPath]?.enabled !== false;
+  return (await readAll(configDir))[repoPath]?.enabled === true;
 }
 
 /** The board scheduler started tasks of a project whose switch is on: show them as the last pick-up. */

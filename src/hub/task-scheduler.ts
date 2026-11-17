@@ -46,7 +46,7 @@ function ended(result: CreateRunResult): Pick<HubTask, 'status' | 'reason' | 're
 }
 
 /** Start what may start now; resolves with the ids the run session took, once they are marked running (not when they end). */
-export async function scheduleTick({ ticking, live, pending }: SchedulerState, configDir: string, repoPath: string, start: StartTask, opts: { limit: number; now?: Date }): Promise<string[]> {
+export async function scheduleTick({ ticking, live, pending }: SchedulerState, configDir: string, repoPath: string, start: StartTask, opts: { limit: number; now?: Date; only?: (t: HubTask) => boolean }): Promise<string[]> {
   if (ticking.has(repoPath)) return [];
   ticking.add(repoPath);
   try {
@@ -60,7 +60,7 @@ export async function scheduleTick({ ticking, live, pending }: SchedulerState, c
       live.delete(k);
     }
     const { tasks } = await resetAndListHubTasks(configDir, repoPath, (id) => live.has(key(repoPath, id)));
-    const plan = planSchedule(tasks, { now: opts.now ?? new Date(), limit: opts.limit, timeZone: hubTimeZone() });
+    const plan = planSchedule(tasks, { now: opts.now ?? new Date(), limit: opts.limit, timeZone: hubTimeZone(), ...(opts.only !== undefined ? { only: opts.only } : {}) });
     const started: string[] = [];
     for (const id of plan.start) {
       const k = key(repoPath, id);
@@ -80,6 +80,7 @@ export async function scheduleTick({ ticking, live, pending }: SchedulerState, c
       live.add(k);
       await editHubTask(configDir, repoPath, id, (t) => {
         t.status = 'running';
+        delete t.startRequested;
         if (admission !== '') t.runId = admission;
         delete t.reason;
       });
@@ -117,7 +118,7 @@ export interface SweepContext {
   audit?: AuditLog;
   /** Re-resolves the stored owner at start (current account and owner flag); undefined: no longer valid, the task does not run. */
   recheckCaller: (stored: teams.Caller) => Promise<teams.Caller | undefined>;
-  /** A project the sweep may serve (default: all). The local worker's switch, when set off, stops a board's pick-ups. */
+  /** A project the sweep auto-starts (default: all). Off (the local worker's switch): only tasks started by hand run. */
   served?: (repoPath: string) => Promise<boolean>;
   /** Called with the ids a tick started. */
   picked?: (repoPath: string, ids: string[]) => Promise<void>;
@@ -176,8 +177,9 @@ export async function sweepHubBoards(ctx: SweepContext): Promise<void> {
     try {
       if ((await ctx.allowlist.assertAllowed(repoPath).catch(() => undefined)) !== repoPath) continue;
       if ((await readAppConfig(repoPath)).taskSource !== 'hub') continue;
-      if (ctx.served !== undefined && !(await ctx.served(repoPath))) continue;
-      const started = await scheduleTick(ctx.scheduler, ctx.configDir, repoPath, (task, admitted) => startHubTask(ctx, repoPath, task, admitted), { limit: await parallelLimit(repoPath) });
+      // A project that is not served starts only the tasks a person asked to start by hand.
+      const served = ctx.served === undefined || (await ctx.served(repoPath));
+      const started = await scheduleTick(ctx.scheduler, ctx.configDir, repoPath, (task, admitted) => startHubTask(ctx, repoPath, task, admitted), { limit: await parallelLimit(repoPath), ...(served ? {} : { only: (t: HubTask) => t.startRequested === true }) });
       await ctx.picked?.(repoPath, started);
     } catch (e) {
       console.error(`vanguard-hub: scheduler: ${repoPath}: ${failureMessage(e)}`);

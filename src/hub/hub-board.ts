@@ -1,6 +1,7 @@
 // The hub board for a project whose task source is `hub`: its tasks as cards, each with the scheduler's answer.
 import { parseSkillsLine } from '../context/named-skills.js';
 import { readAppConfig } from './app-config.js';
+import { boardServed } from './local-worker.js';
 import { hubTimeZone, readHubTasks, type HubTask } from './hub-tasks.js';
 import { MAX_CONCURRENT_RUNS } from './run-session.js';
 import { planSchedule } from './schedule.js';
@@ -26,14 +27,17 @@ export async function listHubBoard(configDir: string, repoPath: string, queued: 
   const { tasks, invalid } = await readHubTasks(configDir, repoPath);
   const timeZone = hubTimeZone();
   const plan = planSchedule(tasks, { now, limit: await parallelLimit(repoPath), timeZone, queued });
+  const served = await boardServed(configDir, repoPath);
   const cards: BoardTask[] = tasks.map((t) => {
     const schedule = plan.byId.get(t.id)!;
+    // Auto-run off: a card the scheduler would start next only waits for a hand start (unless one was asked for).
+    const idle = !served && t.startRequested !== true && (schedule.state === 'ready' || schedule.state === 'waits-slot');
     const waiting = schedule.state === 'queued' || schedule.state === 'ready' || schedule.state === 'refused' || schedule.state === 'waits-slot';
     return {
       id: t.id,
       title: t.title,
       column: schedule.state === 'queued' ? 'queued' : COLUMN[t.status],
-      state: schedule.label,
+      state: idle ? 'auto-run is off — start it by hand' : schedule.label,
       ...(waiting ? { waiting: true } : {}),
       blockedBy: t.blockedBy,
       ...(t.startDate !== undefined ? { startDate: t.startDate } : {}),

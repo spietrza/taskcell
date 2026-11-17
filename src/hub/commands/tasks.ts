@@ -39,6 +39,8 @@ export interface TasksCommands {
   hub_task_schedule: { args: { repoPath: string; id: string; blockedBy?: string[]; startDate?: string | null }; result: { id: string } };
   /** HUB_ONLY: put a failed hub-board task back to `todo`, to run as the caller; its old result is cleared. */
   hub_task_retry: { args: { repoPath: string; id: string }; result: { id: string } };
+  /** Start one `todo` hub task now as the caller, even while the project's auto-run is off (the scheduler's next tick, same gates). */
+  hub_task_start: { args: { repoPath: string; id: string }; result: { id: string } };
   /** HUB_ONLY: accept the delivered result of a hub-board task that failed verification: it becomes done (its dependents may start) without a second run. */
   hub_task_accept: { args: { repoPath: string; id: string }; result: { id: string } };
   /** HUB_ONLY: move a done hub-board task to the project's archive file, freeing room on the board. */
@@ -314,6 +316,17 @@ export const commands = defineCommands<TasksCommands>({
     if (task === undefined) throw new BadRequestError(`no hub task ${id}`);
     return { id };
   },
+  hub_task_start: async (call) => {
+    const real = await hubBoardRepo(call);
+    const id = requireMatch(call.args, 'id', HUB_TASK_ID, 'hub task id');
+    const task = await editHubTask(call.ctx.configDir, real, id, (t) => {
+      if (t.status !== 'todo') throw new BadRequestError(`${id} is ${t.status}, not to do`);
+      t.startRequested = true;
+      t.owner = ownerOf(call);
+    });
+    if (task === undefined) throw new BadRequestError(`no hub task ${id}`);
+    return { id };
+  },
   hub_task_accept: async (call) => {
     const real = await hubBoardRepo(call);
     const id = requireMatch(call.args, 'id', HUB_TASK_ID, 'hub task id');
@@ -375,6 +388,7 @@ export const commands = defineCommands<TasksCommands>({
   hub_task_create: { write: true, repo: 'repoPath' },
   hub_task_schedule: { write: true, repo: 'repoPath' },
   hub_task_retry: { write: true, repo: 'repoPath' },
+  hub_task_start: { write: true, repo: 'repoPath' },
   hub_task_accept: { write: true, repo: 'repoPath' },
   hub_task_archive: { write: true, repo: 'repoPath' },
   hub_task_delete: { write: true, repo: 'repoPath' },
@@ -388,6 +402,7 @@ export const commands = defineCommands<TasksCommands>({
   hub_task_create: { action: 'task-create', target: repoTarget },
   hub_task_schedule: { action: 'task-schedule', target: repoItemTarget('id') },
   hub_task_retry: { action: 'task-schedule', target: repoItemTarget('id') },
+  hub_task_start: { action: 'task-schedule', target: repoItemTarget('id') },
   hub_task_accept: { action: 'task-schedule', target: repoItemTarget('id') },
   hub_task_archive: { action: 'task-edit', target: repoItemTarget('id') },
   hub_task_delete: { action: 'task-edit', target: repoItemTarget('id') },
