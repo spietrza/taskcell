@@ -32,8 +32,8 @@ test('the state word and its colour are one reading: a failed run is never green
   expect(runStateWord({ anyFailed: true })).toBe('failed');
   expect(tone({ anyFailed: true })).toBe('destructive');
   expect(runStateWord({ anyFailed: false, verifyFailed: true, prUrl: 'u' })).toBe('failed');
-  expect(runStateWord({ anyFailed: true, asked: 'which file?' })).toBe('asks you');
-  expect(tone({ anyFailed: true, asked: 'which file?' })).toBe('warning');
+  expect(runStateWord({ anyFailed: true, asked: 'which file?' })).toBe('Waiting for your answer');
+  expect(tone({ anyFailed: true, asked: 'which file?' })).toBe('primary');
   expect(runStateWord({ anyFailed: false, cardDone: true })).toBe('done, no PR');
   expect(tone({ anyFailed: false, prState: 'merged', prUrl: 'u' })).toBe('success');
 });

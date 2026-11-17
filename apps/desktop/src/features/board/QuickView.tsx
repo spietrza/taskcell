@@ -8,6 +8,7 @@ import { isDemoLink } from '../../transport';
 import type { BoardTask, RepoStamp, RunDetail, RunSummary } from '../../wire';
 import { STATION_SHORT, cardStationOf } from '../../stations';
 import { costLabel, estTitle } from '../../cost';
+import { ASKED_WORDS, NEEDS_YOU_CHIP } from '../../runLabels';
 import { verdictWord } from '../../status';
 import { AgentText } from '../../components/AgentText';
 import { ExternalLink, hostName } from '../../components/ExternalLink';
@@ -305,9 +306,13 @@ export function QuickView({
             ) : (
               <span className="shrink-0">{task.id}</span>
             )}
-            <span data-column={task.column} className={cn('shrink-0 rounded px-1.5 py-0.5 font-sans', task.column === 'verify-failed' ? 'bg-destructive/15 text-destructive-text' : task.column === 'done' ? 'bg-success/15 text-success-text' : 'bg-muted text-foreground')}>
-              {COLUMN_LABEL[task.column]}
-            </span>
+            {task.asked === true ? (
+              <span data-column={task.column} className={cn('shrink-0 font-sans', NEEDS_YOU_CHIP)}>{ASKED_WORDS}</span>
+            ) : (
+              <span data-column={task.column} className={cn('shrink-0 rounded px-1.5 py-0.5 font-sans', task.column === 'verify-failed' ? 'bg-destructive/15 text-destructive-text' : task.column === 'done' ? 'bg-success/15 text-success-text' : 'bg-muted text-foreground')}>
+                {COLUMN_LABEL[task.column]}
+              </span>
+            )}
           </div>
           <button type="button" aria-label="Close quick view" onClick={onClose} className="-mr-1 rounded p-1 text-muted-foreground hover:bg-muted hover:text-foreground">
             <X className="size-4" />

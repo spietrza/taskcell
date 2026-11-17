@@ -200,7 +200,7 @@ test('a run whose agent stopped to ask: the chip word and colour come from one s
   render(<RunPane {...props} taskId="hub-4" issue={undefined} detail={asking} summary={row} />);
   const pane = screen.getByRole('region', { name: 'Run hub-4' });
   // The proof passed, yet the run did not: never a green chip next to a "failed"/"asks you" word.
-  const chip = within(pane).getByText('asks you');
+  const chip = within(pane).getByText('Waiting for your answer');
   expect(chip.closest('[class*="success"]')).toBeNull();
   expect(within(pane).getByRole('note')).toHaveTextContent('Stopped to ask you');
   expect(within(pane).getByRole('note')).toHaveTextContent('which config file?');

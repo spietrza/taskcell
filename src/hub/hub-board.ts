@@ -60,6 +60,7 @@ export async function listHubBoard(configDir: string, repoPath: string, queued: 
       id: t.id,
       title: t.title,
       ...(failedAt !== undefined ? { stage: failedAt } : {}),
+      ...(t.status === 'failed' && (t.reason === ASKED_REASON || run?.asked !== undefined) ? { asked: true as const } : {}),
       column: schedule.state === 'queued' ? 'queued' : COLUMN[t.status],
       state: idle ? 'auto-run is off — start it by hand' : schedule.label,
       ...(waiting ? { waiting: true } : {}),

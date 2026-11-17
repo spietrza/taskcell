@@ -48,6 +48,14 @@ const COUNTS_TASKS: BoardTask[] = [
 ];
 
 describe('TaskBoard on a hub-board project', () => {
+  test('a card whose run stopped to ask shows "Waiting for your answer" as needs you', async () => {
+    mockListTasks.mockResolvedValue({ tasks: [{ id: 'hub-4', title: 'Validate', column: 'verify-failed', state: 'failed', asked: true, schedule: { state: 'failed', label: 'failed: asked', reason: 'asked' } }], capped: false, hubBoard: true });
+    render(<TaskBoard project="/repo" repos={[]} onOpenTask={() => {}} onNewTask={() => {}} />);
+    const words = await screen.findByText('Waiting for your answer');
+    expect(words.className).toContain('text-primary-text');
+    expect(screen.queryByText('failed: asked')).toBeNull();
+  });
+
   const card = (label: string): BoardTask => ({ id: 'hub-1', title: 'Hub one', column: 'queued', state: label, schedule: { state: 'ready', label } });
 
   test('offers the hub task form instead of the tracker\'s New Task, and reloads after adding', async () => {

@@ -316,6 +316,8 @@ export interface BoardTask {
   column: 'queued' | 'claimed' | 'running' | 'verify-failed' | 'review' | 'done';
   /** The chip: first label else provider state (github/gitlab); the workflow state (Linear). */
   state: string;
+  /** Hub board: the card's newest run stopped to ask the person; it waits for their answer (Home's inbox). */
+  asked?: true;
   /** Waiting for the factory: carries a trigger label and is still `queued`. Absent when false. */
   waiting?: boolean;
   /** Current pipeline stage of a running task (from the run's stage marker). Absent ⇒ unknown. */

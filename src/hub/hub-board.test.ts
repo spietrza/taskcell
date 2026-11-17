@@ -219,6 +219,7 @@ test('a done card whose newest run failed or stopped to ask is shown failed, unl
     const cards = (await listHubBoard(cfg, dir)).tasks;
     expect(cards.map((t) => t.column)).toEqual(['verify-failed', 'done', 'done']);
     expect(cards.map((t) => t.stage)).toEqual(['implementer', undefined, undefined]);
+    expect(cards.map((t) => t.asked)).toEqual([true, undefined, undefined]);
     expect(cards[0]!.state).toBe(`failed: ${ASKED_REASON}`);
   } finally {
     await rm(dir, { recursive: true, force: true });
