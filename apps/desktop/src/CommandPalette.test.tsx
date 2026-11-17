@@ -71,8 +71,8 @@ test('finds loaded cards and runs by id and title in the shown projects, and ope
   expect(onOpenRun).toHaveBeenCalledWith(runs[0]);
 });
 
-test('a card outside the shown projects is not offered', () => {
-  const cards = [{ id: 'hub-5', title: 'Other team card', repoPath: '/r/elsewhere' }];
+test('a card outside the shown projects, or naming none, is not offered', () => {
+  const cards = [{ id: 'hub-5', title: 'Other team card', repoPath: '/r/elsewhere' }, { id: 'hub-55', title: 'No repository' }];
   render(<CommandPalette {...base} projects={[{ path: '/r/hub', name: 'hub' }] as never} cards={cards} onOpenCard={vi.fn()} />);
   fireEvent.change(screen.getByRole('combobox'), { target: { value: 'hub-5' } });
   expect(screen.getByText('No matches')).toBeInTheDocument();

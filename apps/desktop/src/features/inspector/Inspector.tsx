@@ -255,7 +255,8 @@ export function Inspector({
     }
     const [r, a] = await Promise.all([listRuns(project), listActive(project)]);
     if (gen !== runsGen.current) return;
-    setRuns(r);
+    // Stamped with the project so ⌘K can place each run in the team.
+    setRuns(r.map((x) => ({ ...x, repoPath: project })));
     setFailures([]);
     setActive(a);
   };

@@ -30,7 +30,7 @@ import { hubSignedIn, isDemoMode, hubSignOut, onHubRestart, onHubConnectionIssue
 import { applyTheme, initialTheme, saveTheme } from './theme';
 import type { Project, ActiveRun } from './taskcell-output';
 import type { StampedNeeds } from './features/home/homeModel';
-import { paletteItems, type PaletteCard, type PaletteRun } from './paletteIndex';
+import { clearPalette, loadPalette, paletteItems, type PaletteCard, type PaletteRun } from './paletteIndex';
 
 export default function App() {
   const [allProjects, setProjects] = useState<Project[]>([]);
@@ -77,6 +77,17 @@ export default function App() {
   // unconsumed nonce, so returning to the screen by other paths restores the last-open draft.
   const [newTaskNonce, setNewTaskNonce] = useState(0);
   const [palette, setPalette] = useState(false);
+  // Each palette open reads the team's cards and runs once (a cold start knows only what Board or Runs published); no polling.
+  const [, setPaletteLoads] = useState(0);
+  useEffect(() => {
+    if (!palette) return;
+    let alive = true;
+    void loadPalette(team?.id).then(() => alive && setPaletteLoads((n) => n + 1));
+    return () => {
+      alive = false;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [palette]);
   const [hubRestarted, setHubRestarted] = useState(false);
   const [hubConnectionIssue, setHubConnectionIssue] = useState(false);
   const [signedIn, setSignedIn] = useState(false);
@@ -212,6 +223,7 @@ export default function App() {
 
   const chooseTeam = (id: string): void =>
     navigate(() => {
+      if (id !== teamId) clearPalette();
       setTeamId(id);
       saveTeamId(id);
     });
@@ -554,7 +566,7 @@ export default function App() {
         onCommandK={() => setPalette(true)}
         theme={theme}
         onToggleTheme={toggleTheme}
-        {...(signedIn ? { onSignOut: () => void hubSignOut() } : {})}
+        {...(signedIn ? { onSignOut: () => { clearPalette(); void hubSignOut(); } } : {})}
       />
       <div className="flex min-h-0 flex-1 max-md:flex-col">
         <main className="flex min-w-0 flex-1 flex-col overflow-hidden max-md:pb-16">

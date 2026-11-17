@@ -97,7 +97,8 @@ export function CommandPalette({
     if (!s) return cmds;
     const hit = (...texts: (string | undefined)[]): boolean => texts.some((t) => t?.toLowerCase().includes(s));
     const names = new Map(projects.map((p) => [p.path, p.name]));
-    const shown = (repo: string | undefined): boolean => repo === undefined || names.has(repo);
+    // An item that names no repository cannot be placed in the team, so it is not offered.
+    const shown = (repo: string | undefined): boolean => repo !== undefined && names.has(repo);
     const titles = new Map(cards.map((c) => [`${c.repoPath ?? ''}\n${c.id}`, c.title]));
     const found: Cmd[] = [
       ...cards
