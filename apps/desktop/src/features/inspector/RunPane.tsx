@@ -20,6 +20,7 @@ import type { ActiveRun, RunDetail as RunDetailT, RunSummary, SessionRead } from
 export function RunPane({
   repo,
   repoName,
+  initials,
   taskId,
   title,
   issue,
@@ -35,6 +36,8 @@ export function RunPane({
   /** The repository the run belongs to (its path). */
   repo: string;
   repoName?: string | undefined;
+  /** The avatar's letters as the Runs rows show them (projects sharing a name prefix read apart). */
+  initials?: string | undefined;
   taskId: string;
   /** The task's title when the board knows it; the task id otherwise. */
   title?: string | undefined;
@@ -186,7 +189,7 @@ export function RunPane({
 
       <div className="flex shrink-0 flex-wrap items-center gap-3 rounded-lg border border-border bg-muted/30 px-3 py-2">
         <span className="grid size-6 shrink-0 place-items-center rounded-full bg-muted text-[10px] font-bold" aria-hidden>
-          {repoInitials(repoName)}
+          {initials ?? repoInitials(repoName)}
         </span>
         <span className="min-w-0 flex-1 text-sm font-medium max-md:basis-full md:truncate" title={title ?? taskId}>{title ?? taskId}</span>
         {by !== undefined && <span className="text-xs text-muted-foreground">Started by {by}</span>}

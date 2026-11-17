@@ -41,7 +41,8 @@ export function stationNote(step: Pick<StageStep, 'key' | 'status' | 'note'>, ct
     switch (step.key) {
       case 'card': return task.waiting === true ? 'waiting for a cell' : join('not started', planned);
       case 'spec': return task.column === 'claimed' ? 'claimed, spec next' : 'writing the spec';
-      case 'cell': return join('building now', task.stage);
+      // A finished run that stopped to ask (as stations.ts reads it) waits here on the person, not on a build.
+      case 'cell': return !live && records.some((r) => r.stage === 'implementer' && r.exitReason === 'incomplete' && r.stoppedBy === undefined) ? 'waiting for your answer' : join('building now', task.stage);
       case 'gates': return join(`running ${cfg?.verifyCmd || 'verify'}`, step.note);
       case 'review': return task.column === 'running' ? 'second AI reading the diff' : join('review pending', recordLine(records));
       case 'pr': return prUrl === undefined && detail !== undefined ? 'no PR opened' : 'you sign off';

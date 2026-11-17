@@ -14,6 +14,12 @@ const detail: RunDetail = {
 };
 
 describe('stationNote', () => {
+  test('a finished run that stopped to ask reads "waiting for your answer" on the Cell, not "building now"', () => {
+    const asked: RunDetail = { taskId: 'hub-4', timestamp: 't', stages: [{ record: { stage: 'implementer', exitReason: 'incomplete', completed: false } as never }] };
+    expect(stationNote({ key: 'cell', status: 'current' }, { task: { column: 'verify-failed' }, detail: asked })).toBe('waiting for your answer');
+    expect(stationNote({ key: 'cell', status: 'current' }, { task: { column: 'running' }, detail: asked })).toBe('building now');
+  });
+
   test('done stations say what the record shows; the PR its number', () => {
     const notes = stageLine({ column: 'done' }).map((s) => stationNote(s, { task: { column: 'done' }, detail, prUrl: 'https://github.com/o/r/pull/9', merged: true }));
     expect(notes).toEqual(['picked up', '', 'sonnet · 1m 15s', 'tests passed', 'passed · codex · 30s', 'merged · #9']);
