@@ -134,6 +134,7 @@ export function Inspector({
 
   // Task titles from the board, for the Runs rows (a run record has none). Best effort: a failed read leaves the task ids.
   const [titles, setTitles] = useState<Map<string, string>>(new Map());
+  const [labels, setLabels] = useState<Map<string, string[]>>(new Map());
   // Wide screens open a run by themselves, once per visit: the running one, else the newest finished one.
   const autoPicked = useRef(false);
 
@@ -268,7 +269,11 @@ export function Inspector({
       ? listTasksAll(teamId).then((r) => r.tasks)
       : listTasks(project).then((r) => r.tasks.map((t) => ({ ...t, repoPath: project })));
     read
-      .then((tasks) => alive && setTitles(new Map(tasks.map((t) => [titleKey(t.repoPath, t.id), t.title]))))
+      .then((tasks) => {
+        if (!alive) return;
+        setTitles(new Map(tasks.map((t) => [titleKey(t.repoPath, t.id), t.title])));
+        setLabels(new Map(tasks.flatMap((t) => (t.labels ? [[titleKey(t.repoPath, t.id), t.labels] as const] : []))));
+      })
       .catch(() => {});
     return () => {
       alive = false;
@@ -657,6 +662,7 @@ export function Inspector({
             onNewTask={onNewTask}
             selected={selectedKey}
             titles={titles}
+            labels={labels}
             paneOpen={detail !== null || liveRun !== null}
             pane={
               detail ? (

@@ -302,6 +302,8 @@ export interface BoardTask {
   baseBranch?: string;
   /** Skills the task names by hand (its `Skills:` line). Absent when none. */
   skills?: string[];
+  /** The tracker's labels, minus Taskcell's own routing labels; the Board and Runs search matches them. Absent when none. */
+  labels?: string[];
   /** The tracker the card came from; names the "Open in …" link. */
   source?: 'github' | 'gitlab' | 'linear';
   /** The issue's address in that tracker, as the tracker returned it. Absent ⇒ no link. */

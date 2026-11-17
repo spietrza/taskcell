@@ -1,6 +1,7 @@
 import { test, expect, vi } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
 import { RunList } from './RunList';
+import { titleKey } from '../../runLabels';
 import type { ActiveRun, RunSummary } from '../../taskcell-output';
 
 const noop = (): void => {};
@@ -67,7 +68,7 @@ test('a search that empties the list is named, with a button that clears it; the
   const onHub = vi.fn();
   const hub = { triage: 'all' as const, repos: [], sources: [], query: 'cart total', group: 'none' as const };
   render(<RunList runs={runs} active={[]} hub={hub} onHub={onHub} onSelect={noop} onOpenActive={noop} />);
-  expect(screen.getByLabelText('Search task id')).toHaveValue('cart total');
+  expect(screen.getByLabelText('Search title, #issue or id')).toHaveValue('cart total');
   expect(screen.getByText('No runs match the search "cart total".')).toBeInTheDocument();
   fireEvent.click(screen.getByRole('button', { name: 'Clear search' }));
   expect(onHub).toHaveBeenCalledWith({ ...hub, query: '' });
@@ -118,11 +119,23 @@ test('a list emptied by filters names them; Clear filters resets search, source,
   expect(screen.getByRole('button', { name: 'All results' }).className).toContain('bg-primary');
 });
 
-test('the search box says it matches the task id only, here and on the Board that shares it', () => {
+test('the search matches a run by the board title, #issue and labels, not only the task id', () => {
+  const runs: RunSummary[] = [{ taskId: 'gh-o-r-904', timestamp: '2026-07-06T19:12:02.123Z', stages: ['implement'], totalCostUsd: 0.1, anyFailed: false }];
+  const titles = new Map([[titleKey(undefined, 'gh-o-r-904'), 'Fix the cart total']]);
+  const labels = new Map([[titleKey(undefined, 'gh-o-r-904'), ['billing']]]);
+  const at = (query: string) => ({ triage: 'all' as const, repos: [], sources: [], query, group: 'none' as const });
+  for (const [q, shown] of [['cart total', true], ['#904', true], ['billing', true], ['nothing', false]] as const) {
+    const { unmount } = render(<RunList runs={runs} active={[]} hub={at(q)} onHub={noop} titles={titles} labels={labels} onSelect={noop} onOpenActive={noop} />);
+    expect(screen.queryAllByTestId('run-row')).toHaveLength(shown ? 1 : 0);
+    unmount();
+  }
+});
+
+test('the search box tooltip names what it matches and that Board shares it', () => {
   const runs: RunSummary[] = [{ taskId: 'task-7', timestamp: '2026-07-06T19:12:02.123Z', stages: ['implement'], totalCostUsd: 0.1, anyFailed: false }];
   const hub = { triage: 'all' as const, repos: [], sources: [], query: '', group: 'none' as const };
   render(<RunList runs={runs} active={[]} hub={hub} onHub={noop} onSelect={noop} onOpenActive={noop} />);
-  expect(screen.getByLabelText('Search task id')).toHaveAttribute('title', expect.stringContaining('task id only'));
+  expect(screen.getByLabelText('Search title, #issue or id')).toHaveAttribute('title', expect.stringContaining('Board shares this search'));
 });
 
 test('a run stopped by a provider limit is labelled as such, not as a plain failure', () => {

@@ -1,6 +1,7 @@
 /** The one filter state Board and Runs share (persisted): triage, projects, card source, search and grouping. */
 import type { BoardTask, RunSummary, TaskSourceId } from './wire';
 import { isDemoMode } from './transport';
+import { issueNumber } from './runLabels';
 
 export type Triage = 'all' | 'running' | 'needs' | 'merged';
 export type CardSource = 'github' | 'gitlab' | 'linear' | 'taskcell';
@@ -141,17 +142,26 @@ function keep(f: HubFilter, r: Row): boolean {
 
 type RepoRow = { repoPath?: string };
 
-export function filterCards<T extends BoardTask & RepoRow>(cards: T[], f: HubFilter): T[] {
-  return cards.filter((t) => keep(f, { triage: cardTriage(t), source: cardSource(t), repoPath: t.repoPath, text: [t.title, t.id] }));
+/** What a row's search matches: the task id, `#issue`, and what the board knows of the task (title, labels). */
+export function searchText(taskId: string, extra: string[] = []): string[] {
+  const n = issueNumber(taskId);
+  return [taskId, ...(n !== undefined ? [`#${n}`] : []), ...extra];
 }
 
-export function filterRuns<T extends RunSummary & RepoRow>(runs: T[], f: HubFilter): T[] {
-  return runs.filter((r) => keep(f, { triage: runTriage(r), source: runSource(r.taskId), repoPath: r.repoPath, text: [r.taskId] }));
+/** The board's title and labels of a run's task, for its search text; a run record has neither. */
+export type RunMeta = (repoPath: string | undefined, taskId: string) => string[];
+
+export function filterCards<T extends BoardTask & RepoRow>(cards: T[], f: HubFilter): T[] {
+  return cards.filter((t) => keep(f, { triage: cardTriage(t), source: cardSource(t), repoPath: t.repoPath, text: searchText(t.id, [t.title, ...(t.labels ?? [])]) }));
+}
+
+export function filterRuns<T extends RunSummary & RepoRow>(runs: T[], f: HubFilter, meta?: RunMeta): T[] {
+  return runs.filter((r) => keep(f, { triage: runTriage(r), source: runSource(r.taskId), repoPath: r.repoPath, text: searchText(r.taskId, meta?.(r.repoPath, r.taskId)) }));
 }
 
 /** In-flight runs are "running"; they match no other triage. */
-export function filterActive<T extends { taskId: string } & RepoRow>(active: T[], f: HubFilter): T[] {
-  return active.filter((a) => keep(f, { triage: 'running', source: runSource(a.taskId), repoPath: a.repoPath, text: [a.taskId] }));
+export function filterActive<T extends { taskId: string } & RepoRow>(active: T[], f: HubFilter, meta?: RunMeta): T[] {
+  return active.filter((a) => keep(f, { triage: 'running', source: runSource(a.taskId), repoPath: a.repoPath, text: searchText(a.taskId, meta?.(a.repoPath, a.taskId)) }));
 }
 
 const TRIAGE_LABEL: Record<string, string> = { running: 'Running', needs: 'Needs you', merged: 'Merged', other: 'Other' };

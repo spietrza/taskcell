@@ -90,3 +90,9 @@ test('source chips: configured sources plus those present; one means no source f
   expect(effectiveFilter(f, ['github', 'gitlab']).sources).toEqual(['github']);
   expect(effectiveFilter(f, undefined)).toBe(f);
 });
+
+test('card search matches the title, #issue, id and labels', () => {
+  const labelled = [card('gh-o-r-904', 'queued', { source: 'github', labels: ['billing'] }), card('gh-o-r-5', 'queued', { source: 'github' })];
+  expect(ids(filterCards(labelled, f({ query: 'billing' })))).toEqual(['gh-o-r-904']);
+  expect(ids(filterCards(labelled, f({ query: '#904' })))).toEqual(['gh-o-r-904']);
+});

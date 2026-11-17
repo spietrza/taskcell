@@ -42,7 +42,7 @@ test('triage, source, search and grouping update the state; no runner control', 
   expect(state().triage).toBe('needs');
   fireEvent.click(screen.getAllByRole('button', { name: 'GitLab' })[0]);
   expect(state().sources).toEqual(['gitlab']);
-  fireEvent.change(screen.getByLabelText('Search title or id'), { target: { value: 'abc' } });
+  fireEvent.change(screen.getByLabelText('Search title, #issue or id'), { target: { value: 'abc' } });
   expect(state().query).toBe('abc');
   fireEvent.change(screen.getAllByLabelText('Group by')[0], { target: { value: 'source' } });
   expect(state().group).toBe('source');
@@ -70,7 +70,7 @@ test('the Filters drawer holds projects, source and grouping; triage and search 
   expect(within(drawer).getByRole('group', { name: 'Card source' })).toBeInTheDocument();
   expect(within(drawer).getByLabelText('Group by')).toBeInTheDocument();
   expect(within(drawer).queryByRole('group', { name: 'Triage' })).toBeNull();
-  expect(within(drawer).queryByLabelText('Search title or id')).toBeNull();
+  expect(within(drawer).queryByLabelText('Search title, #issue or id')).toBeNull();
 });
 
 test('Board and Runs apply the same filter and group', async () => {
@@ -158,9 +158,9 @@ test('a Board emptied by filters names them and offers Clear filters, which keep
   expect(onFilter).toHaveBeenCalledWith({ ...f, triage: 'all', sources: [], query: '' });
 });
 
-test('the Board search box says Runs shares it and matches the task id only', () => {
+test('the Board search box says Runs shares it', () => {
   render(<Harness />);
-  expect(screen.getAllByLabelText('Search title or id')[0]).toHaveAttribute('title', expect.stringContaining('Runs shares this search'));
+  expect(screen.getAllByLabelText('Search title, #issue or id')[0]).toHaveAttribute('title', expect.stringContaining('Runs shares this search'));
 });
 
 test('one source on offer: a muted label, no chips and no Card source grouping', () => {

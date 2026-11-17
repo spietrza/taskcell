@@ -106,7 +106,7 @@ interface Props {
   withCards: string[];
   /** Card sources on offer here (see `offeredSources`): chips only when there is a choice, a plain label for one. */
   sources: CardSource[];
-  /** What the search box matches; Runs have no title, so its list says "Search task id". */
+  /** What the search box is called (its label and placeholder). */
   searchLabel?: string;
   /** The search box's tooltip: what it matches here and on the other screen that shares it. */
   searchHint?: string;
@@ -149,7 +149,7 @@ export function NoMatch({
 
 /** The one filter bar Board and Runs share. On a phone only triage and search stay; the rest opens in a Filters drawer. */
 export function FilterBar(props: Props) {
-  const { filter, onChange, searchLabel = 'Search title or id', searchHint = 'Matches a card title or id. Runs shares this search and matches the task id only.' } = props;
+  const { filter, onChange, searchLabel = 'Search title, #issue or id', searchHint = 'Matches a title, #issue, id or label. Runs shares this search.' } = props;
   const [drawer, setDrawer] = useState(false);
   // Escape closes the sheet. On `window`, after the Projects popup's `document` listener: an open popup takes the key first.
   useEffect(() => {

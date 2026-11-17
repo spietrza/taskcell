@@ -914,4 +914,4 @@ The run session's active run and queue live in memory, so no run survives a hub 
 Cards from GitHub show the dependencies the issue body already reports (`Depends on #n`, `Start: YYYY-MM-DD`, see `src/tasks/dependencies.ts`); these are display only, GitHub's own gate still decides.
 
 
-**Runs search.** The Board and Runs share one search box. A run record has no title, so on Runs the box matches the task id only, even though a row shows the board's title, and a title search on the Board does not narrow Runs (both boxes say so). Searching titles would mean reading the board on every keystroke, so this is a decision, not a gap.
+**Search.** The Board and Runs share one search box ("Search title, #issue or id"). It matches a card or run by its title, `#issue` number, task id and the tracker's labels (Taskcell's own routing labels such as `ready for agent` or `taskcell:*` are left out). A run record has no title or labels, so Runs takes them from the board's tasks the Runs screen already reads; a run whose task is no longer on the board matches by id and `#issue` only.

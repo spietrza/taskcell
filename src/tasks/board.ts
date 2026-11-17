@@ -128,6 +128,8 @@ export function toBoardTask(source: BoardSource, task: Task): BoardTask {
   const url = httpsUrl(task.url);
   // Parked by a provider limit (either label spelling); the hub reads the reset time from the marker comment.
   const paused = source === 'github' && column !== 'done' && hasLabel(task.labels, GITHUB_RATE_LIMITED_LABEL);
+  // The tracker's own labels, searchable on the board; Taskcell's routing labels are its machinery, not the team's tags.
+  const labels = task.labels.filter((l) => !isTriggerLabel(l) && !isBaseLabel(l) && !/^(taskcell|vanguard)::?/i.test(l));
   return {
     id: mintBoardId(source, task.ref ?? task.id),
     title: task.title,
@@ -139,6 +141,7 @@ export function toBoardTask(source: BoardSource, task: Task): BoardTask {
     ...(url !== undefined ? { url } : {}),
     ...(baseBranch !== undefined ? { baseBranch } : {}),
     ...(skills.length > 0 ? { skills } : {}),
+    ...(labels.length > 0 ? { labels } : {}),
   };
 }
 
