@@ -33,14 +33,16 @@ export const commands = defineCommands<RunSessionCommands>({
     // run is refused before that, one refusal line.
     let accepted = false;
     try {
-      const real = await allow(requireString(params, 'repoPath'));
+      const requested = requireString(params, 'repoPath');
+      const real = await allow(requested);
       // The run session (not deps.createRun) owns single-in-flight gating and event
       // buffering/publishing — validate via the table row, then call it directly.
       const validated = validateCoreMethod('createRun', { ...params, repoPath: real }) as CoreCreateRunParams;
       const log = (action: AuditAction, runId: string, outcome: AuditOutcome): void => {
         accepted = true;
         // The run is already admitted (this call stays pending until it ends): an unwritable audit log is reported, not thrown.
-        void ctx.audit?.record({ login: startedBy, actor, action, target: runId, outcome }).catch(reportAuditFailure);
+        // The subject names the repository: Home's activity feed places the start by it.
+        void ctx.audit?.record({ login: startedBy, actor, action, target: runId, subject: { repo: requested, runId }, outcome }).catch(reportAuditFailure);
       };
       // The credential is resolved from the server-side switch and the caller's identity, BEFORE the
       // run is queued or claims the slot: a `user only` run with no saved credential is refused here.

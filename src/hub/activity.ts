@@ -12,14 +12,22 @@ function ownerOf(target: string, repos: ReadonlyMap<string, string>): { repo: st
   return undefined;
 }
 
-/** One audit line as a feed event: only successful actions the feed names, only in `repos`; settings saves carry key names only. */
-function fromAudit(e: AuditEntry, repos: ReadonlyMap<string, string>): ActivityEvent | undefined {
+/**
+ * One audit line as a feed event: only successful actions the feed names, only in `repos`; settings saves carry key names only.
+ * A run start's target is its run id (`run-12`, or `run-12 hub-4` from the hub board's scheduler): its repository is the subject's.
+ */
+export function fromAudit(e: AuditEntry, repos: ReadonlyMap<string, string>): ActivityEvent | undefined {
   if (e.outcome !== 'ok' || e.target === undefined) return undefined;
+  if (e.action === 'run-start') {
+    const repo = e.subject?.repo ?? e.target;
+    if (!repos.has(repo)) return undefined;
+    const task = repo === e.target ? undefined : e.target.split(' ')[1];
+    return { time: e.time, ...stamp(repo, repos), login: e.login, kind: 'run-started', ...(task !== undefined ? { subject: task } : {}) };
+  }
   const owner = ownerOf(e.target, repos);
   if (owner === undefined) return undefined;
   const base = { time: e.time, ...stamp(owner.repo, repos), login: e.login };
   if (owner.item === undefined) {
-    if (e.action === 'run-start') return { ...base, kind: 'run-started' };
     if (e.action === 'task-create') return { ...base, kind: 'card-created' };
     // A bare-target save without keys is the local worker switch, not app.json.
     if (e.action === 'settings-change' && (e.detail ?? []).length > 0) return { ...base, kind: 'settings-changed', keys: [...(e.detail ?? [])] };

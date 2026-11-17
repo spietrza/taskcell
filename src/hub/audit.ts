@@ -130,17 +130,22 @@ export class AuditLog {
     return appendAudit(STREAMS.hub, this.adapter, { ...entry }, { actor, ...(subject !== undefined ? { subject } : {}) }).then(() => undefined);
   }
 
-  /** Newest first across the live and rotated files, optionally for one login. */
-  async read(opts: { login?: string; limit?: number } = {}): Promise<AuditEntry[]> {
+  /**
+   * Newest first across the live and rotated files, optionally for one login or only the lines `match` keeps. `scan` caps
+   * the lines read (default: no cap beyond `limit` found), so a filter that matches little stays cheap on a long log.
+   */
+  async read(opts: { login?: string; limit?: number; match?: (e: AuditEntry) => boolean; scan?: number } = {}): Promise<AuditEntry[]> {
     const limit = Math.min(Math.max(1, Math.floor(opts.limit ?? DEFAULT_READ_LIMIT)), MAX_READ_LIMIT);
     const out: AuditEntry[] = [];
-    // Newest file first, newest line first, stopping as soon as `limit` entries are found.
+    let budget = opts.scan ?? Infinity;
+    // Newest file first, newest line first, stopping as soon as `limit` entries are found or the scan budget is spent.
     for await (const f of this.adapter.newestFirst()) {
       const records = parseJsonlLines(f.text) as unknown as AuditEntry[];
-      for (let i = records.length - 1; i >= 0 && out.length < limit; i--) {
-        if (opts.login === undefined || records[i]!.login === opts.login) out.push(records[i]!);
+      for (let i = records.length - 1; i >= 0 && out.length < limit && budget > 0; i--, budget--) {
+        const r = records[i]!;
+        if ((opts.login === undefined || r.login === opts.login) && (opts.match?.(r) ?? true)) out.push(r);
       }
-      if (out.length >= limit) break;
+      if (out.length >= limit || budget <= 0) break;
     }
     return out;
   }

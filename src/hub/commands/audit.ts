@@ -2,7 +2,7 @@
 // `pnpm gen:wire` derives Commands, COMMAND_NAMES and dispatch from it (see CONTRIBUTING.md).
 import { ForbiddenError } from '../credentials.js';
 import type { ActivityEvent, AuditEntry, SettingsHistoryEntry } from '../../wire.js';
-import { ACTIVITY_LIMIT, activityFeed } from '../activity.js';
+import { ACTIVITY_LIMIT, activityFeed, fromAudit } from '../activity.js';
 import { defaultRunsRoot, listRunSummaries } from '../runs.js';
 import * as projects from '../projects.js';
 import { defineCommands, optionalString, optionalNumber, actorOf, requireString } from '../command-kit.js';
@@ -17,8 +17,8 @@ export interface AuditCommands {
   list_activity: { args: { teamId?: string; limit?: number } | undefined; result: ActivityEvent[] };
 }
 
-/** Audit lines scanned for the feed: the newest ones only, so the read stays cheap on a long log. */
-const ACTIVITY_AUDIT_SCAN = 500;
+/** Audit lines scanned for the feed at most: the scan keeps only the caller's events and stops once `limit` are found. */
+const ACTIVITY_AUDIT_SCAN = 5000;
 
 export const commands = defineCommands<AuditCommands>({
   read_audit: async ({ ctx, args }) => {
@@ -37,11 +37,13 @@ export const commands = defineCommands<AuditCommands>({
     const only = await scope();
     const limit = Math.min(Math.max(1, Math.floor(optionalNumber(args, 'limit') ?? ACTIVITY_LIMIT)), ACTIVITY_LIMIT);
     const paths = await projects.loadScopedPaths(ctx.configDir, only);
+    const repos = new Map(paths.map((p) => [p, projects.repoDisplayName(p)]));
     const [{ items: runs }, audit] = await Promise.all([
       projects.listAcrossProjects(ctx.configDir, allow, (real) => listRunSummaries(defaultRunsRoot(real)), only),
-      ctx.audit === undefined ? [] : ctx.audit.read({ limit: ACTIVITY_AUDIT_SCAN }),
+      // Filtered while scanning: another team's busy repositories cannot push this scope's events out of the window.
+      ctx.audit === undefined ? [] : ctx.audit.read({ limit, match: (e) => fromAudit(e, repos) !== undefined, scan: ACTIVITY_AUDIT_SCAN }),
     ]);
-    return activityFeed(runs, audit, new Map(paths.map((p) => [p, projects.repoDisplayName(p)])), limit);
+    return activityFeed(runs, audit, repos, limit);
   },
 }, {
   read_settings_history: { write: false, repo: 'repoPath' },

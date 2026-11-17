@@ -51,6 +51,15 @@ describe('activityFeed', () => {
     expect(feed).toEqual([expect.objectContaining({ kind: 'run-finished', subject: '#2' })]);
   });
 
+  test('a run start names its repository in the subject: a hub-board start (`run-12 hub-4`) shows with its card', () => {
+    const feed = activityFeed([], [
+      line('2026-11-17T10:00:00.000Z', 'run-start', 'run-12 hub-4', { subject: { repo: '/r/a', runId: 'run-12' } }),
+      line('2026-11-17T09:00:00.000Z', 'run-start', 'run-11', { subject: { repo: '/r/b', runId: 'run-11' } }),
+      line('2026-11-17T08:00:00.000Z', 'run-start', 'run-10', { subject: { runId: 'run-10' } }),
+    ], repos);
+    expect(feed.map((e) => [e.kind, e.repoName, e.subject])).toEqual([['run-started', 'a', 'hub-4'], ['run-started', 'b', undefined]]);
+  });
+
   test('caps the feed at the limit', () => {
     const runs = Array.from({ length: 40 }, (_, i) => run('/r/a', `#${i}`, new Date(Date.UTC(2026, 10, 1, i)).toISOString()));
     const feed = activityFeed(runs, [], repos);
@@ -77,4 +86,22 @@ test('list_activity returns only the selected team\'s repositories', async () =>
   const feed = (await dispatchRpc(ctx, 'list_activity', {}, ann)) as { repoPath: string }[];
   expect(feed.map((e) => e.repoPath)).toEqual([a]);
   await expect(dispatchRpc(ctx, 'list_activity', { teamId: 'two' }, ann)).rejects.toThrow(/not a member/);
+});
+
+test('list_activity scans past another team\'s newer lines for its own events', async () => {
+  const a = await tmpGitRepo();
+  const b = await tmpGitRepo();
+  const { ctx } = await makeCtx(a);
+  ctx.allowlist = new ProjectAllowlist(async () => [a, b]);
+  ctx.audit = new AuditLog(ctx.configDir);
+  await savePaths(ctx.configDir, [a, b]);
+  await saveTeams(ctx.configDir, [
+    { id: 'one', name: 'One', members: [{ login: 'ann', role: 'member' }], repositories: [a] },
+    { id: 'two', name: 'Two', members: [{ login: 'bob', role: 'admin' }], repositories: [b] },
+  ]);
+  await ctx.audit.record({ login: 'x', action: 'task-create', target: a, outcome: 'ok' });
+  for (let i = 0; i < 600; i++) await ctx.audit.record({ login: 'x', action: 'task-create', target: b, outcome: 'ok' });
+  const ann: Caller = { user: { id: 'ann', email: 'ann@x.test', name: 'ann' }, owner: false };
+  const feed = (await dispatchRpc(ctx, 'list_activity', {}, ann)) as { repoPath: string; kind: string }[];
+  expect(feed).toMatchObject([{ repoPath: a, kind: 'card-created' }]);
 });
