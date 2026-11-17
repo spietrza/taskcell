@@ -6,7 +6,7 @@ import type { LocalWorkerState } from '../../wire';
 /** The local hub's runner state in words: its switch, else why it cannot serve this project. */
 export function localRunnerState(s: LocalWorkerState): { word: string; on: boolean } {
   if (s.enabled) return { word: 'on: picks up cards', on: true };
-  return { word: s.blocked !== undefined ? `off: ${s.blocked}` : 'off: only cards you start by hand run', on: false };
+  return { word: s.blocked !== undefined ? `off: ${s.blocked}` : 'Auto-run off: cards start only when you press Start run', on: false };
 }
 
 /** Settings → Runners: the local hub as a runner (its local worker switch and last pick-up). Hidden where the hub cannot say (no hub). */

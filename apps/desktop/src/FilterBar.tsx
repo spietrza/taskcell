@@ -142,7 +142,7 @@ function SecondaryControls({ filter, onChange, sources }: Props) {
     onChange({ ...filter, sources: filter.sources.includes(s) ? filter.sources.filter((x) => x !== s) : [...filter.sources, s] });
   return (
     <>
-      {sources.length === 1 && <span className="text-xs text-muted-foreground">Source: {SOURCES.find((s) => s.value === sources[0])?.label}</span>}
+      {sources.length === 1 && <span className="text-xs text-muted-foreground">Card source: {SOURCES.find((s) => s.value === sources[0])?.label}</span>}
       {sources.length > 1 && (
       <div role="group" aria-label="Card source" className="flex flex-wrap gap-1">
         {SOURCES.filter((s) => sources.includes(s.value)).map((s) => (

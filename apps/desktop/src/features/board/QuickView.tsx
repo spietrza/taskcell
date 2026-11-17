@@ -407,7 +407,7 @@ export function QuickView({
         <Section label="Details">
           <dl className="divide-y divide-border/50">
             <Field label="Project"><span className="block truncate" title={repoPath}>{repo}</span></Field>
-            <Field label="Source">{task.source !== undefined ? TRACKER_NAME[task.source] : isHubTaskCard(task.id) || isInvalidHubCard(task.id) ? taskSourceLabel('hub') : 'none'}</Field>
+            <Field label="Card source">{task.source !== undefined ? TRACKER_NAME[task.source] : isHubTaskCard(task.id) || isInvalidHubCard(task.id) ? taskSourceLabel('hub') : 'none'}</Field>
             {branch !== undefined && <Field label="Target branch"><span className="font-mono text-xs">{branch}</span></Field>}
             {task.labels !== undefined && task.labels.length > 0 && <Field label="Labels">{task.labels.join(', ')}</Field>}
             {(task.source !== undefined || isHubTaskCard(task.id)) && !isPullRequestCard(task.id) && (

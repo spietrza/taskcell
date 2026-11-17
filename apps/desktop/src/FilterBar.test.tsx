@@ -180,7 +180,7 @@ test('the Board search box says Runs shares it', () => {
 
 test('one source on offer: a muted label, no chips and no Card source grouping', () => {
   render(<Harness sources={['github']} />);
-  expect(screen.getAllByText('Source: GitHub').length).toBeGreaterThan(0);
+  expect(screen.getAllByText('Card source: GitHub').length).toBeGreaterThan(0);
   expect(screen.queryByRole('group', { name: 'Card source' })).toBeNull();
   expect(screen.queryByRole('option', { name: 'Card source' })).toBeNull();
 });
