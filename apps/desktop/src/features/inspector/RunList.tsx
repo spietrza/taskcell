@@ -47,10 +47,13 @@ export function RunList({
   titles,
   pane,
   paneOpen = false,
+  starting = false,
 }: {
   runs: Run[];
   /** In-flight runs discovered from `.taskcell` state, rendered as running rows at the top. */
   active: Active[];
+  /** A run launched here is starting (its sealed cell is not up yet): an empty list says so instead of "No runs found". */
+  starting?: boolean;
   /** "All repositories": each row names its repository. */
   showRepo?: boolean;
   /** The filter Board and Runs share; its bar shows (and the local search goes) when `onHub` is given. */
@@ -187,6 +190,17 @@ export function RunList({
     );
   };
 
+  if (runs.length === 0 && active.length === 0 && starting) {
+    return (
+      <Empty.Root>
+        <Empty.Media>
+          <RefreshCw className="animate-spin motion-reduce:animate-none" />
+        </Empty.Media>
+        <Empty.Title>Starting the run…</Empty.Title>
+        <Empty.Description>Taskcell is opening a sealed cell for it. The run shows up here in a moment.</Empty.Description>
+      </Empty.Root>
+    );
+  }
   if (runs.length === 0 && active.length === 0) {
     return (
       <Empty.Root>

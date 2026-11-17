@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Button, PAGE_CLASS, cn } from '@/ui';
 import { FilePlus, RefreshCw } from 'lucide-react';
 import { canUseFleet, isDemoMode, subscribe, onStreamReset } from '../../transport';
@@ -286,17 +286,29 @@ export function Inspector({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [screen, loading, runs, active]);
 
+  // The run launched here is live from its run-start, but `list_active` sees it only once its first session
+  // file lands (after Code): until then it is listed from the launch itself, so the Runs list is never empty.
+  const launchingTask = typedRun !== null && typedRun.terminal === undefined ? typedRun.taskId : undefined;
+  const shownActive = useMemo(
+    () =>
+      launchingTask === undefined || active.some((a) => a.taskId === launchingTask && (a.repoPath ?? project) === project)
+        ? active
+        : [{ taskId: launchingTask, sessionFile: '', lastActivityMs: Date.now(), repoPath: project, repoName: projects.find((p) => p.path === project)?.name }, ...active],
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [active, launchingTask, project],
+  );
+
   // A run launched from the board opens in the split pane as soon as the run list shows it (once per
   // launch, so a later pick of another run is not overridden).
   const adoptedGen = useRef(-1);
   useEffect(() => {
     if (screen !== 'runs' || typedRun?.taskId === undefined || adoptedGen.current === runGen.current) return;
-    const a = active.find((x) => x.taskId === typedRun.taskId);
+    const a = shownActive.find((x) => x.taskId === typedRun.taskId);
     if (!a) return;
     adoptedGen.current = runGen.current;
     setDetail(null);
     setLiveRun(a);
-  }, [screen, typedRun?.taskId, active]);
+  }, [screen, typedRun?.taskId, shownActive]);
 
   // A live run that ends opens its finished record in the pane: the live view never fills in Tests or the PR.
   // Records of the task that existed when the live run was opened are older runs, never this one.
@@ -312,11 +324,11 @@ export function Inspector({
       priorRecords.current = new Set(mine.map((r) => r.timestamp));
       return;
     }
-    if (active.some((a) => a.taskId === liveRun.taskId && (a.repoPath ?? project) === repo)) return;
+    if (shownActive.some((a) => a.taskId === liveRun.taskId && (a.repoPath ?? project) === repo)) return;
     const done = mine.find((r) => !priorRecords.current!.has(r.timestamp));
     if (done) void open(done);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [liveRun, runs, active]);
+  }, [liveRun, runs, shownActive]);
 
   // The listener is registered once, so it reaches the latest render's `refresh` through a ref.
   const refreshRef = useRef(refresh);
@@ -631,7 +643,8 @@ export function Inspector({
           {!allRepos && <ConflictStats repoPath={project} refreshKey={tick} />}
           <RunList
             runs={runs}
-            active={active}
+            active={shownActive}
+            starting={typedRun !== null && typedRun.terminal === undefined}
             showRepo={allRepos}
             hub={filter}
             onHub={onFilter}
