@@ -132,3 +132,11 @@ describe('Dashboard auto-run state', () => {
     expect(screen.queryByTestId('auto-run')).not.toBeInTheDocument();
   });
 });
+
+test('a project card says what its numbers and chips are: spend, runs in 24h, cards from, run on', () => {
+  render(<Dashboard projects={[{ ...first!, runsLast24h: 2, totalCostUsd: 1.5 }]} onOpen={() => {}} onAdd={() => {}} onRemove={() => {}} />);
+  expect(screen.getByText('$1.50 spent')).toBeInTheDocument();
+  expect(screen.getByText('2 runs in 24h')).toBeInTheDocument();
+  expect(screen.getByText('Cards from')).toBeInTheDocument();
+  expect(screen.getByText('run on')).toBeInTheDocument();
+});

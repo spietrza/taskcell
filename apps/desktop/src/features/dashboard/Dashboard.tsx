@@ -155,18 +155,19 @@ export function Dashboard({
                     <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs tabular-nums text-muted-foreground">
                       <span>{p.runCount} {p.runCount === 1 ? 'run' : 'runs'}</span>
                       <span>{p.taskCount} {p.taskCount === 1 ? 'card' : 'cards'}</span>
-                      <span>${p.totalCostUsd.toFixed(2)}</span>
+                      <span>${p.totalCostUsd.toFixed(2)} spent</span>
                       {p.ciRunCount !== undefined && <span>{p.ciRunCount} in CI</span>}
                       {p.failedCount > 0 && <span className="text-destructive-text">{p.failedCount} failed</span>}
                       {p.askedCount !== undefined && p.askedCount > 0 && <span className="text-primary-text">{p.askedCount} stopped to ask</span>}
-                      {p.runsLast24h > 0 && <Chip color="secondary" variant="outlined">{p.runsLast24h} in 24h</Chip>}
+                      {p.runsLast24h > 0 && <Chip color="secondary" variant="outlined">{p.runsLast24h} {p.runsLast24h === 1 ? 'run' : 'runs'} in 24h</Chip>}
                       {last && <span className="ml-auto">{last}</span>}
                     </div>
                     {/* Platform: where tasks come from and where work runs, so projects set up differently read side by side. */}
                     <div className="mt-2 flex flex-wrap items-center gap-1.5">
                       {/* Unset is not GitHub Issues: the board asks for an explicit source, and Settings shows it as "—". */}
+                      <span className="text-xs text-muted-foreground">Cards from</span>
                       <Chip color="secondary" variant="outlined">{p.taskSource ? taskSourceLabel(p.taskSource) : 'No card source'}</Chip>
-                      <span className="text-xs text-muted-foreground" aria-hidden>→</span>
+                      <span className="text-xs text-muted-foreground">run on</span>
                       <Chip color="secondary" variant="outlined">{runLocationLabel(location)}</Chip>
                     </div>
                     {note && <p className="mt-1 text-xs text-muted-foreground">{note}</p>}
