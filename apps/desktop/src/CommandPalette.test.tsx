@@ -10,12 +10,12 @@ test('offers the open project\'s screens and actions, naming the project', () =>
   const onNewTask = vi.fn();
   const onAutoRun = vi.fn();
   render(<CommandPalette {...base} projectName="demo" onScreen={onScreen} onNewTask={onNewTask} onAutoRun={onAutoRun} />);
-  for (const l of ['Board', 'Runs', 'Settings', 'New card', 'Auto-run']) expect(screen.getByText(`${l} · demo`)).toBeInTheDocument();
+  for (const l of ['Board', 'Runs', 'Settings', 'New card', 'Set up auto-run']) expect(screen.getByText(`${l} · demo`)).toBeInTheDocument();
   fireEvent.click(screen.getByText('Settings · demo'));
   expect(onScreen).toHaveBeenCalledWith('settings');
   fireEvent.click(screen.getByText('New card · demo'));
   expect(onNewTask).toHaveBeenCalled();
-  fireEvent.click(screen.getByText('Auto-run · demo'));
+  fireEvent.click(screen.getByText('Set up auto-run · demo'));
   expect(onAutoRun).toHaveBeenCalled();
 });
 
@@ -84,4 +84,11 @@ test('Board and Runs name what they show; project commands name the project', ()
   expect(screen.getByText('Runs · All repositories')).toBeInTheDocument();
   expect(screen.getByText('Settings · taskcell-demo-form')).toBeInTheDocument();
   expect(screen.getByText('New card · taskcell-demo-form')).toBeInTheDocument();
+});
+
+test('the Home commands say Home, and the inbox uses Home\'s name for it', () => {
+  render(<CommandPalette {...base} onNeedsYou={vi.fn()} />);
+  expect(screen.getAllByText('Home')).toHaveLength(2); // the command and the inbox's hint
+  expect(screen.getByText('Waiting for you')).toBeInTheDocument();
+  expect(screen.queryByText('All projects')).toBeNull();
 });

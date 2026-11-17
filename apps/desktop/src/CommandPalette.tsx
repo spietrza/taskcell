@@ -68,8 +68,8 @@ export function CommandPalette({
 
   const cmds = useMemo<Cmd[]>(
     () => [
-      { id: 'home', label: 'All projects', icon: <Home className="size-4" />, run: onHome },
-      ...(onNeedsYou ? [{ id: 'needs', label: 'Needs you', icon: <MessageCircleQuestionMark className="size-4" />, run: onNeedsYou }] : []),
+      { id: 'home', label: 'Home', icon: <Home className="size-4" />, run: onHome },
+      ...(onNeedsYou ? [{ id: 'needs', label: 'Waiting for you', hint: 'Home', icon: <MessageCircleQuestionMark className="size-4" />, run: onNeedsYou }] : []),
       ...(onScreen
         ? [
             { id: 'board', label: `Board · ${scopeName ?? projectName}`, icon: <Columns3 className="size-4" />, run: () => onScreen('board') },
@@ -78,7 +78,7 @@ export function CommandPalette({
           ]
         : []),
       ...(onNewTask ? [{ id: 'new-task', label: `New card · ${projectName}`, icon: <FilePlus className="size-4" />, run: onNewTask }] : []),
-      ...(onAutoRun ? [{ id: 'auto-run', label: `Auto-run · ${projectName}`, hint: 'Settings → Line', icon: <Factory className="size-4" />, run: onAutoRun }] : []),
+      ...(onAutoRun ? [{ id: 'auto-run', label: `Set up auto-run · ${projectName}`, hint: 'Settings → Line', icon: <Factory className="size-4" />, run: onAutoRun }] : []),
       ...(onAddProject ?[{ id: 'add', label: 'Add project', icon: <FolderPlus className="size-4" />, run: onAddProject }] : []),
       { id: 'theme', label: 'Toggle theme', icon: <SunMoon className="size-4" />, run: onToggleTheme },
       ...projects.map((p) => ({
