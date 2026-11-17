@@ -42,7 +42,7 @@ describe('QuickView', () => {
     const steps = within(screen.getByRole('list', { name: 'Stage line' })).getAllByRole('listitem');
     expect(steps.map((s) => s.getAttribute('data-status'))).toEqual(['done', 'done', 'done', 'done', 'done', 'current']);
     expect(screen.getByRole('link', { name: 'gh-7' })).toHaveAttribute('href', 'https://github.com/o/r/issues/7');
-    expect(screen.getAllByRole('link', { name: 'Open in GitHub' }).map((a) => a.getAttribute('href'))).toEqual([PR]);
+    expect(screen.getAllByRole('link', { name: 'PR #9' }).map((a) => a.getAttribute('href'))).toEqual([PR]);
     expect(steps[5]).toHaveTextContent('you sign off');
     expect(steps[4]).toHaveTextContent('passed');
   });

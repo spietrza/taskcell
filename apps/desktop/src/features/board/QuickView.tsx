@@ -230,6 +230,8 @@ export function QuickView({
 
   const latest = run?.runs[0];
   const prUrl = run?.detail?.prUrl ?? latest?.prUrl;
+  // Name the link by what it opens ("PR #28"), not by the host: the id chip is already the issue link.
+  const prLabel = (url: string): string => `${hostName(url) === 'GitLab' ? 'MR !' : 'PR #'}${/\/(\d+)\/?$/.exec(url)?.[1] ?? ''}`.replace(/[#!]$/, '');
   // Only cards that can wait for the user cost the hub's `gh` listing.
   const mayWait = task.column === 'queued' || task.column === 'review' || task.column === 'verify-failed';
 
@@ -331,7 +333,7 @@ export function QuickView({
           </button>
         )}
         {item?.kind === 'pr' && <MergeButton project={repoPath} item={item} onMerged={reload} />}
-        {prUrl !== undefined && <ExternalLink href={prUrl}>{`Open in ${hostName(prUrl)}`}</ExternalLink>}
+        {prUrl !== undefined && <ExternalLink href={prUrl}>{prLabel(prUrl)}</ExternalLink>}
         {issueCard && (
           <Button className="ml-auto" variant="outlined" onClick={onFullPage}>
             Full page
