@@ -100,6 +100,11 @@ export function Settings({ project, teamScreen }: { project: string; teamScreen?
   const [saved, setSaved] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
   const saveGate = useCallerCapabilities(project)?.project?.canChangeSettings;
+  // The config as last read or saved: Discard goes back to it.
+  const [lastSaved, setLastSaved] = useState<AppConfig | null>(null);
+  useEffect(() => {
+    if (cfgStatus === 'ready') setLastSaved((prev) => prev ?? cfg);
+  }, [cfgStatus, cfg]);
 
   // Shell navigation unmounts this screen — see useDiscardGuard (S8 seam, #339 follow-up).
   useDiscardGuard(dirty, () => window.confirm('Discard unsaved changes to .taskcell/app.json?'));
@@ -160,9 +165,17 @@ export function Settings({ project, teamScreen }: { project: string; teamScreen?
     // disable Save and disarm the guard above, letting the next navigation discard it silently —
     // the same rule flowEditorReducer's saveOk follows. Every `set` builds a new object, so
     // reference identity is exactly "unchanged since save".
+    setLastSaved(shipped);
     if (cfgRef.current !== shipped) return;
     setDirty(false);
     setSaved(true);
+  };
+
+  const discard = (): void => {
+    if (lastSaved === null) return;
+    setCfg(lastSaved);
+    setDirty(false);
+    setSaveError(null);
   };
 
   // Unset stays unset ("—"): the board needs an explicit source, so Settings must not display a default it never saves.
@@ -175,7 +188,12 @@ export function Settings({ project, teamScreen }: { project: string; teamScreen?
       <div className="sticky top-0 z-10 flex items-center gap-3 bg-background py-1">
         <h2 className="text-xl font-semibold">Settings</h2>
         <code className="text-xs text-muted-foreground">.taskcell/app.json</code>
-        <Button className="ml-auto" {...gateProps(saveGate)} onClick={save} disabled={!savable || saveGate?.allowed === false}>
+        {dirty && lastSaved !== null && (
+          <Button className="ml-auto" variant="text" color="secondary" onClick={discard}>
+            Discard changes
+          </Button>
+        )}
+        <Button className={dirty && lastSaved !== null ? '' : 'ml-auto'} {...gateProps(saveGate)} onClick={save} disabled={!savable || saveGate?.allowed === false}>
           {saved ? 'Saved' : 'Save'}
         </Button>
       </div>

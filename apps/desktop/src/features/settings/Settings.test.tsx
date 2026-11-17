@@ -222,3 +222,15 @@ test('a setting explains itself behind an info button, and the trigger label sho
   expect(screen.getAllByTestId('field-help').length).toBeGreaterThan(0);
   expect(screen.getByText(/The label that hands an issue to the factory/)).toHaveClass('sr-only');
 });
+
+test('Discard changes puts back the config as last read, and Save goes quiet again', async () => {
+  read.mockResolvedValueOnce({ label: 'go' });
+  render(<Settings project="/repo" />);
+  const field = await screen.findByLabelText('Trigger label');
+  expect(screen.queryByRole('button', { name: 'Discard changes' })).toBeNull();
+  fireEvent.change(field, { target: { value: 'oops' } });
+  fireEvent.click(screen.getByRole('button', { name: 'Discard changes' }));
+  expect(screen.getByLabelText('Trigger label')).toHaveValue('go');
+  expect(screen.getByRole('button', { name: /save/i })).toBeDisabled();
+  expect(screen.queryByRole('button', { name: 'Discard changes' })).toBeNull();
+});
