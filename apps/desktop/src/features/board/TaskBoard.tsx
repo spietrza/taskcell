@@ -14,7 +14,7 @@ import { boardCountLabels } from './counts';
 import { PausedBanner, PausedLine } from './paused';
 import { ExternalLink } from '../../components/ExternalLink';
 import { FilterBar, NoMatch } from '../../FilterBar';
-import { DEFAULT_FILTER, canClearFilters, cardKeys, clearFilters, filterCards, filterNames, groupRows, type HubFilter } from '../../filterState';
+import { DEFAULT_FILTER, canClearFilters, cardKeys, cardSource, clearFilters, effectiveFilter, filterCards, filterNames, groupRows, offeredSources, type CardSource, type HubFilter } from '../../filterState';
 
 // Each column owns a color identity used across its header dot, count pill and card
 // hover border. Classes are spelled out (not interpolated) so Tailwind's JIT keeps them — a
@@ -68,9 +68,10 @@ export function TaskBoard({
   allRepos = false,
   repos,
   teamId,
-  filter = DEFAULT_FILTER,
+  filter: savedFilter = DEFAULT_FILTER,
   onFilter,
   projects = [],
+  configured = [],
   onOpenTask,
   onNewTask,
   onOpenSettings,
@@ -87,6 +88,8 @@ export function TaskBoard({
   onFilter?: (f: HubFilter) => void;
   /** Repositories the Projects picker offers (hub: all of the team's). */
   projects?: { path: string; name: string }[];
+  /** Card sources the projects in view are configured for; the Source filter offers these plus any a card has. */
+  configured?: CardSource[];
   onOpenTask: (taskId: string, repoPath?: string, skills?: string[]) => void;
   onNewTask: () => void;
   /** Opens `project`'s Settings, for the "no task source yet" hint. */
@@ -139,6 +142,8 @@ export function TaskBoard({
     const { skills: _old, ...rest } = t;
     return saved.length > 0 ? { ...rest, skills: saved } : rest;
   });
+  const offered = allTasks && offeredSources(configured, allTasks.map(cardSource));
+  const filter = effectiveFilter(savedFilter, offered);
   const tasks = allTasks && filterCards(allTasks, filter);
   const lanes = groupRows(tasks ?? [], filter.group, cardKeys);
   // A hub-board project's cards are made here, not in a tracker.
@@ -192,7 +197,7 @@ export function TaskBoard({
   // The board is where work starts (S10): authoring a task lives one click away even when the
   // list itself failed to load.
   const bar = onFilter && (
-    <FilterBar filter={filter} onChange={onFilter} repos={allRepos ? projects : []} withCards={[...new Set((allTasks ?? []).flatMap((t) => (t.repoPath ? [t.repoPath] : [])))]} />
+    <FilterBar filter={filter} onChange={onFilter} sources={offered ?? configured} repos={allRepos ? projects : []} withCards={[...new Set((allTasks ?? []).flatMap((t) => (t.repoPath ? [t.repoPath] : [])))]} />
   );
   const header = (
     <>

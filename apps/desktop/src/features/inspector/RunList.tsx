@@ -3,7 +3,7 @@ import { Button, Chip, Empty, Input, Timestamp, cn } from '@/ui';
 import { Inbox, RefreshCw, Search } from 'lucide-react';
 import { verdictColor } from '../../status';
 import { FilterBar, NoMatch } from '../../FilterBar';
-import { DEFAULT_FILTER, canClearFilters, clearFilters, filterActive, filterNames, filterRuns, groupRows, runKeys, type HubFilter } from '../../filterState';
+import { DEFAULT_FILTER, canClearFilters, clearFilters, effectiveFilter, filterActive, filterNames, filterRuns, groupRows, offeredSources, runKeys, runSource, type CardSource, type HubFilter } from '../../filterState';
 import { ExternalLink, hostName } from '../../components/ExternalLink';
 import { costLabel, estTitle } from '../../cost';
 import { RunsSplit } from './RunsSplit';
@@ -37,8 +37,9 @@ export function RunList({
   runs,
   active,
   showRepo = false,
-  hub = DEFAULT_FILTER,
+  hub: savedHub = DEFAULT_FILTER,
   onHub,
+  configured = [],
   projects = [],
   onSelect,
   onOpenActive,
@@ -59,6 +60,8 @@ export function RunList({
   /** The filter Board and Runs share; its bar shows (and the local search goes) when `onHub` is given. */
   hub?: HubFilter;
   onHub?: (f: HubFilter) => void;
+  /** Card sources the projects in view are configured for; the Source filter offers these plus any a run has. */
+  configured?: CardSource[];
   /** Repositories the Projects picker offers (hub: all of the team's). */
   projects?: { path: string; name: string }[];
   onSelect: (r: Run) => void;
@@ -75,6 +78,12 @@ export function RunList({
 }) {
   const [query, setQuery] = useState('');
   const [filter, setFilter] = useState<Filter>('all');
+
+  const offered = useMemo(
+    () => (runs.length + active.length === 0 ? undefined : offeredSources(configured, [...runs, ...active].map((r) => runSource(r.taskId)))),
+    [runs, active, configured],
+  );
+  const hub = useMemo(() => effectiveFilter(savedHub, offered), [savedHub, offered]);
 
   const shown = useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -225,7 +234,7 @@ export function RunList({
       {/* Narrow screens: with a run open the pane has the whole screen, so the filters step aside. */}
       <div className={cn('flex shrink-0 flex-col gap-3', paneOpen && 'max-md:hidden')}>
       {onHub && (
-        <FilterBar filter={hub} onChange={onHub} searchLabel="Search task id" searchHint="This matches the task id only (a title shown in a row is not searched). Board shares this search and also matches card titles." repos={projects} withCards={[...new Set([...runs, ...active].flatMap((r) => (r.repoPath ? [r.repoPath] : [])))]} />
+        <FilterBar filter={hub} onChange={onHub} sources={offered ?? configured} searchLabel="Search task id" searchHint="This matches the task id only (a title shown in a row is not searched). Board shares this search and also matches card titles." repos={projects} withCards={[...new Set([...runs, ...active].flatMap((r) => (r.repoPath ? [r.repoPath] : [])))]} />
       )}
       <div className="flex shrink-0 flex-wrap items-center gap-2">
         {!onHub && <Input

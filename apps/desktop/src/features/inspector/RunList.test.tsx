@@ -109,7 +109,7 @@ test('a list emptied by filters names them; Clear filters resets search, source,
   const runs: RunSummary[] = [{ taskId: 'task-7', timestamp: '2026-07-06T19:12:02.123Z', stages: ['implement'], totalCostUsd: 0.1, anyFailed: false }];
   const onHub = vi.fn();
   const hub = { triage: 'needs' as const, repos: ['/a'], sources: ['gitlab' as const], query: 'task', group: 'project' as const };
-  render(<RunList runs={runs} active={[]} hub={hub} onHub={onHub} onSelect={noop} onOpenActive={noop} />);
+  render(<RunList runs={runs} active={[]} hub={hub} onHub={onHub} configured={['github', 'gitlab']} onSelect={noop} onOpenActive={noop} />);
   fireEvent.click(screen.getByRole('button', { name: 'failed' }));
   expect(screen.getByText(/Active: Needs you, GitLab, Projects, search "task", Failed\./)).toBeInTheDocument();
   fireEvent.click(screen.getByRole('button', { name: 'Clear filters' }));

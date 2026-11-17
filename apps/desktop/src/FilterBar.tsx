@@ -67,23 +67,26 @@ function ProjectPicker({ repos, withCards, selected, onChange }: { repos: Repo[]
 }
 
 /** Projects, card source and grouping: everything the phone folds into its Filters drawer. */
-function SecondaryControls({ filter, onChange, repos, withCards }: Props) {
+function SecondaryControls({ filter, onChange, repos, withCards, sources }: Props) {
   const toggleSource = (s: CardSource): void =>
     onChange({ ...filter, sources: filter.sources.includes(s) ? filter.sources.filter((x) => x !== s) : [...filter.sources, s] });
   return (
     <>
       {repos.length > 0 && <ProjectPicker repos={repos} withCards={withCards} selected={filter.repos} onChange={(r) => onChange({ ...filter, repos: r })} />}
+      {sources.length === 1 && <span className="text-xs text-muted-foreground">Source: {SOURCES.find((s) => s.value === sources[0])?.label}</span>}
+      {sources.length > 1 && (
       <div role="group" aria-label="Card source" className="flex flex-wrap gap-1">
-        {SOURCES.map((s) => (
+        {SOURCES.filter((s) => sources.includes(s.value)).map((s) => (
           <button key={s.value} type="button" aria-pressed={filter.sources.includes(s.value)} onClick={() => toggleSource(s.value)} className={pill(filter.sources.includes(s.value))}>
             {s.label}
           </button>
         ))}
       </div>
+      )}
       <label className="flex items-center gap-1 text-xs text-muted-foreground">
         Group by
         <select aria-label="Group by" value={filter.group} onChange={(e) => onChange({ ...filter, group: e.target.value as Grouping })} className="rounded border border-border bg-background px-1 py-1 text-xs text-foreground">
-          {GROUPINGS.map((g) => (
+          {GROUPINGS.filter((g) => g.value !== 'source' || sources.length > 1).map((g) => (
             <option key={g.value} value={g.value}>
               {g.label}
             </option>
@@ -101,6 +104,8 @@ interface Props {
   repos: Repo[];
   /** Paths of repositories that have cards, for the "Has cards" shortcut. */
   withCards: string[];
+  /** Card sources on offer here (see `offeredSources`): chips only when there is a choice, a plain label for one. */
+  sources: CardSource[];
   /** What the search box matches; Runs have no title, so its list says "Search task id". */
   searchLabel?: string;
   /** The search box's tooltip: what it matches here and on the other screen that shares it. */

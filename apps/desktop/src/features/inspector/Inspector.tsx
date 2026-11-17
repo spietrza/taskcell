@@ -39,7 +39,7 @@ import { NewRunForm } from './NewRunForm';
 import { foldLiveEvent, reduceTypedRun, initialTypedRun, type TypedRunState, type RunEvent, type AppRunEvent } from './typedRunReducer';
 import { useAppConfig } from '../../hooks';
 import { inRepos } from '../../repoFilter';
-import type { HubFilter } from '../../filterState';
+import { configuredSources, type HubFilter } from '../../filterState';
 import { RepoFailures } from '../../RepoViews';
 import type { RepoReadFailure, RepoStamp } from '../../wire';
 import type { TeamScreen } from '../settings/Members';
@@ -186,6 +186,8 @@ export function Inspector({
 
   // `projects` is the selected team's repositories; the hub's all-repositories lists span every team.
   const repos = projects.map((p) => p.path);
+  // Card sources the Source filter can offer: those of the projects in view (the Projects filter, else all, else the open one).
+  const configured = configuredSources(projects, allRepos ? (filter.repos.length > 0 ? filter.repos : repos) : [project]);
 
   const loadRuns = async (): Promise<void> => {
     const gen = ++runsGen.current;
@@ -648,6 +650,7 @@ export function Inspector({
             showRepo={allRepos}
             hub={filter}
             onHub={onFilter}
+            configured={configured}
             projects={allRepos ? projects : []}
             onSelect={open}
             onOpenActive={openActive}
@@ -675,6 +678,7 @@ export function Inspector({
           filter={filter}
           onFilter={onFilter}
           projects={projects}
+          configured={configured}
           onOpenTask={(id, repo, skills) => {
             setTaskDetailRepo(repo ?? project);
             setTaskDetailSkills(skills);

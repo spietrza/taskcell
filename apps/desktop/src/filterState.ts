@@ -1,5 +1,5 @@
 /** The one filter state Board and Runs share (persisted): triage, projects, card source, search and grouping. */
-import type { BoardTask, RunSummary } from './wire';
+import type { BoardTask, RunSummary, TaskSourceId } from './wire';
 import { isDemoMode } from './transport';
 
 export type Triage = 'all' | 'running' | 'needs' | 'merged';
@@ -100,6 +100,28 @@ export function runSource(taskId: string): CardSource {
   if (/^gl-/i.test(taskId)) return 'gitlab';
   if (/^linear-/i.test(taskId)) return 'linear';
   return 'taskcell';
+}
+
+const SOURCE_OF: Record<TaskSourceId, CardSource> = { github: 'github', 'github-project': 'github', gitlab: 'gitlab', linear: 'linear', hub: 'taskcell' };
+
+/** The card sources the projects in scope are configured for (unset = GitHub Issues). */
+export function configuredSources(projects: { path: string; taskSource?: TaskSourceId | null }[], scope: string[]): CardSource[] {
+  return [...new Set(projects.filter((p) => scope.includes(p.path)).map((p) => SOURCE_OF[p.taskSource ?? 'github']))];
+}
+
+/** Sources worth a chip: the configured ones plus any a loaded row actually has (a legacy run stays filterable), in chip order. */
+export function offeredSources(configured: CardSource[], present: CardSource[]): CardSource[] {
+  const all = new Set([...configured, ...present]);
+  return SOURCES.map((s) => s.value).filter((v) => all.has(v));
+}
+
+/** The filter as applied: with one source on offer there is no source filter; a saved source no longer offered is ignored
+ * (the saved filter itself is never rewritten). `undefined` = rows not loaded yet, nothing to judge by. */
+export function effectiveFilter(f: HubFilter, offered: CardSource[] | undefined): HubFilter {
+  if (offered === undefined) return f;
+  const sources = offered.length <= 1 ? [] : f.sources.filter((s) => offered.includes(s));
+  const group = offered.length <= 1 && f.group === 'source' ? 'none' : f.group;
+  return sources.length === f.sources.length && group === f.group ? f : { ...f, sources, group };
 }
 
 interface Row {
