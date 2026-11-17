@@ -76,7 +76,8 @@ test('every main screen opens in demo mode without errors', async () => {
 
   // A project opens on Runs. The run in progress opens first, as after a reload with a live run: DEMO-104 with its stages, not an empty box.
   expect(await screen.findByRole('button', { name: /Back to runs/ })).toBeInTheDocument();
-  expect(screen.getAllByText('DEMO-104').length).toBeGreaterThan(0);
+  // The header shows the id until the board loads, then the card title, so assert on the pane's own label.
+  expect(await screen.findByRole('region', { name: 'Run DEMO-104' })).toBeInTheDocument();
   expect(await screen.findByTestId('stage-0')).toHaveAttribute('data-phase', 'done');
   expect(screen.getByTestId('stage-1')).toHaveTextContent('Implement');
   expect(screen.getByTestId('stage-1')).toHaveAttribute('data-phase', 'running');
