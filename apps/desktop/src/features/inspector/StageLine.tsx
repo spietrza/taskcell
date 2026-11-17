@@ -27,7 +27,7 @@ export function StageLine({ stages, now, selected, onSelect }: { stages: PaneSta
           <>
             <span className="flex items-center gap-2">
               {ICON[s.phase]}
-              <span className="min-w-0 break-words text-sm font-medium">{label}</span>
+              <span className="whitespace-nowrap text-sm font-medium">{label}</span>
             </span>
             <span className="mt-1 block pl-6 text-sm tabular-nums">
               {s.href !== undefined ? <a href={s.href} target="_blank" rel="noreferrer" className="text-primary-text underline">{time}</a> : time}

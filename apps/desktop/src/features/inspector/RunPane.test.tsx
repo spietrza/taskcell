@@ -94,13 +94,13 @@ test('a running run: the stage line comes from the persisted events, the running
   vi.mocked(readSession).mockResolvedValue({ entries: [{ role: 'tool', text: 'Read · src/a.ts' }], inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, estCostUsd: 0 });
   const onCancel = vi.fn();
   render(<RunPane {...props} active={{ taskId: 'gh-r-3', sessionFile: '/s.jsonl', lastActivityMs: Date.now() }} onCancel={onCancel} />);
-  // Sandbox, Code, Tests (pending), Review (running), Simplify, PR (pending).
+  // Sandbox, Code, Tests (passed: Review only starts on a green gate), Review (running), Simplify, PR (pending).
   await waitFor(() => expect(screen.getByTestId('stage-3')).toHaveAttribute('data-phase', 'running'));
   expect(screen.getByTestId('stage-0')).toHaveTextContent('Sealed cell');
   expect(screen.getByTestId('stage-0')).toHaveAttribute('data-phase', 'done');
   expect(screen.getByTestId('stage-1')).toHaveTextContent('30s');
   expect(screen.getByTestId('stage-2')).toHaveTextContent('Tests');
-  expect(screen.getByTestId('stage-2')).toHaveAttribute('data-phase', 'pending');
+  expect(screen.getByTestId('stage-2')).toHaveAttribute('data-phase', 'done');
   expect(screen.getByTestId('stage-4')).toHaveTextContent('Waiting');
   expect(screen.getByTestId('stage-5')).toHaveTextContent('PR');
   expect(screen.getByTestId('stage-5')).toHaveAttribute('data-phase', 'pending');

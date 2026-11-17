@@ -164,7 +164,10 @@ export function Inspector({
 
   // Report the current drill-down up to the top-bar breadcrumb.
   useEffect(() => {
-    onCrumb(detail ? detail.taskId : liveRun ? liveRun.taskId : (taskDetailId ?? null));
+    // An issue reads as #904 in the breadcrumb, not as the internal task id gh-owner-repo-904.
+    const id = detail ? detail.taskId : liveRun ? liveRun.taskId : (taskDetailId ?? null);
+    const n = id !== null ? issueNumber(id) : undefined;
+    onCrumb(n !== undefined ? `#${n}` : id);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [detail, liveRun, taskDetailId]);
 

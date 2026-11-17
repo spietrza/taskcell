@@ -15,8 +15,10 @@ export interface PaneStage {
   note?: string;
   /** The PR step links to the pull request. */
   href?: string;
-  /** Running stage: when it started (epoch ms), so its card can tick. */
+  /** When the stage started (epoch ms): a running card ticks from it. */
   startedAt?: number;
+  /** Finished stage: when it ended (epoch ms). */
+  endedAt?: number;
 }
 export interface RunTimeline {
   /** The hub's id for the run: what Cancel needs. */
@@ -76,7 +78,7 @@ export function foldRunEvents(events: LoggedEvent[]): RunTimeline {
         if (prev) t.stages[i] = { name: prev.name, phase: 'running', startedAt: at };
         break;
       case 'stage-end':
-        if (prev) t.stages[i] = { name: prev.name, phase: e.outcome === 'completed' ? 'done' : 'failed', ...(prev.startedAt !== undefined ? { ms: at - prev.startedAt } : {}) };
+        if (prev) t.stages[i] = { name: prev.name, phase: e.outcome === 'completed' ? 'done' : 'failed', ...(prev.startedAt !== undefined ? { ms: at - prev.startedAt, startedAt: prev.startedAt } : {}), endedAt: at };
         break;
       case 'run-end':
         t.terminal = e.secretBlocked === true ? 'secret-blocked' : e.prUrl !== undefined ? 'success' : 'no-changes';
@@ -96,11 +98,32 @@ export function foldRunEvents(events: LoggedEvent[]): RunTimeline {
   return t;
 }
 
-/** A live run's Tests and PR cards, pending from the start (Tests after the last implementing stage, PR last). */
+/**
+ * How long the tests ran, from the event log: the gate runs between the last implementing stage's end and the
+ * reviewer's start (the pipeline's gateBeforeReview). Undefined without a reviewer or before it started.
+ */
+export function gateMs(stages: PaneStage[]): number | undefined {
+  const at = stages.map((s) => /implement/i.test(s.name)).lastIndexOf(true);
+  const impl = stages[at];
+  const next = stages[at + 1];
+  if (at < 0 || impl?.endedAt === undefined || next?.name !== 'reviewer' || next.startedAt === undefined) return undefined;
+  return Math.max(0, next.startedAt - impl.endedAt);
+}
+
+/**
+ * A live run's Tests and PR cards (Tests after the last implementing stage, PR last). No event marks the gate,
+ * so Tests runs once the implementing stage is done and has passed once the reviewer started (it runs only on a green gate).
+ */
 export function withPendingGateSteps(stages: PaneStage[]): PaneStage[] {
   const out = [...stages];
   const at = out.map((s) => /implement/i.test(s.name)).lastIndexOf(true);
-  out.splice(at < 0 ? out.length : at + 1, 0, { name: 'tests', label: 'Tests', phase: 'pending' });
+  const impl = out[at];
+  const ms = gateMs(stages);
+  const tests: PaneStage =
+    ms !== undefined ? { name: 'tests', label: 'Tests', phase: 'done', ms }
+    : impl?.phase === 'done' && impl.endedAt !== undefined && (out[at + 1] === undefined || out[at + 1]!.phase === 'pending') ? { name: 'tests', label: 'Tests', phase: 'running', startedAt: impl.endedAt }
+    : { name: 'tests', label: 'Tests', phase: 'pending' };
+  out.splice(at < 0 ? out.length : at + 1, 0, tests);
   out.push({ name: 'pr', label: 'PR', phase: 'pending' });
   return out;
 }
@@ -112,14 +135,14 @@ export function stagesFromRecords(stages: StageDetail[]): PaneStage[] {
 
 /**
  * The gate steps the records show: Tests (the verify gate's proof of work) right after the last implementing
- * stage (else at the end), then PR when the run opened one. A step whose record is absent is left out; a gate
- * has no recorded duration, so it carries its outcome as a note.
+ * stage (else at the end), then PR when the run opened one. A step whose record is absent is left out. A gate
+ * has no record of its own: a passed one shows the time the event log gives it (`testsMs`), else its outcome.
  */
-export function withGateSteps(stages: PaneStage[], proof: Proof | undefined, prUrl: string | undefined): PaneStage[] {
+export function withGateSteps(stages: PaneStage[], proof: Proof | undefined, prUrl: string | undefined, testsMs?: number): PaneStage[] {
   const out = [...stages];
   if (proof) {
     const at = out.map((s) => /implement/i.test(s.name)).lastIndexOf(true);
-    out.splice(at < 0 ? out.length : at + 1, 0, { name: 'tests', label: 'Tests', phase: proof.passed ? 'done' : 'failed', note: proof.passed ? 'Passed' : 'Failed' });
+    out.splice(at < 0 ? out.length : at + 1, 0, { name: 'tests', label: 'Tests', phase: proof.passed ? 'done' : 'failed', ...(proof.passed && testsMs !== undefined ? { ms: testsMs } : { note: proof.passed ? 'Passed' : 'Failed' }) });
   }
   if (prUrl !== undefined) {
     const n = /(\d+)\/?$/.exec(prUrl)?.[1];

@@ -82,12 +82,12 @@ test('T29/T30: legacy records have no verdict; withheld findings are explained',
 test('the overview says which credential funded the run; nothing without one', () => {
   const withSource = (credentialSource?: 'instance' | 'user'): StageDetail => ({ record: { ...stage().record, credentialSource } });
   const { unmount } = render(<RunDetail detail={{ taskId: 'task-1', timestamp: stage().record.timestamp, stages: [withSource('user')] }} project="/repo" />);
-  expect(screen.getByText(/Funded by the starter's own credential/)).toBeInTheDocument();
+  expect(screen.getByText(/billed to the starter's own account/)).toBeInTheDocument();
   unmount();
   const { unmount: unmount1 } = render(<RunDetail detail={{ taskId: 'task-1', timestamp: stage().record.timestamp, stages: [withSource('instance')] }} project="/repo" />);
-  expect(screen.getByText(/Funded by the instance credential or hub environment/)).toBeInTheDocument();
+  expect(screen.getByText(/billed to the hub's account/)).toBeInTheDocument();
   unmount1();
   const { unmount: unmount2 } = render(<RunDetail detail={{ taskId: 'task-1', timestamp: stage().record.timestamp, stages: [withSource()] }} project="/repo" />);
-  expect(screen.queryByText(/Funded by/)).not.toBeInTheDocument();
+  expect(screen.queryByText(/billed to/)).not.toBeInTheDocument();
   unmount2();
 });
