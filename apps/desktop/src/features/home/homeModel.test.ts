@@ -106,6 +106,10 @@ describe('thisWeek', () => {
     expect(w.merged).toBe(2);
   });
 
+  test('failed leaves out a run that stopped to ask', () => {
+    expect(thisWeek([run('hub-4', DAY, { anyFailed: true, asked: 'Which file?' }), run('gh-1', DAY, { anyFailed: true })], NOW).failed).toBe(1);
+  });
+
   test('failed leaves out a provider-limit stop; retried is a passed run with extra attempts (repair or resume alike)', () => {
     const w = thisWeek([run('gh-1', DAY, { anyFailed: true }), run('gh-2', DAY, { anyFailed: true, stoppedBy: 'provider-limit' }), run('gh-3', DAY, { extraAttempts: 1 }), run('gh-4', DAY, { anyFailed: true, extraAttempts: 3 }), run('gh-5', 8 * DAY, { extraAttempts: 1 })], NOW);
     expect(w).toMatchObject({ runs: 4, failed: 2, retried: 1 });

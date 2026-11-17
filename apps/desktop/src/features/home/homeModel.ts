@@ -144,7 +144,8 @@ export function thisWeek(runs: readonly RunRow[], now: number = Date.now()): { m
   return {
     merged: merged.size,
     runs: week.length,
-    failed: week.filter((r) => r.anyFailed && r.stoppedBy !== 'provider-limit').length,
+    // A run that stopped to ask waits on a person: not a failure here either (the feed says "stopped to ask").
+    failed: week.filter((r) => r.anyFailed && r.stoppedBy !== 'provider-limit' && r.asked === undefined).length,
     retried: week.filter((r) => !r.anyFailed && (r.extraAttempts ?? 0) > 0).length,
     spend: week.reduce((n, r) => n + (r.costUnknown === true ? 0 : r.totalCostUsd), 0),
   };
