@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createHash } from 'node:crypto';
 import { execa } from 'execa';
-import { VERDICT_STAGES, beginRun, listRuns, readRun, runsRoot, setRunTrigger, persistBaseMerge, persistDecisionProbe, persistRunRecord, persistStageOutcomes } from './run-store.js';
+import { VERDICT_STAGES, beginRun, diffPaths, listRuns, readRun, runsRoot, setRunTrigger, persistBaseMerge, persistDecisionProbe, persistRunRecord, persistStageOutcomes } from './run-store.js';
 import { STAGE } from '../pipeline/pipeline.js';
 import { parseMetrics } from './stats.js';
 import type { RunResult } from './types.js';
@@ -229,6 +229,15 @@ describe('beginRun — writing', () => {
     const root = runsRoot(repo);
     expect((await readRun(root, 'TES-C1', TS)).stages[0]!.ciConfigPaths).toEqual(['.github/workflows/ci.yml', '.gitlab/ci/build.yml']);
     expect((await readRun(root, 'TES-C2', TS)).stages[0]!.ciConfigPaths).toEqual([]);
+  });
+
+  it('diffPaths reads paths with spaces and quoted paths from the file headers, never from hunk lines', () => {
+    const diff = [
+      'diff --git a/.github/workflows/my ci.yml b/.github/workflows/my ci.yml', '--- a/.github/workflows/my ci.yml\t', '+++ b/.github/workflows/my ci.yml\t', '@@ -1 +1 @@', '--- a/not/a/path.yml', '+x',
+      'diff --git "a/.github/workflows/caf\\303\\251.yml" "b/.github/workflows/caf\\303\\251.yml"', 'new file mode 100644', '--- /dev/null', '+++ "b/.github/workflows/caf\\303\\251.yml"',
+      'diff --git a/old name.yml b/.gitlab/ci/new name.yml', 'rename from old name.yml', 'rename to .gitlab/ci/new name.yml',
+    ].join('\n');
+    expect(diffPaths(diff)).toEqual(['.github/workflows/my ci.yml', '.github/workflows/café.yml', 'old name.yml', '.gitlab/ci/new name.yml']);
   });
 
   it('writes lessonsLoaded and lessonIds on the metric line, 0 when none, and nothing when the caller passes no lessons', async () => {

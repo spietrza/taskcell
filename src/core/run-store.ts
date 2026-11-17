@@ -404,9 +404,53 @@ async function withSkillsUsed(root: string, detail: RunDetail): Promise<RunDetai
   };
 }
 
-/** Both sides of every `diff --git a/<old> b/<new>` header: a rename into or out of a CI directory counts. */
-function diffPaths(diff: string): string[] {
-  return [...new Set([...diff.matchAll(/^diff --git a\/(\S+) b\/(\S+)$/gm)].flatMap((m) => [m[1]!, m[2]!]))];
+const C_ESCAPES: Record<string, number> = { n: 10, t: 9, '"': 34, '\\': 92, a: 7, b: 8, f: 12, r: 13, v: 11 };
+
+/** A path as git prints it in a diff header: C-quoted (`"a/caf\303\251.yml"`) when it holds special bytes, else bare. */
+function unquoteGitPath(p: string): string {
+  if (!p.startsWith('"') || !p.endsWith('"') || p.length < 2) return p;
+  const s = p.slice(1, -1);
+  const bytes: number[] = [];
+  for (let i = 0; i < s.length; i++) {
+    const c = s[i]!;
+    if (c !== '\\') { bytes.push(...Buffer.from(c)); continue; }
+    const n = s[++i] ?? '';
+    if (/[0-7]/.test(n)) { bytes.push(parseInt(s.slice(i, i + 3), 8)); i += 2; } else bytes.push(C_ESCAPES[n] ?? n.charCodeAt(0));
+  }
+  return Buffer.from(bytes).toString('utf8');
+}
+
+/**
+ * Every path a diff touches, both sides of a rename (a rename into or out of a CI directory counts), read from the
+ * file headers only (never hunk lines): `diff --git`, `---`/`+++`, `rename`/`copy from|to`. Handles paths with spaces
+ * (git ends those `---`/`+++` names with a tab) and C-quoted paths.
+ */
+export function diffPaths(diff: string): string[] {
+  const out = new Set<string>();
+  const add = (raw: string, prefix?: string): void => {
+    const p = unquoteGitPath(raw.replace(/\t$/, ''));
+    if (p === '/dev/null') return;
+    out.add(prefix !== undefined && p.startsWith(prefix) ? p.slice(prefix.length) : p);
+  };
+  let inHeader = false;
+  for (const line of diff.split('\n')) {
+    if (line.startsWith('diff --git ')) {
+      inHeader = true;
+      const rest = line.slice('diff --git '.length);
+      const quoted = /^("(?:[^"\\]|\\.)*"|\S+) ("(?:[^"\\]|\\.)*"|\S+)$/.exec(rest);
+      const mid = (rest.length - 1) / 2;
+      if (quoted !== null) { add(quoted[1]!, 'a/'); add(quoted[2]!, 'b/'); }
+      // Unquoted with spaces: the two halves of a non-rename header are the same path (a rename names both below).
+      else if (rest.startsWith('a/') && rest.slice(mid, mid + 3) === ' b/' && rest.slice(2, mid) === rest.slice(mid + 3)) add(rest.slice(2, mid));
+      continue;
+    }
+    if (!inHeader) continue;
+    if (line.startsWith('@@')) { inHeader = false; continue; }
+    const m = /^(---|\+\+\+|rename from|rename to|copy from|copy to) (.+)$/.exec(line);
+    if (m === null) continue;
+    add(m[2]!, m[1] === '---' ? 'a/' : m[1] === '+++' ? 'b/' : undefined);
+  }
+  return [...out];
 }
 
 /** Record/proof-only read for the board; never opens diff/transcript files. */
