@@ -18,6 +18,8 @@ export interface Project {
   /** Of `runCount`, the runs known only from the metrics branch (CI). */
   ciRunCount?: number;
   failedCount: number;
+  /** Of the runs, those whose agent stopped to ask (not counted in `failedCount`). Absent when none. */
+  askedCount?: number;
   lastRun?: string;
   /** In-flight runs right now (from active sessions). */
   runningCount: number;
@@ -81,6 +83,7 @@ export async function aggregate(repoPath: string, now: Date = new Date()): Promi
   const tasks = new Set<string>();
   let totalCostUsd = 0;
   let failedCount = 0;
+  let askedCount = 0;
   let runsLast24h = 0;
   let ciRunCount = 0;
   let lastRun: string | undefined;
@@ -88,9 +91,9 @@ export async function aggregate(repoPath: string, now: Date = new Date()): Promi
     tasks.add(s.taskId);
     totalCostUsd += s.totalCostUsd;
     if (s.source === 'ci') ciRunCount += 1;
-    if (s.anyFailed && s.stoppedBy === undefined) {
-      failedCount += 1;
-    }
+    // A run that stopped to ask waits on a person: counted apart, never as failed.
+    if (s.asked !== undefined) askedCount += 1;
+    else if (s.anyFailed && s.stoppedBy === undefined) failedCount += 1;
     if (lastRun === undefined || s.timestamp > lastRun) {
       lastRun = s.timestamp;
     }
@@ -108,6 +111,7 @@ export async function aggregate(repoPath: string, now: Date = new Date()): Promi
     totalCostUsd,
     ...(ciRunCount > 0 ? { ciRunCount } : {}),
     failedCount,
+    ...(askedCount > 0 ? { askedCount } : {}),
     ...(lastRun !== undefined ? { lastRun } : {}),
     runningCount,
     runsLast24h,

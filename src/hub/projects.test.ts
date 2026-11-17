@@ -156,6 +156,17 @@ describe('aggregate', () => {
     }));
     expect(await aggregate(repo)).toMatchObject({ runCount: 1, failedCount: 0 });
   });
+
+  it('counts a run whose agent stopped to ask apart, never as failed', async () => {
+    const repo = join(repoRoot, 'proj-asked');
+    const dir = join(repo, '.taskcell', 'runs', 'hub-4');
+    await mkdir(dir, { recursive: true });
+    await writeFile(join(dir, '2026-07-06T19-12-02-123Z-implementer.json'), JSON.stringify({
+      taskId: 'hub-4', completed: false, exitReason: 'incomplete', turns: 3, worktreePath: '/tmp/wt',
+      worktreePreserved: true, finalText: 'Which file?', timestamp: '2026-07-06T19:12:02.123Z', stage: 'implementer',
+    }));
+    expect(await aggregate(repo)).toMatchObject({ runCount: 1, failedCount: 0, askedCount: 1 });
+  });
 });
 
 describe('listAcrossProjects', () => {

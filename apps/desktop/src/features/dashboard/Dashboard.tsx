@@ -158,6 +158,7 @@ export function Dashboard({
                       <span>${p.totalCostUsd.toFixed(2)}</span>
                       {p.ciRunCount !== undefined && <span>{p.ciRunCount} in CI</span>}
                       {p.failedCount > 0 && <span className="text-destructive-text">{p.failedCount} failed</span>}
+                      {p.askedCount !== undefined && p.askedCount > 0 && <span className="text-primary-text">{p.askedCount} stopped to ask</span>}
                       {p.runsLast24h > 0 && <Chip color="secondary" variant="outlined">{p.runsLast24h} in 24h</Chip>}
                       {last && <span className="ml-auto">{last}</span>}
                     </div>

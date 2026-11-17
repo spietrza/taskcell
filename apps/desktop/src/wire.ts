@@ -907,6 +907,8 @@ export interface Project {
   taskCount: number;
   totalCostUsd: number;
   failedCount: number;
+  /** Of the runs, those whose agent stopped to ask (not counted in `failedCount`). Absent when none. */
+  askedCount?: number;
   lastRun?: string | null;
   runningCount: number;
   runsLast24h: number;
