@@ -92,7 +92,9 @@ export function NewHubTask({ repoPath, onCreated, onCancel }: { repoPath: string
     );
   };
   return (
-    <form aria-label="New card" onSubmit={add} className="mb-3 flex shrink-0 flex-col gap-2 rounded-lg border border-border/60 p-3 sm:flex-row sm:items-start">
+    <form aria-label="New card" onSubmit={add} className="mb-3 flex shrink-0 flex-col gap-2 rounded-lg border border-border/60 p-3 sm:flex-row sm:flex-wrap sm:items-start">
+      {/* Name the target: in the All view the form adds to the open project, which nothing else on screen shows. */}
+      <p className="w-full text-xs text-muted-foreground">New card in <span className="font-medium text-foreground">{repoPath.split('/').filter(Boolean).pop()}</span> (Taskcell board)</p>
       <label className="block min-w-0 text-xs sm:w-64">
         Title
         <input className={FIELD} value={title} maxLength={300} autoFocus onChange={(e) => setTitle(e.target.value)} />

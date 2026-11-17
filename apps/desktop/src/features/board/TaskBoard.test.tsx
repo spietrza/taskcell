@@ -68,6 +68,7 @@ describe('TaskBoard on a hub-board project', () => {
     fireEvent.click(open);
     expect(onNewTask).not.toHaveBeenCalled();
     const form = screen.getByRole('form', { name: 'New card' });
+    expect(form).toHaveTextContent('New card in repo (Taskcell board)');
     const calls = mockListTasks.mock.calls.length;
     fireEvent.change(within(form).getByLabelText('Title'), { target: { value: 'A' } });
     fireEvent.click(within(form).getByRole('button', { name: 'Add card' }));
