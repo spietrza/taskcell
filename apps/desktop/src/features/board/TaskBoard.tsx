@@ -296,10 +296,11 @@ export function TaskBoard({
     {hiddenOpen && selected !== null && (
       <p role="status" className="text-xs text-muted-foreground">
         {selected.id} is hidden by your filters
-        {onFilter && canClearFilters(filter) && (
+        {/* The project tab counts: it is what usually hides a card opened from Home or a link (as on Runs). */}
+        {onFilter && (canClearFilters(filter) || filter.repos.length > 0) && (
           <>
             {' — '}
-            <button type="button" className={LINK_CLASS} onClick={() => onFilter(clearFilters(filter))}>Clear</button>
+            <button type="button" className={LINK_CLASS} onClick={() => onFilter({ ...clearFilters(filter), repos: [] })}>Clear</button>
           </>
         )}
       </p>

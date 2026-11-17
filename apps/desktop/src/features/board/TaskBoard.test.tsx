@@ -228,11 +228,12 @@ describe('TaskBoard', () => {
     try {
       mockListTasks.mockResolvedValue({ tasks: TASKS, capped: false });
       const onFilter = vi.fn();
-      render(<TaskBoard project="/repo" repos={[]} onOpenTask={() => {}} onNewTask={() => {}} filter={{ ...DEFAULT_FILTER, query: 'nothing matches this' }} onFilter={onFilter} />);
+      render(<TaskBoard project="/repo" repos={[]} onOpenTask={() => {}} onNewTask={() => {}} filter={{ ...DEFAULT_FILTER, query: 'nothing matches this', repos: ['/repo'] }} onFilter={onFilter} />);
       expect(await screen.findByRole('complementary', { name: /Quick view: Running one/ })).toBeInTheDocument();
       const note = screen.getByText(/t-r1 is hidden by your filters/);
       fireEvent.click(within(note).getByRole('button', { name: 'Clear' }));
-      expect(onFilter).toHaveBeenCalledWith(expect.objectContaining({ query: '' }));
+      // Clear also resets the project tab, as on Runs.
+      expect(onFilter).toHaveBeenCalledWith(expect.objectContaining({ query: '', repos: [] }));
     } finally {
       window.history.replaceState(null, '', '/');
     }
