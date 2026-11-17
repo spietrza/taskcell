@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.16.7](https://github.com/spietrza/taskcell/compare/v1.16.6...v1.16.7) (2026-11-17)
+
+
+### Bug Fixes
+
+* **hub:** show the live transcript of a launched run ([#1215](https://github.com/spietrza/taskcell/issues/1215)) ([d20048f](https://github.com/spietrza/taskcell/commit/d20048f846d90a259ea065a7a4630fa447a5ec72))
+
 ## [1.16.6](https://github.com/spietrza/taskcell/compare/v1.16.5...v1.16.6) (2026-11-17)
 
 
