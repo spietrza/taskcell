@@ -1,182 +1,20 @@
-import { useEffect, useRef, useState, type ReactNode } from 'react';
-import { Button, Input, Tooltip } from '@/ui';
-import { Info } from 'lucide-react';
+import { Button, Input } from '@/ui';
 import { Members, type TeamScreen } from './Members';
-import { apiCapabilitiesCached, apiListFlows, writeAppConfig } from '../../ipc';
-import { gateProps, useAppConfig, useCallerCapabilities } from '../../hooks';
-import { useDiscardGuard } from '../../navGuard';
+import { gateProps } from '../../hooks';
 import { CredentialsPanel } from './CredentialsPanel';
-import { AutoMerge } from './AutoMerge';
 import { combinationNote, effectiveRunLocation, legacySource, resolveTaskSource, RUN_LOCATIONS, runLocationOf, TASK_SOURCES, taskSourceOf } from '../../platform';
 import { projectColor } from '../../color';
-import { customProviderRowError, customProviderRows, PROVIDERS } from './customProviders';
-import type { AppConfig } from '../../taskcell-output';
-import { appConfigRangeErrors, type CustomProviderSpec } from '../../wire';
-import { errorClause, errorMessage } from '../../errors';
-
-/** `help`: what the setting does, behind an info icon next to the label (hover or focus). */
-function Field({ label, hint, help, error, children }: { label: string; hint?: string; help?: string; error?: string | undefined; children: ReactNode }) {
-  const field = (
-    <label className="block space-y-1">
-      <span className="text-sm">
-        {label}
-        {help && <Help text={help} />}
-        {hint && <span className="ml-1 text-xs text-muted-foreground">{hint}</span>}
-      </span>
-      {children}
-      {error !== undefined && <span role="alert" className="block text-xs text-destructive-text">{error}</span>}
-    </label>
-  );
-  if (!help) return field;
-  // Screen readers get the help as text after the field: inside the <label> it would join the field's name.
-  return (
-    <div>
-      {field}
-      <span className="sr-only">{help}</span>
-    </div>
-  );
-}
-
-/** The hover popup for sighted users; Field repeats the text for screen readers. */
-function Help({ text }: { text: string }) {
-  return (
-    <Tooltip.Root>
-      <Tooltip.Trigger
-        render={
-          // Inside the field's <label>: a click must not move focus to the input.
-          <span aria-hidden data-testid="field-help" onClick={(e) => e.preventDefault()} className="ml-1 inline-flex size-4 translate-y-0.5 cursor-help items-center justify-center text-muted-foreground hover:text-foreground" />
-        }
-      >
-        <Info className="size-3.5" aria-hidden />
-      </Tooltip.Trigger>
-      <Tooltip.Portal>
-        <Tooltip.Positioner side="top" sideOffset={6}>
-          <Tooltip.Popup className="z-50 max-w-xs rounded-md border border-border bg-background px-2.5 py-1.5 text-xs leading-relaxed text-foreground shadow-md">{text}</Tooltip.Popup>
-        </Tooltip.Positioner>
-      </Tooltip.Portal>
-    </Tooltip.Root>
-  );
-}
-
-const SELECT_CLASS = 'h-9 w-full rounded border border-border bg-background px-2 text-sm';
-
-function Select({
-  value,
-  onChange,
-  options,
-  danglingLabel,
-}: {
-  value: string;
-  onChange: (v: string) => void;
-  options: readonly string[];
-  /** Render a stored value missing from options as a flagged entry so display matches storage. */
-  danglingLabel?: (v: string) => string;
-}) {
-  const dangling = value !== '' && !options.includes(value);
-  return (
-    <select
-      value={value}
-      onChange={(e) => onChange(e.target.value)}
-      className={SELECT_CLASS}
-    >
-      <option value="">—</option>
-      {dangling && (
-        <option value={value}>{danglingLabel ? danglingLabel(value) : value}</option>
-      )}
-      {options.map((o) => (
-        <option key={o} value={o}>
-          {o}
-        </option>
-      ))}
-    </select>
-  );
-}
+import type { CustomProviderSpec } from '../../wire';
+import { errorClause } from '../../errors';
+import { Field, SELECT_CLASS } from './fields';
+import { useConfigForm } from './configForm';
 
 export function Settings({ project, teamScreen }: { project: string; teamScreen?: TeamScreen }) {
-  // Inspector is keyed by project, so this component remounts on project switch —
-  // config loads once and `dirty`/`saved` start clean without a reset effect.
-  const [cfg, setCfg, cfgStatus] = useAppConfig(project);
-  const [dirty, setDirty] = useState(false);
-  const [saved, setSaved] = useState(false);
-  const [saveError, setSaveError] = useState<string | null>(null);
-  const saveGate = useCallerCapabilities(project)?.project?.canChangeSettings;
-  // The config as last read or saved: Discard goes back to it.
-  const [lastSaved, setLastSaved] = useState<AppConfig | null>(null);
-  useEffect(() => {
-    if (cfgStatus === 'ready') setLastSaved((prev) => prev ?? cfg);
-  }, [cfgStatus, cfg]);
-
-  // Shell navigation unmounts this screen — see useDiscardGuard (S8 seam, #339 follow-up).
-  useDiscardGuard(dirty, () => window.confirm('Discard unsaved changes to .taskcell/app.json?'));
-
-  // Built-in flows (capabilities) + this repo's `.taskcell/flows/*.hcl`; a load failure just leaves the picker with the stored value.
-  const [flowNames, setFlowNames] = useState<string[]>([]);
-  useEffect(() => {
-    let live = true;
-    void (async () => {
-      try {
-        const [caps, repo] = await Promise.all([apiCapabilitiesCached(), apiListFlows(project)]);
-        const names = [...caps.flows.map((f) => f.name), ...repo.flows.flatMap((f) => (f.name !== undefined && f.error === undefined ? [f.name] : []))];
-        if (live) setFlowNames([...new Set(names)]);
-      } catch {
-        /* keep the empty list */
-      }
-    })();
-    return () => { live = false; };
-  }, [project]);
-
-  const set = <K extends keyof AppConfig>(k: K, v: AppConfig[K]): void => {
-    setCfg((c) => ({ ...c, [k]: v }));
-    setDirty(true);
-    setSaved(false);
-    setSaveError(null);
-  };
-
-  const customs: CustomProviderSpec[] = customProviderRows(cfg);
-  const customErrors = customs.map((row, i) => customProviderRowError(row, i, customs));
-  const customsValid = customErrors.every((e) => e === undefined);
-  const healthyCustomNames = customs.filter((_, i) => customErrors[i] === undefined).map((r) => r.name);
-  const providerOptions = [...PROVIDERS, ...healthyCustomNames];
+  const { cfg, cfgStatus, dirty, saved, saveError, saveGate, lastSaved, set, customs, customErrors, rangeErrors, savable, save, discard } = useConfigForm(project);
 
   const setCustoms = (rows: CustomProviderSpec[]): void => set('customProviders', rows.length > 0 ? rows : undefined);
   const setRow = (i: number, patch: Partial<CustomProviderSpec>): void =>
     setCustoms(customs.map((r, j) => (j === i ? { ...r, ...patch } : r)));
-
-  // Save gating (S6 §8 guards): before the config read resolves, a save would write the {} seed
-  // over the file; after a FAILED read ('error' = the file exists but does not parse), a save
-  // would replace the user's hand-edited JSON with defaults. Invalid custom rows also block.
-  const rangeErrors = appConfigRangeErrors(cfg);
-  const savable = dirty && cfgStatus === 'ready' && customsValid && Object.keys(rangeErrors).length === 0;
-
-  // Latest cfg, readable after an await (the save closure's `cfg` is the render's snapshot).
-  const cfgRef = useRef(cfg);
-  cfgRef.current = cfg;
-
-  const save = async (): Promise<void> => {
-    const shipped = cfg; // the exact object written — dirty clears only if it is still current
-    try {
-      await writeAppConfig(project, shipped);
-    } catch (e) {
-      // The form keeps the user's input and stays dirty: they correct the named field and save again.
-      setSaveError(errorMessage(e));
-      return;
-    }
-    // An edit made while the write was in flight lives in cfg but NOT on disk. Clearing dirty would
-    // disable Save and disarm the guard above, letting the next navigation discard it silently —
-    // the same rule flowEditorReducer's saveOk follows. Every `set` builds a new object, so
-    // reference identity is exactly "unchanged since save".
-    setLastSaved(shipped);
-    if (cfgRef.current !== shipped) return;
-    setDirty(false);
-    setSaved(true);
-  };
-
-  const discard = (): void => {
-    if (lastSaved === null) return;
-    setCfg(lastSaved);
-    setDirty(false);
-    setSaveError(null);
-  };
 
   // Unset stays unset ("—"): the board needs an explicit source, so Settings must not display a default it never saves.
   const taskSource = resolveTaskSource(cfg);
@@ -204,8 +42,6 @@ export function Settings({ project, teamScreen }: { project: string; teamScreen?
       )}
 
       {teamScreen && <Members {...teamScreen} />}
-
-      <AutoMerge project={project} />
 
       {cfgStatus === 'error' && (
         <div role="alert" className="rounded-md border border-destructive/40 bg-destructive/10 p-3 text-sm text-muted-foreground">
@@ -298,16 +134,6 @@ export function Settings({ project, teamScreen }: { project: string; teamScreen?
             {note}
           </p>
         )}
-        <div className="grid grid-cols-2 gap-4">
-          <Field label="Trigger label" help="The label that hands an issue to the factory. The Board lists only issues that carry it, New Task adds it, and a hub that runs tasks itself (Runs on: Local hub) starts the ones that get it. Empty: the Board lists every issue and the hub starts on the ready for agent label.">
-            <Input
-              value={cfg.label ?? ''}
-              onChange={(e) => set('label', e.target.value || undefined)}
-              className="w-full"
-              placeholder="ready for agent"
-            />
-          </Field>
-        </div>
         {taskSource === 'linear' && (
           <Field label="Linear team key" hint="— selects the board's team (e.g. DEV)">
             <Input
@@ -319,50 +145,6 @@ export function Settings({ project, teamScreen }: { project: string; teamScreen?
           </Field>
         )}
         <div className="grid grid-cols-2 gap-4">
-          <Field label="AI provider" hint="— which model service runs the stages">
-            {/* Built-ins + this repo's healthy customs; a stored name that no longer resolves shows
-                flagged instead of silently rendering the em-dash while the value persists. */}
-            <Select
-              value={cfg.provider ?? ''}
-              onChange={(v) => set('provider', v || undefined)}
-              options={providerOptions}
-              danglingLabel={(v) => `${v} (not configured)`}
-            />
-          </Field>
-          <Field label="Review provider" hint="— optional; a different built-in provider to review the work (custom providers cannot review)">
-            <Select
-              value={cfg.reviewProvider ?? ''}
-              onChange={(v) => set('reviewProvider', v || undefined)}
-              options={PROVIDERS}
-              danglingLabel={(v) => `${v} (not supported)`}
-            />
-          </Field>
-        </div>
-        <Field label="Flow" hint="— runs the Hub starts for this project use it, so the models set in the Workflow editor apply; — = the source default">
-          <Select
-            value={cfg.flow ?? ''}
-            onChange={(v) => set('flow', v || undefined)}
-            options={flowNames}
-            danglingLabel={(v) => `${v} (not found)`}
-          />
-        </Field>
-        <Field label="Verify command override" hint="— the Proof of Work">
-          <Input
-            value={cfg.verifyCmd ?? ''}
-            onChange={(e) => set('verifyCmd', e.target.value || undefined)}
-            className="w-full font-mono text-xs"
-            placeholder="pnpm typecheck && pnpm test"
-          />
-        </Field>
-        <Field label="Default target branch" hint="— where pull requests go when a card names none (default main)">
-          <Input
-            value={cfg.baseBranch ?? ''}
-            onChange={(e) => set('baseBranch', e.target.value || undefined)}
-            className="w-full font-mono text-xs"
-            placeholder="main"
-          />
-        </Field>
-        <div className="grid grid-cols-2 gap-4">
           <Field label="Parallel runs" hint="— how many tasks run at once (1 or more)" error={rangeErrors.concurrency}>
             <Input
               type="number"
@@ -371,16 +153,6 @@ export function Settings({ project, teamScreen }: { project: string; teamScreen?
               value={cfg.concurrency ?? ''}
               onChange={(e) => set('concurrency', e.target.value ? Number(e.target.value) : undefined)}
               className="w-full"
-            />
-          </Field>
-          <Field label="Budget cap per Run" error={rangeErrors.budgetUsd}>
-            <Input
-              type="number"
-              min={0}
-              value={cfg.budgetUsd ?? ''}
-              onChange={(e) => set('budgetUsd', e.target.value ? Number(e.target.value) : undefined)}
-              className="w-full"
-              placeholder="2.50"
             />
           </Field>
         </div>

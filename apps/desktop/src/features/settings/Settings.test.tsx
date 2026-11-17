@@ -28,18 +28,18 @@ test('the form does not render until the read resolves — a mid-load edit canno
   render(<Settings project="/repo" />);
   // While loading: no editable fields at all (an edit here would be discarded by the resolving
   // setCfg while dirty stayed true — review #341 r3), and Save is disabled.
-  expect(screen.queryByPlaceholderText('ready for agent')).not.toBeInTheDocument();
+  expect(screen.queryByPlaceholderText('claude-sonnet-5')).not.toBeInTheDocument();
   expect(screen.getByText('Loading…')).toBeInTheDocument();
   expect(screen.getByRole('button', { name: /save/i })).toBeDisabled();
   gate.resolve({});
-  await waitFor(() => expect(screen.getByPlaceholderText('ready for agent')).toBeInTheDocument());
+  await waitFor(() => expect(screen.getByPlaceholderText('claude-sonnet-5')).toBeInTheDocument());
   expect(screen.getByRole('button', { name: /save/i })).toBeDisabled(); // still clean — not dirty
 });
 
 test('an unset task source shows "—" (not a default the board would reject); picking GitHub saves it', async () => {
   read.mockResolvedValueOnce({});
   render(<Settings project="/repo" />);
-  await waitFor(() => expect(screen.getByPlaceholderText('ready for agent')).toBeInTheDocument());
+  await waitFor(() => expect(screen.getByPlaceholderText('claude-sonnet-5')).toBeInTheDocument());
   expect(screen.getByLabelText('Task source')).toHaveValue('');
   fireEvent.change(screen.getByLabelText('Task source'), { target: { value: 'github' } });
   fireEvent.click(screen.getByRole('button', { name: /save/i }));
@@ -55,7 +55,7 @@ test('a project configured before taskSource shows its legacy source', async () 
 test('task source and run location are editable, saved per project, and bad pairs are explained', async () => {
   read.mockResolvedValueOnce({});
   render(<Settings project="/repo" />);
-  await waitFor(() => expect(screen.getByPlaceholderText('ready for agent')).toBeInTheDocument());
+  await waitFor(() => expect(screen.getByPlaceholderText('claude-sonnet-5')).toBeInTheDocument());
   expect(screen.queryByRole('note')).not.toBeInTheDocument();
   fireEvent.change(screen.getByLabelText('Task source'), { target: { value: 'linear' } });
   fireEvent.change(screen.getByLabelText('Runs on'), { target: { value: 'watch' } });
@@ -69,7 +69,7 @@ test('an unreadable config surfaces an error and blocks save instead of silently
   read.mockRejectedValueOnce(new Error('.taskcell/app.json is unreadable: expected value at line 1'));
   render(<Settings project="/repo" />);
   await waitFor(() => expect(screen.getByText(/app\.json is unreadable/i)).toBeInTheDocument());
-  fireEvent.change(screen.getByPlaceholderText('ready for agent'), { target: { value: 'x' } });
+  fireEvent.change(screen.getByPlaceholderText('claude-sonnet-5'), { target: { value: 'x' } });
   expect(screen.getByRole('button', { name: /save/i })).toBeDisabled();
   expect(write).not.toHaveBeenCalled();
 });
@@ -107,25 +107,6 @@ test('a valid custom-provider row saves through writeAppConfig with only name/ba
   ]);
 });
 
-test('a dangling cfg.provider renders flagged instead of silently blanking', async () => {
-  read.mockResolvedValueOnce({ provider: 'gone-proxy' });
-  render(<Settings project="/repo" />);
-  expect(await screen.findByText('gone-proxy (not configured)')).toBeInTheDocument();
-});
-
-test('the provider dropdown offers healthy customs; reviewProvider stays built-ins-only', async () => {
-  read.mockResolvedValueOnce({
-    customProviders: [{ name: 'my-proxy', baseUrl: 'https://llm.example.com', keyEnv: 'K' }],
-  });
-  render(<Settings project="/repo" />);
-  await waitFor(() => expect(read).toHaveBeenCalled());
-  const providerSelect = screen.getByText('AI provider').closest('label')!.querySelector('select')!;
-  const reviewSelect = screen.getByText('Review provider').closest('label')!.querySelector('select')!;
-  const values = (sel: HTMLSelectElement): string[] => [...sel.options].map((o) => o.value).filter(Boolean);
-  expect(values(providerSelect)).toContain('my-proxy');
-  expect(values(reviewSelect)).not.toContain('my-proxy');
-});
-
 // T13 (#339 follow-up): every case in this file renders <Settings> WITHOUT a NavGuardContext
 // provider, so they exercise useDiscardGuard's null-registry path end-to-end (AC-1 clause 4).
 // Make that explicit: a dirty, provider-less Settings must neither throw nor touch window.confirm.
@@ -133,8 +114,8 @@ test('a dirty Settings with no nav-guard provider is inert — no throw, no conf
   const confirmSpy = vi.spyOn(window, 'confirm');
   read.mockResolvedValueOnce({});
   const { unmount } = render(<Settings project="/repo" />);
-  await waitFor(() => expect(screen.getByPlaceholderText('ready for agent')).toBeInTheDocument());
-  fireEvent.change(screen.getByPlaceholderText('ready for agent'), { target: { value: 'x' } });
+  await waitFor(() => expect(screen.getByPlaceholderText('claude-sonnet-5')).toBeInTheDocument());
+  fireEvent.change(screen.getByPlaceholderText('claude-sonnet-5'), { target: { value: 'x' } });
   expect(screen.getByRole('button', { name: /save/i })).not.toBeDisabled();
   expect(() => unmount()).not.toThrow();
   expect(confirmSpy).not.toHaveBeenCalled();
@@ -145,7 +126,7 @@ test('a save the hub refuses shows its message and keeps the input', async () =>
   read.mockResolvedValueOnce({});
   write.mockRejectedValueOnce('Invalid base branch "no such branch!!"');
   render(<Settings project="/repo" />);
-  const branch = await screen.findByPlaceholderText('main');
+  const branch = await screen.findByPlaceholderText('claude-sonnet-5');
   fireEvent.change(branch, { target: { value: 'no such branch!!' } });
   fireEvent.click(screen.getByRole('button', { name: /save/i }));
   expect(await screen.findByRole('alert')).toHaveTextContent('Invalid base branch "no such branch!!"');
@@ -192,7 +173,7 @@ test('Enter in a single-line field saves a valid form, and does nothing while th
   write.mockClear();
   read.mockResolvedValueOnce({});
   render(<Settings project="/repo" />);
-  const label = await screen.findByPlaceholderText('ready for agent');
+  const label = await screen.findByPlaceholderText('claude-sonnet-5');
   fireEvent.keyDown(label, { key: 'Enter' }); // nothing edited: nothing to save
   expect(write).not.toHaveBeenCalled();
   fireEvent.change(label, { target: { value: 'ready-label' } });
@@ -201,7 +182,7 @@ test('Enter in a single-line field saves a valid form, and does nothing while th
   expect(write).not.toHaveBeenCalled();
   fireEvent.change(screen.getByPlaceholderText('80'), { target: { value: '50' } });
   fireEvent.keyDown(label, { key: 'Enter' });
-  await waitFor(() => expect(write).toHaveBeenCalledWith('/repo', expect.objectContaining({ label: 'ready-label', usageCapPct: 50 })));
+  await waitFor(() => expect(write).toHaveBeenCalledWith('/repo', expect.objectContaining({ chatModel: 'ready-label', usageCapPct: 50 })));
   expect(await screen.findByRole('button', { name: 'Saved' })).toBeDisabled();
 });
 
@@ -209,28 +190,28 @@ test('Save is closed, with the reason, when the hub refuses remote writes', asyn
   vi.mocked(ipc.callerCapabilities).mockResolvedValueOnce({ project: { canChangeSettings: { allowed: false, reason: 'the hub refuses remote writes' } } } as never);
   read.mockResolvedValueOnce({});
   render(<Settings project="/repo" />);
-  fireEvent.change(await screen.findByPlaceholderText('ready for agent'), { target: { value: 'go' } });
+  fireEvent.change(await screen.findByPlaceholderText('claude-sonnet-5'), { target: { value: 'go' } });
   const save = screen.getByRole('button', { name: /save/i });
   await waitFor(() => expect(save).toHaveAttribute('title', 'the hub refuses remote writes'));
   expect(save).toBeDisabled();
 });
 
-test('a setting explains itself behind an info button, and the trigger label shows its real default', async () => {
+test('a setting explains itself behind an info button', async () => {
   read.mockResolvedValueOnce({});
   render(<Settings project="/repo" />);
-  expect(await screen.findByLabelText('Trigger label')).toHaveAttribute('placeholder', 'ready for agent');
+  expect(await screen.findByLabelText('Task source')).toBeInTheDocument();
   expect(screen.getAllByTestId('field-help').length).toBeGreaterThan(0);
-  expect(screen.getByText(/The label that hands an issue to the factory/)).toHaveClass('sr-only');
+  expect(screen.getByText(/Where this project's tasks come from/)).toHaveClass('sr-only');
 });
 
 test('Discard changes puts back the config as last read, and Save goes quiet again', async () => {
-  read.mockResolvedValueOnce({ label: 'go' });
+  read.mockResolvedValueOnce({ chatModel: 'go' });
   render(<Settings project="/repo" />);
-  const field = await screen.findByLabelText('Trigger label');
+  const field = await screen.findByPlaceholderText('claude-sonnet-5');
   expect(screen.queryByRole('button', { name: 'Discard changes' })).toBeNull();
   fireEvent.change(field, { target: { value: 'oops' } });
   fireEvent.click(screen.getByRole('button', { name: 'Discard changes' }));
-  expect(screen.getByLabelText('Trigger label')).toHaveValue('go');
+  expect(screen.getByPlaceholderText('claude-sonnet-5')).toHaveValue('go');
   expect(screen.getByRole('button', { name: /save/i })).toBeDisabled();
   expect(screen.queryByRole('button', { name: 'Discard changes' })).toBeNull();
 });

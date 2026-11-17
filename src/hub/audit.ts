@@ -7,6 +7,7 @@ import { parseJsonlLines } from '../core/stats.js';
 import { appendAudit, hubAuditFile, localAdapter, STREAMS, TOKEN_AUDIT_ACTOR, type AuditActor, type AuditAdapter, type AuditSubject } from '../core/audit.js';
 import type { AuditAction, AuditEntry, AuditOutcome, SettingsHistoryEntry } from '../wire.js';
 import { readEnv } from '../core/env.js';
+import { FLOW_FILE_RE } from '../flows/repo.js';
 
 export type { AuditAction, AuditEntry, AuditOutcome };
 
@@ -120,7 +121,8 @@ export class AuditLog {
         if (r.action !== 'settings-change' || target === undefined) continue;
         const detail = r.detail ?? [];
         const isConfig = repos.has(target) && detail.length > 0;
-        const isFlow = target.endsWith('.hcl') && [...repos].some((p) => target.startsWith(`${p}:`));
+        // The remainder must be a strict flow file name: a repo whose path is `<this repo>:x` cannot pass as a file of this one.
+        const isFlow = [...repos].some((p) => target.startsWith(`${p}:`) && FLOW_FILE_RE.test(target.slice(p.length + 1)));
         if (isConfig || isFlow) out.push({ time: r.time, login: r.login, outcome: r.outcome, detail: isFlow ? [] : detail, target });
       }
       break; // live file only

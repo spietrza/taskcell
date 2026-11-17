@@ -34,16 +34,20 @@ describe('nav-guard registry (S8, #339)', () => {
     expect(reg.guarded()).toBe(false);
   });
 
-  it('last registration wins; a stale unregister does not remove the newer guard', () => {
+  it('two guards both confirm; unregistering one leaves the other armed', () => {
     const reg = createNavGuardRegistry();
-    const older = (): boolean => false;
-    const newer = (): boolean => false;
-    reg.register(older);
-    reg.register(newer);
-    reg.unregister(older); // stale cleanup from an unmounting effect must not disarm `newer`
+    const a = vi.fn(() => true);
+    const b = vi.fn(() => false);
+    reg.register(a);
+    reg.register(b);
     expect(reg.confirm()).toBe(false);
-    reg.unregister(newer);
+    expect(a).toHaveBeenCalledTimes(1);
+    expect(b).toHaveBeenCalledTimes(1);
+    reg.unregister(a); // stale cleanup from an unmounting effect must not disarm `b`
+    expect(reg.confirm()).toBe(false);
+    reg.unregister(b);
     expect(reg.confirm()).toBe(true);
+    expect(reg.guarded()).toBe(false);
   });
 });
 

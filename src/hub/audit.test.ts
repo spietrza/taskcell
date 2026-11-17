@@ -101,7 +101,7 @@ describe('audit log', () => {
   test('read_settings_history: a member gets the repo slice (app.json keys, flow files) without actor or chain fields', async () => {
     const { ctx, audit, repo } = await setup({ login: 'carol', admin: false });
     await audit.record({ login: 'a', action: 'settings-change', target: repo, outcome: 'ok', detail: ['budgetUsd', 'verifyCmd'] });
-    await audit.record({ login: 'b', action: 'settings-change', target: `${repo}:flows/x.hcl`, outcome: 'ok' });
+    await audit.record({ login: 'b', action: 'settings-change', target: `${repo}:x.hcl`, outcome: 'ok' });
     await audit.record({ login: 'c', action: 'settings-change', target: `${repo}:my-skill`, outcome: 'ok' }); // skills / lessons
     await audit.record({ login: 'c', action: 'settings-change', target: repo, outcome: 'ok' }); // local_worker_set: bare target
     await audit.record({ login: 'd', action: 'settings-change', target: `${repo}2`, outcome: 'ok', detail: ['color'] }); // another repo
@@ -110,6 +110,15 @@ describe('audit log', () => {
     expect(rows.map((r) => r.login)).toEqual(['b', 'a']);
     expect(rows[1]).toMatchObject({ detail: ['budgetUsd', 'verifyCmd'], outcome: 'ok', target: repo });
     for (const r of rows) expect(Object.keys(r).sort()).toEqual(['detail', 'login', 'outcome', 'target', 'time']);
+  });
+
+  test('read_settings_history: another repo whose path extends this one with a colon does not leak its flow lines', async () => {
+    const { audit } = await setup();
+    await audit.record({ login: 'a', action: 'settings-change', target: '/x:y:z.hcl', outcome: 'ok' }); // repo `/x:y`, file `z.hcl`
+    await audit.record({ login: 'a', action: 'settings-change', target: '/x:y/flow.hcl', outcome: 'ok' });
+    await audit.record({ login: 'b', action: 'settings-change', target: '/x:flow.hcl', outcome: 'ok' });
+    expect((await audit.readSettingsHistory(['/x'])).map((r) => r.login)).toEqual(['b']);
+    expect(await audit.readSettingsHistory(['/x:y'])).toHaveLength(1);
   });
 
   test('read_settings_history caps the limit and is empty without a log', async () => {
