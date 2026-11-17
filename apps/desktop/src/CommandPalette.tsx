@@ -1,7 +1,11 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
-import { Home, MessageCircleQuestionMark, FolderPlus, FolderGit2, SunMoon, Columns3, List, Settings as SettingsIcon, FilePlus, Factory } from 'lucide-react';
+import { Home, MessageCircleQuestionMark, FolderPlus, FolderGit2, SunMoon, Columns3, List, Settings as SettingsIcon, FilePlus, Factory, SquareKanban, Play } from 'lucide-react';
 import { useFocusTrap } from '@/ui';
 import type { Project } from './taskcell-output';
+import type { PaletteCard, PaletteRun } from './paletteIndex';
+
+/** Cards and runs shown per kind for a query: the palette is a jump list, not a search page. */
+const MAX_ITEMS = 20;
 
 interface Cmd {
   id: string;
@@ -17,20 +21,27 @@ export function CommandPalette({
   onHome,
   onNeedsYou,
   projectName,
+  scopeName,
   onScreen,
   onNewTask,
   onAutoRun,
   onAddProject,
   onToggleTheme,
   onClose,
+  cards = [],
+  runs = [],
+  onOpenCard,
+  onOpenRun,
 }: {
   projects: Project[];
   onOpenProject: (p: { path: string; name: string }) => void;
   onHome: () => void;
   /** Hub only: opens Home at its Needs you section (the old Needs you screen). */
   onNeedsYou?: () => void;
-  /** The open project, named in the commands that act on it. */
+  /** The open project, named in the commands that act on it (Settings, New task, Auto-run). */
   projectName?: string;
+  /** What Board and Runs show: "All repositories", one project's name, or a count. Defaults to `projectName`. */
+  scopeName?: string;
   /** Screens of the open project (Board, Runs, Settings); omitted while none is open. */
   onScreen?: (s: 'board' | 'runs' | 'settings') => void;
   onNewTask?: () => void;
@@ -40,6 +51,11 @@ export function CommandPalette({
   onAddProject?: () => void;
   onToggleTheme: () => void;
   onClose: () => void;
+  /** Cards and runs the app last loaded; searched by id and title within `projects`. */
+  cards?: readonly PaletteCard[];
+  runs?: readonly PaletteRun[];
+  onOpenCard?: (c: PaletteCard) => void;
+  onOpenRun?: (r: PaletteRun) => void;
 }) {
   const [q, setQ] = useState('');
   const [sel, setSel] = useState(0);
@@ -56,8 +72,8 @@ export function CommandPalette({
       ...(onNeedsYou ? [{ id: 'needs', label: 'Needs you', icon: <MessageCircleQuestionMark className="size-4" />, run: onNeedsYou }] : []),
       ...(onScreen
         ? [
-            { id: 'board', label: `Board · ${projectName}`, icon: <Columns3 className="size-4" />, run: () => onScreen('board') },
-            { id: 'runs', label: `Runs · ${projectName}`, icon: <List className="size-4" />, run: () => onScreen('runs') },
+            { id: 'board', label: `Board · ${scopeName ?? projectName}`, icon: <Columns3 className="size-4" />, run: () => onScreen('board') },
+            { id: 'runs', label: `Runs · ${scopeName ?? projectName}`, icon: <List className="size-4" />, run: () => onScreen('runs') },
             { id: 'settings', label: `Settings · ${projectName}`, icon: <SettingsIcon className="size-4" />, run: () => onScreen('settings') },
           ]
         : []),
@@ -73,14 +89,34 @@ export function CommandPalette({
         run: () => onOpenProject({ path: p.path, name: p.name }),
       })),
     ],
-    [projects, projectName, onHome, onNeedsYou, onScreen, onNewTask, onAutoRun, onAddProject, onToggleTheme, onOpenProject],
+    [projects, projectName, scopeName, onHome, onNeedsYou, onScreen, onNewTask, onAutoRun, onAddProject, onToggleTheme, onOpenProject],
   );
 
   const filtered = useMemo(() => {
     const s = q.trim().toLowerCase();
     if (!s) return cmds;
-    return cmds.filter((c) => c.label.toLowerCase().includes(s) || c.hint?.toLowerCase().includes(s));
-  }, [cmds, q]);
+    const hit = (...texts: (string | undefined)[]): boolean => texts.some((t) => t?.toLowerCase().includes(s));
+    const names = new Map(projects.map((p) => [p.path, p.name]));
+    const shown = (repo: string | undefined): boolean => repo === undefined || names.has(repo);
+    const titles = new Map(cards.map((c) => [`${c.repoPath ?? ''}\n${c.id}`, c.title]));
+    const found: Cmd[] = [
+      ...cards
+        .filter((c) => shown(c.repoPath) && hit(c.id, c.title))
+        .slice(0, MAX_ITEMS)
+        .flatMap((c) => (onOpenCard ? [{ id: `c:${c.repoPath}:${c.id}`, label: `${c.id} · ${c.title}`, hint: names.get(c.repoPath ?? ''), icon: <SquareKanban className="size-4" />, run: () => onOpenCard(c) }] : [])),
+      ...runs
+        .filter((r) => r.source !== 'ci' && shown(r.repoPath))
+        .map((r) => ({ r, title: titles.get(`${r.repoPath ?? ''}\n${r.taskId}`) }))
+        .filter(({ r, title }) => hit(r.taskId, title))
+        .slice(0, MAX_ITEMS)
+        .flatMap(({ r, title }) =>
+          onOpenRun
+            ? [{ id: `r:${r.repoPath}:${r.taskId}:${r.timestamp}`, label: `Run · ${r.taskId}${title ? ` · ${title}` : ''}`, hint: [names.get(r.repoPath ?? ''), r.timestamp.slice(0, 16).replace('T', ' ')].filter(Boolean).join(' · '), icon: <Play className="size-4" />, run: () => onOpenRun(r) }]
+            : [],
+        ),
+    ];
+    return [...cmds.filter((c) => hit(c.label, c.hint)), ...found];
+  }, [cmds, q, cards, runs, projects, onOpenCard, onOpenRun]);
 
   useEffect(() => {
     setSel(0);
@@ -124,9 +160,9 @@ export function CommandPalette({
           value={q}
           onChange={(e) => setQ(e.target.value)}
           onKeyDown={onKey}
-          placeholder="Search projects & actions…"
+          placeholder="Search projects, cards, runs & actions…"
           role="combobox"
-          aria-label="Search projects and actions"
+          aria-label="Search projects, cards, runs and actions"
           aria-expanded="true"
           aria-controls="command-palette-list"
           aria-activedescendant={filtered[sel] ? `cmd-${sel}` : undefined}
