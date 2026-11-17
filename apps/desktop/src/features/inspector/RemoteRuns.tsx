@@ -90,10 +90,10 @@ export function RemoteRuns({
           return [
             <Table.Row key={r.id}>
               <Table.Cell className="font-medium">{r.workflow}</Table.Cell>
-              <Table.Cell className="max-w-xs truncate text-muted-foreground" title={r.title}>
+              <Table.Cell className="max-w-64 truncate text-muted-foreground" title={r.title}>
                 {r.title}
               </Table.Cell>
-              <Table.Cell className="max-w-xs truncate text-muted-foreground" title={r.branch}>{r.branch}</Table.Cell>
+              <Table.Cell className="max-w-56 truncate text-muted-foreground" title={r.branch}>{r.branch}</Table.Cell>
               <Table.Cell className="tabular-nums text-muted-foreground">
                 <Timestamp ms={Date.parse(r.createdAt)} />
               </Table.Cell>

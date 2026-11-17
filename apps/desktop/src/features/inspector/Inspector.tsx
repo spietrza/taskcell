@@ -574,8 +574,9 @@ export function Inspector({
         'flex h-full min-h-0 flex-col gap-4',
         PAGE_CLASS,
         // The board's columns scroll sideways, so it (and the task screen) drop the width cap only.
-        // Runners is a wide table (Fleet, CI runs): it gets the full width like the board.
-        (screen === 'board' || screen === 'task' || screen === 'runs' || (screen === 'settings' && settingsSection === 'runners')) && 'max-w-none',
+        (screen === 'board' || screen === 'task' || screen === 'runs') && 'max-w-none',
+        // One width for every Settings section, so switching tabs does not jump; wide enough for the Runners table.
+        screen === 'settings' && 'max-w-6xl',
       )}
     >
       {screen === 'runs' && (
