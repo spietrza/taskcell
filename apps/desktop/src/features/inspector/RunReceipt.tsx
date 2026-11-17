@@ -67,7 +67,7 @@ export function RunReceipt({ detail, project, merged, cost, live = false }: { de
     <section aria-label="Receipt" className="rounded-lg border border-border">
       <header className="flex items-center gap-2 border-b border-border/60 px-3 py-2">
         <ReceiptText className="size-4 text-muted-foreground" aria-hidden />
-        <h3 className="text-sm font-semibold">{delivered && !live ? 'Delivery receipt' : 'Receipt so far'}</h3>
+        <h3 className="text-sm font-semibold">{live ? 'Receipt so far' : delivered ? 'Delivery receipt' : 'Receipt'}</h3>
         <span className="ml-auto text-xs uppercase tracking-wide text-muted-foreground">{live ? 'in progress' : merged ? 'merged' : delivered ? 'waiting for sign-off' : ''}</span>
       </header>
       <dl className="grid grid-cols-[6.5rem_minmax(0,1fr)] gap-x-2 gap-y-1.5 px-3 py-2.5 text-sm">

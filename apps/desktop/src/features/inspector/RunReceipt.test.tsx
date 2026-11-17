@@ -35,3 +35,11 @@ test('a merged run offers no actions and does not ask the hub', () => {
   expect(screen.queryByRole('button', { name: 'Ask for changes' })).toBeNull();
   expect(listNeedsYou).not.toHaveBeenCalled();
 });
+
+test('the heading says "so far" only while the run is live', () => {
+  const { prUrl: _pr, ...noPr } = detail;
+  const { rerender } = render(<RunReceipt detail={noPr} project="/repo" merged={false} />);
+  expect(screen.getByRole('heading', { name: 'Receipt' })).toBeInTheDocument();
+  rerender(<RunReceipt detail={noPr} project="/repo" merged={false} live />);
+  expect(screen.getByRole('heading', { name: 'Receipt so far' })).toBeInTheDocument();
+});
