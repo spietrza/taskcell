@@ -16,6 +16,8 @@ vi.mock('../../ipc', () => ({
   apiSetTaskSkills: vi.fn(async (_repo: string, _id: string, skills: string[]) => ({ skills })),
   hubTaskCreate: vi.fn().mockResolvedValue({ id: 'hub-2' }),
   hubTaskSchedule: vi.fn().mockResolvedValue({ id: 'hub-1' }),
+  readAppConfigStrict: vi.fn(async () => ({})),
+  fetchSpec: vi.fn(async () => 'The issue body.'),
 }));
 import { listNeedsYou, listTasks, listTasksAll, retryPausedTask } from '../../ipc';
 const mockListTasks = vi.mocked(listTasks);
@@ -410,6 +412,17 @@ describe('TaskBoard open-in-tracker links', () => {
     const link = await screen.findByRole('link', { name: text });
     expect(link).toHaveAttribute('href', url);
     expect(link).toHaveAttribute('target', '_blank');
+  });
+
+  test('the link sits inside the card frame, outside its button; a bare open/closed state is not repeated', async () => {
+    mockListTasks.mockResolvedValue({ tasks: [{ id: 'gh-1', title: 'T', column: 'queued', state: 'open', source: 'github', url: 'https://github.com/o/r/issues/1' }, { id: 'gh-2', title: 'U', column: 'queued', state: 'needs design' }], capped: false });
+    render(<TaskBoard project="/repo" repos={[]} onOpenTask={() => {}} onNewTask={() => {}} />);
+    const link = await screen.findByRole('link', { name: 'Open in GitHub' });
+    const button = screen.getByText('T').closest('button') as HTMLElement;
+    expect(button.contains(link)).toBe(false);
+    expect(button.parentElement?.contains(link)).toBe(true);
+    expect(screen.queryByText('open')).toBeNull();
+    expect(screen.getByText('needs design')).toBeInTheDocument();
   });
 
   test('no link when the server sent no address', async () => {

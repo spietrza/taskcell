@@ -12,8 +12,10 @@ vi.mock('../../ipc', () => ({
   mergeNeedsYou: vi.fn(),
   apiListSkills: vi.fn(async () => ({ skills: ['db', 'release'] })),
   apiSetTaskSkills: vi.fn(async (_repo: string, _id: string, skills: string[]) => ({ skills })),
+  readAppConfigStrict: vi.fn(async () => ({})),
+  fetchSpec: vi.fn(async () => 'The issue body.'),
 }));
-import { apiListSkills, apiSetTaskSkills, listNeedsYou, listRuns, readRun } from '../../ipc';
+import { apiListSkills, apiSetTaskSkills, listNeedsYou, listRuns, readAppConfigStrict, readRun } from '../../ipc';
 
 const PR = 'https://github.com/o/r/pull/9';
 const item = (over: Partial<NeedsYouItem>): NeedsYouItem => ({ id: 'o/r#9', kind: 'pr', number: 9, repoSlug: 'o/r', title: 'T', url: PR, reason: 'taskcell:needs-human-review', baseRef: 'main', ...over });
@@ -30,15 +32,50 @@ beforeEach(() => {
 });
 
 describe('QuickView', () => {
-  test('shows the stage line, the receipt with missing facts, and the pull request link', async () => {
+  test('shows the stage line, the receipt with missing facts, the issue link on the id and the pull request link', async () => {
     open();
-    const receipt = await screen.findByRole('region', { name: 'Receipt' });
+    const receipt = await screen.findByLabelText('Receipt');
     expect(within(receipt).getByText('Second-AI review').nextSibling).toHaveTextContent('passed');
     expect(within(receipt).getByText('Tests').nextSibling).toHaveTextContent('not available');
     expect(within(receipt).getByText('Cost').nextSibling).toHaveTextContent('$1.50');
     const steps = within(screen.getByRole('list', { name: 'Stage line' })).getAllByRole('listitem');
     expect(steps.map((s) => s.getAttribute('data-status'))).toEqual(['done', 'done', 'done', 'done', 'done', 'current']);
-    expect(screen.getAllByRole('link', { name: 'Open in GitHub' }).map((a) => a.getAttribute('href'))).toEqual(['https://github.com/o/r/issues/7', PR]);
+    expect(screen.getByRole('link', { name: 'gh-7' })).toHaveAttribute('href', 'https://github.com/o/r/issues/7');
+    expect(screen.getAllByRole('link', { name: 'Open in GitHub' }).map((a) => a.getAttribute('href'))).toEqual([PR]);
+    expect(steps[5]).toHaveTextContent('you sign off');
+    expect(steps[4]).toHaveTextContent('passed');
+  });
+
+  test('a queued card: Start run, the Line config under waiting stations, the description and no runs', async () => {
+    vi.mocked(listRuns).mockResolvedValue([]);
+    vi.mocked(readAppConfigStrict).mockResolvedValueOnce({ verifyCmd: 'pnpm verify', reviewProvider: 'codex' });
+    const onStartRun = vi.fn();
+    render(<QuickView task={{ ...task, column: 'queued', waiting: true }} project="/repo" onClose={() => {}} onFullPage={() => {}} onStartRun={onStartRun} />);
+    fireEvent.click(screen.getByRole('button', { name: 'Start run' }));
+    expect(onStartRun).toHaveBeenCalled();
+    expect(await screen.findByText('No runs yet.')).toBeInTheDocument();
+    expect(await screen.findByText('The issue body.')).toBeInTheDocument();
+    const steps = within(screen.getByRole('list', { name: 'Stage line' })).getAllByRole('listitem');
+    await vi.waitFor(() => expect(steps[3]).toHaveTextContent('pnpm verify · secret scan'));
+    expect(steps[0]).toHaveTextContent('waiting for a cell');
+    expect(steps[4]).toHaveTextContent('engine codex');
+    expect(screen.queryByRole('region', { name: 'Activity' })).toBeNull();
+  });
+
+  test('a running card shows its live state and the way to the run, not Start run', async () => {
+    const onOpenRuns = vi.fn();
+    render(<QuickView task={{ ...task, column: 'running', stage: 'implementer' }} project="/repo" onClose={() => {}} onFullPage={() => {}} onStartRun={() => {}} onOpenRuns={onOpenRuns} />);
+    expect(screen.getByRole('status')).toHaveTextContent('Running · implementer');
+    expect(screen.queryByRole('button', { name: 'Start run' })).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: 'Open the run' }));
+    expect(onOpenRuns).toHaveBeenCalled();
+  });
+
+  test('the run history lists every run of the card, newest first', async () => {
+    vi.mocked(listRuns).mockResolvedValue([summary, { ...summary, timestamp: 'old', anyFailed: true, prUrl: undefined }, { ...summary, taskId: 'gh-8' }]);
+    open();
+    const activity = await screen.findByRole('region', { name: 'Activity' });
+    expect(within(activity).getAllByRole('listitem').map((li) => li.textContent)).toEqual([expect.stringContaining('Run passed'), expect.stringContaining('Run failed')]);
   });
 
   test('a waiting pull request shows why, Reply and Merge (matched by its address)', async () => {
@@ -48,11 +85,11 @@ describe('QuickView', () => {
     expect(screen.getByLabelText('reply to o/r#9')).toBeInTheDocument();
   });
 
-  test('a card with no receipt data and no pull request shows no receipt', async () => {
+  test('a card with no runs shows no receipt', async () => {
     vi.mocked(listRuns).mockResolvedValue([]);
     open({ ...task, column: 'running', stage: 'implementer' });
-    await screen.findByRole('list', { name: 'Stage line' });
-    expect(screen.queryByRole('region', { name: 'Receipt' })).not.toBeInTheDocument();
+    await screen.findByText('No runs yet.');
+    expect(screen.queryByLabelText('Receipt')).not.toBeInTheDocument();
   });
 });
 
@@ -104,6 +141,15 @@ describe('QuickView skills', () => {
     expect(await screen.findByText(/not a valid task/)).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Save schedule' })).toBeNull();
     expect(screen.queryByRole('button', { name: /Full page/ })).toBeNull();
+  });
+  test('no installed skill is one quiet line with the way to Settings → Skills', async () => {
+    vi.mocked(apiListSkills).mockResolvedValueOnce({ skills: [] });
+    const onOpenSkills = vi.fn();
+    render(<QuickView task={task} project="/repo" onClose={() => {}} onFullPage={() => {}} onOpenSkills={onOpenSkills} />);
+    const section = await screen.findByRole('region', { name: 'Skills' });
+    expect(await within(section).findByText(/None installed/)).toBeInTheDocument();
+    fireEvent.click(within(section).getByRole('button', { name: 'Settings → Skills' }));
+    expect(onOpenSkills).toHaveBeenCalled();
   });
   test('a card of no tracker has no skills section', async () => {
     const { source: _source, ...draft } = task;

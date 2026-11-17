@@ -700,6 +700,13 @@ export function Inspector({
           }}
           onNewTask={onNewTask}
           {...(onOpenSettings ? { onOpenSettings } : {})}
+          onStartRun={(id, skills) => {
+            setNewRunTask(id);
+            setTaskDetailSkills(skills);
+            setShowNewRun(true);
+          }}
+          {...(onOpenRuns ? { onOpenRuns } : {})}
+          {...(onOpenSettings ? { onOpenSkills: () => { onSettingsSection('skills'); onOpenSettings(); } } : {})}
         />
       ) : screen === 'settings' ? (
         <SettingsScreen

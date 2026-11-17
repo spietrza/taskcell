@@ -8,7 +8,7 @@ import type { BoardTask, RepoReadFailure, RepoStamp } from '../../wire';
 import { useAsync } from '../../hooks';
 import { useApproverDecisions } from './useApproverDecisions';
 import { decisionForTask, decisionWords } from './approverDecision';
-import { QuickView, TRACKER_NAME, type QuickTask } from './QuickView';
+import { COLUMN_LABEL, QuickView, TRACKER_NAME, type QuickTask } from './QuickView';
 import { NewHubTask, ScheduleLines } from './Schedule';
 import { boardCountLabels } from './counts';
 import { PausedBanner, PausedLine } from './paused';
@@ -35,12 +35,12 @@ const CHIP_TONE: Record<string, string> = {
 };
 
 const COLUMNS: Column[] = [
-  { key: 'queued', label: 'Queued', dot: 'bg-muted-foreground', pill: 'bg-muted-foreground/15 text-muted-foreground', cardHover: 'hover:border-muted-foreground' },
-  { key: 'claimed', label: 'Claimed', dot: 'bg-warning', pill: 'bg-warning/15 text-warning-text', cardHover: 'hover:border-warning' },
-  { key: 'running', label: 'Running', dot: 'bg-foreground', pill: 'bg-foreground text-background', cardHover: 'hover:border-foreground', pulse: true },
-  { key: 'verify-failed', label: 'Verify failed', dot: 'bg-destructive', pill: 'bg-destructive/15 text-destructive-text', cardHover: 'hover:border-destructive' },
-  { key: 'review', label: 'Review', dot: 'bg-foreground/60', pill: 'bg-foreground/10 text-foreground', cardHover: 'hover:border-foreground/60' },
-  { key: 'done', label: 'Done', dot: 'bg-success', pill: 'bg-success/15 text-success-text', cardHover: 'hover:border-success' },
+  { key: 'queued', label: COLUMN_LABEL['queued'], dot: 'bg-muted-foreground', pill: 'bg-muted-foreground/15 text-muted-foreground', cardHover: 'hover:border-muted-foreground' },
+  { key: 'claimed', label: COLUMN_LABEL['claimed'], dot: 'bg-warning', pill: 'bg-warning/15 text-warning-text', cardHover: 'hover:border-warning' },
+  { key: 'running', label: COLUMN_LABEL['running'], dot: 'bg-foreground', pill: 'bg-foreground text-background', cardHover: 'hover:border-foreground', pulse: true },
+  { key: 'verify-failed', label: COLUMN_LABEL['verify-failed'], dot: 'bg-destructive', pill: 'bg-destructive/15 text-destructive-text', cardHover: 'hover:border-destructive' },
+  { key: 'review', label: COLUMN_LABEL['review'], dot: 'bg-foreground/60', pill: 'bg-foreground/10 text-foreground', cardHover: 'hover:border-foreground/60' },
+  { key: 'done', label: COLUMN_LABEL['done'], dot: 'bg-success', pill: 'bg-success/15 text-success-text', cardHover: 'hover:border-success' },
 ];
 
 /** How often an open hub board re-reads its tasks: their statuses change in the hub's store, not here. */
@@ -75,6 +75,9 @@ export function TaskBoard({
   onOpenTask,
   onNewTask,
   onOpenSettings,
+  onStartRun,
+  onOpenRuns,
+  onOpenSkills,
 }: {
   project: string;
   /** "All repositories": list every repository's cards, each naming its repository. */
@@ -94,6 +97,12 @@ export function TaskBoard({
   onNewTask: () => void;
   /** Opens `project`'s Settings, for the "no task source yet" hint. */
   onOpenSettings?: () => void;
+  /** Opens the run form for a card of `project` (the quick view's Start run). */
+  onStartRun?: (taskId: string, skills?: string[]) => void;
+  /** Opens the Runs screen (a running card's live run). */
+  onOpenRuns?: () => void;
+  /** Opens Settings → Skills. */
+  onOpenSkills?: () => void;
 }) {
   const [reloads, setReloads] = useState(0);
   const reposKey = repos.join('\n');
@@ -267,7 +276,7 @@ export function TaskBoard({
             : `Showing the first ${allTasks?.length ?? 0} tasks — narrow with a label filter in Settings to see the rest.`}
         </div>
       )}
-      <div className="flex min-h-0 flex-1 gap-3 pb-4">
+      <div className="relative flex min-h-0 flex-1 gap-3 pb-4">
       <div className={cn('flex min-h-0 min-w-0 flex-1 flex-col gap-4', filter.group !== 'none' && 'overflow-y-auto')}>
         {/* Ungrouped, the one lane stays (its columns render empty), so "nothing matches" is asked of the cards. */}
         {(allTasks?.length ?? 0) > 0 && tasks?.length === 0 && (
@@ -303,7 +312,7 @@ export function TaskBoard({
                   </div>
                 ) : (
                   items.map((t) => (
-                    <div key={cardKey(t)}>
+                    <Card.Root key={cardKey(t)} className={cn('gap-0 bg-background/80 py-0 shadow-sm transition-all hover:shadow-md', col.cardHover)}>
                     <button
                       data-board-card
                       aria-expanded={selected?.id === t.id && selected.repoPath === t.repoPath}
@@ -311,12 +320,11 @@ export function TaskBoard({
                         cardRef.current = e.currentTarget;
                         setSelected(t);
                       }}
-                      className="block w-full text-left focus-visible:-outline-offset-2"
+                      className="block w-full rounded-[inherit] text-left focus-visible:-outline-offset-2"
                     >
-                      <Card.Root className={cn('bg-background/80 py-0 shadow-sm transition-all hover:shadow-md', col.cardHover)}>
                         <Card.Content className="space-y-1.5 p-3">
-                          <div className="flex flex-wrap items-center gap-x-1.5 font-mono text-[11px] font-medium text-muted-foreground">
-                            {t.id}
+                          <div className="flex min-w-0 items-center gap-x-1.5 font-mono text-[11px] font-medium text-muted-foreground">
+                            <span className="shrink-0">{t.id}</span>
                             {allRepos && <RepoLabel name={t.repoName} />}
                           </div>
                           <div className="text-sm leading-snug">{t.title}</div>
@@ -338,18 +346,18 @@ export function TaskBoard({
                           {t.baseBranch && (
                             <div className="pt-0.5 font-mono text-[11px] text-muted-foreground">→ {t.baseBranch}</div>
                           )}
-                          {t.state && t.state !== col.key && t.schedule === undefined && (
+                          {/* The tracker's bare open/closed adds nothing the column does not say. */}
+                          {t.state && t.state !== col.key && !/^(open|opened|closed)$/i.test(t.state) && t.schedule === undefined && (
                             <div className="pt-0.5 text-[11px] text-muted-foreground">{t.state}</div>
                           )}
                         </Card.Content>
-                      </Card.Root>
                     </button>
                     {t.source !== undefined && t.url !== undefined && (
-                      <div className="px-3 pt-1">
+                      <div className="px-3 pb-2.5">
                         <ExternalLink href={t.url}>{`Open in ${TRACKER_NAME[t.source]}`}</ExternalLink>
                       </div>
                     )}
-                    </div>
+                    </Card.Root>
                   ))
                 )}
               </div>
@@ -369,6 +377,9 @@ export function TaskBoard({
           onFullPage={() => onOpenTask(shown.id, shown.repoPath, savedSkills[cardKey(shown)] ?? shown.skills)}
           onSkillsSaved={(skills) => setSavedSkills((m) => ({ ...m, [cardKey(shown)]: skills }))}
           onChanged={reload}
+          {...(onStartRun && (shown.repoPath === undefined || shown.repoPath === project) ? { onStartRun: () => { onStartRun(shown.id, savedSkills[cardKey(shown)] ?? shown.skills); close(); } } : {})}
+          {...(onOpenRuns ? { onOpenRuns } : {})}
+          {...(onOpenSkills ? { onOpenSkills } : {})}
         />
       )}
       </div>

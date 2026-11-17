@@ -37,5 +37,5 @@ export function TaskSourceHint({ repoNames, onOpenSettings }: { repoNames: strin
 /** The repository a card / run row / item belongs to; shown only under "All repositories". */
 export function RepoLabel({ name }: { name: string | undefined }) {
   if (name === undefined) return null;
-  return <span className="rounded bg-muted px-1.5 py-0.5 text-[11px] text-muted-foreground">{name}</span>;
+  return <span title={name} className="min-w-0 truncate rounded bg-muted px-1.5 py-0.5 text-[11px] text-muted-foreground">{name}</span>;
 }
