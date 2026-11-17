@@ -21,6 +21,7 @@ import { ciRunUrl, diffUrlFor, httpsUrl } from './links.js';
 import { reviewVerdictOf } from '../pipeline/review-verdict.js';
 import { parseSkillsUsed, sanitizeSkillIds } from './skills-used.js';
 import { parseMetrics } from './stats.js';
+import { workflowPaths } from './taskcell.js';
 import type { DecisionProbeResult } from './decision-probe.js';
 import type { BaseMergeEvent } from './conflict-stats.js';
 import type { Finding, Proof, RunDetail, RunRecord, RunSummary, StageDetail, VisualProof } from '../wire.js';
@@ -376,6 +377,11 @@ async function withSkillsUsed(root: string, detail: RunDetail): Promise<RunDetai
   };
 }
 
+/** Both sides of every `diff --git a/<old> b/<new>` header: a rename into or out of a CI directory counts. */
+function diffPaths(diff: string): string[] {
+  return [...new Set([...diff.matchAll(/^diff --git a\/(\S+) b\/(\S+)$/gm)].flatMap((m) => [m[1]!, m[2]!]))];
+}
+
 /** Record/proof-only read for the board; never opens diff/transcript files. */
 export async function readRunRecords(root: string, taskId: string, timestamp: string, includeArtifacts = false): Promise<RunDetail> {
   if (!isSafeTaskId(taskId)) {
@@ -399,7 +405,7 @@ export async function readRunRecords(root: string, taskId: string, timestamp: st
     const transcript = includeArtifacts ? await readTextNoSymlink(`${base}.transcript.log`).catch(() => undefined) : undefined;
     stages.push({
       record,
-      ...(diff !== undefined ? { diff } : {}),
+      ...(diff !== undefined ? { diff, ciConfigPaths: workflowPaths(diffPaths(diff)) } : {}),
       ...(transcript !== undefined ? { transcript } : {}),
     });
   }

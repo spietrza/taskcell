@@ -661,6 +661,8 @@ export interface ApproverModeChange {
 export interface StageDetail {
   record: RunRecord;
   diff?: string;
+  /** CI config paths (`workflowPaths()` in src/core/taskcell.ts) the stage's diff touches; empty when none, absent with no diff. */
+  ciConfigPaths?: string[];
   transcript?: string;
 }
 

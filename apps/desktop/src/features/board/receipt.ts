@@ -52,14 +52,6 @@ export interface ReceiptRow {
   tone: ReceiptFact['tone'];
 }
 
-// shortcut: mirrors workflowPaths() in src/core/taskcell.ts (no wire for it); update both together.
-const CI_CONFIG = /^(\.github\/(workflows|actions)\/|\.gitlab-ci\.yml$|\.gitlab\/.*\.ya?ml$)/;
-
-/** The paths a unified diff touches (its `diff --git a/<path>` lines). */
-function diffPaths(diff: string): string[] {
-  return [...diff.matchAll(/^diff --git a\/(\S+) /gm)].map((m) => m[1]!);
-}
-
 /**
  * The run page's receipt (v3 "Receipt so far"): the four facts plus who wrote and reviewed it, the gate
  * command, CI config, the diff size and the skills used. A missing value reads "not yet" on a live run, "not recorded" after.
@@ -75,7 +67,8 @@ export function receiptRows(run: RunDetail, cost: string | undefined, live = fal
   const reviewer = record(/review/i);
   const review = facts.review!;
   const tests = facts.tests!;
-  const ci = author?.diff === undefined ? undefined : diffPaths(author.diff).filter((p) => CI_CONFIG.test(p));
+  // The hub's verdict (workflowPaths() over the stage diff); a record read without it says nothing.
+  const ci = author?.ciConfigPaths;
   const recorded = run.stages.filter((s) => s.record.skillsUsed !== undefined);
   const skills = [...new Set(recorded.flatMap((s) => s.record.skillsUsed ?? []))];
 
