@@ -52,7 +52,7 @@ of work, review, verify result, cost per run), not an agent chat front-end.
 
 - Runs against a local `.taskcell/` directory (desktop or `taskcell hub --repo`), or imports CI run
   records ("Fetch records") from GitHub Actions artifacts.
-- Screens: Home (projects and totals), Runs (list, run detail with Overview / Spec / Diff /
+- Screens: Home (what waits for you, what is moving, the factory floor, the week, then the projects), Runs (list, run detail with Overview / Spec / Diff /
   Transcript, live run), Task board, New Task (doc editor + chat), Fleet (desktop only), Remote (CI
   runs), Workflow (flow editor), Settings (`.taskcell/app.json`), command palette (⌘K).
 - Hub mode has a per-launch token in the URL fragment; a restarted hub invalidates open tabs.

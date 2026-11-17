@@ -99,11 +99,11 @@ pnpm --dir apps/desktop dev   # vite → http://localhost:1420, mocks auto-insta
 browser_navigate       http://localhost:1420
 browser_snapshot                      # a11y tree — read structure, find elements
 browser_take_screenshot               # see pixels
-browser_click / browser_type          # interact; click the left rail to change screen
+browser_click / browser_type          # interact; click the top nav to change screen
 ```
 
 The app renders with populated fixture data (two projects, three runs with full transcript/diff/proof,
-board tasks, capabilities, flows). Navigate screens by clicking the rail icons exactly as a user would —
+board tasks, capabilities, flows). Navigate screens by clicking the top nav exactly as a user would —
 no URL routing needed.
 
 ## Local hub (the desktop backend)
@@ -137,8 +137,8 @@ plus the plain `dist/` keeps one code path with the source checkout at the cost 
 
 ## Server mode (remote hub)
 
-The rail's server switcher (`src/ServerSwitcher.tsx`) swaps the window between the local hub and saved remote
-hubs; the app menu's **Server ▸ Switch to Local Hub** is the way back from pages without a rail.
+The top bar's server switcher (`src/ServerSwitcher.tsx`) swaps the window between the local hub and saved remote
+hubs; the app menu's **Server ▸ Switch to Local Hub** is the way back from pages without the app's top bar.
 `src-tauri/src/servers.rs` keeps the list (`servers.json`, names and URLs; no credentials — the hub's session
 cookie lives in the webview). `Hub::switch` (`hub.rs`) navigates the window and runs one reconnect loop per
 selected server. The only Tauri commands are `servers_*`: `capabilities/hub.json` grants them to the loopback
@@ -186,7 +186,7 @@ the test immediately.
 
 - **Home cockpit** — a card per project (runs, tasks, spend, failed, 24h velocity, relative
   last-activity) + a live summary strip (Projects / Running / Runs / Last 24h / Spend), polled every 5s.
-- **Left rail** — Conductor-style project nav with live running-dots, add-project, ⌘K search, theme toggle.
+- **Top bar** — main nav, project switcher, server and team switchers, ⌘K search, theme toggle; a bottom tab bar on a phone.
 - **Command palette (⌘K)** — jump to any project or action.
 - **Run inspector** — breadcrumb nav (`Home / project / task`); a run's **Overview** (proof-of-work gate,
   per-stage cards with turns/duration/tokens/cost/model), **Spec** (source issue, best-effort via
@@ -201,7 +201,7 @@ the test immediately.
   `remote-runs/<owner-repo>/<run-id>/` and expands it into the same run rows as local runs; a row opens the
   same Overview / Diff / Transcript inspector. Already-downloaded runs carry a **cached** marker and open
   without `gh`. Needs the workflow's `upload-run-records` input on.
-- **Screens** — the rail is **Home · Board · Runs · Settings**; Settings has **General · Line (Workflow) · Runners (Fleet, Remote)** and, on the hub, **Audit**:
+- **Screens** — the main nav is **Home · Board · Runs · Settings**; Settings has **General · Line (Workflow) · Runners (Fleet, Remote)** and, on the hub, **Audit**:
   - **Board** — tasks from the configured source (`linear`/`gh`) bucketed into lifecycle columns;
     card → **Task/spec detail** (source spec + run history + New Run). Best-effort (auth-dependent).
   - **Fleet** — Watch Loop start/stop, concurrency, Loop-v1, slot meter (spawns `taskcell watch`).
@@ -218,7 +218,7 @@ shapes (kept decoupled from Taskcell's build, per the design spec §4).
 **Rust (`src-tauri/src/`)** — `hub.rs` starts, supervises and stops the local hub; `lib.rs` opens the window. No
 `#[tauri::command]`s: the runs/projects/drafts/remote/spawn logic lives in `src/hub/*` and `src/core/*`.
 
-**React (`src/`)** — `App` (left-rail shell + ⌘K + theme), `features/dashboard`, `features/inspector`
+**React (`src/`)** — `App` (top-bar shell + ⌘K + theme), `features/dashboard`, `features/inspector`
 (run list/detail/live/remote/launch/spec), `components/` (reusable `Markdown` / `CodeBlock` / `Callout` /
 `AgentText`).
 
@@ -249,5 +249,5 @@ Full-product design in `../../design/brief.md`; rendered mockups in `../../docs/
 - **Board / spec fetch** — best-effort via CLI (`gh`/`linear`); needs live verification against
   authed sources + refined state→column mapping.
 - **Remote depth** — live log tail (`glab ci trace`), GitHub↔GitLab parity (spec §14).
-- **Shell** — the design puts the per-project screens in the left rail (project switcher); the build
-  hosts them as an Inspector sub-nav. Cosmetic alignment to the mockups is pending.
+- **Shell** — the screens are in the top bar's main nav (a bottom tab bar on a phone); the build
+  hosts the project ones as an Inspector sub-nav. Cosmetic alignment to the mockups is pending.

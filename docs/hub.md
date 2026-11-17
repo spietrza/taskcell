@@ -281,7 +281,7 @@ A team is a name, members (login + role `admin` or `member`) and repositories, s
 
 **Editing.** `team_add_member`, `team_set_role`, `team_remove_member`, `team_add_repository` and `team_remove_repository` need an admin and the same bind permission as `add_project`. The last admin of a team can be neither removed nor demoted.
 
-**UI.** The team switcher sits at the top of the rail (a menu with more than one team, the plain name with one) and the choice is remembered in the browser. Home, Board, Runs and Needs you list the selected team's repositories. Settings has a Members section: an admin edits, a member reads.
+**UI.** The team switcher sits in the top bar (a menu with more than one team, the plain name with one) and the choice is remembered in the browser. Home (including Waiting for you), Board and Runs list the selected team's repositories. Settings has a Members section: an admin edits, a member reads.
 
 ## Wire format
 
@@ -355,7 +355,7 @@ Besides its own local hub, the desktop app can join a `taskcell hub` running on 
 
 1. Run the server hub with sign-in enabled (a bind beyond loopback, or `TASKCELL_HUB_SERVER_MODE=1` behind a
    reverse proxy) and reach it over HTTPS.
-2. In the app, open the **server switcher** at the top of the left rail (it shows **Local** by default) →
+2. In the app, open the **server switcher** in the top bar (it shows **Local** by default) →
    **Add server…**. Enter a name and the hub URL (`https://hub.example.com`; no username or password in the URL).
    Plain `http://` is accepted only for `localhost`.
 3. The window loads the server's UI. Sign in there (#617). Runs now execute **on the server**; the sign-in
@@ -363,7 +363,7 @@ Besides its own local hub, the desktop app can join a `taskcell hub` running on 
    as the hub provides them. Fleet stays Local-only.
 4. Switch between **Local** and any saved server from the same menu, with no restart. The local hub keeps
    running in the background; the trash icon removes a saved server (after a confirmation). From any page —
-   even one without the rail, such as a sign-in page or a proxy error — **Server ▸ Switch to Local Hub**
+   even one without the app's top bar, such as a sign-in page or a proxy error — **Server ▸ Switch to Local Hub**
    (Ctrl/Cmd+Shift+L) in the app menu takes you back. The app always starts on Local.
 
 The app stores no password or token. You sign in on the hub's own page and the session cookie stays in the
@@ -493,10 +493,24 @@ that runs in this container. If you only ever need read-only access to Docker en
 socket instead of mounting it directly. The [CIS Docker Benchmark](https://www.cisecurity.org/benchmark/docker)
 is the usual reference for "don't mount the docker socket without justification."
 
-## Needs you
+## Home
 
-The **Needs you** section at the top of **Home** (hub only; the old separate screen and its ⌘K entry now open Home there, and the count badges Home in the rail) lists what the factory is waiting on a human for in the current
-project, using `gh` and labels only — no model call (`src/hub/needs-you.ts`):
+Home is the landing screen, a command center built only from data the hub already serves. The main navigation (Home, Board, Runs, Settings) is in the top bar, and a tab bar at the bottom on a phone. **Settings** opens a menu of its sections (General, Line, Runners, Lessons, Skills, Audit); the address names the open one, `?screen=settings&section=line`, so a link or a reload lands on it. Top to bottom:
+
+- **State sentence.** "N cards wait for you." and, under it, "M are moving, K paused by a provider limit." N is the length of Waiting for you (the number badging Home in the top bar). M counts cards in `claimed` or `running` that are not paused; K counts cards held by a provider limit (the factory retries them itself).
+- **Waiting for you.** The list below. Review / Answer opens a row.
+- **Cards can't start.** A red banner, shown only when a project has a card waiting for the factory (carrying the trigger label, still queued) and its runner is visibly broken: the Local hub worker is off, blocked, failing (its last pick-up error) or has no model credential, or the CI factory (GitHub Actions or GitLab CI) is `broken`. One line per project (three, then "and n more") with a button to the hub worker or factory checklist. Hub-board projects and self-hosted (`watch`) runners give no signal and are never listed. Worker and factory state are read when the project list changes, so the banner can lag a change made elsewhere.
+- **Moving.** Cards that are claimed, running or paused (up to six; "See all N on the Board" opens the Board with the Running filter), plus any live local run no card explains. One sentence per row says where the card is on the six stations (Card, Spec, Sealed cell, Gates, Review, Pull request) and what it does. A paused row reads "Paused · retries after 18:30". A row with a live local run opens that run; any other opens its project's Board.
+- **The floor.** One row per project with an open card or a run in the last 7 days, busiest first: a strip of the six stations with a dot per open card (ink = on that station, red = failed gates, orange = also waiting for you), and the week's spend. Idle projects fold into "and n idle projects".
+- **Last 7 days** (right column): pull requests merged (distinct cards with a merged run in the window; by run time, not merge time), and spend (reported dollars only; runs with no cost data are left out). With nothing merged it says so and gives the run count and spend.
+- **Projects.** The project cards (open, remove, Enable factory / Factory checklist / Hub worker), and the first-run setup guide above them.
+
+What each block reads: the sentence, Moving, the floor and the banner read `list_tasks_all` (every 60 s while the page is visible, and when the hub reports a change); Waiting for you reads `list_needs_you_all` (every 30 s); the week and the floor's spend read `list_runs_all` (on open and on a change, no timer); live runs read `list_active` only for projects the project list says are running. A card's station is the one mapping the Board's quick view uses (`src/stations.ts`). With no project in the selected team Home shows only the setup guide and the empty Projects state.
+
+## Waiting for you
+
+Formerly **Needs you**. The **Waiting for you** section on **Home** (hub only; the old separate screen and its ⌘K entry open Home there, and the count badges Home in the top bar) lists what the factory is waiting on a human for across the shown
+repositories, using `gh` and labels only — no model call (`src/hub/needs-you.ts`). Each row has a caption naming what it is (**PR ready**, **Changes requested**, **Verify failed** in red, **Question**), the title, the repository, PR or task number and target branch, a primary **Review** (or **Answer**) and **Open in GitHub**. Review / Answer opens the row to the factory's last comment, Merge and the reply box ("Ask for changes"):
 
 - Tasks (GitHub issues) at `needs info`.
 - PRs at `vanguard:needs-human-review` or `vanguard:verify-failed`, or with a review requesting
@@ -516,7 +530,7 @@ configurable here: a repo that runs the factory with a custom `--needs-info-labe
 `merge_needs_you` merges a waiting PR with the repository's allowed merge method (squash, else merge
 commit, else rebase). It refuses a PR that is not in the list and one whose required checks are not
 all green, with a message the UI shows; the item leaves the list once merged. The UI's Merge button
-names the PR's base branch (`baseRef`) and asks for a second click to confirm. The merge is pinned to the checked head commit (`--match-head-commit`). A PR with no required checks passes the check gate. The button sits on the Needs you card and in the Board card's quick view (a side panel; a bottom drawer on phones). "Ask for changes" stays `reply_needs_you`.
+names the PR's base branch (`baseRef`) and asks for a second click to confirm. The merge is pinned to the checked head commit (`--match-head-commit`). A PR with no required checks passes the check gate. The button sits in the opened Waiting for you row and in the Board card's quick view (a side panel; a bottom drawer on phones). "Ask for changes" stays `reply_needs_you`.
 
 Replies and merges are a remote mutation, gated like `clone_project`: loopback only, unless
 `TASKCELL_HUB_ALLOW_ADD=1`.
@@ -543,7 +557,7 @@ The tab icon is the Taskcell cell logo (`apps/desktop/public/favicon.svg`, with 
 When a run ends on a provider usage or rate limit, the issue or pull request gets `taskcell:rate-limited` (or the older `vanguard:rate-limited`) and a comment or review carrying a hidden `taskcell-rate-limited until=<ISO time> trigger="…"` marker; the scheduled `resume-rate-limited` retries it after that time. The Board's `list_tasks` / `list_tasks_all` read this from labels and the marker only (no model call) and return `paused: { reason: 'provider-limit', until?, trigger? }` on the card. The time comes from the newest valid marker by an author the scheduled resume also trusts: the GitHub Actions identity (`github-actions`), a login ending in `[bot]`, or a repository owner, member or collaborator; a marker from an outside commenter is ignored. Paused pull requests come from `gh pr list --label`, once per spelling of the rate-limited label, only for projects whose task source is GitHub; their cards open the pull request and offer no issue actions (skills, full page, Retry now). One `list_tasks` or `list_tasks_all` call reads markers for at most 30 paused cards in total, shared across repositories; the others still show as paused without a time. Paused-PR lists and marker reads are reused for 45 seconds per repository (expired entries are dropped on the next read; the read budget is still spent on a reused read), and a successful Retry now flushes that repository's entries.
 
 - **Card and quick view / task detail:** "Paused: provider limit", with "retries automatically after HH:MM" in local time (the date is included when it is not today; "soon" once that time has passed; no time when the marker is missing).
-- **Banner:** on the Board and on Home, one banner when at least one task of the shown repositories is paused: how many, the latest retry time, and what you can do (wait, or add credit / switch the model in Settings). No banner when none is paused.
+- **Banner:** on the Board, one banner when at least one task of the shown repositories is paused: how many, the latest retry time, and what you can do (wait, or add credit / switch the model in Settings). No banner when none is paused. On Home a paused card is a row in Moving with "Paused · retries after HH:MM", the same hint line, and counts in the state sentence.
 - **Retry now:** `retry_paused_task` (`{ repoPath, number }`) ensures the recorded trigger exists, removes any stale trigger, adds the trigger, and only then removes the rate-limited label. A failed write leaves the hold in place and returns the reason; if only the final removal of the rate-limited label fails, the message says the issue was re-triggered. It has Start's rules: loopback only unless `TASKCELL_HUB_ALLOW_ADD=1`, GitHub issues only, refused for a closed or already-started issue; it also refuses an issue that is not paused, one with no marker from the factory, and a trigger that is not one of the project's. If the hold is removed meanwhile, it succeeds only when the issue was re-triggered: a run has already started (a started label is on the issue) or the recorded trigger was added since the first read; a trigger that was already there, or a hold a person removed, is refused with "no longer paused" and nothing is written. It is audited as `task-retry`.
 - **Runs:** a run that ended on a provider limit shows "stopped: provider limit" instead of "failed" (`stoppedBy` on the run summary), including local, imported and metrics-branch CI rows. The flag is written from a typed provider/usage-cap signal at the point the stage stops; final text and crash diagnostics are never matched. If any failed stage in the same run lacks that flag, the run remains failed. Provider-limit stops do not enter the Failed / Needs you filters or project failure count, are not remembered as failed runs in retrospective memory, and `taskcell history` prints them as "paused: provider limit".
 

@@ -93,11 +93,11 @@ components:
     textColor: "{colors.foreground}"
     rounded: "{rounded.md}"
     height: "{spacing.control-height}"
-  rail-item:
+  nav-item:
     textColor: "{colors.muted-foreground}"
     rounded: "{rounded.tight}"
-    padding: "6px 8px"
-  rail-item-active:
+    padding: "6px 10px"
+  nav-item-active:
     backgroundColor: "{colors.muted}"
     textColor: "{colors.foreground}"
   card:
@@ -223,7 +223,7 @@ class on `<html>`. Dark is applied before first paint (`class="dark"` in `index.
   in light.
 - **Ink** (`foreground`): `#e8ecef` / `#0d1013`.
 - **Surface** (`popover`): `#141a1f` / `#ffffff`, for floating layers.
-- **Well** (`muted`, `secondary`, `accent`; used at /20–/60): `#1b2228` / `#e8ecef`. Rail, hover
+- **Well** (`muted`, `secondary`, `accent`; used at /20–/60): `#1b2228` / `#e8ecef`. Panels, hover
   fills, table headers, code wells.
 - **Graphite** (`muted-foreground`): `#a3adb6` / `#56616b`. Metadata, labels, inactive nav,
   placeholders.
@@ -273,12 +273,12 @@ code, stage names, diffs, transcripts.
 - **Title** (Schibsted 600, 20px): page headings (`h2.text-xl.font-semibold`), one step above the
   18px card title. Dialog headings stay small (`text-sm font-medium`).
 - **Card title** (Schibsted 600, 18px, tight): project card names (chunks `Card.Title`).
-- **Stat** (600, 24px, tabular): the five summary tiles on Home only.
+- **State sentence** (Schibsted 700, 36px, 30px on a phone; second line `text-muted-foreground`): Home's one `h1`.
 - **Body** (400, 14px): table cells, form labels, list rows, buttons.
 - **Meta** (400, 12px, `text-muted-foreground`): timestamps, counts, hints, chips.
 - **Section label** (the `caption` utility in `src/styles.css`: IBM Plex Mono 500, 11px,
-  uppercase, 0.06em, caption teal): the landing's caption voice (`.eyebrow`, `.chip`). The rail's
-  "Running" group, summary tile labels, panel captions, Callout labels and table headers. Labels a
+  uppercase, 0.06em, caption teal): the landing's caption voice (`.eyebrow`, `.chip`). Inbox row captions,
+  Moving chips, panel captions, Callout labels and table headers. Labels a
   group of controls or a column; never sits above a page heading.
 - **Micro** (400, 10px): inline tags inside a row ("git", ".taskcell", a stage's "review" badge,
   the code block's language and copy labels). Never body text.
@@ -296,9 +296,10 @@ turns) uses `tabular-nums`.
 ## Layout
 
 - **Shell:** 32px title bar (drag region on macOS, project-colored inside a project) → top bar
-  (logo/home, project switcher, breadcrumb, ⌘K, theme toggle) → rail + main.
-- **Rail:** 192px expanded, 56px collapsed (persisted in `localStorage`), project screens only. Home
-  has no rail.
+  (logo/home, main nav, project switcher, breadcrumb, server and team switchers, ⌘K, theme toggle) → main.
+- **No rail:** navigation lives in the top bar; Home is the landing screen. Below `md` the main nav
+  is a tab bar pinned to the bottom (44px targets, safe-area padding) and the page body keeps
+  `pb-16` clear of it.
 - **Main:** `flex-1`, `min-w-0`, scrolls inside itself; the page body never scrolls sideways. Wide
   content (board lanes, tables, diffs) scrolls in its own container.
 - **Content width:** one rule, `PAGE_CLASS` (`@/ui`): `max-w-5xl` centered with `p-6` (`p-3` on small
@@ -311,7 +312,7 @@ turns) uses `tabular-nums`.
 
 ## Elevation & Depth
 
-Flat by default. Depth comes from tonal layering (`bg-muted/20` rail and panels, `bg-muted/30` info
+Flat by default. Depth comes from tonal layering (`bg-muted/20` panels, `bg-muted/30` info
 notes, `bg-background` cards on a tinted lane) and 1px borders. Shadows appear in two places only:
 floating layers (dialogs and the palette `shadow-xl`, tooltips `shadow-md`) and the board's task
 cards (`shadow-sm`, `hover:shadow-md`).
@@ -323,7 +324,7 @@ shadow means the thing floats above the page.
 ## Shapes
 
 Tight radii, closer to the landing's square edges than chunks-ui's default (`--radius` 6px): 2px
-(`rounded-sm`), 4px (`rounded`, `rounded-md`) on buttons, inputs, rail items, inline tags and
+(`rounded-sm`), 4px (`rounded`, `rounded-md`) on buttons, inputs, nav items, inline tags and
 banners; 6px (`rounded-lg`) on panels, dialogs and summary tiles; 10px (`rounded-xl`) on chunks
 `Card` and board lanes; full pills for chips, counts and live dots. Borders are always 1px; the one
 wider edge is the dashboard card's 6px project-color strip, which is identity, not decoration.
@@ -349,7 +350,12 @@ wider edge is the dashboard card's 6px project-color strip, which is identity, n
   `py-0` + `p-3` content when dense). Clickable cards must be reachable by keyboard.
 - **Panel** (plain `div`, `rounded-lg border border-border`, `p-3`/`p-5`): Settings form, Proof of
   work, launch output, workflow columns.
-- **Summary tile** (`Stat` in `Dashboard.tsx`): label + 24px number; Home only.
+- **Inbox row** (`NeedsYou.tsx`): `divide-y` list in a bordered panel; caption (orange `warning-text`, red
+  for verify failed) · title and `repo · PR #n · → branch` meta · Review (the only orange button per
+  row) and Open in GitHub. Review / Answer expands the row.
+- **Station strip** (`StationStrip` in `features/home/Floor.tsx`): six bordered cells, a dot per open
+  card (ink on the station, red failed, orange waiting for you, up to three then `+n`), one
+  `role="img"` label per strip.
 
 ### Inputs
 - chunks `Input` / `Textarea` / `Select` / `Combobox`; labels via a wrapping `<label>` (`Field` in
@@ -359,10 +365,11 @@ wider edge is the dashboard card's 6px project-color strip, which is identity, n
 ### Navigation
 - **Destinations:** Home, Board, Runs, Settings (Line and Runners inside Settings). On a phone the
   same four are a bottom tab bar, and cards open as bottom drawers.
-- **Rail** (`Rail.tsx`, desktop): icon + label rows, active = `bg-muted font-medium`, inactive =
-  `text-muted-foreground hover:bg-muted/60`, `aria-current="page"` on the active row. Collapsed it
-  shows icons with right-side tooltips (`RailTip`). A "Running" group lists live runs with a pulsing
-  dot.
+- **Main nav** (`MainNav.tsx`): one `<nav aria-label="Main">`, inline in the top bar, a bottom tab bar
+  on a phone. Icon + label, active = `bg-muted font-medium` with `aria-current="page"`, inactive =
+  `text-muted-foreground hover:bg-muted/60`. Home carries the waiting count as an orange badge.
+  Settings is a chunks `Menu` of its sections (General, Line, Runners, Lessons, Skills, Audit); the
+  in-screen tabs stay.
 - **Top bar** (`TopBar.tsx`): logo is Home; project switcher (`ProjectCombobox`) is the first crumb;
   the last crumb can be an `InlineEdit`.
 - **Tabs** (chunks `Tabs`): run detail sections, Add-project modes.
