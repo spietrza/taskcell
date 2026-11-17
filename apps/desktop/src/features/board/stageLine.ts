@@ -1,10 +1,9 @@
 import type { BoardTask, RunDetail } from '../../wire';
+import { STATIONS, STATION_LABEL, stationOf, type Station } from '../../stations';
 
-const STAGE_KEYS = ['card', 'spec', 'cell', 'gates', 'review', 'pr'] as const;
-type StageKey = (typeof STAGE_KEYS)[number];
 export type StageStatus = 'done' | 'current' | 'waiting' | 'failed';
 export interface StageStep {
-  key: StageKey;
+  key: Station;
   label: string;
   status: StageStatus;
   /** Short calm remark, e.g. "repair 1 of 2". */
@@ -13,24 +12,6 @@ export interface StageStep {
 
 /** The factory's default number of gate repairs (`--max-repair-iterations`), for records that predate the run carrying its own cap. */
 const DEFAULT_MAX_REPAIRS = 2;
-
-const LABEL: Record<StageKey, string> = {
-  card: 'Card',
-  spec: 'Spec',
-  cell: 'Sealed cell',
-  gates: 'Gates',
-  review: 'Review',
-  pr: 'Pull request',
-};
-
-/** Which of the six stages a running card's pipeline stage marker sits on. */
-function runningIndex(stage: string | undefined): number {
-  if (stage === undefined) return 2;
-  if (/spec/i.test(stage)) return 1;
-  if (/conformance|proof|verify|gate/i.test(stage)) return 3;
-  if (/review|adversary/i.test(stage)) return 4;
-  return 2;
-}
 
 /** The run's own repair cap (`--max-repair-iterations`), else the default. */
 export function repairCap(run?: Pick<RunDetail, 'stages'>): number {
@@ -52,21 +33,12 @@ export function stageLine(
   opts: { prExists?: boolean; repairs?: number; maxRepairs?: number } = {},
 ): StageStep[] {
   // `at` is the current stage; stages before it are done, after it waiting.
-  let at: number;
-  let failed = false;
-  switch (task.column) {
-    case 'queued': at = 0; break;
-    case 'claimed': at = 1; break;
-    case 'running': at = (opts.repairs ?? 0) > 0 ? Math.max(3, runningIndex(task.stage)) : runningIndex(task.stage); break;
-    case 'verify-failed': at = 3; failed = true; break;
-    case 'review': at = opts.prExists === true ? 5 : 4; break;
-    case 'done': at = STAGE_KEYS.length; break;
-  }
+  const { at, failed } = stationOf(task, opts);
   const repairs = opts.repairs ?? 0;
   const cap = opts.maxRepairs ?? DEFAULT_MAX_REPAIRS;
-  return STAGE_KEYS.map((key, i): StageStep => {
+  return STATIONS.map((key, i): StageStep => {
     const status: StageStatus = i < at ? 'done' : i > at ? 'waiting' : failed ? 'failed' : 'current';
-    const step: StageStep = { key, label: LABEL[key], status };
+    const step: StageStep = { key, label: STATION_LABEL[key], status };
     if (key === 'gates' && repairs > 0 && status === 'current') step.note = `repair ${Math.min(repairs, cap)} of ${cap}`;
     return step;
   });
