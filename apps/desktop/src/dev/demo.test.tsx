@@ -176,15 +176,16 @@ test('demo: Stop says read-only; the New Run form closes on Cancel and on naviga
   vi.unstubAllGlobals();
 }, 30000);
 
-test('opening a run from its row with Enter leaves focus on the run, not on the page body', async () => {
+test('opening a run from its row button leaves focus on the run, not on the page body', async () => {
   window.__TASKCELL_DEMO__ = true;
   vi.stubGlobal('matchMedia', (q: string) => ({ matches: false, media: q, addEventListener: () => {}, removeEventListener: () => {}, addListener: () => {}, removeListener: () => {} }));
   render(<App />);
   fireEvent.click(await screen.findByText('storefront (demo)', { selector: '*' }));
   fireEvent.click(await screen.findByRole('button', { name: /^Runs/ }));
-  const row = within(await screen.findByRole('list', { name: 'Runs' })).getByText('Fix cart total rounding').closest('li')!;
+  // The row is a button: Enter and Space press it natively (jsdom does not, so the press is a click).
+  const row = within(await screen.findByRole('list', { name: 'Runs' })).getByText('Fix cart total rounding').closest('button')!;
   row.focus();
-  fireEvent.keyDown(row, { key: 'Enter' });
+  fireEvent.click(row);
   expect((await screen.findAllByText('reviewer')).length).toBeGreaterThan(0);
   await waitFor(() => expect(document.activeElement).not.toBe(document.body));
   vi.unstubAllGlobals();

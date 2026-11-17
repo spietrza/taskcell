@@ -138,3 +138,34 @@ test("a running card's Open the run opens that card's live run on Runs, not just
   // The address names the open run, so a reload or a shared link opens it again.
   expect(window.location.search).toBe('?screen=runs&run=gh-7');
 });
+
+test('a ?run= link to a live run that has ended opens its finished run, with a note', async () => {
+  const p = projects[0]!;
+  window.__TASKCELL_HUB__ = true;
+  window.history.replaceState(null, '', '/?screen=runs&run=gh-7');
+  vi.stubGlobal('EventSource', class { addEventListener(): void {} removeEventListener(): void {} close(): void {} });
+  const run = { taskId: 'gh-7', timestamp: '2026-11-17T10:00:00.000Z', stages: ['implementer'], totalCostUsd: 0, anyFailed: false, repoPath: p.path, repoName: p.name };
+  const results: Record<string, unknown> = {
+    list_teams: [],
+    list_projects: [p],
+    list_active: [],
+    list_runs: [run],
+    list_runs_all: { runs: [run], failures: [] },
+    list_tasks_all: { tasks: [], capped: false, failures: [] },
+    list_needs_you_all: { items: [], failures: [] },
+    read_run: { taskId: 'gh-7', timestamp: run.timestamp, stages: [] },
+    setup_status: SETUP,
+    read_app_config: {},
+    read_approver_decisions: { decisions: [], mode: 'shadow' },
+  };
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(async (url: string) => {
+      const cmd = url.slice(url.indexOf('/rpc/') + 5);
+      return new Response(JSON.stringify({ result: results[cmd] ?? null }), { status: 200, headers: { 'content-type': 'application/json' } });
+    }),
+  );
+  render(<App />);
+  expect(await screen.findByText(/The live run of gh-7 has ended; showing its finished run\./)).toBeInTheDocument();
+  expect(await screen.findByRole('region', { name: 'Run gh-7' })).toBeInTheDocument();
+});

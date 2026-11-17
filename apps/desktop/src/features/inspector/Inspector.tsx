@@ -124,6 +124,8 @@ export function Inspector({
   // A live run under "All repositories" is held to its own repository's budget.
   const [cfg] = useAppConfig(liveRun?.repoPath ?? project);
   const [loading, setLoading] = useState(false);
+  // The first load has answered (a `?run=` link waits for it, not for a list that may stay empty).
+  const [loaded, setLoaded] = useState(false);
   const [watching, setWatching] = useState(false);
   const [tick, setTick] = useState(0);
   const [showNewRun, setShowNewRun] = useState(false);
@@ -273,6 +275,7 @@ export function Inspector({
       setError(String(e));
     } finally {
       setLoading(false);
+      setLoaded(true);
     }
   };
 
@@ -301,6 +304,11 @@ export function Inspector({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [project, allRepos, teamId]);
 
+  // Why a `?run=` link did not open what it named (the run ended, or is gone); cleared by leaving Runs.
+  const [linkNote, setLinkNote] = useState<string | null>(null);
+  useEffect(() => {
+    if (screen !== 'runs') setLinkNote(null);
+  }, [screen]);
   const taskCount = runs.length + active.length;
   useEffect(() => {
     if (screen !== 'runs') return;
@@ -324,17 +332,21 @@ export function Inspector({
   useEffect(() => {
     if (screen === 'runs' && linkedRun.current !== null) {
       const [taskId, timestamp] = linkedRun.current.split('@');
-      // Wait for the list the link names (finished runs, or live ones); nothing else opens meanwhile.
-      if (loading || (timestamp !== undefined ? runs.length === 0 : active.length === 0)) return;
+      // Wait for the first load; a live run that has ended since the link was made is not waited for (it never returns).
+      if (loading || !loaded) return;
       linkedRun.current = null;
       const r = timestamp !== undefined ? runs.find((x) => x.source !== 'ci' && x.taskId === taskId && x.timestamp === timestamp) : undefined;
       const a = timestamp === undefined ? active.find((x) => x.taskId === taskId) : undefined;
-      if (r || a) {
+      // The live run has ended: its newest finished run (runs come newest first) stands in for it.
+      const ended = timestamp === undefined && a === undefined ? runs.find((x) => x.source !== 'ci' && x.taskId === taskId) : undefined;
+      if (r || a || ended) {
         autoPicked.current = true;
         if (a) setLiveRun(a);
-        else if (r) void open(r);
+        else void open((r ?? ended)!);
+        if (ended) setLinkNote(`The live run of ${cardIdOf(taskId)} has ended; showing its finished run.`);
         return;
       }
+      setLinkNote(`${cardIdOf(taskId)}: the linked run is not in this list (it may have ended or been removed).`);
     }
     if (screen !== 'runs' || loading || autoPicked.current || detail || liveRun || typedRun !== null) return;
     // Narrow screens show the list first: a run opens only when the user picks it.
@@ -703,6 +715,12 @@ export function Inspector({
         // In-flight runs render as running rows at the top of the RunList table.
         <div className="flex min-h-0 flex-1 flex-col">
           <RepoFailures failures={failures} total={projects.length} />
+          {linkNote !== null && (
+            <p role="status" className="mb-2 flex items-center gap-2 rounded-md bg-muted px-3 py-2 text-sm text-muted-foreground">
+              <span className="min-w-0 flex-1">{linkNote}</span>
+              <Button variant="text" onClick={() => setLinkNote(null)}>Dismiss</Button>
+            </p>
+          )}
           {!allRepos && <CostBreakdown project={project} />}
           {!allRepos && <ConflictStats repoPath={project} refreshKey={tick} />}
           <RunList
