@@ -40,7 +40,7 @@ export function StageLine({ stages, now, selected, onSelect }: { stages: PaneSta
           </>
         );
         const cls = cn(
-          'block min-w-24 flex-1 rounded-lg border p-3 text-left',
+          'flex min-w-24 flex-1 flex-col justify-start rounded-lg border p-3 text-left',
           s.phase === 'running' ? 'border-primary bg-primary/5 text-foreground' : s.phase === 'pending' ? 'border-border/60 text-muted-foreground' : 'border-border',
           s.phase === 'failed' && 'border-destructive/50',
           selected === i && s.phase !== 'running' && 'border-foreground/60 bg-muted/40',
