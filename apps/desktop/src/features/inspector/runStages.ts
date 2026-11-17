@@ -36,7 +36,7 @@ export interface LoggedEvent {
   data: unknown;
 }
 
-const STAGE_LABEL: Record<string, string> = { sandbox: 'Sealed cell', implementer: 'Code', reviewer: 'Review', simplifier: 'Simplify', spec: 'Plan', planner: 'Plan' };
+const STAGE_LABEL: Record<string, string> = { sandbox: 'Cell', implementer: 'Code', reviewer: 'Review', simplifier: 'Simplify', spec: 'Plan', planner: 'Plan' };
 /** A stage's heading in words: `implementer` -> Code, any unknown name capitalized. */
 export function stageLabel(name: string): string {
   return STAGE_LABEL[name.toLowerCase()] ?? name.charAt(0).toUpperCase() + name.slice(1);
@@ -120,9 +120,9 @@ export function withPendingGateSteps(stages: PaneStage[]): PaneStage[] {
   const impl = out[at];
   const ms = gateMs(stages);
   const tests: PaneStage =
-    ms !== undefined ? { name: 'tests', label: 'Tests', phase: 'done', ms }
-    : impl?.phase === 'done' && impl.endedAt !== undefined && (out[at + 1] === undefined || out[at + 1]!.phase === 'pending') ? { name: 'tests', label: 'Tests', phase: 'running', startedAt: impl.endedAt }
-    : { name: 'tests', label: 'Tests', phase: 'pending' };
+    ms !== undefined ? { name: 'tests', label: 'Gates', phase: 'done', ms }
+    : impl?.phase === 'done' && impl.endedAt !== undefined && (out[at + 1] === undefined || out[at + 1]!.phase === 'pending') ? { name: 'tests', label: 'Gates', phase: 'running', startedAt: impl.endedAt }
+    : { name: 'tests', label: 'Gates', phase: 'pending' };
   out.splice(at < 0 ? out.length : at + 1, 0, tests);
   out.push({ name: 'pr', label: 'PR', phase: 'pending' });
   return out;
@@ -142,7 +142,7 @@ export function withGateSteps(stages: PaneStage[], proof: Proof | undefined, prU
   const out = [...stages];
   if (proof) {
     const at = out.map((s) => /implement/i.test(s.name)).lastIndexOf(true);
-    out.splice(at < 0 ? out.length : at + 1, 0, { name: 'tests', label: 'Tests', phase: proof.passed ? 'done' : 'failed', ...(proof.passed && testsMs !== undefined ? { ms: testsMs } : { note: proof.passed ? 'Passed' : 'Failed' }) });
+    out.splice(at < 0 ? out.length : at + 1, 0, { name: 'tests', label: 'Gates', phase: proof.passed ? 'done' : 'failed', ...(proof.passed && testsMs !== undefined ? { ms: testsMs } : { note: proof.passed ? 'Passed' : 'Failed' }) });
   }
   if (prUrl !== undefined) {
     const n = /(\d+)\/?$/.exec(prUrl)?.[1];

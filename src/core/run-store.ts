@@ -20,6 +20,7 @@ import type { VisualProofResult } from '../pipeline/visual-proof.js';
 import { ciRunUrl, diffUrlFor, httpsUrl } from './links.js';
 import { reviewVerdictOf } from '../pipeline/review-verdict.js';
 import { parseSkillsUsed, sanitizeSkillIds } from './skills-used.js';
+import { parseMetrics } from './stats.js';
 import type { DecisionProbeResult } from './decision-probe.js';
 import type { BaseMergeEvent } from './conflict-stats.js';
 import type { Finding, Proof, RunDetail, RunRecord, RunSummary, StageDetail, VisualProof } from '../wire.js';
@@ -332,7 +333,47 @@ export async function recentWatchTimestamps(root: string, sinceMs: number): Prom
  * against path traversal before any filesystem access.
  */
 export async function readRun(root: string, taskId: string, timestamp: string): Promise<RunDetail> {
-  return readRunRecords(root, taskId, timestamp, true);
+  const detail = await readRunRecords(root, taskId, timestamp, true);
+  return withSkillsUsed(root, detail);
+}
+
+type SkillsIndex = Map<string, Map<string, string[]>>;
+/** Per metrics.jsonl: its size+mtime and the `taskId|ts` -> stage -> skillsUsed index built from it. The file only grows, so a changed stamp rebuilds. */
+const skillsIndexCache = new Map<string, { stamp: string; index: SkillsIndex }>();
+
+/** The skillsUsed index of a runs root's metrics.jsonl, parsed once per file change; undefined when there is no file. */
+async function skillsIndex(file: string): Promise<SkillsIndex | undefined> {
+  const st = await lstat(file).catch(() => undefined);
+  if (st === undefined || !st.isFile()) return undefined;
+  const stamp = `${st.size}:${st.mtimeMs}`;
+  const hit = skillsIndexCache.get(file);
+  if (hit?.stamp === stamp) return hit.index;
+  const index: SkillsIndex = new Map();
+  for (const m of parseMetrics(await readTextNoSymlink(file).catch(() => ''))) {
+    if (m.ts === undefined || m.stage === undefined || m.skillsUsed === undefined) continue;
+    const key = `${m.taskId}|${m.ts}`;
+    const run = index.get(key) ?? new Map<string, string[]>();
+    run.set(m.stage, m.skillsUsed);
+    index.set(key, run);
+  }
+  skillsIndexCache.set(file, { stamp, index });
+  return index;
+}
+
+/**
+ * Attach each stage's `skillsUsed` from the run's `run_complete` metric lines (the record JSON does not
+ * carry it). A stage whose line lacks the field (older runs, a withheld transcript) stays without it.
+ */
+async function withSkillsUsed(root: string, detail: RunDetail): Promise<RunDetail> {
+  const used = (await skillsIndex(join(root, 'metrics.jsonl')))?.get(`${detail.taskId}|${detail.timestamp}`);
+  if (used === undefined) return detail;
+  return {
+    ...detail,
+    stages: detail.stages.map((s) => {
+      const skills = s.record.stage === undefined ? undefined : used.get(s.record.stage);
+      return skills === undefined ? s : { ...s, record: { ...s.record, skillsUsed: skills } };
+    }),
+  };
 }
 
 /** Record/proof-only read for the board; never opens diff/transcript files. */

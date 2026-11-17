@@ -200,6 +200,24 @@ describe('beginRun — writing', () => {
     expect(plain).not.toHaveProperty('verdict');
   });
 
+  it('readRun joins each stage its skillsUsed from the metric line; a stage whose line lacks it stays without', async () => {
+    const transcript = JSON.stringify({ type: 'assistant', message: { content: [{ type: 'tool_use', name: 'Skill', input: { skill: 'simplify' } }] } });
+    await beginRun(repo, 'TES-U1', TS).writeStages(
+      [
+        { name: 'implementer', result: { ...result, taskId: 'TES-U1', transcript } },
+        { name: 'reviewer', result: { ...result, taskId: 'TES-U1', transcript: 'no skills here' } },
+      ],
+      { skillIds: ['simplify'] },
+    );
+    await beginRun(repo, 'TES-U2', TS).writeStages([{ name: 'implementer', result: { ...result, taskId: 'TES-U2', transcript } }]);
+    const root = runsRoot(repo);
+    expect((await readRun(root, 'TES-U1', TS)).stages.map((s) => [s.record.stage, s.record.skillsUsed])).toEqual([['implementer', ['simplify']], ['reviewer', []]]);
+    expect((await readRun(root, 'TES-U2', TS)).stages[0]!.record).not.toHaveProperty('skillsUsed');
+    // A run written after the index was built is seen: the grown file rebuilds it.
+    await beginRun(repo, 'TES-U3', TS).writeStages([{ name: 'implementer', result: { ...result, taskId: 'TES-U3', transcript } }], { skillIds: ['simplify'] });
+    expect((await readRun(root, 'TES-U3', TS)).stages[0]!.record.skillsUsed).toEqual(['simplify']);
+  });
+
   it('writes lessonsLoaded and lessonIds on the metric line, 0 when none, and nothing when the caller passes no lessons', async () => {
     const metricOf = async (): Promise<Record<string, unknown>> => JSON.parse((await readFile(join(runsRoot(repo), 'metrics.jsonl'), 'utf8')).trim().split('\n').at(-1) as string);
     await beginRun(repo, 'TES-M1', TS).writeStages([{ name: 'implementer', result }], { lessonIds: ['a1', 'b2'] });

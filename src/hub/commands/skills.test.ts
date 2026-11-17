@@ -39,6 +39,17 @@ test('list_repo_skills joins status, check and usage', async () => {
   expect(skills.map((s) => [s.name, s.commit, s.check, s.usage?.runs])).toEqual([['a', 'abcdef1', 'outdated', 1], ['b', '', 'local', undefined]]);
 });
 
+test('list_repo_skills counts runs per skill in the last 30 days, as stats --skills --since 30d', async () => {
+  const repo = await tmpGitRepo('https://github.com/allowed/repo.git');
+  const { ctx } = await makeCtx(repo);
+  await mkdir(join(repo, 'skills'));
+  const line = (taskId: string, daysAgo: number, skillsUsed: string[]): string =>
+    JSON.stringify({ evt: 'run_complete', taskId, ts: new Date(Date.now() - daysAgo * 86_400_000).toISOString(), stage: 'implementer', costUsd: 1, skillsUsed });
+  cli.recordedMetrics.mockResolvedValue([line('t1', 1, ['a']), line('t2', 5, ['a', 'b']), line('t3', 40, ['a'])].join('\n'));
+  const { skills } = (await dispatchRpc(ctx, 'list_repo_skills', { repoPath: repo })) as { skills: { name: string; runs30d: number; usage?: { runs: number } }[] };
+  expect(skills.map((s) => [s.name, s.runs30d, s.usage?.runs])).toEqual([['a', 2, 3], ['b', 1, 1]]);
+});
+
 test('only allowlisted projects are covered', async () => {
   const repo = await tmpGitRepo('https://github.com/allowed/repo.git');
   const { ctx } = await makeCtx(repo);

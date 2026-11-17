@@ -9,7 +9,7 @@ import { costLabel, estTitle } from '../../cost';
 import { RunsSplit } from './RunsSplit';
 import { StationMark } from '../../components/StationMark';
 import { runStationOf, stationOf } from '../../stations';
-import { issueNumber, repoInitials, titleKey } from '../../runLabels';
+import { issueNumber, repoInitials, runStateWord, titleKey } from '../../runLabels';
 import type { ActiveRun, RunSummary } from '../../taskcell-output';
 import type { RepoStamp } from '../../wire';
 
@@ -199,7 +199,7 @@ export function RunList({
       r.repoPath,
       runStationOf(r),
       <Chip color={r.stoppedBy ? 'secondary' : verdictColor(!r.anyFailed)} variant="outlined">
-        {r.stoppedBy ? 'stopped: provider limit' : r.anyFailed ? 'failed' : r.prState === 'merged' ? 'merged' : r.prUrl !== undefined ? 'PR open' : 'passed'}
+        {runStateWord(r)}
       </Chip>,
       <>
         {!ci && <span {...estTitle(costLabel(r))}>{costLabel(r)}</span>}

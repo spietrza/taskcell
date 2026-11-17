@@ -1,5 +1,6 @@
 import type { BoardTask, RunDetail } from '../../wire';
 import { STATIONS, STATION_LABEL, stationOf, type Station } from '../../stations';
+import { stationOfStage } from './stationNotes';
 
 export type StageStatus = 'done' | 'current' | 'waiting' | 'failed';
 export interface StageStep {
@@ -42,4 +43,33 @@ export function stageLine(
     if (key === 'gates' && repairs > 0 && status === 'current') step.note = `repair ${Math.min(repairs, cap)} of ${cap}`;
     return step;
   });
+}
+
+/**
+ * A finished run's six stations, from its record alone: merged = past the line; a failed gate or stage marks
+ * its station red; an open PR waits on you; a run that opened no PR leaves the PR station waiting.
+ */
+export function runStations(run: Pick<RunDetail, 'stages' | 'proof' | 'prUrl'>, merged: boolean): StageStep[] {
+  const failedStage = run.stages.find((s) => !s.record.completed)?.record.stage;
+  const failedAt = run.proof?.passed === false ? 3 : failedStage !== undefined ? STATIONS.indexOf(stationOfStage(failedStage) ?? 'cell') : undefined;
+  const at = merged ? STATIONS.length : failedAt ?? 5;
+  return STATIONS.map((key, i): StageStep => {
+    const status: StageStatus = i < at ? 'done' : i > at ? 'waiting' : failedAt !== undefined && !merged ? 'failed' : run.prUrl === undefined ? 'waiting' : 'current';
+    return { key, label: STATION_LABEL[key], status };
+  });
+}
+
+/**
+ * A live run's six stations: `stage` = the running stage (else the last finished one), whose station is current;
+ * none yet = the card was just claimed. `failed` marks the current station red (the run errored).
+ */
+export function liveStations(stage: string | undefined, failed = false): StageStep[] {
+  const steps = stageLine(stage === undefined ? { column: 'claimed' } : { column: 'running', stage });
+  return failed ? steps.map((s) => (s.status === 'current' ? { ...s, status: 'failed' } : s)) : steps;
+}
+
+/** The stage a live run's stations follow: the running one, else the last finished; the gate step (`tests`) as `gates` so stationOf reads it. */
+export function liveStage(stages: { name: string; phase: string }[]): string | undefined {
+  const at = stages.find((s) => s.phase === 'running') ?? [...stages].reverse().find((s) => s.phase !== 'pending');
+  return at?.name === 'tests' ? 'gates' : at?.name;
 }
