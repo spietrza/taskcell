@@ -3,6 +3,7 @@ import { Button, Textarea } from '@/ui';
 import { errorClause } from '../../errors';
 import { RefreshCw } from 'lucide-react';
 import { mergeNeedsYou, replyNeedsYou, type NeedsYouItem, type RepoReadFailure, type RepoStamp } from '../../ipc';
+import { AgentText } from '../../components/AgentText';
 import { gateProps, useCallerCapabilities } from '../../hooks';
 import { RepoFailures } from '../../RepoViews';
 import { inboxKind } from '../home/homeModel';
@@ -40,8 +41,8 @@ export function ReplyBox({ project, item, onReplied, placeholder = 'Answer the f
         rows={3}
       />
       <div className="flex items-center gap-2">
-        {/* Outlined: the screen has one Reply per item, so none of them is the screen's primary action. */}
-        <Button variant="outlined" {...gateProps(gate)} disabled={sending || body.trim() === '' || gate?.allowed === false} onClick={() => void send()}>
+        {/* Orange: answering moves the factory on, and must read stronger than spending (Start run is ink). */}
+        <Button variant="contained" color="primary" {...gateProps(gate)} disabled={sending || body.trim() === '' || gate?.allowed === false} onClick={() => void send()}>
           {sending ? 'Sending…' : action}
         </Button>
         {gate?.allowed === false && gate.reason && <span className="text-xs text-muted-foreground">{gate.reason}</span>}
@@ -191,7 +192,7 @@ export function NeedsYou({
                   </div>
                   <div className="flex items-center gap-2 max-md:w-full">
                     <Button
-                      variant={kind.action === 'Review' && !kind.broken ? 'contained' : 'outlined'}
+                      variant={kind.broken ? 'outlined' : 'contained'}
                       color={kind.broken ? 'secondary' : 'primary'}
                       aria-expanded={expanded}
                       aria-label={`${kind.action} ${item.title}`}
@@ -208,7 +209,7 @@ export function NeedsYou({
                       // Untrusted GitHub text, rendered as a plain text node (React escapes it), never as HTML/Markdown.
                       <div className="rounded bg-muted/40 px-3 py-2 text-sm">
                         <div className="text-xs text-muted-foreground">{item.lastComment.author}</div>
-                        <div className="whitespace-pre-wrap break-words">{item.lastComment.body}</div>
+                        <div className="break-words"><AgentText>{item.lastComment.body}</AgentText></div>
                       </div>
                     )}
                     {item.kind === 'pr' && <MergeButton project={item.repoPath ?? project} item={item} onMerged={onReload} />}

@@ -195,15 +195,20 @@ test('a run whose agent stopped to ask: the chip word and colour come from one s
     taskId: 'hub-4',
     timestamp: '2026-11-17T15:53:58.120Z',
     proof: { command: 'npm test', exitCode: 0, passed: true, sha256: 'x', outputTail: 'ok' } as never,
-    stages: [stage('implementer', 25_000, { taskId: 'hub-4', completed: false, exitReason: 'incomplete', finalText: 'To finish, I still need: which config file?' })],
+    stages: [stage('implementer', 25_000, { taskId: 'hub-4', completed: false, exitReason: 'incomplete', finalText: 'To finish, I still need: **which config file?**' })],
   };
-  const row = { taskId: 'hub-4', timestamp: asking.timestamp, stages: ['implementer'], anyFailed: true, failedStage: 'implementer', asked: 'To finish, I still need: which config file?', totalCostUsd: 0.2 } as never;
+  const row = { taskId: 'hub-4', timestamp: asking.timestamp, stages: ['implementer'], anyFailed: true, failedStage: 'implementer', asked: 'To finish, I still need: **which config file?**', totalCostUsd: 0.2 } as never;
   render(<RunPane {...props} taskId="hub-4" issue={undefined} detail={asking} summary={row} />);
   const pane = screen.getByRole('region', { name: 'Run hub-4' });
   // The proof passed, yet the run did not: never a green chip next to a "failed"/"asks you" word.
   const chip = within(pane).getByText('Waiting for your answer');
   expect(chip.closest('[class*="success"]')).toBeNull();
   expect(within(pane).getByRole('note')).toHaveTextContent('Stopped to ask you');
-  expect(within(pane).getByRole('note')).toHaveTextContent('which config file?');
+  // Rendered as agent text: the markdown is formatting, not raw asterisks.
+  expect(within(pane).getByRole('note').querySelector('strong')).toHaveTextContent('which config file?');
+  expect(within(pane).getByRole('note')).not.toHaveTextContent('**');
   expect(within(pane).getAllByText('hub-4').length).toBeGreaterThan(0);
+  // The gates ran green (the receipt's proof): the stations show Gates done, the Cell where it stopped to ask.
+  const stations = within(screen.getByRole('list', { name: 'Stations' })).getAllByRole('listitem');
+  expect(stations.map((s) => s.getAttribute('data-status'))).toEqual(['done', 'done', 'current', 'done', 'waiting', 'waiting']);
 });

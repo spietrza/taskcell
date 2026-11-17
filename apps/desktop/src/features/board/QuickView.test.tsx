@@ -38,6 +38,8 @@ describe('QuickView', () => {
     const chip = await screen.findByText('Waiting for your answer');
     expect(chip.className).toContain('text-primary-text');
     expect(screen.queryByText('Verify failed')).toBeNull();
+    // Answering is the way on: no Start run beside it.
+    expect(screen.queryByRole('button', { name: 'Start run' })).toBeNull();
   });
 
   test('shows the stage line, the receipt with missing facts, the issue link on the id and the pull request link', async () => {

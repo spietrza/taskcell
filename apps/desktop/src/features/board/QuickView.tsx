@@ -8,9 +8,8 @@ import { isDemoLink } from '../../transport';
 import type { BoardTask, RepoStamp, RunDetail, RunSummary } from '../../wire';
 import { STATION_SHORT, cardStationOf } from '../../stations';
 import { taskSourceLabel } from '../../platform';
-import { startedByLabel } from '../../runLabels';
 import { costLabel, estTitle } from '../../cost';
-import { ASKED_WORDS, NEEDS_YOU_CHIP } from '../../runLabels';
+import { ASKED_WORDS, NEEDS_YOU_CHIP, startedByLabel } from '../../runLabels';
 import { verdictWord } from '../../status';
 import { AgentText } from '../../components/AgentText';
 import { ExternalLink, hostName } from '../../components/ExternalLink';
@@ -280,7 +279,8 @@ export function QuickView({
   };
   const issueCard = !isPullRequestCard(task.id) && !isInvalidHubCard(task.id);
   const hubCard = isHubTaskCard(task.id);
-  const runnable = issueCard && (hubCard || onStartRun !== undefined) && (task.column === 'queued' || task.column === 'verify-failed');
+  // A card that waits for an answer is answered (below), not re-run: spending must not look like the way on.
+  const runnable = issueCard && (hubCard || onStartRun !== undefined) && (task.column === 'queued' || task.column === 'verify-failed') && task.asked !== true && item?.kind !== 'card';
   const implementer = run?.detail?.stages.find((s) => s.record.stage === 'implementer');
   const model = implementer?.record.model;
   const stat = diffStat(implementer?.diff);
@@ -360,7 +360,7 @@ export function QuickView({
             <span className="inline-block rounded bg-primary/15 px-2 py-0.5 text-xs font-medium text-primary-text">
               Needs you · {waitingWhy(item)}
             </span>
-            {item.lastComment && <div className="whitespace-pre-wrap break-words rounded bg-muted/40 px-3 py-2 text-sm">{item.lastComment.body}</div>}
+            {item.lastComment && <div className="break-words rounded bg-muted/40 px-3 py-2 text-sm"><AgentText>{item.lastComment.body}</AgentText></div>}
             <ReplyBox project={repoPath} item={item} onReplied={reload} />
           </div>
         )}
