@@ -7,6 +7,7 @@ import { isNoTaskSource, RepoFailures, RepoLabel, TaskSourceHint } from '../../R
 import type { BoardTask, RepoReadFailure, RepoStamp } from '../../wire';
 import { useAsync } from '../../hooks';
 import { setUrlParam, urlParam } from '../../screenUrl';
+import { publishCards, type PaletteCard } from '../../paletteIndex';
 import { useApproverDecisions } from './useApproverDecisions';
 import { decisionForTask, decisionWords } from './approverDecision';
 import { QuickView, TRACKER_NAME, type QuickTask } from './QuickView';
@@ -101,6 +102,7 @@ export function TaskBoard({
   onStartRun,
   onOpenRun,
   onOpenSkills,
+  openCard,
 }: {
   project: string;
   /** "All repositories": list every repository's cards, each naming its repository. */
@@ -126,6 +128,8 @@ export function TaskBoard({
   onOpenRun?: (taskId: string, repoPath: string | undefined) => void;
   /** Opens Settings → Skills. */
   onOpenSkills?: () => void;
+  /** A card ⌘K picked while the Board is open (a fresh object per pick); on mount the address names it instead. */
+  openCard?: PaletteCard;
 }) {
   const [reloads, setReloads] = useState(0);
   const reposKey = repos.join('\n');
@@ -199,13 +203,27 @@ export function TaskBoard({
   // A card of another repository must not linger when the project (or "all repositories") changes.
   useEffect(() => setSelected(null), [project, allRepos]);
   // `?screen=board&card=<id>` opens that card once the board has it; from then on the address follows the open card.
-  const linked = useRef<string | null>(urlParam('card'));
+  const linkedId = urlParam('card');
+  const linked = useRef<{ id: string; repoPath?: string } | null>(linkedId === null ? null : { id: linkedId });
+  const [linkNonce, setLinkNonce] = useState(0);
+  const seenOpenCard = useRef(openCard);
   useEffect(() => {
-    if (linked.current === null || !allTasks) return;
-    const t = allTasks.find((x) => x.id === linked.current);
+    if (openCard === undefined || openCard === seenOpenCard.current) return;
+    seenOpenCard.current = openCard;
+    linked.current = openCard;
+    setLinkNonce((n) => n + 1);
+  }, [openCard]);
+  useEffect(() => {
+    const want = linked.current;
+    if (want === null || !allTasks) return;
+    const t = allTasks.find((x) => x.id === want.id && (want.repoPath === undefined || (x.repoPath ?? project) === want.repoPath));
     linked.current = null;
     if (t) setSelected(t);
-  }, [allTasks]);
+  }, [allTasks, linkNonce]);
+  // ⌘K searches the cards this board last loaded.
+  useEffect(() => {
+    if (data) publishCards(data.tasks.map((t) => ({ id: t.id, title: t.title, repoPath: t.repoPath ?? project })));
+  }, [data, project]);
   useEffect(() => {
     if (linked.current === null) setUrlParam('card', selected?.id ?? null);
   }, [selected]);

@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { paletteItems } from '../../paletteIndex';
 import { TaskBoard } from './TaskBoard';
 import { DEFAULT_FILTER } from '../../filterState';
 import type { BoardTask } from '../../wire';
@@ -204,6 +205,16 @@ describe('TaskBoard', () => {
     } finally {
       window.history.replaceState(null, '', '/');
     }
+  });
+
+  test('a card picked in ⌘K while the board is open opens its quick view; the board publishes its cards', async () => {
+    mockListTasks.mockResolvedValue({ tasks: TASKS, capped: false });
+    const props = { project: '/repo', repos: [], onOpenTask: () => {}, onNewTask: () => {} };
+    const { rerender } = render(<TaskBoard {...props} />);
+    await screen.findByText('Running one');
+    expect(paletteItems().cards).toContainEqual({ id: 't-r1', title: 'Running one', repoPath: '/repo' });
+    rerender(<TaskBoard {...props} openCard={{ id: 't-r1', title: 'Running one', repoPath: '/repo' }} />);
+    expect(await screen.findByRole('complementary', { name: /Quick view: Running one/ })).toBeInTheDocument();
   });
 
   test('a running card\'s Open the run opens that card\'s run', async () => {

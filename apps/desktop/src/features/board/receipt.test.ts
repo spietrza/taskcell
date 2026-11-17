@@ -4,7 +4,11 @@ import type { RunDetail } from '../../wire';
 
 const run = (over: Partial<RunDetail> = {}): RunDetail => ({ taskId: 't', timestamp: 'x', stages: [], ...over });
 const values = (r: ReturnType<typeof receipt>): Record<string, string> => Object.fromEntries(r.map((f) => [f.key, f.value]));
-const stage = (record: Record<string, unknown>, diff?: string): RunDetail['stages'][number] => ({ record: record as never, ...(diff !== undefined ? { diff } : {}) });
+const stage = (record: Record<string, unknown>, diff?: string, ciConfigPaths?: string[]): RunDetail['stages'][number] => ({
+  record: record as never,
+  ...(diff !== undefined ? { diff } : {}),
+  ...(ciConfigPaths !== undefined ? { ciConfigPaths } : {}),
+});
 
 describe('receipt', () => {
   test('no run: all four facts are "not yet"', () => {
@@ -54,16 +58,18 @@ describe('receiptRows', () => {
     const r = rows(
       run({
         proof: { command: 'pnpm test', passed: true } as RunDetail['proof'],
-        stages: [stage({ stage: 'implementer', model: 'sonnet', skillsUsed: [] }, 'diff --git a/src/a.ts b/src/a.ts\n+x\n'), stage({ stage: 'reviewer', model: 'opus', verdict: 'pass', skillsUsed: ['review'] })],
+        stages: [stage({ stage: 'implementer', model: 'sonnet', skillsUsed: [] }, 'diff --git a/src/a.ts b/src/a.ts\n+x\n', []), stage({ stage: 'reviewer', model: 'opus', verdict: 'pass', skillsUsed: ['review'] })],
       }),
       '$0.50',
     );
     expect(r).toMatchObject({ Author: 'sonnet', Reviewer: 'opus · passed', Gates: 'passed · pnpm test', 'Secret scan': 'clean', 'CI config': 'untouched', Diff: '1 file · +1 −0', 'Skills used': 'review', Cost: '$0.50' });
   });
 
-  test('skills used: "none" for recorded empty lists; CI config edits are named', () => {
-    const r = rows(run({ stages: [stage({ stage: 'implementer', skillsUsed: [] }, diff)] }));
+  test('skills used: "none" for recorded empty lists; CI config edits are the hub\'s verdict, named', () => {
+    const r = rows(run({ stages: [stage({ stage: 'implementer', skillsUsed: [] }, diff, ['.github/workflows/ci.yml'])] }));
     expect(r['Skills used']).toBe('none');
     expect(r['CI config']).toBe('changed: .github/workflows/ci.yml');
+    // No verdict from the hub (an older hub): not recorded, never a guess from the diff.
+    expect(rows(run({ stages: [stage({ stage: 'implementer' }, diff)] }))['CI config']).toBe('not recorded');
   });
 });

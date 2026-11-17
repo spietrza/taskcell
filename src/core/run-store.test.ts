@@ -218,6 +218,19 @@ describe('beginRun — writing', () => {
     expect((await readRun(root, 'TES-U3', TS)).stages[0]!.record.skillsUsed).toEqual(['simplify']);
   });
 
+  it('readRun names the CI config paths of a stage diff with workflowPaths(), renames included', async () => {
+    const diff = [
+      'diff --git a/src/a.ts b/src/a.ts', '+x',
+      'diff --git a/.github/workflows/ci.yml b/.github/workflows/ci.yml', '-y',
+      'diff --git a/ci/build.yml b/.gitlab/ci/build.yml', 'rename to .gitlab/ci/build.yml',
+    ].join('\n');
+    await beginRun(repo, 'TES-C1', TS).writeStages([{ name: 'implementer', result: { ...result, taskId: 'TES-C1', diff } }]);
+    await beginRun(repo, 'TES-C2', TS).writeStages([{ name: 'implementer', result: { ...result, taskId: 'TES-C2', diff: 'diff --git a/src/a.ts b/src/a.ts\n+x\n' } }]);
+    const root = runsRoot(repo);
+    expect((await readRun(root, 'TES-C1', TS)).stages[0]!.ciConfigPaths).toEqual(['.github/workflows/ci.yml', '.gitlab/ci/build.yml']);
+    expect((await readRun(root, 'TES-C2', TS)).stages[0]!.ciConfigPaths).toEqual([]);
+  });
+
   it('writes lessonsLoaded and lessonIds on the metric line, 0 when none, and nothing when the caller passes no lessons', async () => {
     const metricOf = async (): Promise<Record<string, unknown>> => JSON.parse((await readFile(join(runsRoot(repo), 'metrics.jsonl'), 'utf8')).trim().split('\n').at(-1) as string);
     await beginRun(repo, 'TES-M1', TS).writeStages([{ name: 'implementer', result }], { lessonIds: ['a1', 'b2'] });

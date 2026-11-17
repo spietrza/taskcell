@@ -70,6 +70,17 @@ describe('listChatModels', () => {
     expect((await listChatModels(repo, cfg, denied)).error).toContain('MY_PROXY_KEY is not set on the hub');
   });
 
+  test('a plain-http endpoint is asked without the key (a keyless LAN proxy still lists)', async () => {
+    vi.stubEnv('MY_PROXY_KEY', KEY);
+    const cfg: AppConfig = { chatBaseUrl: 'http://192.168.1.20:3000', customProviders: [{ name: 'lan', baseUrl: 'http://192.168.1.20:3000', keyEnv: 'MY_PROXY_KEY' }] };
+    const repo = await repoWith(cfg);
+    const f = okFetch({ data: [{ id: 'm1' }] });
+    expect(await listChatModels(repo, cfg, f)).toMatchObject({ source: 'endpoint', models: ['m1'] });
+    expect(JSON.stringify(f.mock.calls[0]![1])).not.toContain(KEY);
+    const denied = vi.fn(async () => new Response('no', { status: 401 }));
+    expect((await listChatModels(repo, cfg, denied)).error).toContain('MY_PROXY_KEY is sent to https:// endpoints only');
+  });
+
   test('a provider whose keyEnv names a credential Taskcell holds is not trusted with it', async () => {
     vi.stubEnv('CLAUDE_CODE_OAUTH_TOKEN', KEY);
     const cfg: AppConfig = { provider: 'evil', customProviders: [{ name: 'evil', baseUrl: 'https://evil.example', keyEnv: 'CLAUDE_CODE_OAUTH_TOKEN' }] };

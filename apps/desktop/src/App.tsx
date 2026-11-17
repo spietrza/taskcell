@@ -30,6 +30,7 @@ import { hubSignedIn, isDemoMode, hubSignOut, onHubRestart, onHubConnectionIssue
 import { applyTheme, initialTheme, saveTheme } from './theme';
 import type { Project, ActiveRun } from './taskcell-output';
 import type { StampedNeeds } from './features/home/homeModel';
+import { paletteItems, type PaletteCard, type PaletteRun } from './paletteIndex';
 
 export default function App() {
   const [allProjects, setProjects] = useState<Project[]>([]);
@@ -64,6 +65,9 @@ export default function App() {
   const [needsNonce, setNeedsNonce] = useState(0);
   const needsCount = needs?.items.length ?? 0;
   const [focusRunning, setFocusRunning] = useState<ActiveRun | null>(null);
+  // ⌘K's picks: a finished run for Runs, a card for the Board (a fresh object per pick).
+  const [focusRun, setFocusRun] = useState<PaletteRun | null>(null);
+  const [openCard, setOpenCard] = useState<PaletteCard | null>(null);
   const [crumb, setCrumb] = useState<string | null>(null);
   // The task screen's trailing breadcrumb: the open conversation's name, click-to-rename
   // (dogfood r3). Published by TaskDraftScreen, cleared on its unmount.
@@ -386,6 +390,21 @@ export default function App() {
       setFocusRunning({ ...r });
     });
 
+  // ⌘K opens a card on the Board: the address names it, and a Board already open is told directly.
+  const openCardFromPalette = (c: PaletteCard): void =>
+    navigate(() => {
+      // A card of a repository the Projects filter leaves out would be closed at once: show every repository for this visit.
+      if (filter.repos.length > 0 && c.repoPath !== undefined && !filter.repos.includes(c.repoPath)) setFilter({ ...filter, repos: [] });
+      setUrlParam('card', c.id);
+      setOpenCard({ ...c });
+      setScreen('board');
+    });
+  const openRunFromPalette = (r: PaletteRun): void =>
+    navigate(() => {
+      setScreen('runs');
+      setFocusRun({ ...r });
+    });
+
   const active = projects.find((p) => p.path === activeProject) ?? null;
   // The hub's answer on what this caller may do; every Add project / Enable factory gate reads it.
   const caps = useCallerCapabilities(active?.path);
@@ -614,6 +633,8 @@ export default function App() {
                 settingsSection={settingsSection}
                 onSettingsSection={setSettingsSection}
                 focusRunning={focusRunning}
+                focusRun={focusRun}
+                openCard={openCard}
                 clearNonce={clearNonce}
                 newTaskNonce={newTaskNonce}
                 onCrumb={setCrumb}
@@ -642,12 +663,22 @@ export default function App() {
       {palette && (
         <CommandPalette
           projects={projects}
+          {...paletteItems()}
+          onOpenCard={openCardFromPalette}
+          onOpenRun={openRunFromPalette}
           onOpenProject={(p) => enterProject(p.path)}
           onHome={() => goto('home')}
           {...(needsYou ? { onNeedsYou: () => goto('needs') } : {})}
           {...(active
             ? {
                 projectName: active.name,
+                // Board and Runs show the filter's repositories, not the open project.
+                scopeName:
+                  filter.repos.length === 0
+                    ? 'All repositories'
+                    : filter.repos.length === 1
+                      ? (projects.find((p) => p.path === filter.repos[0])?.name ?? filter.repos[0])
+                      : `${filter.repos.length} repositories`,
                 onScreen: (s: 'board' | 'runs' | 'settings') => navigate(() => setScreen(s)),
                 ...(caps?.project?.canCreateTask.allowed === false
                   ? {}

@@ -54,7 +54,10 @@ export async function listChatModels(repoPath: string, cfg: AppConfig, fetchImpl
   const url = source.kind === 'openrouter' ? OPENROUTER_MODELS : `${trimSlash(source.baseUrl)}/v1/models`;
   const origin = originOf(url);
   if (origin === undefined || !/^https?:$/.test(new URL(url).protocol)) return { source: source.kind, models: [], error: 'the endpoint URL is not an absolute http(s) URL' };
-  const key = source.kind === 'endpoint' && source.keyEnv !== undefined ? process.env[source.keyEnv] || undefined : undefined;
+  // A key travels over TLS only: a plain-http endpoint (a keyless LAN proxy such as Meridian) is asked without one.
+  const keyEnv = source.kind === 'endpoint' ? source.keyEnv : undefined;
+  const plain = new URL(url).protocol !== 'https:';
+  const key = keyEnv !== undefined && !plain ? process.env[keyEnv] || undefined : undefined;
   // OpenRouter answers an `anthropic-version` request with its small Anthropic-compatible list: ask it plainly.
   const headers: Record<string, string> = {
     Accept: 'application/json',
@@ -66,7 +69,7 @@ export async function listChatModels(repoPath: string, cfg: AppConfig, fetchImpl
     // No redirects: a redirect would carry the key to wherever the endpoint points.
     const res = await fetchImpl(url, { headers, redirect: 'error', signal: AbortSignal.timeout(FETCH_TIMEOUT_MS) });
     if (!res.ok) {
-      const unset = source.kind === 'endpoint' && source.keyEnv !== undefined && key === undefined ? ` (${source.keyEnv} is not set on the hub)` : '';
+      const unset = keyEnv === undefined || key !== undefined ? '' : plain ? ` (${keyEnv} is sent to https:// endpoints only)` : ` (${keyEnv} is not set on the hub)`;
       return { ...base, models: [], error: `${origin} answered HTTP ${res.status}${unset}` };
     }
     const models = modelIds(await res.json());

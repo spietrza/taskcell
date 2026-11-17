@@ -45,6 +45,7 @@ import { RepoFailures } from '../../RepoViews';
 import type { RepoReadFailure, RepoStamp } from '../../wire';
 import type { TeamScreen } from '../settings/Members';
 import type { Project } from '../../taskcell-output';
+import { publishRuns, type PaletteCard, type PaletteRun } from '../../paletteIndex';
 import type { RunSummary, RunDetail as RunDetailT, ActiveRun, RunRef, RunSource } from '../../taskcell-output';
 
 export function Inspector({
@@ -59,6 +60,8 @@ export function Inspector({
   settingsSection,
   onSettingsSection,
   focusRunning,
+  focusRun,
+  openCard,
   clearNonce,
   newTaskNonce,
   onCrumb,
@@ -87,6 +90,10 @@ export function Inspector({
   settingsSection: SettingsSection;
   onSettingsSection: (s: SettingsSection) => void;
   focusRunning: ActiveRun | null;
+  /** A finished run to open on Runs (⌘K); a fresh object per request. */
+  focusRun?: PaletteRun | null;
+  /** A card to open on the Board (⌘K); a fresh object per request. */
+  openCard?: PaletteCard | null;
   clearNonce: number;
   newTaskNonce: number;
   onCrumb: (c: string | null) => void;
@@ -174,6 +181,18 @@ export function Inspector({
     setTaskDetailId(null);
     setLiveRun(focusRunning);
   }, [focusRunning]);
+
+  // ⌘K's run: opened here, not the one Runs would pick by itself.
+  useEffect(() => {
+    if (!focusRun) return;
+    autoPicked.current = true;
+    setTaskDetailId(null);
+    void open(focusRun);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [focusRun]);
+
+  // ⌘K searches the runs this list last loaded.
+  useEffect(() => publishRuns(runs), [runs]);
 
   // Report the current drill-down up to the top-bar breadcrumb.
   useEffect(() => {
@@ -706,6 +725,7 @@ export function Inspector({
             setTaskDetailId(id);
           }}
           onNewTask={onNewTask}
+          {...(openCard ? { openCard } : {})}
           {...(onOpenSettings ? { onOpenSettings } : {})}
           onStartRun={(id, skills) => {
             setNewRunTask(id);

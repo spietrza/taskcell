@@ -135,6 +135,7 @@ const detail = (taskId: string, timestamp: string, diff: string, verdict: 'pass'
     {
       record: record(taskId, 'implement', { turns: 9, costUsd: costs[1], timestamp, ...(passed ? {} : { completed: false, exitReason: 'verify-failed' }) }),
       diff,
+      ciConfigPaths: [],
       transcript: transcript('Applying the change and running the test suite.', passed ? '✓ 58 tests passed' : '✗ 1 test failed: orders > pagination > first page'),
     },
     ...(passed ? [{
