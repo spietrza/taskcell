@@ -66,6 +66,7 @@ export function Inspector({
   onNewTask,
   onOpenBoard,
   onOpenRuns,
+  onOpenRunning,
   onOpenSettings,
   onOpenSetup,
 }: {
@@ -95,6 +96,8 @@ export function Inspector({
   onOpenBoard: () => void;
   /** Switches to Runs, where a run launched from the Board opens in the split pane. */
   onOpenRuns?: () => void;
+  /** Opens one live run on Runs (as Home's Moving rows do): the Board card's Open the run. */
+  onOpenRunning?: (run: ActiveRun & Partial<RepoStamp>) => void;
   /** Opens this project's Settings (the Board's "no task source yet" hint). */
   onOpenSettings?: () => void;
   /** Reopen the first-run guide (Settings). */
@@ -164,6 +167,8 @@ export function Inspector({
   // The rail "Running" click opens that live run.
   useEffect(() => {
     if (!focusRunning) return;
+    // This run, not the one Runs would open by itself (it reads state from the same render, so it would win).
+    autoPicked.current = true;
     setDetail(null);
     setTaskDetailId(null);
     setLiveRun(focusRunning);
@@ -705,7 +710,13 @@ export function Inspector({
             setTaskDetailSkills(skills);
             setShowNewRun(true);
           }}
-          {...(onOpenRuns ? { onOpenRuns } : {})}
+          // The card's own live run when the hub lists one (a claimed card may have none yet): else the Runs list.
+          onOpenRun={(id, repo) => {
+            const path = repo ?? project;
+            void listActive(path)
+              .then((rows) => rows.find((a) => a.taskId === id), () => undefined)
+              .then((a) => (a && onOpenRunning ? onOpenRunning({ ...a, repoPath: path, repoName: projects.find((p) => p.path === path)?.name ?? path }) : onOpenRuns?.()));
+          }}
           {...(onOpenSettings ? { onOpenSkills: () => { onSettingsSection('skills'); onOpenSettings(); } } : {})}
         />
       ) : screen === 'settings' ? (

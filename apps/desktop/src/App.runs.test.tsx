@@ -95,3 +95,45 @@ test('a run started from the Board lands in the Runs split view, not the old str
   act(() => sse.get('stream-reset')?.());
   await waitFor(() => expect(screen.getByRole('region', { name: 'Run gh-7' })).toHaveTextContent('#10'));
 });
+
+test("a running card's Open the run opens that card's live run on Runs, not just the list", async () => {
+  const p = projects[0]!;
+  window.__TASKCELL_HUB__ = true;
+  vi.stubGlobal('EventSource', class { addEventListener(): void {} removeEventListener(): void {} close(): void {} });
+  const results: Record<string, unknown> = {
+    list_teams: [],
+    list_projects: [p],
+    list_active: [
+      { taskId: 'gh-3', sessionFile: '/s3', lastActivityMs: Date.now() },
+      { taskId: 'gh-7', sessionFile: '/s7', lastActivityMs: Date.now() },
+    ],
+    list_runs: [],
+    list_needs_you: { items: [] },
+    list_runs_all: { runs: [], failures: [] },
+    list_needs_you_all: { items: [], failures: [] },
+    list_tasks_all: { tasks: [{ id: 'gh-7', title: 'Seven', column: 'running', state: 'In Progress', repoPath: p.path, repoName: p.name }], capped: false, failures: [] },
+    setup_status: SETUP,
+    read_app_config_strict: {},
+    read_app_config: {},
+    read_session: { entries: [], inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, estCostUsd: 0 },
+    read_run_events: { events: [] },
+    api_repo_ok: true,
+    api_queue: [],
+    read_approver_decisions: { decisions: [], mode: 'shadow' },
+  };
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(async (url: string) => {
+      const cmd = url.slice(url.indexOf('/rpc/') + 5);
+      return new Response(JSON.stringify({ result: results[cmd] ?? null }), { status: 200, headers: { 'content-type': 'application/json' } });
+    }),
+  );
+  render(<App />);
+  fireEvent.click(await screen.findByRole('button', { name: p.name }));
+  fireEvent.click(await screen.findByRole('button', { name: /^Board/ }));
+  fireEvent.click((await screen.findByText('Seven')).closest('button')!);
+  fireEvent.click(await screen.findByRole('button', { name: 'Open the run' }));
+  // gh-7's run, not the first live one the list would pick by itself.
+  expect(await screen.findByRole('region', { name: 'Run gh-7' })).toBeInTheDocument();
+  expect(window.location.search).toBe('?screen=runs');
+});

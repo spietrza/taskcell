@@ -167,7 +167,7 @@ export function Home({
                   <strong className="font-semibold text-destructive-text">{plural(s.count, "card can't start.", "cards can't start.")}</strong> {s.reason}
                 </span>
                 <Button variant="text" color="destructive" className="ml-auto h-7 px-2 text-xs" onClick={() => onOpenFactory({ path: s.path, name: s.name })}>
-                  {s.fix === 'worker' ? 'Open hub worker' : 'Factory checklist'}
+                  Open auto-run
                 </Button>
               </div>
             ))}

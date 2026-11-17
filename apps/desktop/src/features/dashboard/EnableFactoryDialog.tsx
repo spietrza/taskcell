@@ -47,7 +47,7 @@ function errorText(err: unknown): string {
  * (callers, labels, the secret command), confirm to open the PR, then dispatch the doctor workflow.
  * The secret is only ever shown as a command for the user to run — this dialog never takes a token.
  */
-export function EnableFactoryDialog({ project, onClose }: { project: { path: string; name: string }; onClose: () => void }) {
+export function EnableFactoryDialog({ project, onClose, startLocal = false }: { project: { path: string; name: string }; onClose: () => void; /** A hub-board project: open on the Local hub checklist, its only way to run by itself. */ startLocal?: boolean }) {
   const dialogRef = useRef<HTMLDivElement>(null);
   useFocusTrap(dialogRef);
   const [plan, setPlan] = useState<FactoryPlan | null>(null);
@@ -148,6 +148,11 @@ export function EnableFactoryDialog({ project, onClose }: { project: { path: str
     step('local', async () => {
       setLocal(await localWorkerDoctor(project.path));
     });
+  useEffect(() => {
+    if (startLocal) void loadLocal();
+    // Once, on open: Back still leads to the full picker.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
   const existingFiles = new Set(plan?.existingCallerFiles ?? []);
   // A caller counts as present under its legacy `vanguard-` name too (the hub adds no `taskcell-` twin).
   const existing = { has: (f: string): boolean => existingFiles.has(f) || existingFiles.has(f.replace('/taskcell-', '/vanguard-')) };
@@ -198,11 +203,11 @@ export function EnableFactoryDialog({ project, onClose }: { project: { path: str
         ref={dialogRef}
         role="dialog"
         aria-modal="true"
-        aria-label="Enable factory"
+        aria-label="Set up auto-run"
         className="max-h-[80vh] w-[34rem] overflow-y-auto rounded-lg border border-border bg-background p-4 shadow-lg"
         onClick={(e) => e.stopPropagation()}
       >
-        <h2 className="font-semibold">Enable factory on {project.name}</h2>
+        <h2 className="font-semibold">Set up auto-run on {project.name}</h2>
 
         {showChecklist ? (
           <>
@@ -444,7 +449,7 @@ export function EnableFactoryDialog({ project, onClose }: { project: { path: str
               </ul>
               {gitlab && plan.gitlabManualInclude && (
                 <p className="mt-1 text-xs text-muted-foreground">
-                  The hub cannot edit <code>{plan.gitlabCiPath ?? '.gitlab-ci.yml'}</code> automatically. {manualOnly ? 'The jobs file is already on the default branch, so there is no merge request to open: add' : 'Before merging the merge request, add'} this line under its top-level <code>include:</code>{manualOnly ? ', then open Enable factory again' : ''}: <code>- local: .gitlab/taskcell.yml</code>
+                  The hub cannot edit <code>{plan.gitlabCiPath ?? '.gitlab-ci.yml'}</code> automatically. {manualOnly ? 'The jobs file is already on the default branch, so there is no merge request to open: add' : 'Before merging the merge request, add'} this line under its top-level <code>include:</code>{manualOnly ? ', then open Set up auto-run again' : ''}: <code>- local: .gitlab/taskcell.yml</code>
                 </p>
               )}
               {nothingToAdd && (

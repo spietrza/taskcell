@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { Button, Card, ErrorNote, cn } from '@/ui';
 import { FilePlus } from 'lucide-react';
 import { listTasks, listTasksAll } from '../../ipc';
@@ -6,13 +6,16 @@ import { inRepos } from '../../repoFilter';
 import { isNoTaskSource, RepoFailures, RepoLabel, TaskSourceHint } from '../../RepoViews';
 import type { BoardTask, RepoReadFailure, RepoStamp } from '../../wire';
 import { useAsync } from '../../hooks';
+import { setUrlParam, urlParam } from '../../screenUrl';
 import { useApproverDecisions } from './useApproverDecisions';
 import { decisionForTask, decisionWords } from './approverDecision';
-import { COLUMN_LABEL, QuickView, TRACKER_NAME, type QuickTask } from './QuickView';
+import { QuickView, TRACKER_NAME, type QuickTask } from './QuickView';
 import { NewHubTask, ScheduleLines } from './Schedule';
 import { boardCountLabels } from './counts';
 import { PausedBanner, PausedLine } from './paused';
 import { ExternalLink } from '../../components/ExternalLink';
+import { StationMark } from '../../components/StationMark';
+import { STATION_SHORT, stationOf } from '../../stations';
 import { FilterBar, NoMatch } from '../../FilterBar';
 import { DEFAULT_FILTER, canClearFilters, cardKeys, cardSource, clearFilters, effectiveFilter, filterCards, filterNames, groupRows, offeredSources, saveChange, type CardSource, type HubFilter } from '../../filterState';
 
@@ -34,14 +37,34 @@ const CHIP_TONE: Record<string, string> = {
   failed: 'bg-destructive/15 text-destructive-text',
 };
 
+// The Board's columns are the line's stations (prototype v3): a card sits in the column of `stationOf`. Review and
+// PR share one column, since a tracker card does not say whether its pull request exists yet; the card's mark does.
 const COLUMNS: Column[] = [
-  { key: 'queued', label: COLUMN_LABEL['queued'], dot: 'bg-muted-foreground', pill: 'bg-muted-foreground/15 text-muted-foreground', cardHover: 'hover:border-muted-foreground' },
-  { key: 'claimed', label: COLUMN_LABEL['claimed'], dot: 'bg-warning', pill: 'bg-warning/15 text-warning-text', cardHover: 'hover:border-warning' },
-  { key: 'running', label: COLUMN_LABEL['running'], dot: 'bg-foreground', pill: 'bg-foreground text-background', cardHover: 'hover:border-foreground', pulse: true },
-  { key: 'verify-failed', label: COLUMN_LABEL['verify-failed'], dot: 'bg-destructive', pill: 'bg-destructive/15 text-destructive-text', cardHover: 'hover:border-destructive' },
-  { key: 'review', label: COLUMN_LABEL['review'], dot: 'bg-foreground/60', pill: 'bg-foreground/10 text-foreground', cardHover: 'hover:border-foreground/60' },
-  { key: 'done', label: COLUMN_LABEL['done'], dot: 'bg-success', pill: 'bg-success/15 text-success-text', cardHover: 'hover:border-success' },
+  { key: 'card', label: STATION_SHORT.card, dot: 'bg-muted-foreground', pill: 'bg-muted-foreground/15 text-muted-foreground', cardHover: 'hover:border-muted-foreground' },
+  { key: 'spec', label: STATION_SHORT.spec, dot: 'bg-warning', pill: 'bg-warning/15 text-warning-text', cardHover: 'hover:border-warning' },
+  { key: 'cell', label: STATION_SHORT.cell, dot: 'bg-foreground', pill: 'bg-foreground text-background', cardHover: 'hover:border-foreground', pulse: true },
+  { key: 'gates', label: STATION_SHORT.gates, dot: 'bg-foreground/80', pill: 'bg-foreground/10 text-foreground', cardHover: 'hover:border-foreground' },
+  { key: 'review', label: `${STATION_SHORT.review} · ${STATION_SHORT.pr}`, dot: 'bg-foreground/60', pill: 'bg-foreground/10 text-foreground', cardHover: 'hover:border-foreground/60' },
+  { key: 'done', label: 'Done', dot: 'bg-success', pill: 'bg-success/15 text-success-text', cardHover: 'hover:border-success' },
 ];
+
+/** The Board column of a station index (`stationOf(...).at`; 6 is past the line). */
+const COLUMN_OF_STATION = ['card', 'spec', 'cell', 'gates', 'review', 'review', 'done'] as const;
+export const boardColumn = (t: Pick<BoardTask, 'column' | 'stage'>): string => COLUMN_OF_STATION[stationOf(t).at] ?? 'done';
+
+const PHONE = '(max-width: 767px)';
+/** Under md: the Board shows one stage at a time. Follows the window as it is resized. */
+function usePhone(): boolean {
+  const [phone, setPhone] = useState(() => window.matchMedia?.(PHONE).matches === true);
+  useEffect(() => {
+    const mq = window.matchMedia?.(PHONE);
+    if (!mq) return;
+    const on = (): void => setPhone(mq.matches);
+    mq.addEventListener?.('change', on);
+    return () => mq.removeEventListener?.('change', on);
+  }, []);
+  return phone;
+}
 
 /** How often an open hub board re-reads its tasks: their statuses change in the hub's store, not here. */
 const HUB_POLL_MS = 5000;
@@ -76,7 +99,7 @@ export function TaskBoard({
   onNewTask,
   onOpenSettings,
   onStartRun,
-  onOpenRuns,
+  onOpenRun,
   onOpenSkills,
 }: {
   project: string;
@@ -99,8 +122,8 @@ export function TaskBoard({
   onOpenSettings?: () => void;
   /** Opens the run form for a card of `project` (the quick view's Start run). */
   onStartRun?: (taskId: string, skills?: string[]) => void;
-  /** Opens the Runs screen (a running card's live run). */
-  onOpenRuns?: () => void;
+  /** Opens a running or claimed card's live run (the quick view's Open the run). */
+  onOpenRun?: (taskId: string, repoPath: string | undefined) => void;
   /** Opens Settings → Skills. */
   onOpenSkills?: () => void;
 }) {
@@ -160,6 +183,9 @@ export function TaskBoard({
   // A reload re-reads the tracker, so the locally shown skills are dropped with it.
   const reload = (): void => { setSavedSkills({}); setReloads((n) => n + 1); };
 
+  const phone = usePhone();
+  const [stage, setStage] = useState('all');
+
   // The quick view opens beside the Board; Escape or a click outside closes it and focus returns to the card.
   const [selected, setSelected] = useState<QuickTask | null>(null);
   // The open quick view follows a reload: it shows the card as the board now has it, not the snapshot that was clicked.
@@ -172,6 +198,19 @@ export function TaskBoard({
   };
   // A card of another repository must not linger when the project (or "all repositories") changes.
   useEffect(() => setSelected(null), [project, allRepos]);
+  // `?screen=board&card=<id>` opens that card once the board has it; from then on the address follows the open card.
+  const linked = useRef<string | null>(urlParam('card'));
+  useEffect(() => {
+    if (linked.current === null || !allTasks) return;
+    const t = allTasks.find((x) => x.id === linked.current);
+    linked.current = null;
+    if (t) setSelected(t);
+  }, [allTasks]);
+  useEffect(() => {
+    if (linked.current === null) setUrlParam('card', selected?.id ?? null);
+  }, [selected]);
+  // Leaving the Board (a card's full page, another screen) leaves its card behind: coming back shows the board.
+  useEffect(() => () => setUrlParam('card', null), []);
   // Nor may a card the filter now hides.
   useEffect(() => {
     if (selected !== null && tasks && !tasks.some((t) => t.id === selected.id && t.repoPath === selected.repoPath)) setSelected(null);
@@ -254,6 +293,72 @@ export function TaskBoard({
   const hinted = unset.filter((f) => inView.includes(f.repoPath));
   const failed = (data?.failures ?? []).filter((f) => !isNoTaskSource(f.error));
 
+  const boardCard = (t: BoardList['tasks'][number], hover: string): ReactNode => (
+                    <Card.Root key={cardKey(t)} className={cn('gap-0 bg-background/80 py-0 shadow-sm transition-all hover:shadow-md', hover)}>
+                    <button
+                      data-board-card
+                      aria-expanded={selected?.id === t.id && selected.repoPath === t.repoPath}
+                      onClick={(e) => {
+                        cardRef.current = e.currentTarget;
+                        setSelected(t);
+                      }}
+                      className="block w-full rounded-[inherit] text-left focus-visible:-outline-offset-2"
+                    >
+                        <Card.Content className="space-y-1.5 p-3">
+                          <div className="flex min-w-0 items-center gap-x-1.5 font-mono text-[11px] font-medium text-muted-foreground">
+                            <span className="shrink-0">{t.id}</span>
+                            {allRepos && <RepoLabel name={t.repoName} />}
+                          </div>
+                          <div className="text-sm leading-snug">{t.title}</div>
+                          <StationMark {...stationOf(t)} />
+                          {t.column === 'running' && t.stage && <div className="font-mono text-[11px]">stage: {t.stage}</div>}
+                          {(t.column === 'review' || t.column === 'done') && !!t.chips?.length && (
+                            <div className="flex flex-wrap gap-1">
+                              {t.chips.map((chip) => <span key={chip.key} className={cn('rounded px-1.5 py-0.5 text-[11px]', Object.hasOwn(CHIP_TONE, chip.tone) ? CHIP_TONE[chip.tone] : 'bg-muted text-muted-foreground')}>{chip.label}</span>)}
+                            </div>
+                          )}
+                          {(() => {
+                            const d = decisionForTask(t.id, approver.runs, approver.decisions);
+                            return d !== undefined && <div className="text-[11px] text-muted-foreground" data-approver={d.outcome}>{decisionWords(d, approver.mode)}</div>;
+                          })()}
+                          {t.paused && <PausedLine paused={t.paused} />}
+                          {t.skills && (
+                            <div className="break-words pt-0.5 text-[11px] text-muted-foreground">skills: {t.skills.join(', ')}</div>
+                          )}
+                          <ScheduleLines task={t} />
+                          {t.baseBranch && (
+                            <div className="pt-0.5 font-mono text-[11px] text-muted-foreground">→ {t.baseBranch}</div>
+                          )}
+                          {/* The tracker's bare open/closed adds nothing the column does not say. */}
+                          {t.state && t.state !== t.column && !/^(open|opened|closed)$/i.test(t.state) && t.schedule === undefined && (
+                            <div className="pt-0.5 text-[11px] text-muted-foreground">{t.state}</div>
+                          )}
+                        </Card.Content>
+                    </button>
+                    {t.source !== undefined && t.url !== undefined && (
+                      <div className="px-3 pb-2.5">
+                        <ExternalLink href={t.url}>{`Open in ${TRACKER_NAME[t.source]}`}</ExternalLink>
+                      </div>
+                    )}
+                    </Card.Root>
+  );
+  // Phone (prototype v3): pick a stage, and the cards stack inside each lane instead of six columns scrolling sideways.
+  const stageRow = phone && (
+    <div role="group" aria-label="Stage" className="flex shrink-0 gap-1 overflow-x-auto">
+      {[{ key: 'all', label: 'All stages' }, ...COLUMNS].map((c) => {
+        const n = c.key === 'all' ? (tasks?.length ?? 0) : (tasks ?? []).filter((t) => boardColumn(t) === c.key).length;
+        return (
+          <button key={c.key} type="button" aria-pressed={stage === c.key} onClick={(e) => { setStage(c.key); e.currentTarget.scrollIntoView?.({ block: 'nearest', inline: 'nearest' }); }} className={cn('shrink-0 whitespace-nowrap rounded px-2 py-1 text-xs transition-colors', stage === c.key ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:bg-muted')}>
+            {c.label} <span className="tabular-nums opacity-70">{n}</span>
+          </button>
+        );
+      })}
+    </div>
+  );
+  const COLUMN_ORDER = COLUMNS.map((c) => c.key);
+  const phoneRows = (rows: BoardList['tasks']): BoardList['tasks'] =>
+    rows.filter((t) => stage === 'all' || boardColumn(t) === stage).sort((x, y) => COLUMN_ORDER.indexOf(boardColumn(y)) - COLUMN_ORDER.indexOf(boardColumn(x)));
+
   return (
     <div className="flex min-h-0 flex-1 flex-col">
       {header}
@@ -277,12 +382,29 @@ export function TaskBoard({
         </div>
       )}
       <div className="relative flex min-h-0 flex-1 gap-3 pb-4">
-      <div className={cn('flex min-h-0 min-w-0 flex-1 flex-col gap-4', filter.group !== 'none' && 'overflow-y-auto')}>
+      <div className={cn('flex min-h-0 min-w-0 flex-1 flex-col gap-4', (phone || filter.group !== 'none') && 'overflow-y-auto')}>
+        {stageRow}
         {/* Ungrouped, the one lane stays (its columns render empty), so "nothing matches" is asked of the cards. */}
         {(allTasks?.length ?? 0) > 0 && tasks?.length === 0 && (
           <NoMatch what="cards" query={filterCards(allTasks ?? [], { ...filter, query: '' }).length > 0 ? filter.query : ''} onClear={onFilter && (() => onFilter(saveChange({ ...filter, query: '' }, filter, savedFilter)))} names={filterNames(filter)} onClearFilters={onFilter && canClearFilters(filter) ? () => onFilter(clearFilters(filter)) : undefined} />
         )}
-        {lanes.map((lane) => (
+        {phone ? lanes.map((lane) => {
+          const rows = phoneRows(lane.rows);
+          return (
+            <section key={lane.key} aria-label={lane.label || undefined} className="space-y-2">
+              {lane.label && (
+                <h3 className="text-sm font-semibold">
+                  {lane.label} <span className="font-normal tabular-nums text-muted-foreground">{rows.length}</span>
+                </h3>
+              )}
+              {rows.length === 0 ? (
+                <div className="rounded-lg border border-dashed border-border/60 px-3 py-6 text-center text-xs text-muted-foreground">No tasks</div>
+              ) : (
+                rows.map((t) => boardCard(t, COLUMNS.find((c) => c.key === boardColumn(t))?.cardHover ?? ''))
+              )}
+            </section>
+          );
+        }) : lanes.map((lane) => (
         <section key={lane.key} aria-label={lane.label || undefined} className={cn('flex min-h-0 flex-col gap-2', filter.group === 'none' ? 'flex-1' : 'h-[28rem] shrink-0')}>
         {lane.label && (
           <h3 className="text-sm font-semibold">
@@ -291,10 +413,12 @@ export function TaskBoard({
         )}
         <div className="flex min-h-0 min-w-0 flex-1 gap-3 overflow-x-auto">
         {COLUMNS.map((col) => {
-          const items = lane.rows.filter((t) => t.column === col.key);
+          const items = lane.rows.filter((t) => boardColumn(t) === col.key);
           return (
             <div
               key={col.key}
+              role="group"
+              aria-label={col.label}
               // From xl the six columns share the row (narrowing to 11rem) so all fit at 1440; below it they keep their width and scroll.
               className="flex h-full min-h-0 w-72 shrink-0 flex-col rounded-xl border border-border/60 bg-muted/20 p-2 xl:w-auto xl:min-w-44 xl:max-w-72 xl:flex-1"
             >
@@ -311,54 +435,7 @@ export function TaskBoard({
                     No tasks
                   </div>
                 ) : (
-                  items.map((t) => (
-                    <Card.Root key={cardKey(t)} className={cn('gap-0 bg-background/80 py-0 shadow-sm transition-all hover:shadow-md', col.cardHover)}>
-                    <button
-                      data-board-card
-                      aria-expanded={selected?.id === t.id && selected.repoPath === t.repoPath}
-                      onClick={(e) => {
-                        cardRef.current = e.currentTarget;
-                        setSelected(t);
-                      }}
-                      className="block w-full rounded-[inherit] text-left focus-visible:-outline-offset-2"
-                    >
-                        <Card.Content className="space-y-1.5 p-3">
-                          <div className="flex min-w-0 items-center gap-x-1.5 font-mono text-[11px] font-medium text-muted-foreground">
-                            <span className="shrink-0">{t.id}</span>
-                            {allRepos && <RepoLabel name={t.repoName} />}
-                          </div>
-                          <div className="text-sm leading-snug">{t.title}</div>
-                          {t.column === 'running' && t.stage && <div className="font-mono text-[11px]">stage: {t.stage}</div>}
-                          {(t.column === 'review' || t.column === 'done') && !!t.chips?.length && (
-                            <div className="flex flex-wrap gap-1">
-                              {t.chips.map((chip) => <span key={chip.key} className={cn('rounded px-1.5 py-0.5 text-[11px]', Object.hasOwn(CHIP_TONE, chip.tone) ? CHIP_TONE[chip.tone] : 'bg-muted text-muted-foreground')}>{chip.label}</span>)}
-                            </div>
-                          )}
-                          {(() => {
-                            const d = decisionForTask(t.id, approver.runs, approver.decisions);
-                            return d !== undefined && <div className="text-[11px] text-muted-foreground" data-approver={d.outcome}>{decisionWords(d, approver.mode)}</div>;
-                          })()}
-                          {t.paused && <PausedLine paused={t.paused} />}
-                          {t.skills && (
-                            <div className="break-words pt-0.5 text-[11px] text-muted-foreground">skills: {t.skills.join(', ')}</div>
-                          )}
-                          <ScheduleLines task={t} />
-                          {t.baseBranch && (
-                            <div className="pt-0.5 font-mono text-[11px] text-muted-foreground">→ {t.baseBranch}</div>
-                          )}
-                          {/* The tracker's bare open/closed adds nothing the column does not say. */}
-                          {t.state && t.state !== col.key && !/^(open|opened|closed)$/i.test(t.state) && t.schedule === undefined && (
-                            <div className="pt-0.5 text-[11px] text-muted-foreground">{t.state}</div>
-                          )}
-                        </Card.Content>
-                    </button>
-                    {t.source !== undefined && t.url !== undefined && (
-                      <div className="px-3 pb-2.5">
-                        <ExternalLink href={t.url}>{`Open in ${TRACKER_NAME[t.source]}`}</ExternalLink>
-                      </div>
-                    )}
-                    </Card.Root>
-                  ))
+                  items.map((t) => boardCard(t, col.cardHover))
                 )}
               </div>
             </div>
@@ -378,7 +455,7 @@ export function TaskBoard({
           onSkillsSaved={(skills) => setSavedSkills((m) => ({ ...m, [cardKey(shown)]: skills }))}
           onChanged={reload}
           {...(onStartRun && (shown.repoPath === undefined || shown.repoPath === project) ? { onStartRun: () => { onStartRun(shown.id, savedSkills[cardKey(shown)] ?? shown.skills); close(); } } : {})}
-          {...(onOpenRuns ? { onOpenRuns } : {})}
+          {...(onOpenRun ? { onOpenRuns: () => onOpenRun(shown.id, shown.repoPath) } : {})}
           {...(onOpenSkills ? { onOpenSkills } : {})}
         />
       )}

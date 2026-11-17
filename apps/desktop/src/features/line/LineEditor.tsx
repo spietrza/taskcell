@@ -12,6 +12,8 @@ import { useConfigForm } from '../settings/configForm';
 import { PROVIDER_CHOICES, providerLabel } from '../settings/customProviders';
 import { AutoMerge } from '../settings/AutoMerge';
 import { WorkflowEditor } from '../workflow/WorkflowEditor';
+import { setUrlParam, urlParam } from '../../screenUrl';
+import { AutoRun } from './AutoRun';
 import { asCode } from './asCode';
 import { LineHistory } from './LineHistory';
 import { stationSummary } from './stationSummary';
@@ -42,7 +44,8 @@ const Cell = ({ children }: { children: ReactNode }) => <div className="p-4">{ch
 export function LineEditor({ project }: { project: string }) {
   const form = useConfigForm(project);
   const { cfg, cfgStatus, dirty, saved, saveError, saveGate, lastSaved, set, customs, customErrors, customsValid, rangeErrors, savable, save, discard } = form;
-  const [station, setStation] = useState<Station>('gates');
+  // A deep link names its station (`…&section=line&station=card`, the Home tile's Auto-run); else Gates.
+  const [station, setStation] = useState<Station>(() => STATIONS.find((s) => s === urlParam('station')) ?? 'gates');
   const [flowNames, setFlowNames] = useState<string[]>([]);
   const [published, setPublished] = useState(0);
 
@@ -198,7 +201,10 @@ export function LineEditor({ project }: { project: string }) {
                     key={key}
                     type="button"
                     aria-pressed={on}
-                    onClick={() => setStation(key)}
+                    onClick={() => {
+                      setStation(key);
+                      setUrlParam('station', key);
+                    }}
                     className={cn(
                       'flex min-w-0 flex-col items-stretch justify-start self-stretch rounded-lg border p-3 text-left transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary',
                       on ? 'border-primary bg-primary/5' : 'border-border hover:bg-muted/40',
@@ -234,6 +240,11 @@ export function LineEditor({ project }: { project: string }) {
               >
                 {editor}
               </div>
+              {station === 'card' && (
+                <div className="border-t border-border p-4">
+                  <AutoRun project={project} taskSource={taskSource} />
+                </div>
+              )}
               {station === 'pr' && (
                 <div className="border-t border-border p-4">
                   <p className="mb-2 text-xs text-muted-foreground">Auto-merge has its own save: changing the mode opens a pull request, separate from Publish.</p>

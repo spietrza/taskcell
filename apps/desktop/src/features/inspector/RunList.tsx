@@ -7,6 +7,8 @@ import { DEFAULT_FILTER, canClearFilters, clearFilters, effectiveFilter, filterA
 import { ExternalLink, hostName } from '../../components/ExternalLink';
 import { costLabel, estTitle } from '../../cost';
 import { RunsSplit } from './RunsSplit';
+import { StationMark } from '../../components/StationMark';
+import { runStationOf, stationOf } from '../../stations';
 import { issueNumber, repoInitials, titleKey } from '../../runLabels';
 import type { ActiveRun, RunSummary } from '../../taskcell-output';
 import type { RepoStamp } from '../../wire';
@@ -135,7 +137,7 @@ export function RunList({
     [shownActive, shown, hub.group],
   );
 
-  const row = (key: string, repoName: string | undefined, taskId: string, repoPath: string | undefined, chip: ReactElement, age: ReactElement, open?: () => void, extra?: ReactElement): ReactElement => {
+  const row = (key: string, repoName: string | undefined, taskId: string, repoPath: string | undefined, station: { at: number; failed: boolean }, chip: ReactElement, age: ReactElement, open?: () => void, extra?: ReactElement): ReactElement => {
     const issue = issueNumber(taskId);
     const title = titles?.get(titleKey(repoPath, taskId));
     return (
@@ -160,6 +162,7 @@ export function RunList({
             {title ?? taskId}
             {issue !== undefined ? <span className="tabular-nums text-muted-foreground"> · #{issue}</span> : title !== undefined && <span className="text-muted-foreground"> · {taskId}</span>}
           </span>
+          <StationMark {...station} className="mt-0.5" />
           {extra}
         </span>
         <span className="flex shrink-0 flex-col items-end gap-1">
@@ -175,6 +178,8 @@ export function RunList({
       a.repoName,
       a.taskId,
       a.repoPath,
+      // A live run has no stage on its row; it is in the cell until its record says otherwise.
+      stationOf({ column: 'running' }),
       // Amber (live), not green, so a running row isn't mistaken for a green "passed" one.
       <Chip color="primary" variant="outlined">
         <span className="inline-flex items-center gap-1">
@@ -192,6 +197,7 @@ export function RunList({
       r.repoName,
       r.taskId,
       r.repoPath,
+      runStationOf(r),
       <Chip color={r.stoppedBy ? 'secondary' : verdictColor(!r.anyFailed)} variant="outlined">
         {r.stoppedBy ? 'stopped: provider limit' : r.anyFailed ? 'failed' : r.prState === 'merged' ? 'merged' : r.prUrl !== undefined ? 'PR open' : 'passed'}
       </Chip>,

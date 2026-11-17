@@ -19,7 +19,7 @@ export function CommandPalette({
   projectName,
   onScreen,
   onNewTask,
-  onEnableFactory,
+  onAutoRun,
   onAddProject,
   onToggleTheme,
   onClose,
@@ -34,8 +34,8 @@ export function CommandPalette({
   /** Screens of the open project (Board, Runs, Settings); omitted while none is open. */
   onScreen?: (s: 'board' | 'runs' | 'settings') => void;
   onNewTask?: () => void;
-  /** Hub only: opens the Enable factory dialog for the open project. */
-  onEnableFactory?: () => void;
+  /** Opens the open project's auto-run setup (Settings → Line, station Card); omitted when the hub refuses it. */
+  onAutoRun?: () => void;
   /** Omitted when the hub refuses it (`caller_capabilities`). */
   onAddProject?: () => void;
   onToggleTheme: () => void;
@@ -62,7 +62,7 @@ export function CommandPalette({
           ]
         : []),
       ...(onNewTask ? [{ id: 'new-task', label: `New task · ${projectName}`, icon: <FilePlus className="size-4" />, run: onNewTask }] : []),
-      ...(onEnableFactory ? [{ id: 'factory', label: `Enable factory · ${projectName}`, icon: <Factory className="size-4" />, run: onEnableFactory }] : []),
+      ...(onAutoRun ? [{ id: 'auto-run', label: `Auto-run · ${projectName}`, hint: 'Settings → Line', icon: <Factory className="size-4" />, run: onAutoRun }] : []),
       ...(onAddProject ?[{ id: 'add', label: 'Add project', icon: <FolderPlus className="size-4" />, run: onAddProject }] : []),
       { id: 'theme', label: 'Toggle theme', icon: <SunMoon className="size-4" />, run: onToggleTheme },
       ...projects.map((p) => ({
@@ -73,7 +73,7 @@ export function CommandPalette({
         run: () => onOpenProject({ path: p.path, name: p.name }),
       })),
     ],
-    [projects, projectName, onHome, onNeedsYou, onScreen, onNewTask, onEnableFactory, onAddProject, onToggleTheme, onOpenProject],
+    [projects, projectName, onHome, onNeedsYou, onScreen, onNewTask, onAutoRun, onAddProject, onToggleTheme, onOpenProject],
   );
 
   const filtered = useMemo(() => {

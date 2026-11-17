@@ -16,8 +16,7 @@ import { Inspector } from './features/inspector/Inspector';
 import { Onboarding } from './features/onboarding/Onboarding';
 import { StarterTaskDialog } from './features/onboarding/StarterTaskDialog';
 import { loadOnboarding, saveOnboarding, showOnFirstRun, type OnboardingStored } from './features/onboarding/steps';
-import { EnableFactoryDialog } from './features/dashboard/EnableFactoryDialog';
-import { useCallerCapabilities } from './hooks';
+import { factoryGateOf, useCallerCapabilities } from './hooks';
 import { listProjects, addProject, cloneProject, removeProject, listNeedsYouAll, listTeams, teamAddRepository, factoryState, localWorkerState } from './ipc';
 import { loadTeamId, resolveTeam, saveTeamId, teamProjects } from './teams';
 import type { FactoryState, LocalWorkerState, RepoReadFailure, Team } from './wire';
@@ -26,7 +25,7 @@ import { createNavGuardRegistry, NavGuardContext } from './navGuard';
 import { ProjectCombobox } from './ProjectCombobox';
 import { inRepos } from './repoFilter';
 import { loadFilter, saveFilter, type HubFilter } from './filterState';
-import { resolveScreen, screenFromUrl, settingsSectionFromUrl, urlForScreen } from './screenUrl';
+import { resolveScreen, screenFromUrl, setUrlParam, settingsSectionFromUrl, urlForScreen } from './screenUrl';
 import { hubSignedIn, isDemoMode, hubSignOut, onHubRestart, onHubConnectionIssue } from './transport';
 import { applyTheme, initialTheme, saveTheme } from './theme';
 import type { Project, ActiveRun } from './taskcell-output';
@@ -279,7 +278,6 @@ export default function App() {
   }, []);
 
   const [showRepoPicker, setShowRepoPicker] = useState(false);
-  const [factoryProject, setFactoryProject] = useState<{ path: string; name: string } | null>(null);
   // First-run guide: shown on a fresh hub, and reopened from Settings. A first project earns a starter task offer.
   const [onboarding, setOnboarding] = useState<OnboardingStored>(loadOnboarding);
   const [setupOpen, setSetupOpen] = useState(false);
@@ -298,12 +296,13 @@ export default function App() {
     if (project && allProjects.length === 0) setStarterFor({ path: project.path, name: project.name });
   };
 
-  // Each project's factory checklist for its card; re-read when the dialog closes (it may have advanced).
+  // Each project's factory checklist for its card's Auto-run line; re-read whenever Home shows (setup is in Settings → Line).
   const [factoryStates, setFactoryStates] = useState<Record<string, FactoryState>>({});
   // Keyed by the path list, not `projects`: the 5s project poll replaces that array every tick.
   const projectPaths = projects.map((p) => p.path).join('\n');
+  const showHomeNow = screen === 'home' || activeProject === null;
   useEffect(() => {
-    if (factoryProject !== null || projectPaths === '') return;
+    if (!showHomeNow || projectPaths === '') return;
     let alive = true;
     void Promise.all(
       projectPaths.split('\n').map((path) => factoryState(path).then((s) => [path, s] as const, () => null)),
@@ -313,12 +312,12 @@ export default function App() {
     return () => {
       alive = false;
     };
-  }, [projectPaths, factoryProject]);
+  }, [projectPaths, showHomeNow]);
 
   // The Local hub worker per project (the same refresh): the card shows on / off, last pick-up and last error.
   const [localWorkers, setLocalWorkers] = useState<Record<string, LocalWorkerState>>({});
   useEffect(() => {
-    if (factoryProject !== null || projectPaths === '') return;
+    if (!showHomeNow || projectPaths === '') return;
     let alive = true;
     void Promise.all(projectPaths.split('\n').map((path) => localWorkerState(path).then((s) => [path, s] as const, () => null))).then((entries) => {
       if (alive) setLocalWorkers(Object.fromEntries(entries.filter((e) => e !== null)));
@@ -326,7 +325,7 @@ export default function App() {
     return () => {
       alive = false;
     };
-  }, [projectPaths, factoryProject]);
+  }, [projectPaths, showHomeNow]);
 
   const add = (): void => {
     // One picker everywhere (the desktop window shows the same hub-served UI as a browser): RepoPicker,
@@ -370,11 +369,28 @@ export default function App() {
     });
   };
 
+  // A tile's (or ⌘K's) Auto-run: that project's Settings → Line, station 01 Card, where the setup lives.
+  const openAutoRun = (p: { path: string }): void =>
+    navigate(() => {
+      setUrlParam('station', 'card');
+      setActiveProject(p.path);
+      setSettingsSection('line');
+      setScreen('settings');
+    });
+
+  // Opens one live run on Runs (Home's Moving rows, a Board card's Open the run); also discards a dirty editor.
+  const openRunning = (r: ActiveRun): void =>
+    navigate(() => {
+      setScreen('runs');
+      // A fresh object per click, so a repeat click on the same row still reopens the live run.
+      setFocusRunning({ ...r });
+    });
+
   const active = projects.find((p) => p.path === activeProject) ?? null;
   // The hub's answer on what this caller may do; every Add project / Enable factory gate reads it.
   const caps = useCallerCapabilities(active?.path);
   const addGate = caps?.canAddProject;
-  const factoryGate = caps?.project?.canEnableFactory ?? (caps === null ? undefined : { allowed: caps.mutationsAllowed, ...(caps.mutationsReason !== undefined ? { reason: caps.mutationsReason } : {}) });
+  const factoryGate = factoryGateOf(caps);
   const showHome = screen === 'home' || !active;
   const titleBar = !showHome && active ? projectColor(active) : null;
   const needsYou = active !== null;
@@ -538,14 +554,7 @@ export default function App() {
                     onReloadNeeds={() => setNeedsNonce((n) => n + 1)}
                     factoryStates={factoryStates}
                     localWorkers={localWorkers}
-                    onOpenRunning={(r) =>
-                      // The sixth navigation path (review round 1) — also discards a dirty editor.
-                      navigate(() => {
-                        setScreen('runs');
-                        // A fresh object per click, so a repeat click on the same row still reopens the live run.
-                        setFocusRunning({ ...r });
-                      })
-                    }
+                    onOpenRunning={openRunning}
                     onEnterProject={(path) => enterProject(path, 'board')}
                     onSeeAllMoving={() =>
                       navigate(() => {
@@ -553,7 +562,7 @@ export default function App() {
                         setScreen('board');
                       })
                     }
-                    onOpenFactory={setFactoryProject}
+                    onOpenFactory={openAutoRun}
                     onOpenBoard={() => goto('board')}
                   />
                 )}
@@ -573,8 +582,7 @@ export default function App() {
                   onAdd={add}
                   addGate={addGate}
                   onRemove={remove}
-                  onEnableFactory={setFactoryProject}
-                  factoryGate={factoryGate}
+                  onOpenAutoRun={openAutoRun}
                   factory={factoryStates}
                   localWorker={localWorkers}
                 />
@@ -618,6 +626,7 @@ export default function App() {
                 }
                 onOpenBoard={() => navigate(() => setScreen('board'))}
                 onOpenRuns={() => setScreen('runs')}
+                onOpenRunning={openRunning}
                 onOpenSettings={() => navigate(() => setScreen('settings'))}
                 onOpenSetup={() => navigate(() => {
                   setSetupOpen(true);
@@ -649,7 +658,7 @@ export default function App() {
                           setNewTaskNonce((n) => n + 1);
                         }),
                     }),
-                ...(factoryGate?.allowed === false ? {} : { onEnableFactory: () => setFactoryProject({ path: active.path, name: active.name }) }),
+                ...(factoryGate?.allowed === false ? {} : { onAutoRun: () => openAutoRun(active) }),
               }
             : {})}
           {...(addGate?.allowed === false ? {} : { onAddProject: add })}
@@ -687,7 +696,6 @@ export default function App() {
           onClose={() => setStarterFor(null)}
         />
       )}
-      {factoryProject && <EnableFactoryDialog project={factoryProject} onClose={() => setFactoryProject(null)} />}
       <TailwindDebugScreens />
     </div>
   );

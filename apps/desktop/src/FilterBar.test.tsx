@@ -208,3 +208,23 @@ test('typing a search on a single-source screen keeps the saved sources and grou
   fireEvent.change(screen.getAllByLabelText('Search title, #issue or id')[0]!, { target: { value: 'x' } });
   expect(onFilter).toHaveBeenLastCalledWith({ ...saved, query: 'x' });
 });
+
+test('project tabs are the Projects filter in one click: All, then each project with cards; several picked light no tab', () => {
+  render(<Harness withCards={['/a', '/b']} />);
+  const tabs = screen.getByRole('tablist', { name: 'Project tabs' });
+  expect(within(tabs).getAllByRole('tab').map((t) => t.textContent)).toEqual(['All', 'alpha-repo', 'beta-repo']);
+  expect(within(tabs).getByRole('tab', { name: 'All' })).toHaveAttribute('aria-selected', 'true');
+  fireEvent.click(within(tabs).getByRole('tab', { name: 'beta-repo' }));
+  expect(state().repos).toEqual(['/b']);
+  expect(within(tabs).getByRole('tab', { name: 'beta-repo' })).toHaveAttribute('aria-selected', 'true');
+  // The picker and the tabs share one state: two picked there, no tab is the selection.
+  fireEvent.click(screen.getByRole('button', { name: /Projects:/ }));
+  fireEvent.click(within(screen.getByRole('group', { name: 'Projects' })).getByLabelText('gamma'));
+  expect(state().repos).toEqual(['/b', '/c']);
+  expect(within(tabs).getAllByRole('tab').filter((t) => t.getAttribute('aria-selected') === 'true')).toEqual([]);
+  expect(screen.getByTestId('tabs-several')).toHaveTextContent('2 projects');
+  expect(screen.getByRole('button', { name: /Projects:/ })).toHaveTextContent('2 projects');
+  fireEvent.click(within(tabs).getByRole('tab', { name: 'All' }));
+  expect(state().repos).toEqual([]);
+  expect(screen.queryByTestId('tabs-several')).toBeNull();
+});

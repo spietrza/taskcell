@@ -93,6 +93,35 @@ function ProjectPicker({ repos, withCards, selected, onChange }: { repos: Repo[]
   );
 }
 
+/**
+ * "All · alpha · beta": one-click tabs over the same Projects filter (no second source of truth). A tab is the
+ * filter narrowed to that one project; several picked in the Projects picker light no tab. Projects without cards
+ * are left to the picker, so 70 repositories do not make 70 tabs (one picked stays as a tab).
+ */
+function ProjectTabs({ repos, withCards, selected, onChange }: { repos: Repo[]; withCards: string[]; selected: string[]; onChange: (paths: string[]) => void }) {
+  const tabs = repos.filter((r) => withCards.includes(r.path) || selected.includes(r.path));
+  const tab = (key: string, label: string, on: boolean, paths: string[]) => (
+    <button key={key} type="button" role="tab" aria-selected={on} onClick={() => onChange(paths)} className={cn('-mb-px shrink-0 border-b-2 px-2 py-1 text-xs transition-colors', on ? 'border-foreground font-medium text-foreground' : 'border-transparent text-muted-foreground hover:text-foreground')}>
+      {label}
+    </button>
+  );
+  // Several picked in Projects: no tab is the selection, and the chip says what is (the same filter, read back).
+  const several = selected.length > 1;
+  return (
+    <div className="flex basis-full items-end gap-2 border-b border-border">
+      <div role="tablist" aria-label="Project tabs" className="flex min-w-0 gap-1 overflow-x-auto">
+        {tab('all', 'All', selected.length === 0, [])}
+        {tabs.map((r) => tab(r.path, r.name, selected.length === 1 && selected[0] === r.path, [r.path]))}
+      </div>
+      {several && (
+        <span data-testid="tabs-several" title="Picked in Projects. A tab narrows to one project; All shows every one." className="mb-1 shrink-0 rounded border border-foreground px-1.5 py-0.5 text-xs font-medium">
+          {selected.length} projects
+        </span>
+      )}
+    </div>
+  );
+}
+
 /** Projects, card source and grouping: everything the phone folds into its Filters drawer. */
 function SecondaryControls({ filter, onChange, repos, withCards, sources }: Props) {
   const toggleSource = (s: CardSource): void =>
@@ -192,6 +221,7 @@ export function FilterBar(props: Props) {
   const active = (filter.repos.length > 0 ? 1 : 0) + (filter.sources.length > 0 ? 1 : 0) + (filter.group !== 'none' ? 1 : 0);
   return (
     <div className="mb-2 flex shrink-0 flex-wrap items-center gap-2" role="search" aria-label="Filters">
+      {props.repos.length > 1 && <ProjectTabs repos={props.repos} withCards={props.withCards} selected={filter.repos} onChange={(r) => onChange({ ...filter, repos: r })} />}
       <div role="group" aria-label="Triage" className="flex gap-1">
         {TRIAGES.map((t) => (
           <button key={t.value} type="button" aria-pressed={filter.triage === t.value} onClick={() => onChange({ ...filter, triage: t.value as Triage })} className={pill(filter.triage === t.value)}>

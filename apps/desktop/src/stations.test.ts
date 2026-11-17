@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'vitest';
-import { STATIONS, STATION_SHORT, stationOf } from './stations';
+import { STATIONS, STATION_SHORT, runStationOf, stationOf } from './stations';
 
 const at = (column: Parameters<typeof stationOf>[0]['column'], stage?: string, opts?: Parameters<typeof stationOf>[1]): number =>
   stationOf({ column, ...(stage !== undefined ? { stage } : {}) }, opts).at;
@@ -33,5 +33,19 @@ describe('stationOf', () => {
 
   test('strip labels shorten only the cell and the pull request', () => {
     expect(STATIONS.map((s) => STATION_SHORT[s])).toEqual(['Card', 'Spec', 'Cell', 'Gates', 'Review', 'PR']);
+  });
+});
+
+describe('runStationOf', () => {
+  const run = { stages: ['spec', 'implementer', 'verify'], anyFailed: false };
+  test('merged is past the line; an open PR sits on PR; a pass without one on Review', () => {
+    expect(runStationOf({ ...run, prState: 'merged', prUrl: 'u' }).at).toBe(STATIONS.length);
+    expect(runStationOf({ ...run, prUrl: 'u' })).toEqual({ at: 5, failed: false });
+    expect(runStationOf(run)).toEqual({ at: 4, failed: false });
+  });
+  test('a failure marks the station of its last stage; a provider-limit stop is not a failure', () => {
+    expect(runStationOf({ ...run, anyFailed: true })).toEqual({ at: 3, failed: true });
+    expect(runStationOf({ ...run, stages: ['tech-spec'], anyFailed: true })).toEqual({ at: 1, failed: true });
+    expect(runStationOf({ ...run, anyFailed: true, stoppedBy: 'provider-limit' })).toEqual({ at: 3, failed: false });
   });
 });

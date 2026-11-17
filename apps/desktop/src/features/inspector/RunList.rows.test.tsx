@@ -25,3 +25,16 @@ test('without a board title the row shows the task id; a running row opens its p
   fireEvent.click(screen.getByText('task-live'));
   expect(onOpenActive).toHaveBeenCalledWith(active[0]);
 });
+
+test('every row shows its station: an open PR on PR, a failed gate red on Gates, a live run in the cell', () => {
+  const base = { timestamp: '2026-07-06T19:12:02.123Z', totalCostUsd: 0, anyFailed: false };
+  const runs = [
+    { ...base, taskId: 'gh-1', stages: ['implementer'], prUrl: 'https://github.com/o/r/pull/5' },
+    { ...base, taskId: 'gh-2', stages: ['implementer', 'verify'], anyFailed: true },
+  ];
+  render(<RunList runs={runs} active={[{ taskId: 'gh-3', sessionFile: '/x', lastActivityMs: Date.now() }]} onSelect={noop} onOpenActive={noop} />);
+  const [live, pr, failed] = screen.getAllByTestId('run-row');
+  expect(live!.querySelector('[role="img"]')).toHaveAttribute('aria-label', 'Station: Sealed cell');
+  expect(pr!.querySelector('[role="img"]')).toHaveAttribute('aria-label', 'Station: Pull request');
+  expect(failed!.querySelector('[role="img"]')).toHaveAttribute('aria-label', 'Station: Gates (failed)');
+});

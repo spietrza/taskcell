@@ -1,4 +1,4 @@
-import type { BoardTask } from './wire';
+import type { BoardTask, RunSummary } from './wire';
 
 /** The factory's six stations, in order: the one vocabulary Board, Runs and Home share. */
 export const STATIONS = ['card', 'spec', 'cell', 'gates', 'review', 'pr'] as const;
@@ -41,4 +41,15 @@ export function stationOf(
     case 'review': return { at: opts.prExists === true ? 5 : 4, failed: false };
     case 'done': return { at: STATIONS.length, failed: false };
   }
+}
+
+/**
+ * Where a finished run left its card: merged is past the line, an open PR sits on PR, a failure (or a provider-limit
+ * stop, not a failure) on the station of its last stage, and a pass without a PR on Review.
+ */
+export function runStationOf(run: Pick<RunSummary, 'stages' | 'anyFailed' | 'prUrl' | 'prState' | 'stoppedBy'>): { at: number; failed: boolean } {
+  if (run.prState === 'merged') return { at: STATIONS.length, failed: false };
+  if (run.prUrl !== undefined) return { at: 5, failed: false };
+  if (run.anyFailed || run.stoppedBy !== undefined) return { at: runningIndex(run.stages.at(-1)), failed: run.stoppedBy === undefined };
+  return { at: 4, failed: false };
 }
