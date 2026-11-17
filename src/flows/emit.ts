@@ -20,7 +20,7 @@ export function emitFlowHcl(stages: PipelineStage[], opts: { name: string; label
   return emitFlowDoc({ name: opts.name, label: opts.label, stages: stages.map(toDecl), loops: [] });
 }
 
-function toDecl(stage: PipelineStage): StageDecl {
+export function toDecl(stage: PipelineStage): StageDecl {
   for (const key of Object.keys(stage)) {
     if (IDENTITY.has(key)) continue;
     if (!(EMITTABLE as readonly string[]).includes(key)) {

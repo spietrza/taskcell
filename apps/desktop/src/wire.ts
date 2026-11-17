@@ -43,6 +43,10 @@ export type RunEvent =
 export interface FlowInfo {
   name: string;
   label: string;
+  /** Stage names in order, for built-ins. */
+  stages?: string[];
+  /** A built-in as an editable flow, present only when copying it is faithful; absent otherwise. */
+  doc?: FlowDoc;
 }
 
 /** What the run builder + flow editor render from — providers, flows, the stage palette, transports, defaults. */
