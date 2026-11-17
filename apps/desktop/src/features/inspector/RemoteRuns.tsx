@@ -93,7 +93,7 @@ export function RemoteRuns({
               <Table.Cell className="max-w-xs truncate text-muted-foreground" title={r.title}>
                 {r.title}
               </Table.Cell>
-              <Table.Cell className="text-muted-foreground">{r.branch}</Table.Cell>
+              <Table.Cell className="max-w-xs truncate text-muted-foreground" title={r.branch}>{r.branch}</Table.Cell>
               <Table.Cell className="tabular-nums text-muted-foreground">
                 <Timestamp ms={Date.parse(r.createdAt)} />
               </Table.Cell>

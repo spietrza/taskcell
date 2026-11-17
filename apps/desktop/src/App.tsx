@@ -426,9 +426,8 @@ export default function App() {
     if (crumb) {
       crumbs.push({ label: SCREEN_LABEL[screen], onClick: () => setClearNonce((n) => n + 1) });
       crumbs.push({ label: crumb });
-    } else {
-      crumbs.push({ label: SCREEN_LABEL[screen] });
     }
+    // No crumb for a screen alone: the top-bar nav already marks it (it read "Settings | Settings").
   }
   const projectPicker =
     active && (screen === 'settings' || screen === 'task') ? (
