@@ -20,10 +20,15 @@ const MOVING_SHOWN = 6;
 function useHubRead<T>(read: () => Promise<T>, key: string, repos: string[], pollMs?: number): T | null {
   const [data, setData] = useState<T | null>(null);
   useEffect(() => {
+    setData(null); // another scope: never show the old one's answer
     let alive = true;
     let busy = false;
+    let again = false; // a change arrived mid-read: one trailing read
     const load = (): void => {
-      if (busy) return;
+      if (busy) {
+        again = true;
+        return;
+      }
       busy = true;
       read()
         .then((d) => {
@@ -31,6 +36,10 @@ function useHubRead<T>(read: () => Promise<T>, key: string, repos: string[], pol
         }, () => {})
         .finally(() => {
           busy = false;
+          if (again && alive) {
+            again = false;
+            load();
+          }
         });
     };
     load();
@@ -122,7 +131,7 @@ export function Home({
           return listActive(path).then((a) => a.map((r): StampedActive => ({ ...r, repoPath: path, repoName: name })), () => []);
         }),
       ).then((l) => l.flat()),
-    runningKey,
+    `${runningKey}|${repoKey}`,
     repoPaths,
   );
 

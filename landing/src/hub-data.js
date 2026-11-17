@@ -10,8 +10,6 @@ const STAGE_AT = { 2: 'implement', 3: 'verify', 4: 'review' };
 const STATE_AT = ['Ready for agent', 'Claimed', 'In Progress', 'In Progress', 'In Progress', 'In Review', 'In Review'];
 /** The step its pull request is open: Home's Needs you count goes up by one. */
 const PR_STEP = 5;
-/** The Runs badge counts finished runs and the one in flight: not yet while the card is queued or claimed. */
-const IN_FLIGHT_STEP = 2;
 
 const gone = (el, hide) => el?.classList.toggle('hub-gone', hide);
 
@@ -31,8 +29,6 @@ export function hubAnimator(root) {
   const feed = [...root.querySelectorAll('[data-hub-at]')];
   const frames = [...root.querySelectorAll('template[data-hub-step]')].map((t) => t.innerHTML);
   const badges = Object.fromEntries([...root.querySelectorAll('[data-hub-badge]')].map((b) => [b.dataset.hubBadge, b]));
-  const running = q('running');
-  const runBase = Number(badges.Runs?.textContent ?? 0);
   const needBase = Number(badges.Home?.textContent ?? 0);
   const from = Number(drawer.dataset.hubStep);
   const waiting = header ? Number(/Waiting (\d+)/.exec(header.textContent)?.[1] ?? 0) : 0;
@@ -59,8 +55,6 @@ export function hubAnimator(root) {
     }
     for (const f of feed) gone(f, Number(f.dataset.hubAt) > step);
     gone(q('feed'), !feed.some((f) => Number(f.dataset.hubAt) <= step));
-    gone(running?.firstElementChild, !(step >= IN_FLIGHT_STEP && step < PR_STEP));
-    if (badges.Runs) badges.Runs.textContent = String(step < IN_FLIGHT_STEP ? runBase - 1 : runBase);
     if (badges.Home) badges.Home.textContent = String(step >= PR_STEP ? needBase + 1 : needBase);
   };
   return { paint, from };

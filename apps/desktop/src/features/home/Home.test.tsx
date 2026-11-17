@@ -15,19 +15,39 @@ const needsItem: StampedNeeds = { id: 'o/alpha#7', kind: 'pr', number: 7, repoSl
 let tasks: unknown[] = [];
 let runs: unknown[] = [];
 const calls: string[] = [];
+// A test holds list_tasks_all open with this; `emit` plays a hub event to the page.
+let gate: Promise<void> | null = null;
+let emit: (name: string, data: unknown) => void = () => {};
 
 beforeEach(() => {
   tasks = [];
   runs = [];
+  gate = null;
   calls.length = 0;
   window.__TASKCELL_HUB__ = true;
   // Home subscribes to the hub's event stream.
-  vi.stubGlobal('EventSource', class { addEventListener(): void {} removeEventListener(): void {} close(): void {} });
+  vi.stubGlobal(
+    'EventSource',
+    class {
+      private on = new Map<string, Set<(e: MessageEvent) => void>>();
+      constructor() {
+        emit = (name, data) => this.on.get(name)?.forEach((l) => l(new MessageEvent(name, { data: JSON.stringify(data) })));
+      }
+      addEventListener(n: string, l: (e: MessageEvent) => void): void {
+        this.on.set(n, (this.on.get(n) ?? new Set()).add(l));
+      }
+      removeEventListener(n: string, l: (e: MessageEvent) => void): void {
+        this.on.get(n)?.delete(l);
+      }
+      close(): void {}
+    },
+  );
   vi.stubGlobal(
     'fetch',
     vi.fn(async (url: string) => {
       const cmd = url.slice(url.indexOf('/rpc/') + 5);
       calls.push(cmd);
+      if (cmd === 'list_tasks_all') await gate;
       const result =
         cmd === 'list_tasks_all' ? { tasks, capped: false, failures: [] } : cmd === 'list_runs_all' ? { runs, failures: [] } : cmd === 'list_active' ? [{ taskId: 'gh-owner-alpha-1', sessionFile: '/s', lastActivityMs: NOW }] : null;
       return new Response(JSON.stringify({ result }), { status: 200, headers: { 'content-type': 'application/json' } });
@@ -57,8 +77,8 @@ function mount(over: Partial<Parameters<typeof Home>[0]> = {}) {
     onOpenBoard: vi.fn(),
     ...over,
   };
-  render(<Home {...props} />);
-  return props;
+  const { rerender } = render(<Home {...props} />);
+  return { ...props, rerender: (o: Partial<Parameters<typeof Home>[0]>) => rerender(<Home {...props} {...o} />) };
 }
 
 test('says what waits and what moves, lists the inbox, Moving, the floor and the week', async () => {
@@ -137,4 +157,32 @@ test('live runs are asked for only in projects the hub says are running, and run
   await waitFor(() => expect(calls).toContain('list_active'));
   expect(calls.filter((c) => c === 'list_active')).toHaveLength(1);
   expect(calls.filter((c) => c === 'list_runs_all')).toHaveLength(1);
+});
+
+test('a change that arrives while a read is out triggers one trailing read', async () => {
+  let release = (): void => {};
+  gate = new Promise<void>((r) => (release = r));
+  mount();
+  await waitFor(() => expect(calls.filter((c) => c === 'list_tasks_all')).toHaveLength(1));
+  await waitFor(() => expect(calls).toContain('list_runs_all'));
+  emit('vanguard:changed', alpha.path);
+  emit('vanguard:changed', alpha.path);
+  gate = null;
+  release();
+  await waitFor(() => expect(calls.filter((c) => c === 'list_tasks_all')).toHaveLength(2));
+  await new Promise((r) => setTimeout(r, 30));
+  expect(calls.filter((c) => c === 'list_tasks_all')).toHaveLength(2);
+});
+
+test('after the scope changes the old scope’s data is not shown while the new read is out', async () => {
+  tasks = [card('gh-1', 'running', alpha)];
+  const m = mount();
+  await screen.findByText('Card gh-1');
+  let release = (): void => {};
+  gate = new Promise<void>((r) => (release = r));
+  m.rerender({ repoPaths: [beta.path], teamId: 'other', needs: null });
+  await waitFor(() => expect(screen.queryByText('Card gh-1')).toBeNull());
+  await new Promise((r) => setTimeout(r, 30));
+  expect(screen.queryByText('Card gh-1')).toBeNull();
+  release();
 });

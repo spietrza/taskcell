@@ -14,7 +14,7 @@ import type { BoardTask } from '../wire';
 import { demoActiveRuns, demoBoardTasks, demoRunDetails, demoSession } from './demoData';
 
 export interface HubScene {
-  /** The app's root element: top bar, rail, Board and the open quick view, hooks for the animator as `data-hub-*`. */
+  /** The app's root element: top bar, Board and the open quick view, hooks for the animator as `data-hub-*`. */
   app: string;
   /** The running card the quick view follows, and the step of its stage line the app shows it at. */
   card: string;
@@ -84,7 +84,7 @@ export async function renderHubScene(): Promise<HubScene> {
 
   const { container } = render(<App />);
   fireEvent.click(await screen.findByText('storefront (demo)', { selector: '*' }));
-  // Home first: it mounts Needs you, whose count badges Home in the rail.
+  // Home first: it mounts Needs you, whose count badges Home in the top bar.
   fireEvent.click(await screen.findByRole('button', { name: /^Home/ }));
   await screen.findByRole('heading', { name: 'Projects' });
   await waitFor(() => {
@@ -95,7 +95,7 @@ export async function renderHubScene(): Promise<HubScene> {
   await screen.findByLabelText('Stage line');
   const app = container.firstElementChild as HTMLElement;
 
-  // Hooks for the animator: where the columns, cards, counts, rail entries and the drawer are.
+  // Hooks for the animator: where the columns, cards, counts, the Home badge and the drawer are.
   const main = app.querySelector('main')!;
   const columns = [...main.querySelectorAll('section > div > div')];
   const names = columns.map((col) => {
@@ -121,12 +121,8 @@ export async function renderHubScene(): Promise<HubScene> {
   hook(columns[0]?.closest('section')?.parentElement, 'lanes');
   hook(columns.flatMap((c) => [...c.querySelectorAll('div.border-dashed')])[0], 'empty');
   hook([...main.querySelectorAll('span')].find((s) => /^Running \d+ · Waiting \d+$/.test(s.textContent ?? '')), 'counts');
-  const rail = app.querySelector('aside')!;
-  for (const b of rail.querySelectorAll('nav button')) {
-    const n = b.querySelector('span.ml-auto');
-    if (n) hook(n, 'badge', b.textContent?.replace(/\d+$/, '').trim() ?? '');
-  }
-  hook([...rail.querySelectorAll('.caption')].find((c) => c.textContent === 'Running')?.nextElementSibling, 'running');
+  const home = [...app.querySelectorAll('nav[aria-label="Main"] button')].find((b) => /^Home/.test(b.textContent ?? ''));
+  hook(home?.querySelector('span.rounded-sm'), 'badge', 'Home');
   const drawer = main.querySelector('aside[aria-label^="Quick view"]')!;
   hook(drawer, 'drawer');
   hook(drawer.querySelector('ol[aria-label="Stage line"]'), 'stages');

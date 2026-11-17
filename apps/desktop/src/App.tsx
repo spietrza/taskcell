@@ -374,6 +374,12 @@ export default function App() {
   const repoPaths = projects.map((p) => p.path).filter((p) => filter.repos.length === 0 || filter.repos.includes(p));
   const repoKey = repoPaths.join('\n');
 
+  // Another scope: the old one's items and error must not show while the new read is out.
+  useEffect(() => {
+    setNeeds(null);
+    setNeedsError(null);
+  }, [scopeId, repoKey]);
+
   // The one read of what waits on the user (30 s, and after a reply or merge): Home's list, its sentence and the badge.
   useEffect(() => {
     if (!needsYou || !activeProject) {
@@ -510,7 +516,7 @@ export default function App() {
       <div className="flex min-h-0 flex-1 max-md:flex-col">
         <main className="flex min-w-0 flex-1 flex-col overflow-hidden max-md:pb-16">
           {showHome ? (
-            <div className="h-full overflow-y-auto max-md:pb-16">
+            <div className="h-full overflow-y-auto">
               {/* One tree whether or not a project is active, so the project cards do not remount when one is picked. */}
               <div className={cn(PAGE_CLASS, 'space-y-6')}>
                 {active && (
