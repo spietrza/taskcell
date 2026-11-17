@@ -1354,6 +1354,9 @@ export interface Commands {
   discover_skills: { args: { repoPath: string; source: string }; result: { commit: string; skills: DiscoveredSkill[] } };
   /** HUB_ONLY, owner only (it reads the forge): the project's open skill-add PRs, by branch prefix. GitHub only; others get an empty list. */
   list_pending_skill_prs: { args: { repoPath: string }; result: { prs: PendingSkillPr[] } };
+  /** HUB_ONLY, owner only, a write: fast-forward the hub's checkout to origin's default branch, so merged skills appear. Refuses (changing nothing)
+   * on a dirty tree, a branch other than the default, or a diverged history; the reason is the error. */
+  pull_checkout: { args: { repoPath: string }; result: { updated: boolean } };
   /** HUB_ONLY, owner only: `skills remove` delivered as a PR. */
   remove_skill_pr: { args: { repoPath: string; name: string }; result: { prUrl: string } };
   /** `hubBoard`: the project's task source is the hub's own board (its cards are created and scheduled in the hub). */
@@ -1488,6 +1491,7 @@ export const COMMAND_NAMES = [
   'local_worker_state',
   'merge_needs_you',
   'migrate_labels',
+  'pull_checkout',
   'read_app_config',
   'read_app_config_strict',
   'read_approver_decisions',
@@ -1563,6 +1567,7 @@ export const WRITE_COMMAND_NAMES: readonly (typeof COMMAND_NAMES)[number][] = [
   'local_worker_set',
   'merge_needs_you',
   'migrate_labels',
+  'pull_checkout',
   'remove_project',
   'remove_skill_pr',
   'remove_team_member',

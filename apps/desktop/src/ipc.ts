@@ -574,6 +574,11 @@ export function listPendingSkillPrs(repoPath: string): Promise<Commands['list_pe
   return call('list_pending_skill_prs', { repoPath });
 }
 
+/** Hub-only, owner only, a write: fast-forward the hub's checkout to the default branch. Throws with the reason when it refuses. */
+export function pullCheckout(repoPath: string): Promise<Commands['pull_checkout']['result']> {
+  return call('pull_checkout', { repoPath });
+}
+
 /** Hub-only, owner only, a mutation: open a PR that removes a skill. */
 export function removeSkillPr(repoPath: string, name: string): Promise<Commands['remove_skill_pr']['result']> {
   return call('remove_skill_pr', { repoPath, name });

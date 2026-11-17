@@ -176,6 +176,7 @@ const commandHandlers = {
   add_skill_pr: () => ({ prUrl: 'https://github.com/acme/app/pull/1' }),
   discover_skills: () => ({ commit: 'c'.repeat(40), skills: [{ path: 'skills/demo', name: 'demo' }] }),
   list_pending_skill_prs: () => ({ prs: [] }),
+  pull_checkout: () => ({ updated: false }),
   remove_skill_pr: () => ({ prUrl: 'https://github.com/acme/app/pull/1' }),
   dismiss_lesson: (args: { id?: string } | undefined) => {
     mockLessons = mockLessons.filter((l) => l.id !== args?.id);

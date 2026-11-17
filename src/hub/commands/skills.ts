@@ -6,8 +6,9 @@ import { aggregateSkills } from '../../core/skill-stats.js';
 import { parseMetrics } from '../../core/stats.js';
 import { cachedResolver, recordedMetrics, skillsAddPr, skillsDiscover, skillsChecked, skillsRemovePr, skillsUpdate, type SkillsPrResult } from '../../core/skills.js';
 import type { DiscoveredSkill, PendingSkillPr, RepoSkill } from '../../wire.js';
-import { defineCommands, githubSlug, optionalString, requireString, repoItemTarget, repoTarget } from '../command-kit.js';
+import { assertHasRemote, defineCommands, githubSlug, optionalString, requireString, repoItemTarget, repoTarget } from '../command-kit.js';
 import { safeUrl } from '../audit.js';
+import { pullCheckout } from '../pull-checkout.js';
 import { listPendingSkillPrs } from '../skills-pending.js';
 import { BadRequestError } from '../../sidecar/sidecar.js';
 
@@ -23,6 +24,9 @@ export interface SkillsCommands {
   discover_skills: { args: { repoPath: string; source: string }; result: { commit: string; skills: DiscoveredSkill[] } };
   /** HUB_ONLY, owner only (it reads the forge): the project's open skill-add PRs, by branch prefix. GitHub only; others get an empty list. */
   list_pending_skill_prs: { args: { repoPath: string }; result: { prs: PendingSkillPr[] } };
+  /** HUB_ONLY, owner only, a write: fast-forward the hub's checkout to origin's default branch, so merged skills appear. Refuses (changing nothing)
+   * on a dirty tree, a branch other than the default, or a diverged history; the reason is the error. */
+  pull_checkout: { args: { repoPath: string }; result: { updated: boolean } };
   /** HUB_ONLY, owner only: `skills remove` delivered as a PR. */
   remove_skill_pr: { args: { repoPath: string; name: string }; result: { prUrl: string } };
 }
@@ -137,6 +141,11 @@ export const commands = defineCommands<SkillsCommands>({
     const slug = await githubSlug(await allow(requireString(args, 'repoPath')));
     return { prs: slug === undefined ? [] : await listPendingSkillPrs(slug) };
   },
+  pull_checkout: async ({ args, allow }) => {
+    const real = await allow(requireString(args, 'repoPath'));
+    await assertHasRemote(real, false);
+    return pullCheckout(real);
+  },
   remove_skill_pr: async ({ args, allow }) => {
     const real = await allow(requireString(args, 'repoPath'));
     const name = requireString(args, 'name');
@@ -150,9 +159,11 @@ export const commands = defineCommands<SkillsCommands>({
   discover_skills: { write: false, remote: true, owner: true, repo: 'repoPath' },
   list_pending_skill_prs: { write: false, remote: true, owner: true, repo: 'repoPath' },
   remove_skill_pr: { write: true, remote: true, owner: true, repo: 'repoPath' },
+  pull_checkout: { write: true, remote: true, owner: true, repo: 'repoPath' },
 }, {
   update_skill_pr: { action: 'settings-change', target: repoItemTarget('name') },
   // The source may carry credentials (even a refused one is audited): log only scheme, host and path.
   add_skill_pr: { action: 'settings-change', target: (a) => `${repoTarget(a) ?? ''}:${safeUrl(optionalString(a, 'source') ?? '')}` },
   remove_skill_pr: { action: 'settings-change', target: repoItemTarget('name') },
+  pull_checkout: { action: 'settings-change', target: repoTarget },
 });

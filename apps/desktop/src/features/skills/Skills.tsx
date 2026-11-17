@@ -1,7 +1,7 @@
 import { useState, type ReactNode } from 'react';
 import { Button, Chip, Input, ScrollTable, Table } from '@/ui';
 import { RefreshCw } from 'lucide-react';
-import { addSkillPr, discoverSkills, listPendingSkillPrs, listRepoSkills, removeSkillPr, updateSkillPr } from '../../ipc';
+import { addSkillPr, discoverSkills, listPendingSkillPrs, listRepoSkills, pullCheckout, removeSkillPr, updateSkillPr } from '../../ipc';
 import { errorClause, errorMessage } from '../../errors';
 import { gateProps, useAsync, useCallerCapabilities } from '../../hooks';
 import { ExternalLink } from '../../components/ExternalLink';
@@ -49,6 +49,7 @@ export function Skills({ project }: { project: string }) {
   const [outcome, setOutcome] = useState<Record<string, Outcome>>({});
   // The PR an add opened, kept until the view is left: its skills are not in the list until it is merged.
   const [notice, setNotice] = useState<{ prUrl: string; names: string[] } | null>(null);
+  const [pull, setPull] = useState<{ kind: 'ok' | 'error'; message: string } | null>(null);
   const { data, error, loading } = useAsync(() => listRepoSkills(project), [project, nonce]);
   // Best effort: a caller who may not read the forge, or a project without a GitHub remote, simply sees none.
   const { data: pendingData } = useAsync(() => listPendingSkillPrs(project).catch(() => ({ prs: [] })), [project, nonce]);
@@ -76,6 +77,30 @@ export function Skills({ project }: { project: string }) {
       setBusy(null);
     }
   };
+  const pullNow = async (): Promise<void> => {
+    setBusy('pull');
+    try {
+      const { updated } = await pullCheckout(project);
+      setPull({ kind: 'ok', message: updated ? 'Checkout updated.' : 'Checkout already up to date.' });
+      setNonce((n) => n + 1);
+    } catch (e) {
+      setPull({ kind: 'error', message: errorClause(errorMessage(e)) });
+    } finally {
+      setBusy(null);
+    }
+  };
+  const pullButton = (
+    <span className="flex flex-wrap items-center gap-2">
+      <Button variant="outlined" {...gateProps(caps?.canEditSkills)} disabled={busy !== null || caps?.canEditSkills.allowed === false} onClick={() => void pullNow()}>
+        {busy === 'pull' ? 'Pulling…' : 'Pull checkout'}
+      </Button>
+      {pull && (
+        <span role={pull.kind === 'error' ? 'alert' : 'status'} className={pull.kind === 'error' ? 'text-xs text-destructive-text' : 'text-xs text-muted-foreground'}>
+          {pull.kind === 'error' ? `Not pulled: ${pull.message}` : pull.message}
+        </span>
+      )}
+    </span>
+  );
   // A link to a folder already names its skill; a repository is looked through first, so a repository of several skills
   // is not added whole.
   const pointsAtFolder = (u: string): boolean => /\/(-\/)?(tree|blob)\/[^/]+\/[^/]/.test(u);
@@ -124,7 +149,7 @@ export function Skills({ project }: { project: string }) {
           Refresh
         </Button>
       </div>
-      <p className="text-xs text-muted-foreground">Shows the hub checkout's working tree; every change here opens a pull request off the default branch, which can differ.</p>
+      <p className="text-xs text-muted-foreground">Skills live in the repository, so the factory reads them on every run. Adding one opens a pull request for you to review; it shows here after you merge it and update this checkout.</p>
       <div className="flex flex-wrap items-center gap-2">
         <Input aria-label="Skill source" placeholder="https://github.com/org/skill-repo" value={source} onChange={(e) => { setSource(e.target.value); setFound(null); }} className="max-w-md" />
         <Button variant="outlined" {...gateProps(caps?.canEditSkills)} disabled={busy !== null || source.trim() === '' || caps?.canEditSkills.allowed === false} onClick={() => void add()}>
@@ -150,9 +175,11 @@ export function Skills({ project }: { project: string }) {
               </li>
             ))}
           </ul>
-          <p className="text-xs text-muted-foreground">After merging, pull the hub checkout to see them here.</p>
+          <p className="text-xs text-muted-foreground">After merging, pull the checkout to see them here.</p>
+          {pullButton}
         </section>
       )}
+      {pending.length === 0 && <div>{pullButton}</div>}
       {found && (
         <fieldset className="space-y-1 rounded border border-border p-3 text-sm">
           <legend className="px-1 text-xs text-muted-foreground">

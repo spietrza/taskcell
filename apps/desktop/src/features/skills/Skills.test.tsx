@@ -24,7 +24,7 @@ function stubHub(fail: Record<string, string> = {}): { cmd: string; body: unknow
     calls.push({ cmd, body: init?.body ? JSON.parse(String(init.body)) : undefined });
     const message = fail[cmd];
     if (message !== undefined) return new Response(JSON.stringify({ error: { kind: 'bad-request', message } }), { status: 400 });
-    const result = cmd === 'list_repo_skills' ? { skills: fixture } : cmd === 'discover_skills' ? discovered : cmd === 'list_pending_skill_prs' ? { prs: pendingPrs } : { prUrl: 'https://github.com/o/r/pull/9' };
+    const result = cmd === 'list_repo_skills' ? { skills: fixture } : cmd === 'discover_skills' ? discovered : cmd === 'list_pending_skill_prs' ? { prs: pendingPrs } : cmd === 'pull_checkout' ? { updated: true } : { prUrl: 'https://github.com/o/r/pull/9' };
     return new Response(JSON.stringify({ result }), { status: 200, headers: { 'content-type': 'application/json' } });
   }));
   return calls;
@@ -163,6 +163,24 @@ test('open skill-add PRs are listed under Waiting for merge', async () => {
   expect(link).toHaveAttribute('href', 'https://github.com/o/r/pull/29');
   expect(screen.getByText('ponytail, caveman')).toBeInTheDocument();
   expect(screen.getByRole('region', { name: 'Waiting for merge' })).toBeInTheDocument();
-  expect(screen.getByText(/pull the hub checkout/)).toBeInTheDocument();
+  expect(screen.getByText(/pull the checkout/)).toBeInTheDocument();
   pendingPrs = [];
+});
+
+test('Pull checkout calls pull_checkout, refreshes the lists and says it updated', async () => {
+  const calls = stubHub();
+  render(<Skills project="/repo" />);
+  await screen.findByText('caveman');
+  fireEvent.click(screen.getByRole('button', { name: 'Pull checkout' }));
+  expect(await screen.findByText('Checkout updated.')).toBeInTheDocument();
+  expect(calls.find((c) => c.cmd === 'pull_checkout')?.body).toEqual({ repoPath: '/repo' });
+  expect(calls.filter((c) => c.cmd === 'list_repo_skills')).toHaveLength(2);
+});
+
+test('a refused pull shows the reason', async () => {
+  stubHub({ pull_checkout: 'The checkout has uncommitted changes; commit or discard them first.' });
+  render(<Skills project="/repo" />);
+  await screen.findByText('caveman');
+  fireEvent.click(screen.getByRole('button', { name: 'Pull checkout' }));
+  expect(await screen.findByRole('alert')).toHaveTextContent(/Not pulled: .*uncommitted changes/);
 });

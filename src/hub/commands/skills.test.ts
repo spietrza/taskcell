@@ -141,6 +141,18 @@ test('without the owner role, update, add and remove are refused before anything
   expect(cli.skillsRemovePr).not.toHaveBeenCalled();
 });
 
+test('pending names come from the body marker (full list), validated; old PRs fall back to the title', async () => {
+  const repo = await tmpGitRepo('https://github.com/allowed/repo.git');
+  const { ctx } = await makeCtx(repo);
+  const pr = (number: number, title: string, body: string) => ({ number, url: `https://github.com/allowed/repo/pull/${number}`, title, body, headRefName: 'chore/taskcell-skills-add-1' });
+  gh.mockResolvedValue(JSON.stringify([
+    pr(1, 'chore(skills): add ponytail-r', 'Adds.\n\n<!-- taskcell-skills: ponytail-review,caveman,../x,a b,-bad -->'),
+    pr(2, 'chore(skills): add old-one, old-two', 'no marker here'),
+  ]));
+  const { prs } = (await dispatchRpc(ctx, 'list_pending_skill_prs', { repoPath: repo })) as { prs: { names: string[] }[] };
+  expect(prs.map((p) => p.names)).toEqual([['ponytail-review', 'caveman'], ['old-one', 'old-two']]);
+});
+
 test('list_pending_skill_prs lists only open skill-add branches, with the skill names from the title', async () => {
   const repo = await tmpGitRepo('https://github.com/allowed/repo.git');
   const { ctx } = await makeCtx(repo);
