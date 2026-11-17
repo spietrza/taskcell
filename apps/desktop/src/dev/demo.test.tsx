@@ -73,8 +73,10 @@ test('every main screen opens in demo mode without errors', async () => {
   render(<App />);
   expect(await screen.findByRole('status')).toHaveTextContent(/Demo project/);
   fireEvent.click(await screen.findByText('storefront (demo)', { selector: '*' }));
+  // A project opens on its Board; Runs is one tab over.
+  fireEvent.click(await screen.findByRole('button', { name: 'Runs' }));
 
-  // A project opens on Runs. The run in progress opens first, as after a reload with a live run: DEMO-104 with its stages, not an empty box.
+  // On Runs, The run in progress opens first, as after a reload with a live run: DEMO-104 with its stages, not an empty box.
   expect(await screen.findByRole('button', { name: /Back to runs/ })).toBeInTheDocument();
   // The header shows the id until the board loads, then the card title, so assert on the pane's own label.
   expect(await screen.findByRole('region', { name: 'Run DEMO-104' })).toBeInTheDocument();
@@ -147,6 +149,7 @@ test('demo: Stop says read-only; the New Run form closes on Cancel and on naviga
   vi.stubGlobal('matchMedia', (q: string) => ({ matches: false, media: q, addEventListener: () => {}, removeEventListener: () => {}, addListener: () => {}, removeListener: () => {} }));
   render(<App />);
   fireEvent.click(await screen.findByText('storefront (demo)', { selector: '*' }));
+  fireEvent.click(await screen.findByRole('button', { name: 'Runs' }));
   fireEvent.click(await screen.findByRole('button', { name: /^(Stop|Cancel)/ }));
   expect(await screen.findByText(/Demo project is read-only/)).toBeInTheDocument();
 
@@ -194,4 +197,15 @@ test('the running demo card and its live transcript tell the same story', () => 
   expect(text).toMatch(/wishlist/i);
   expect(text).toMatch(/account/i);
   expect(text).not.toMatch(/Add the new endpoint|src\/index\.ts/);
+});
+
+test('a project opened from Home narrows the Board for that visit only; the top-bar Board shows the saved filter', async () => {
+  window.__TASKCELL_DEMO__ = true;
+  vi.stubGlobal('matchMedia', (q: string) => ({ matches: false, media: q, addEventListener: () => {}, removeEventListener: () => {}, addListener: () => {}, removeListener: () => {} }));
+  render(<App />);
+  fireEvent.click(await screen.findByText('storefront (demo)', { selector: '*' }));
+  expect((await screen.findAllByRole('button', { name: /^Projects: storefront/ })).length).toBeGreaterThan(0);
+  expect(localStorage.getItem('vanguard.hubFilter.demo') ?? '').not.toContain('storefront');
+  fireEvent.click(screen.getByRole('button', { name: 'Board' }));
+  expect((await screen.findAllByRole('button', { name: 'Projects: All projects' })).length).toBeGreaterThan(0);
 });

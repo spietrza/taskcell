@@ -262,6 +262,8 @@ test('switching team clears the previous team’s runs at once, before the new t
   );
   render(<App />);
   fireEvent.click(await screen.findByRole('button', { name: p.name }));
+  // A project opens on its Board; the runs are one tab over.
+  fireEvent.click(await screen.findByRole('button', { name: 'Runs' }));
   expect(await screen.findByText('A-RUN')).toBeInTheDocument();
   fireEvent.change(screen.getByLabelText('Team'), { target: { value: 'b' } });
   await waitFor(() => expect(screen.queryByText('A-RUN')).toBeNull());

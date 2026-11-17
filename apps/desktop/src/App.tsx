@@ -353,12 +353,19 @@ export default function App() {
   };
 
   // Old entries to the Needs you screen open Home, which starts with that section.
-  const goto = (s: Screen | 'needs'): void => navigate(() => setScreen(resolveScreen(s).screen));
+  // The Board from the top bar shows the saved filter (all projects until the user narrows it); entering one
+  // project narrows the board for this visit only, so the saved choice is not overwritten.
+  const goto = (s: Screen | 'needs'): void =>
+    navigate(() => {
+      const next = resolveScreen(s).screen;
+      if (next === 'board') setFilter(loadFilter());
+      setScreen(next);
+    });
 
-  const enterProject = (path: string, to: Screen = 'runs'): void => {
+  const enterProject = (path: string, to: Screen = 'board'): void => {
     navigate(() => {
       setActiveProject(path);
-      changeFilter({ ...filter, repos: [path] });
+      setFilter({ ...filter, repos: [path] });
       setScreen(to);
     });
   };
@@ -491,6 +498,8 @@ export default function App() {
               navigate(() => {
                 // A click on the screen already open leaves its drill-down (a run detail, a live strip) for the list.
                 if (!showHome && sc === screen) setClearNonce((n) => n + 1);
+                // The top-bar Board shows the saved filter, not a one-project visit entered from Home.
+                if (sc === 'board') setFilter(loadFilter());
                 setScreen(sc);
               })
             }
