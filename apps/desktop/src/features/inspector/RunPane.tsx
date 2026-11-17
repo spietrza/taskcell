@@ -70,7 +70,8 @@ export function RunPane({
   }, [live]);
 
   useEffect(() => {
-    if (!active) return;
+    // A run listed from its launch has no session file yet: its stage line comes from the event log alone.
+    if (!active || active.sessionFile === '') return;
     let alive = true;
     readSession(active.sessionFile)
       .then((d) => alive && setSession(d))

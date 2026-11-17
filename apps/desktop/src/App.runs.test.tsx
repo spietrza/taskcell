@@ -19,8 +19,8 @@ afterEach(() => {
 test('a run started from the Board lands in the Runs split view, not the old strip', async () => {
   const p = projects[0]!;
   window.__TASKCELL_HUB__ = true;
-  const sse = new Map<string, () => void>();
-  vi.stubGlobal('EventSource', class { addEventListener(name: string, fn: () => void): void { sse.set(name, fn); } removeEventListener(): void {} close(): void {} });
+  const sse = new Map<string, (ev?: unknown) => void>();
+  vi.stubGlobal('EventSource', class { addEventListener(name: string, fn: (ev?: unknown) => void): void { sse.set(name, fn); } removeEventListener(): void {} close(): void {} });
   const results: Record<string, unknown> = {
     list_teams: [],
     list_projects: [p],
@@ -65,6 +65,16 @@ test('a run started from the Board lands in the Runs split view, not the old str
   expect(window.location.search).toBe('?screen=runs');
   expect(screen.queryByText('starting…')).toBeNull();
   expect(screen.queryByRole('button', { name: 'show live run' })).toBeNull();
+  // While the sealed cell starts the list says so, never "No runs found".
+  expect(screen.getByText('Starting the run…')).toBeInTheDocument();
+  expect(screen.queryByText('No runs found')).toBeNull();
+  // From run-start the run is listed and open in the pane, before `list_active` knows it (no session file yet).
+  results.read_run_events = { events: [] };
+  const hubEvent = (event: Record<string, unknown>): void => act(() => sse.get('api:event')?.({ data: JSON.stringify({ runId: 'r1', event }) } as never));
+  hubEvent({ type: 'run-accepted', repoPath: p.path });
+  hubEvent({ type: 'run-start', taskId: 'gh-7', flow: 'default', provider: 'claude', stages: ['sandbox', 'implementer'] });
+  expect(await screen.findByRole('region', { name: 'Run gh-7' })).toBeInTheDocument();
+  expect(screen.queryByText('Starting the run…')).toBeNull();
   // A running row opens in the pane beside the list, with no "running — view" chip.
   results.list_active = [{ taskId: 'gh-7', sessionFile: '/s', lastActivityMs: Date.now() }];
   results.read_session = { entries: [], inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, estCostUsd: 0 };
@@ -80,6 +90,7 @@ test('a run started from the Board lands in the Runs split view, not the old str
   results.read_run = { taskId: 'gh-7', timestamp: record.timestamp, stages: [], prUrl: record.prUrl };
   results.read_run_events = { events: [] };
   // The hub tells the page the run ended (a stream resync refreshes the list as a change event would).
+  hubEvent({ type: 'run-end', prUrl: record.prUrl });
   act(() => sse.get('stream-reset')?.());
   await waitFor(() => expect(screen.getByRole('region', { name: 'Run gh-7' })).toHaveTextContent('#10'));
 });
