@@ -125,6 +125,15 @@ export function effectiveFilter(f: HubFilter, offered: CardSource[] | undefined)
   return sources.length === f.sources.length && group === f.group ? f : { ...f, sources, group };
 }
 
+/** A change made in the bar (which shows the effective filter) as it is saved: sources and grouping it did not touch keep their saved value. */
+export function saveChange(next: HubFilter, effective: HubFilter, saved: HubFilter): HubFilter {
+  return {
+    ...next,
+    sources: next.sources === effective.sources ? saved.sources : next.sources,
+    group: next.group === effective.group ? saved.group : next.group,
+  };
+}
+
 interface Row {
   triage: Exclude<Triage, 'all'> | 'other';
   source: CardSource;

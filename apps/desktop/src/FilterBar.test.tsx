@@ -181,3 +181,12 @@ test('a saved source that is no longer offered does not filter the Board', async
   expect(await screen.findByText('Alpha')).toBeInTheDocument();
   expect(screen.getByText('Beta')).toBeInTheDocument();
 });
+
+test('typing a search on a single-source screen keeps the saved sources and grouping', async () => {
+  const onFilter = vi.fn();
+  const saved: HubFilter = { ...DEFAULT_FILTER, sources: ['gitlab'], group: 'source' };
+  render(<TaskBoard project="/a" allRepos repos={['/a']} filter={saved} onFilter={onFilter} configured={['github']} projects={repos} onOpenTask={() => {}} onNewTask={() => {}} />);
+  await screen.findByText('Alpha');
+  fireEvent.change(screen.getAllByLabelText('Search title, #issue or id')[0]!, { target: { value: 'x' } });
+  expect(onFilter).toHaveBeenLastCalledWith({ ...saved, query: 'x' });
+});

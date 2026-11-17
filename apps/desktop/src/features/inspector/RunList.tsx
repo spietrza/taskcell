@@ -3,7 +3,7 @@ import { Button, Chip, Empty, Input, Timestamp, cn } from '@/ui';
 import { Inbox, RefreshCw, Search } from 'lucide-react';
 import { verdictColor } from '../../status';
 import { FilterBar, NoMatch } from '../../FilterBar';
-import { DEFAULT_FILTER, canClearFilters, clearFilters, effectiveFilter, filterActive, filterNames, filterRuns, groupRows, offeredSources, runKeys, runSource, searchText, type RunMeta, type CardSource, type HubFilter } from '../../filterState';
+import { DEFAULT_FILTER, canClearFilters, clearFilters, effectiveFilter, filterActive, filterNames, filterRuns, groupRows, offeredSources, runKeys, runSource, saveChange, searchText, type RunMeta, type CardSource, type HubFilter } from '../../filterState';
 import { ExternalLink, hostName } from '../../components/ExternalLink';
 import { costLabel, estTitle } from '../../cost';
 import { RunsSplit } from './RunsSplit';
@@ -247,7 +247,7 @@ export function RunList({
       {/* Narrow screens: with a run open the pane has the whole screen, so the filters step aside. */}
       <div className={cn('flex shrink-0 flex-col gap-3', paneOpen && 'max-md:hidden')}>
       {onHub && (
-        <FilterBar filter={hub} onChange={onHub} sources={offered ?? configured} searchHint="Matches the row's title, #issue, task id and labels. Board shares this search." repos={projects} withCards={[...new Set([...runs, ...active].flatMap((r) => (r.repoPath ? [r.repoPath] : [])))]} />
+        <FilterBar filter={hub} onChange={(f) => onHub(saveChange(f, hub, savedHub))} sources={offered ?? configured} searchHint="Matches the row's title, #issue, task id and labels. Board shares this search." repos={projects} withCards={[...new Set([...runs, ...active].flatMap((r) => (r.repoPath ? [r.repoPath] : [])))]} />
       )}
       <div className="flex shrink-0 flex-wrap items-center gap-2">
         {!onHub && <Input
@@ -283,7 +283,7 @@ export function RunList({
           <NoMatch
             what="runs"
             query={searchHides ? (onHub ? hub.query : query) : ''}
-            onClear={onHub ? () => onHub({ ...hub, query: '' }) : () => setQuery('')}
+            onClear={onHub ? () => onHub(saveChange({ ...hub, query: '' }, hub, savedHub)) : () => setQuery('')}
             names={[...filterNames(hub), ...(!onHub && query.trim() !== '' ? [`search "${query.trim()}"`] : []), ...(filter !== 'all' ? [filter === 'passed' ? 'Passed' : 'Failed'] : [])]}
             onClearFilters={
               filter !== 'all' || query.trim() !== '' || (onHub && canClearFilters(hub))

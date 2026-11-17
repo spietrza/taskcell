@@ -99,3 +99,13 @@ test('a link to a folder is added directly, without discovery; a failed add show
   expect(calls.some((c) => c.cmd === 'discover_skills')).toBe(false);
   expect(calls.find((c) => c.cmd === 'add_skill_pr')?.body).toEqual({ repoPath: '/repo', source: 'https://github.com/o/r/tree/main/skills/a' });
 });
+
+test('a link to a branch only (no folder) still goes through discovery', async () => {
+  const calls = stubHub();
+  render(<Skills project="/repo" />);
+  await screen.findByText('caveman');
+  fireEvent.change(screen.getByLabelText('Skill source'), { target: { value: 'https://github.com/o/r/tree/main' } });
+  fireEvent.click(screen.getByRole('button', { name: 'Add skill' }));
+  await screen.findByText(/Found 1 skill/);
+  expect(calls.some((c) => c.cmd === 'discover_skills')).toBe(true);
+});

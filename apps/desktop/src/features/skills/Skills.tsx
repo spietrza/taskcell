@@ -46,7 +46,7 @@ export function Skills({ project }: { project: string }) {
   };
   // A link to a folder already names its skill; a repository is looked through first, so a repository of several skills
   // is not added whole.
-  const pointsAtFolder = (u: string): boolean => /\/(-\/)?(tree|blob)\//.test(u);
+  const pointsAtFolder = (u: string): boolean => /\/(-\/)?(tree|blob)\/[^/]+\/[^/]/.test(u);
   const add = async (): Promise<void> => {
     const src = source.trim();
     if (pointsAtFolder(src)) {

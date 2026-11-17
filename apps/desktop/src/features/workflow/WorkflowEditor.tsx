@@ -74,16 +74,22 @@ export function WorkflowEditor({ project }: { project: string }) {
     // the reasoned refusal.)
     setBuiltin(null);
     // Best effort: the "in use" mark is a hint, so a failed read just leaves it off.
+    // Not `gen`: it also bumps when a flow is opened, which must not drop this mark.
+    let current = true;
+    setInUse(undefined);
     void Promise.resolve()
       .then(() => readAppConfig(project))
-      .then((c) => setInUse(c.flow ?? 'default'))
-      .catch(() => setInUse(undefined));
+      .then((c) => current && setInUse(c.flow ?? 'default'))
+      .catch(() => undefined);
     apiCapabilitiesCached()
       .then((c) => {
         setCaps(c);
         setCapsError(null);
       })
       .catch((err) => setCapsError(String(err)));
+    return () => {
+      current = false;
+    };
   }, [project, refreshList]);
 
   const open = (file: string): void => {
@@ -242,7 +248,7 @@ export function WorkflowEditor({ project }: { project: string }) {
   const dupProblem = nameProblem(dupName);
 
   const duplicateBuiltin = async (): Promise<void> => {
-    if (builtinInfo?.doc === undefined || dupName === '' || dupProblem !== null || opBusy.current) return;
+    if (builtinInfo?.doc === undefined || flows === null || dupName === '' || dupProblem !== null || opBusy.current) return;
     opBusy.current = true;
     try {
       await apiWriteFlow(project, `${dupName}.hcl`, { ...builtinInfo.doc, name: dupName });
@@ -428,7 +434,7 @@ export function WorkflowEditor({ project }: { project: string }) {
                     aria-label="create flow"
                     // caps gate: without the built-in flow names the collision check can't run, and a
                     // "plan" collision would surface first at Save — exactly what the form exists to prevent
-                    disabled={newName === '' || newNameProblem !== null || caps === null}
+                    disabled={newName === '' || newNameProblem !== null || caps === null || flows === null}
                     onClick={() => {
                       if (!confirmDiscard()) return;
                       gen.current += 1; // same invalidation as open(): a late read/save must not land on the new doc
@@ -461,7 +467,7 @@ export function WorkflowEditor({ project }: { project: string }) {
                   <div className="space-y-1">
                     <div className="flex items-center gap-1">
                       <Input value={dupName} onChange={(e) => setDupName(e.target.value)} placeholder="name of your copy" aria-label="name of the copy" className="w-56 text-xs" />
-                      <Button disabled={dupName === '' || dupProblem !== null || caps === null} onClick={() => void duplicateBuiltin()}>
+                      <Button disabled={dupName === '' || dupProblem !== null || caps === null || flows === null} onClick={() => void duplicateBuiltin()}>
                         Duplicate to edit
                       </Button>
                     </div>
