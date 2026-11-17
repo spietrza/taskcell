@@ -22,7 +22,7 @@ import { createContext, useContext, useEffect, useRef } from 'react';
 export interface NavGuardRegistry {
   register: (guard: () => boolean) => void;
   unregister: (guard: () => boolean) => void;
-  /** True ⇒ proceed with the navigation. Runs every registered guard; any refusal aborts. */
+  /** True ⇒ proceed with the navigation. Runs the guards in order; the first refusal aborts and skips the rest. */
   confirm: () => boolean;
   /** Whether a guard is currently registered (drives the window-close hook). */
   guarded: () => boolean;
@@ -49,8 +49,8 @@ export function createNavGuardRegistry(): NavGuardRegistry {
     unregister: (guard) => {
       guards.delete(guard);
     },
-    // Every guard runs (no short-circuit): each may prompt, and a refusal anywhere aborts.
-    confirm: () => [...guards].map((g) => g()).every((ok) => ok !== false),
+    // Stops at the first refusal: no further prompts once one guard has said no.
+    confirm: () => [...guards].every((g) => g() !== false),
     guarded: () => guards.size > 0,
     registerFlush: (flush) => {
       currentFlush = flush;

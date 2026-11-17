@@ -52,7 +52,7 @@ test('six stations in order; clicking one opens its editor', async () => {
   expect(buttons.map((b) => STATIONS.find((s) => b.textContent?.includes(STATION_SHORT[s]))!)).toEqual([...STATIONS]);
   expect(screen.getByPlaceholderText('pnpm typecheck && pnpm test')).toBeInTheDocument(); // Gates is open by default
   fireEvent.click(screen.getByRole('button', { name: /Cell/ }));
-  expect(screen.getByPlaceholderText('2.50')).toBeInTheDocument();
+  expect(screen.getByPlaceholderText('No cap')).toBeInTheDocument();
   expect(screen.getByRole('button', { name: /Cell/ })).toHaveAttribute('aria-pressed', 'true');
 });
 
@@ -127,4 +127,11 @@ test('every field the old General form edited is still editable in General or Li
   for (const label of ['Task source', 'Runs on', 'Linear team key', 'Parallel runs', 'Usage cap %', 'Doc chat model', 'Project color', 'Trigger label', 'Engine', 'Budget cap per run', 'Verify command', 'Review engine', 'Default target branch', 'Runs with flow']) {
     expect(all).toContain(label);
   }
+});
+
+test('history shows the token-auth placeholder as "you (local hub)"', async () => {
+  history.mockResolvedValueOnce([{ time: '2026-11-17T10:00:00Z', login: 'token', outcome: 'ok', target: '/repo', detail: ['label'] }]);
+  await open();
+  expect(await screen.findByText('you (local hub)')).toBeInTheDocument();
+  expect(screen.queryByText('token')).toBeNull();
 });

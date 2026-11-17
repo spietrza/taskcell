@@ -16,6 +16,9 @@ const KEY_STATION: Record<string, Station> = {
   flow: 'spec',
 };
 
+/** The hub records the shared token identity as `token` (TOKEN_ACTOR in src/hub/audit.ts): a hub with no sign-in. */
+export const authorLabel = (login: string): string => (login === 'token' ? 'you (local hub)' : login);
+
 export const keyLabel = (k: string): string => {
   const s = KEY_STATION[k];
   return `${s === undefined ? 'General' : STATION_SHORT[s]} · ${k}`;
@@ -50,7 +53,7 @@ export function LineHistory({ project, version }: { project: string; version: nu
           {rows.map((e, i) => (
             <li key={`${e.time}-${i}`} className="space-y-1 px-4 py-3 text-sm">
               <div className="flex items-baseline justify-between gap-2 text-xs text-muted-foreground">
-                <span className="truncate">{e.login}{e.outcome !== 'ok' ? ` · ${e.outcome}` : ''}</span>
+                <span className="truncate">{authorLabel(e.login)}{e.outcome !== 'ok' ? ` · ${e.outcome}` : ''}</span>
                 <Timestamp ms={Date.parse(e.time)} className="shrink-0" />
               </div>
               {flowFile(e) !== undefined ? (

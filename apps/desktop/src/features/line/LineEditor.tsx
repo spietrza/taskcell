@@ -91,7 +91,7 @@ export function LineEditor({ project }: { project: string }) {
       case 'spec':
         return (
           <>
-            <FactRow label="Planner model" value="set by the CLI flag --spec-model" note="The hub has no setting for it yet." />
+            <FactRow label="Tech-spec model" value="set by the CLI flag --spec-model" note="The hub has no setting for it. The flow's own planner stage is separate: its model is set under Custom flows." />
             <FactRow label="Runs with flow" value={cfg.flow || 'the source default'} note="Pick the flow under Custom flows." />
           </>
         );
@@ -105,7 +105,7 @@ export function LineEditor({ project }: { project: string }) {
             </Cell>
             <Cell>
               <Field label="Budget cap per run" error={rangeErrors.budgetUsd}>
-                <Input type="number" min={0} value={cfg.budgetUsd ?? ''} onChange={(e) => set('budgetUsd', e.target.value ? Number(e.target.value) : undefined)} className="w-full" placeholder="2.50" />
+                <Input type="number" min={0} value={cfg.budgetUsd ?? ''} onChange={(e) => set('budgetUsd', e.target.value ? Number(e.target.value) : undefined)} className="w-full" placeholder="No cap" />
               </Field>
             </Cell>
             <FactRow label="Runner" value={runner} note="Chosen in General (Runs on)." />
@@ -120,7 +120,7 @@ export function LineEditor({ project }: { project: string }) {
               </Field>
             </Cell>
             <FactRow label="Repairs on a red gate" value="2 rounds, set by --max-repair-iterations" note="The hub has no setting for it yet." />
-            <FactRow label="Second repair runs on" value="set by the CLI flag --escalate-model" note="Unset: it stays on the implementer model." />
+            <FactRow label="Second repair runs on" value="set by the CLI flag --escalate-model" note="Unset: it stays on the implementer model. An implementer whose model a flow sets is never escalated." />
             <FactRow label="Secret scan" value="always on · host side" note="A hit pushes nothing. Can't be turned off." locked />
             <FactRow label="CI config edits" value="dropped" note="Changes under the CI config paths never leave the cell. Can't be turned off." locked />
           </>
@@ -133,7 +133,7 @@ export function LineEditor({ project }: { project: string }) {
                 <Select value={cfg.reviewProvider ?? ''} onChange={(v) => set('reviewProvider', v || undefined)} options={PROVIDERS} danglingLabel={(v) => `${v} (not supported)`} />
               </Field>
             </Cell>
-            <FactRow label="Review model" value="set by the CLI flag --review-model" note="The hub has no setting for it yet." />
+            <FactRow label="Review model" value="set by --review-model, or the reviewer stage in Custom flows (the flow wins)" />
           </>
         );
       case 'pr':
@@ -200,7 +200,7 @@ export function LineEditor({ project }: { project: string }) {
                     aria-pressed={on}
                     onClick={() => setStation(key)}
                     className={cn(
-                      'flex min-w-0 flex-col items-stretch justify-start rounded-lg border p-3 text-left transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary',
+                      'flex min-w-0 flex-col items-stretch justify-start self-stretch rounded-lg border p-3 text-left transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary',
                       on ? 'border-primary bg-primary/5' : 'border-border hover:bg-muted/40',
                     )}
                   >
@@ -211,7 +211,7 @@ export function LineEditor({ project }: { project: string }) {
                     <span className="mt-2 block font-semibold">{STATION_SHORT[key]}</span>
                     <span className="mt-1 block space-y-0.5 text-xs text-muted-foreground">
                       {stationSummary(key, cfg).map((l) => (
-                        <span key={l} className="block truncate">· {l}</span>
+                        <span key={l} className="block break-words">· {l}</span>
                       ))}
                     </span>
                   </button>

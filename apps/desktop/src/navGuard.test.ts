@@ -51,6 +51,18 @@ describe('nav-guard registry (S8, #339)', () => {
   });
 });
 
+describe('confirm short-circuit', () => {
+  it('stops at the first refusing guard', () => {
+    const reg = createNavGuardRegistry();
+    const refuse = vi.fn(() => false);
+    const later = vi.fn(() => true);
+    reg.register(refuse);
+    reg.register(later);
+    expect(reg.confirm()).toBe(false);
+    expect(later).not.toHaveBeenCalled();
+  });
+});
+
 describe('useDiscardGuard (#339 follow-up)', () => {
   it('registers while dirty and unregisters when clean', () => {
     const reg = createNavGuardRegistry();

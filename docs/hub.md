@@ -699,13 +699,13 @@ Project settings show an **Auto-merge** card (hub only; `src/hub/approver-card.t
 | Station | Edits |
 |---|---|
 | Card | Trigger label (`label`) |
-| Spec | nothing in the hub: it shows the planner model as set by `--spec-model`, and which flow the project runs with |
+| Spec | nothing in the hub: it shows the tech-spec model (`--spec-model`; the flow's own `planner` stage is separate, set under Custom flows) and which flow the project runs with |
 | Cell | Engine (`provider`), Budget cap per run (`budgetUsd`) |
 | Gates | Verify command (`verifyCmd`) |
 | Review | Review engine (`reviewProvider`) |
 | PR | Default target branch (`baseBranch`), and the Auto-merge panel (Off, Shadow, Act; Act stays blocked as before) |
 
-Task source, Runs on, Linear team key, parallel runs, usage cap, doc chat model and custom providers stay in General. Rows the hub cannot change are shown as read-only facts: repairs (`--max-repair-iterations`, 2 by default), the model of the second repair (`--escalate-model`), the planner (`--spec-model`) and the review model (`--review-model`) are CLI flags. Two rows are locked and can never be turned off: the secret scan of the outgoing diff, and dropped CI config edits.
+Task source, Runs on, Linear team key, parallel runs, usage cap, doc chat model and custom providers stay in General. Rows the hub cannot change are shown as read-only facts: repairs (`--max-repair-iterations`, 2 by default), the model of the second repair (`--escalate-model`; an implementer whose model a flow sets is never escalated), the tech-spec model (`--spec-model`) and the review model (`--review-model`; a reviewer-stage model set in Custom flows wins over it) are CLI flags. The Budget cap field is empty for no cap; its "No cap" hint is not a value. Two rows are locked and can never be turned off: the secret scan of the outgoing diff, and dropped CI config edits.
 
 **Publish** is the same save as General's Save: it writes `.taskcell/app.json` and does not commit it (the file is git-ignored). Auto-merge has its own save: a mode change opens a pull request. **What Publish writes** shows the file as it will be written, with URL credentials and unknown custom-provider keys masked. **Line history** lists the settings saves the hub recorded for the repository (who, when and which field names, never values, from the hub audit log; saves made by hand or from the CLI are not in it). **Custom flows (advanced)** holds the flow picker and the flow editor (canvas, stages, models).
 
