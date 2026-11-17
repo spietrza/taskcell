@@ -11,7 +11,7 @@ import { publishCards, type PaletteCard } from '../../paletteIndex';
 import { ASKED_WORDS, NEEDS_YOU_CHIP } from '../../runLabels';
 import { useApproverDecisions } from './useApproverDecisions';
 import { decisionForTask, decisionWords } from './approverDecision';
-import { QuickView, TRACKER_NAME, type QuickTask } from './QuickView';
+import { CHIP_TONE, QuickView, TRACKER_NAME, type QuickTask } from './QuickView';
 import { NewHubTask, ScheduleLines } from './Schedule';
 import { boardCountLabels } from './counts';
 import { taskRefKey } from './taskref';
@@ -36,11 +36,6 @@ type Column = {
   title?: string;
 };
 
-const CHIP_TONE: Record<string, string> = {
-  pass: 'bg-success/15 text-success-text',
-  changes: 'bg-warning/15 text-warning-text',
-  failed: 'bg-destructive/15 text-destructive-text',
-};
 
 // The Board's columns are the line's stations (prototype v3): a card sits in the column of `stationOf`. Review and
 // PR share one column, since a tracker card does not say whether its pull request exists yet; the card's mark does.

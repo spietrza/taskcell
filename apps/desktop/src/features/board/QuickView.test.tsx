@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, test, vi } from 'vitest';
-import { fireEvent, render, screen, within } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { QuickView, matchNeedsYou, waitingWhy, type QuickTask } from './QuickView';
 import type { NeedsYouItem, RunDetail, RunSummary } from '../../wire';
 
@@ -33,6 +33,16 @@ beforeEach(() => {
 });
 
 describe('QuickView', () => {
+  test('a delivered card whose run stopped to ask: Done with the Board\'s warning, the stop station marked, the run "stopped to ask"', async () => {
+    vi.mocked(listRuns).mockResolvedValue([{ ...summary, taskId: 'hub-4', anyFailed: true, asked: 'Which file?', prUrl: undefined } as RunSummary]);
+    vi.mocked(listNeedsYou).mockResolvedValue({ items: [] });
+    open({ id: 'hub-4', title: 'Validate', column: 'done', state: 'done', chips: [{ key: 'warning', label: 'delivered, but a stage failed (see Runs)', tone: 'changes' }] });
+    expect(await screen.findByText('Done · delivered, but a stage failed (see Runs)')).toBeInTheDocument();
+    await waitFor(() => expect(screen.getByRole('list', { name: 'Stage line' }).querySelector('[data-status="failed"]')).not.toBeNull());
+    expect([...screen.getByRole('list', { name: 'Stage line' }).querySelectorAll('li')].map((l) => l.getAttribute('data-status'))).toEqual(['done', 'done', 'failed', 'done', 'done', 'done']);
+    expect(await screen.findByText('stopped to ask')).toBeInTheDocument();
+  });
+
   test('a tracker comment is plain text: markdown images and links stay literal', async () => {
     const body = 'see ![x](http://evil/img) and [a](javascript:alert(1))';
     vi.mocked(listNeedsYou).mockResolvedValue({ items: [item({ kind: 'issue', id: 'o/r#7', number: 7, url: 'https://github.com/o/r/issues/7', lastComment: { author: 'someone', body } })] });

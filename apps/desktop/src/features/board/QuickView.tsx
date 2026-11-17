@@ -6,7 +6,7 @@ import { errorMessage } from '../../errors';
 import { useAppConfig, useAsync } from '../../hooks';
 import { isDemoLink } from '../../transport';
 import type { BoardTask, RepoStamp, RunDetail, RunSummary } from '../../wire';
-import { STATION_SHORT, cardStationOf } from '../../stations';
+import { STATION_SHORT, STATIONS, cardStationOf, runStationOf } from '../../stations';
 import { taskSourceLabel } from '../../platform';
 import { costLabel, estTitle } from '../../cost';
 import { ASKED_WORDS, NEEDS_YOU_CHIP, startedByLabel } from '../../runLabels';
@@ -23,7 +23,15 @@ import { diffStat, stationNote, stationState } from './stationNotes';
 import { taskRefKey } from './taskref';
 import { ScheduleEditor, ScheduleLines } from './Schedule';
 
+/** Colour of a card's chip by its tone: the Board's cards and the card panel share it. */
+export const CHIP_TONE: Record<string, string> = {
+  pass: 'bg-success/15 text-success-text',
+  changes: 'bg-warning/15 text-warning-text',
+  failed: 'bg-destructive/15 text-destructive-text',
+};
+
 /** A paused pull request's card (`gh-pr-N`): it is not an issue, so the issue-only actions (skills, full page) are not offered. */
+
 export const isPullRequestCard = (id: string): boolean => /^gh-pr-\d+$/i.test(id);
 /** A hub-board task's card (`hub-N`): its skills are stored on the task itself. */
 const isHubTaskCard = (id: string): boolean => /^hub-[1-9]\d*$/.test(id);
@@ -259,7 +267,12 @@ export function QuickView({
 
   // A finished card follows its newest run (the Runs row's own mapping); a live or waiting one its column.
   const lineOpts = { prExists: prUrl !== undefined, repairs: repairAttempts(run?.detail), maxRepairs: repairCap(run?.detail) };
-  const steps = stepsAt(cardStationOf(task, latest?.source === 'ci' ? undefined : latest, lineOpts), lineOpts);
+  // A done card whose newest run had a failed stage (the Board's warning chip): Done stands, but the station where that
+  // run stopped is marked, so the panel tells the Board's story and not "every station green".
+  const warning = task.column === 'done' ? task.chips?.find((c) => c.key === 'warning') : undefined;
+  const localLatest = latest?.source === 'ci' ? undefined : latest;
+  const stopAt = warning !== undefined && localLatest !== undefined ? runStationOf(localLatest).at : STATIONS.length;
+  const steps = stepsAt(cardStationOf(task, localLatest, lineOpts), lineOpts).map((s, i) => (i === stopAt ? { ...s, status: 'failed' as const } : s));
   const noteCtx = { task, ...(cfgStatus === 'ready' ? { cfg } : {}), ...(run?.detail ? { detail: run.detail } : {}), ...(prUrl !== undefined ? { prUrl } : {}), merged: latest?.prState === 'merged' };
   const facts = receipt(run?.detail, latest?.totalCostUsd);
   const repo = task.repoName ?? repoPath.split('/').filter(Boolean).pop() ?? repoPath;
@@ -370,6 +383,9 @@ export function QuickView({
         )}
 
         <Section label="Progress">
+          {warning !== undefined && (
+            <span data-card-warning className={cn('mb-2 inline-block rounded px-1.5 py-0.5 text-[11px]', CHIP_TONE[warning.tone] ?? 'bg-muted text-muted-foreground')}>Done · {warning.label}</span>
+          )}
           <ol aria-label="Stage line">
             {steps.map((s, i) => {
               const state = stationState(s, task.column);
@@ -441,7 +457,7 @@ export function QuickView({
             <>
               <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1 text-sm">
                 <span className={cn('font-medium', latest.anyFailed && !latest.stoppedBy && 'text-destructive-text')}>
-                  {latest.stoppedBy ? 'stopped: provider limit' : verdictWord(!latest.anyFailed)}
+                  {latest.stoppedBy ? 'stopped: provider limit' : latest.asked !== undefined ? 'stopped to ask' : verdictWord(!latest.anyFailed)}
                 </span>
                 {/* With a record the receipt below carries the cost. */}
                 {run.detail === undefined && <span className="tabular-nums text-muted-foreground" {...estTitle(costLabel(latest))}>{costLabel(latest)}</span>}
