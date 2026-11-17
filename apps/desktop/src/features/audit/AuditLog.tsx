@@ -57,7 +57,8 @@ export function AuditLog() {
                   <Table.Cell className="tabular-nums text-muted-foreground"><Timestamp ms={Date.parse(e.time)} /></Table.Cell>
                   <Table.Cell>{e.login}</Table.Cell>
                   <Table.Cell>{e.action}</Table.Cell>
-                  <Table.Cell className="text-muted-foreground">
+                  {/* Targets are long paths with no spaces: they wrap anywhere so Outcome stays inside the page. */}
+                  <Table.Cell className="min-w-48 max-w-md whitespace-normal text-muted-foreground [overflow-wrap:anywhere]">
                     {e.target ?? '—'}
                     {e.detail !== undefined && e.detail.length > 0 ? ` (${e.detail.join(', ')})` : ''}
                   </Table.Cell>

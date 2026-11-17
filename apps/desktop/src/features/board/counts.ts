@@ -1,6 +1,6 @@
 import type { BoardTask } from '../../wire';
 
-/** The factory numbers the board header renders — ONE rule, not two. */
+/** The factory numbers the board header and Fleet render — ONE rule, not two. */
 export interface BoardCounts {
   /** Taken by the factory: the Claimed + Running lanes. */
   running: number;

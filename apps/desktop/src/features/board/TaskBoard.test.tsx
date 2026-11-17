@@ -215,6 +215,21 @@ describe('TaskBoard', () => {
     }
   });
 
+  test('?card=<id> hidden by a saved filter opens anyway, with a note and Clear', async () => {
+    window.history.replaceState(null, '', '/?screen=board&card=t-r1');
+    try {
+      mockListTasks.mockResolvedValue({ tasks: TASKS, capped: false });
+      const onFilter = vi.fn();
+      render(<TaskBoard project="/repo" repos={[]} onOpenTask={() => {}} onNewTask={() => {}} filter={{ ...DEFAULT_FILTER, query: 'nothing matches this' }} onFilter={onFilter} />);
+      expect(await screen.findByRole('complementary', { name: /Quick view: Running one/ })).toBeInTheDocument();
+      const note = screen.getByText(/t-r1 is hidden by your filters/);
+      fireEvent.click(within(note).getByRole('button', { name: 'Clear' }));
+      expect(onFilter).toHaveBeenCalledWith(expect.objectContaining({ query: '' }));
+    } finally {
+      window.history.replaceState(null, '', '/');
+    }
+  });
+
   test('a card picked in ⌘K while the board is open opens its quick view; the board publishes its cards', async () => {
     mockListTasks.mockResolvedValue({ tasks: TASKS, capped: false });
     const props = { project: '/repo', repos: [], onOpenTask: () => {}, onNewTask: () => {} };

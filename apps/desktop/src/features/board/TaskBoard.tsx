@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
-import { Button, Card, ErrorNote, cn } from '@/ui';
+import { Button, Card, ErrorNote, LINK_CLASS, cn } from '@/ui';
 import { FilePlus } from 'lucide-react';
 import { listTasks, listTasksAll } from '../../ipc';
 import { inRepos } from '../../repoFilter';
@@ -209,6 +209,8 @@ export function TaskBoard({
   useEffect(() => setSelected(null), [project, allRepos]);
   // `?screen=board&card=<id>` opens that card once the board has it; from then on the address follows the open card.
   const linkedId = urlParam('card');
+  // The card a link (or ⌘K) opened: it stays open though the filter hides it, with a note that says so.
+  const linkedOpen = useRef<QuickTask | null>(null);
   const linked = useRef<{ id: string; repoPath?: string } | null>(linkedId === null ? null : { id: linkedId });
   const [linkNonce, setLinkNonce] = useState(0);
   const seenOpenCard = useRef(openCard);
@@ -223,7 +225,10 @@ export function TaskBoard({
     if (want === null || !allTasks) return;
     const t = allTasks.find((x) => x.id === want.id && (want.repoPath === undefined || (x.repoPath ?? project) === want.repoPath));
     linked.current = null;
-    if (t) setSelected(t);
+    if (!t) return;
+    // The panel does not need the filter: a linked card opens even when a saved filter hides it on the board.
+    linkedOpen.current = t;
+    setSelected(t);
   }, [allTasks, linkNonce]);
   // ⌘K searches the cards this board last loaded.
   useEffect(() => {
@@ -234,10 +239,11 @@ export function TaskBoard({
   }, [selected]);
   // Leaving the Board (a card's full page, another screen) leaves its card behind: coming back shows the board.
   useEffect(() => () => setUrlParam('card', null), []);
-  // Nor may a card the filter now hides.
+  // Nor may a card the filter now hides (unless a link opened it).
+  const hiddenOpen = selected !== null && tasks !== undefined && !tasks.some((t) => t.id === selected.id && t.repoPath === selected.repoPath);
   useEffect(() => {
-    if (selected !== null && tasks && !tasks.some((t) => t.id === selected.id && t.repoPath === selected.repoPath)) setSelected(null);
-  }, [tasks, selected]);
+    if (hiddenOpen && selected !== linkedOpen.current) setSelected(null);
+  }, [hiddenOpen, selected]);
   useEffect(() => {
     if (selected === null) return;
     panelRef.current?.focus();
@@ -292,6 +298,17 @@ export function TaskBoard({
     </div>
     {hubBoard && <NewHubTask repoPath={project} onCreated={reload} />}
     {bar}
+    {hiddenOpen && selected !== null && (
+      <p role="status" className="text-xs text-muted-foreground">
+        {selected.id} is hidden by your filters
+        {onFilter && canClearFilters(filter) && (
+          <>
+            {' — '}
+            <button type="button" className={LINK_CLASS} onClick={() => onFilter(clearFilters(filter))}>Clear</button>
+          </>
+        )}
+      </p>
+    )}
     </>
   );
 
