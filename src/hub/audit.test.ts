@@ -2,7 +2,7 @@ import { mkdtemp, readFile, readdir, stat, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, test, vi } from 'vitest';
-import { AuditLog, SETTINGS_VALUE_KEYS, safeUrl } from './audit.js';
+import { AuditLog, ROUTINE_AUDIT_WINDOW_MS, SETTINGS_VALUE_KEYS, safeUrl } from './audit.js';
 import { localAdapter, verifyAudit } from '../core/audit.js';
 import { dispatchRpc as dispatch, ForbiddenError, type RpcContext } from './rpc.js';
 import { ProjectAllowlist } from './allowlist.js';
@@ -83,6 +83,22 @@ describe('audit log', () => {
     const out = (await lines(configDir)).map((l) => JSON.parse(l) as { action: string; login: string });
     expect(out.map((o) => o.action)).toEqual(['run-start', 'run-queue']);
     expect(seen[0]).toBe('bob');
+  });
+
+  test('routine watch and sign-in lines are written once per window; refusals and writes every time', async () => {
+    const { ctx, configDir, repo, audit } = await setup({ login: 'alice', admin: true });
+    for (let i = 0; i < 3; i++) await dispatchRpc(ctx, 'watch_project', { repoPath: repo });
+    for (let i = 0; i < 2; i++) await expect(dispatchRpc(ctx, 'watch_project', { repoPath: '/not/allowed' })).rejects.toThrow();
+    for (let i = 0; i < 2; i++) await dispatchRpc(ctx, 'write_app_config', { repoPath: repo, config: { label: `l${i}` } });
+    const t0 = Date.now();
+    await audit.record({ login: 'token', action: 'sign-in', outcome: 'ok' }, t0);
+    await audit.record({ login: 'token', action: 'sign-in', outcome: 'ok' }, t0 + 2_000);
+    await audit.record({ login: 'token', action: 'sign-in', outcome: 'refused' }, t0 + 4_000);
+    await audit.record({ login: 'token', action: 'sign-in', outcome: 'ok' }, t0 + ROUTINE_AUDIT_WINDOW_MS + 1);
+    const parsed = (await lines(configDir)).map((l) => JSON.parse(l) as { action: string; outcome: string });
+    expect(parsed.map((p) => `${p.action}:${p.outcome}`)).toEqual([
+      'project-watch:ok', 'project-watch:refused', 'project-watch:refused', 'settings-change:ok', 'settings-change:ok', 'sign-in:ok', 'sign-in:refused', 'sign-in:ok',
+    ]);
   });
 
   test('read_audit is admin-only and filters by login, newest first', async () => {

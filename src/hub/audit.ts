@@ -93,11 +93,21 @@ function allowedChanges(changes: readonly SettingsValueChange[] | undefined): Se
     return [{ key: c.key, ...(from != null ? { from } : {}), ...(to != null ? { to } : {}) }];
   });
 }
+/**
+ * Successful actions that carry no decision and repeat on every reconnect or screen visit: the events-stream sign-in
+ * and the filesystem watch of a project. One `ok` line per actor, action and target per window; refusals, failures
+ * and every other action are always written.
+ */
+const ROUTINE_ACTIONS: ReadonlySet<AuditAction> = new Set(['sign-in', 'project-watch', 'project-unwatch']);
+export const ROUTINE_AUDIT_WINDOW_MS = 10 * 60_000;
+
 const SETTINGS_HISTORY_DEFAULT = 20;
 const SETTINGS_HISTORY_MAX = 100;
 
 export class AuditLog {
   private readonly adapter: AuditAdapter;
+  /** When each routine `ok` line was last written (epoch ms), by actor, action and target. */
+  private readonly routineSeen = new Map<string, number>();
 
   constructor(
     configDir: string,
@@ -114,7 +124,13 @@ export class AuditLog {
    * Append one chained, fsynced line. Fails closed: an unwritable log rejects with AuditWriteError, so
    * the caller reports the failure instead of carrying on unrecorded.
    */
-  record(input: AuditRecordInput & { actor?: AuditActor; subject?: AuditSubject }): Promise<void> {
+  record(input: AuditRecordInput & { actor?: AuditActor; subject?: AuditSubject }, now = Date.now()): Promise<void> {
+    if (input.outcome === 'ok' && ROUTINE_ACTIONS.has(input.action)) {
+      const key = JSON.stringify([input.actor?.id ?? input.login, input.action, input.target ?? '']);
+      const last = this.routineSeen.get(key);
+      if (last !== undefined && now - last < ROUTINE_AUDIT_WINDOW_MS) return Promise.resolve();
+      this.routineSeen.set(key, now);
+    }
     const entry: AuditEntry = {
       time: new Date().toISOString(),
       login: input.login,
