@@ -552,3 +552,22 @@ describe('TaskBoard paused by a provider limit', () => {
     expect(screen.queryByText('Paused: provider limit')).toBeNull();
   });
 });
+
+describe('TaskBoard on a phone', () => {
+  afterEach(() => vi.unstubAllGlobals());
+  test('pick a stage: no sideways columns, the cards stack, furthest along first; a stage narrows them', async () => {
+    vi.stubGlobal('matchMedia', vi.fn(() => ({ matches: true, addEventListener: vi.fn(), removeEventListener: vi.fn() })));
+    mockListTasks.mockResolvedValue({ tasks: TASKS, capped: false });
+    render(<TaskBoard project="/repo" repos={[]} onOpenTask={() => {}} onNewTask={() => {}} />);
+    await screen.findByText('Queued one');
+    expect(screen.queryByRole('group', { name: 'Card' })).toBeNull();
+    const stages = screen.getByRole('group', { name: 'Stage' });
+    expect(within(stages).getByRole('button', { name: 'All stages 5' })).toHaveAttribute('aria-pressed', 'true');
+    const titles = (): string[] => screen.getAllByRole('button', { expanded: false }).map((b) => b.querySelector('.text-sm')?.textContent ?? '').filter(Boolean);
+    expect(titles()).toEqual(['Done one', 'Verify one', 'Running one', 'Queued one', 'Queued two']);
+    fireEvent.click(within(stages).getByRole('button', { name: 'Gates 1' }));
+    expect(titles()).toEqual(['Verify one']);
+    fireEvent.click(within(stages).getByRole('button', { name: 'Spec 0' }));
+    expect(screen.getByText('No tasks')).toBeInTheDocument();
+  });
+});

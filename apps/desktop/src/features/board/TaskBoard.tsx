@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { Button, Card, ErrorNote, cn } from '@/ui';
 import { FilePlus } from 'lucide-react';
 import { listTasks, listTasksAll } from '../../ipc';
@@ -51,6 +51,20 @@ const COLUMNS: Column[] = [
 /** The Board column of a station index (`stationOf(...).at`; 6 is past the line). */
 const COLUMN_OF_STATION = ['card', 'spec', 'cell', 'gates', 'review', 'review', 'done'] as const;
 export const boardColumn = (t: Pick<BoardTask, 'column' | 'stage'>): string => COLUMN_OF_STATION[stationOf(t).at] ?? 'done';
+
+const PHONE = '(max-width: 767px)';
+/** Under md: the Board shows one stage at a time. Follows the window as it is resized. */
+function usePhone(): boolean {
+  const [phone, setPhone] = useState(() => window.matchMedia?.(PHONE).matches === true);
+  useEffect(() => {
+    const mq = window.matchMedia?.(PHONE);
+    if (!mq) return;
+    const on = (): void => setPhone(mq.matches);
+    mq.addEventListener?.('change', on);
+    return () => mq.removeEventListener?.('change', on);
+  }, []);
+  return phone;
+}
 
 /** How often an open hub board re-reads its tasks: their statuses change in the hub's store, not here. */
 const HUB_POLL_MS = 5000;
@@ -169,6 +183,9 @@ export function TaskBoard({
   // A reload re-reads the tracker, so the locally shown skills are dropped with it.
   const reload = (): void => { setSavedSkills({}); setReloads((n) => n + 1); };
 
+  const phone = usePhone();
+  const [stage, setStage] = useState('all');
+
   // The quick view opens beside the Board; Escape or a click outside closes it and focus returns to the card.
   const [selected, setSelected] = useState<QuickTask | null>(null);
   // The open quick view follows a reload: it shows the card as the board now has it, not the snapshot that was clicked.
@@ -276,67 +293,8 @@ export function TaskBoard({
   const hinted = unset.filter((f) => inView.includes(f.repoPath));
   const failed = (data?.failures ?? []).filter((f) => !isNoTaskSource(f.error));
 
-  return (
-    <div className="flex min-h-0 flex-1 flex-col">
-      {header}
-      {hinted.length > 0 && (
-        <TaskSourceHint repoNames={hinted.map((f) => f.repoName)} onOpenSettings={hinted.some((f) => f.repoPath === project) ? onOpenSettings : undefined} />
-      )}
-      <RepoFailures failures={failed} total={repos.length - unset.length} />
-      {allTasks?.length === 0 && (data?.failures.length ?? 0) === 0 && !hubBoard && (
-        <div className="mb-3 shrink-0 rounded-lg border border-dashed border-border/60 p-4 text-sm">
-          <div className="font-medium">No tasks yet</div>
-          <p className="mt-1 text-muted-foreground">Create a task with acceptance criteria. The factory picks it up and its card moves across this board.</p>
-          <Button className="mt-2" onClick={onNewTask}>Create a task</Button>
-        </div>
-      )}
-      <PausedBanner tasks={allTasks ?? []} />
-      {capped && (
-        <div className="mb-2 shrink-0 text-xs text-muted-foreground">
-          {allRepos
-            ? 'At least one repository hit the task limit, so some cards are missing — narrow the Projects filter to that repository and use a label filter in Settings.'
-            : `Showing the first ${allTasks?.length ?? 0} tasks — narrow with a label filter in Settings to see the rest.`}
-        </div>
-      )}
-      <div className="relative flex min-h-0 flex-1 gap-3 pb-4">
-      <div className={cn('flex min-h-0 min-w-0 flex-1 flex-col gap-4', filter.group !== 'none' && 'overflow-y-auto')}>
-        {/* Ungrouped, the one lane stays (its columns render empty), so "nothing matches" is asked of the cards. */}
-        {(allTasks?.length ?? 0) > 0 && tasks?.length === 0 && (
-          <NoMatch what="cards" query={filterCards(allTasks ?? [], { ...filter, query: '' }).length > 0 ? filter.query : ''} onClear={onFilter && (() => onFilter(saveChange({ ...filter, query: '' }, filter, savedFilter)))} names={filterNames(filter)} onClearFilters={onFilter && canClearFilters(filter) ? () => onFilter(clearFilters(filter)) : undefined} />
-        )}
-        {lanes.map((lane) => (
-        <section key={lane.key} aria-label={lane.label || undefined} className={cn('flex min-h-0 flex-col gap-2', filter.group === 'none' ? 'flex-1' : 'h-[28rem] shrink-0')}>
-        {lane.label && (
-          <h3 className="text-sm font-semibold">
-            {lane.label} <span className="font-normal tabular-nums text-muted-foreground">{lane.rows.length}</span>
-          </h3>
-        )}
-        <div className="flex min-h-0 min-w-0 flex-1 gap-3 overflow-x-auto">
-        {COLUMNS.map((col) => {
-          const items = lane.rows.filter((t) => boardColumn(t) === col.key);
-          return (
-            <div
-              key={col.key}
-              role="group"
-              aria-label={col.label}
-              // From xl the six columns share the row (narrowing to 11rem) so all fit at 1440; below it they keep their width and scroll.
-              className="flex h-full min-h-0 w-72 shrink-0 flex-col rounded-xl border border-border/60 bg-muted/20 p-2 xl:w-auto xl:min-w-44 xl:max-w-72 xl:flex-1"
-            >
-              <div className="mb-2 flex shrink-0 items-center gap-2 px-1 py-0.5">
-                <span className={cn('size-2 rounded-full', col.dot, col.pulse && items.length > 0 && 'animate-pulse')} />
-                <span className="text-sm font-semibold text-foreground">{col.label}</span>
-                <span className={cn('ml-auto rounded-full px-2 py-0.5 text-xs font-medium tabular-nums', col.pill)}>
-                  {items.length}
-                </span>
-              </div>
-              <div className="min-h-0 flex-1 space-y-2 overflow-y-auto px-0.5 pb-0.5">
-                {items.length === 0 ? (
-                  <div className="mt-2 rounded-lg border border-dashed border-border/60 px-3 py-6 text-center text-xs text-muted-foreground">
-                    No tasks
-                  </div>
-                ) : (
-                  items.map((t) => (
-                    <Card.Root key={cardKey(t)} className={cn('gap-0 bg-background/80 py-0 shadow-sm transition-all hover:shadow-md', col.cardHover)}>
+  const boardCard = (t: BoardList['tasks'][number], hover: string): ReactNode => (
+                    <Card.Root key={cardKey(t)} className={cn('gap-0 bg-background/80 py-0 shadow-sm transition-all hover:shadow-md', hover)}>
                     <button
                       data-board-card
                       aria-expanded={selected?.id === t.id && selected.repoPath === t.repoPath}
@@ -383,7 +341,101 @@ export function TaskBoard({
                       </div>
                     )}
                     </Card.Root>
-                  ))
+  );
+  // Phone (prototype v3): pick a stage, and the cards stack inside each lane instead of six columns scrolling sideways.
+  const stageRow = phone && (
+    <div role="group" aria-label="Stage" className="flex shrink-0 gap-1 overflow-x-auto">
+      {[{ key: 'all', label: 'All stages' }, ...COLUMNS].map((c) => {
+        const n = c.key === 'all' ? (tasks?.length ?? 0) : (tasks ?? []).filter((t) => boardColumn(t) === c.key).length;
+        return (
+          <button key={c.key} type="button" aria-pressed={stage === c.key} onClick={(e) => { setStage(c.key); e.currentTarget.scrollIntoView?.({ block: 'nearest', inline: 'nearest' }); }} className={cn('shrink-0 whitespace-nowrap rounded px-2 py-1 text-xs transition-colors', stage === c.key ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:bg-muted')}>
+            {c.label} <span className="tabular-nums opacity-70">{n}</span>
+          </button>
+        );
+      })}
+    </div>
+  );
+  const COLUMN_ORDER = COLUMNS.map((c) => c.key);
+  const phoneRows = (rows: BoardList['tasks']): BoardList['tasks'] =>
+    rows.filter((t) => stage === 'all' || boardColumn(t) === stage).sort((x, y) => COLUMN_ORDER.indexOf(boardColumn(y)) - COLUMN_ORDER.indexOf(boardColumn(x)));
+
+  return (
+    <div className="flex min-h-0 flex-1 flex-col">
+      {header}
+      {hinted.length > 0 && (
+        <TaskSourceHint repoNames={hinted.map((f) => f.repoName)} onOpenSettings={hinted.some((f) => f.repoPath === project) ? onOpenSettings : undefined} />
+      )}
+      <RepoFailures failures={failed} total={repos.length - unset.length} />
+      {allTasks?.length === 0 && (data?.failures.length ?? 0) === 0 && !hubBoard && (
+        <div className="mb-3 shrink-0 rounded-lg border border-dashed border-border/60 p-4 text-sm">
+          <div className="font-medium">No tasks yet</div>
+          <p className="mt-1 text-muted-foreground">Create a task with acceptance criteria. The factory picks it up and its card moves across this board.</p>
+          <Button className="mt-2" onClick={onNewTask}>Create a task</Button>
+        </div>
+      )}
+      <PausedBanner tasks={allTasks ?? []} />
+      {capped && (
+        <div className="mb-2 shrink-0 text-xs text-muted-foreground">
+          {allRepos
+            ? 'At least one repository hit the task limit, so some cards are missing — narrow the Projects filter to that repository and use a label filter in Settings.'
+            : `Showing the first ${allTasks?.length ?? 0} tasks — narrow with a label filter in Settings to see the rest.`}
+        </div>
+      )}
+      <div className="relative flex min-h-0 flex-1 gap-3 pb-4">
+      <div className={cn('flex min-h-0 min-w-0 flex-1 flex-col gap-4', (phone || filter.group !== 'none') && 'overflow-y-auto')}>
+        {stageRow}
+        {/* Ungrouped, the one lane stays (its columns render empty), so "nothing matches" is asked of the cards. */}
+        {(allTasks?.length ?? 0) > 0 && tasks?.length === 0 && (
+          <NoMatch what="cards" query={filterCards(allTasks ?? [], { ...filter, query: '' }).length > 0 ? filter.query : ''} onClear={onFilter && (() => onFilter(saveChange({ ...filter, query: '' }, filter, savedFilter)))} names={filterNames(filter)} onClearFilters={onFilter && canClearFilters(filter) ? () => onFilter(clearFilters(filter)) : undefined} />
+        )}
+        {phone ? lanes.map((lane) => {
+          const rows = phoneRows(lane.rows);
+          return (
+            <section key={lane.key} aria-label={lane.label || undefined} className="space-y-2">
+              {lane.label && (
+                <h3 className="text-sm font-semibold">
+                  {lane.label} <span className="font-normal tabular-nums text-muted-foreground">{rows.length}</span>
+                </h3>
+              )}
+              {rows.length === 0 ? (
+                <div className="rounded-lg border border-dashed border-border/60 px-3 py-6 text-center text-xs text-muted-foreground">No tasks</div>
+              ) : (
+                rows.map((t) => boardCard(t, COLUMNS.find((c) => c.key === boardColumn(t))?.cardHover ?? ''))
+              )}
+            </section>
+          );
+        }) : lanes.map((lane) => (
+        <section key={lane.key} aria-label={lane.label || undefined} className={cn('flex min-h-0 flex-col gap-2', filter.group === 'none' ? 'flex-1' : 'h-[28rem] shrink-0')}>
+        {lane.label && (
+          <h3 className="text-sm font-semibold">
+            {lane.label} <span className="font-normal tabular-nums text-muted-foreground">{lane.rows.length}</span>
+          </h3>
+        )}
+        <div className="flex min-h-0 min-w-0 flex-1 gap-3 overflow-x-auto">
+        {COLUMNS.map((col) => {
+          const items = lane.rows.filter((t) => boardColumn(t) === col.key);
+          return (
+            <div
+              key={col.key}
+              role="group"
+              aria-label={col.label}
+              // From xl the six columns share the row (narrowing to 11rem) so all fit at 1440; below it they keep their width and scroll.
+              className="flex h-full min-h-0 w-72 shrink-0 flex-col rounded-xl border border-border/60 bg-muted/20 p-2 xl:w-auto xl:min-w-44 xl:max-w-72 xl:flex-1"
+            >
+              <div className="mb-2 flex shrink-0 items-center gap-2 px-1 py-0.5">
+                <span className={cn('size-2 rounded-full', col.dot, col.pulse && items.length > 0 && 'animate-pulse')} />
+                <span className="text-sm font-semibold text-foreground">{col.label}</span>
+                <span className={cn('ml-auto rounded-full px-2 py-0.5 text-xs font-medium tabular-nums', col.pill)}>
+                  {items.length}
+                </span>
+              </div>
+              <div className="min-h-0 flex-1 space-y-2 overflow-y-auto px-0.5 pb-0.5">
+                {items.length === 0 ? (
+                  <div className="mt-2 rounded-lg border border-dashed border-border/60 px-3 py-6 text-center text-xs text-muted-foreground">
+                    No tasks
+                  </div>
+                ) : (
+                  items.map((t) => boardCard(t, col.cardHover))
                 )}
               </div>
             </div>

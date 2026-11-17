@@ -16,7 +16,7 @@ export function ScheduleLines({ task }: { task: Pick<BoardTask, 'blockedBy' | 's
           {s.label}
         </div>
       )}
-      {s?.result !== undefined && <div className="break-all text-[11px] text-muted-foreground">{s.result}</div>}
+      {s?.result !== undefined && <div className="truncate text-[11px] text-muted-foreground" title={s.result}>{s.result}</div>}
       {s === undefined && !!task.blockedBy?.length && <div className="text-[11px] text-muted-foreground">blocked by {task.blockedBy.join(', ')}</div>}
       {s === undefined && task.startDate !== undefined && <div className="text-[11px] text-muted-foreground">starts {task.startDate}</div>}
     </>

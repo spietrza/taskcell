@@ -105,10 +105,19 @@ function ProjectTabs({ repos, withCards, selected, onChange }: { repos: Repo[]; 
       {label}
     </button>
   );
+  // Several picked in Projects: no tab is the selection, and the chip says what is (the same filter, read back).
+  const several = selected.length > 1;
   return (
-    <div role="tablist" aria-label="Project tabs" className="flex basis-full gap-1 overflow-x-auto border-b border-border">
-      {tab('all', 'All', selected.length === 0, [])}
-      {tabs.map((r) => tab(r.path, r.name, selected.length === 1 && selected[0] === r.path, [r.path]))}
+    <div className="flex basis-full items-end gap-2 border-b border-border">
+      <div role="tablist" aria-label="Project tabs" className="flex min-w-0 gap-1 overflow-x-auto">
+        {tab('all', 'All', selected.length === 0, [])}
+        {tabs.map((r) => tab(r.path, r.name, selected.length === 1 && selected[0] === r.path, [r.path]))}
+      </div>
+      {several && (
+        <span data-testid="tabs-several" title="Picked in Projects. A tab narrows to one project; All shows every one." className="mb-1 shrink-0 rounded border border-foreground px-1.5 py-0.5 text-xs font-medium">
+          {selected.length} projects
+        </span>
+      )}
     </div>
   );
 }

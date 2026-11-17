@@ -28,7 +28,9 @@ describe('ScheduleLines', () => {
     render(<ScheduleLines task={{ schedule: { state: 'failed', reason: 'no credential', label: 'failed: no credential' } }} />);
     expect(screen.getByText('failed: no credential')).toHaveAttribute('data-schedule', 'failed');
     render(<ScheduleLines task={{ schedule: { state: 'done', label: 'done', result: 'branch chore/x' } }} />);
-    expect(screen.getByText('branch chore/x')).toBeInTheDocument();
+    // One line, cut with an ellipsis; the full branch is in the tooltip.
+    expect(screen.getByText('branch chore/x')).toHaveClass('truncate');
+    expect(screen.getByText('branch chore/x')).toHaveAttribute('title', 'branch chore/x');
   });
   test('a GitHub card shows the dependencies and start the source reports', () => {
     render(<ScheduleLines task={{ blockedBy: ['#4', 'o/r#5'], startDate: '2026-11-18' }} />);

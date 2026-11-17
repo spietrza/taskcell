@@ -222,6 +222,9 @@ test('project tabs are the Projects filter in one click: All, then each project 
   fireEvent.click(within(screen.getByRole('group', { name: 'Projects' })).getByLabelText('gamma'));
   expect(state().repos).toEqual(['/b', '/c']);
   expect(within(tabs).getAllByRole('tab').filter((t) => t.getAttribute('aria-selected') === 'true')).toEqual([]);
+  expect(screen.getByTestId('tabs-several')).toHaveTextContent('2 projects');
+  expect(screen.getByRole('button', { name: /Projects:/ })).toHaveTextContent('2 projects');
   fireEvent.click(within(tabs).getByRole('tab', { name: 'All' }));
   expect(state().repos).toEqual([]);
+  expect(screen.queryByTestId('tabs-several')).toBeNull();
 });
