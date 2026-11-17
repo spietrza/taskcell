@@ -6,7 +6,7 @@ import { ASKED_REASON, hubTimeZone, readHubTasks, type HubTask } from './hub-tas
 import { MAX_CONCURRENT_RUNS } from './run-session.js';
 import { planSchedule } from './schedule.js';
 import { defaultRunsRoot, listRunSummaries } from './runs.js';
-import type { BoardTask, RunSummary } from '../wire.js';
+import type { BoardChip, BoardTask, RunSummary } from '../wire.js';
 
 /**
  * How many of a project's tasks may be with the run session at once: what the session can hold for one project — its
@@ -31,12 +31,9 @@ async function latestRuns(repoPath: string): Promise<Map<string, RunSummary>> {
   return out;
 }
 
-/** Why a `done` task's newest run says otherwise (it failed, or its agent stopped to ask); undefined when it did not. Stores written before
- *  task-scheduler.ts failed a partial run hold such tasks as done; a person's Accept (`accepted`) keeps them done. */
-function failedLast(run: RunSummary | undefined): string | undefined {
-  if (run === undefined || run.stoppedBy !== undefined || !run.anyFailed) return undefined;
-  return run.asked !== undefined ? ASKED_REASON : 'its last run failed (see Runs)';
-}
+/** The chip of a `done` card whose newest run had a failed stage (a re-review that never answered, a draft PR): the
+ *  store's `done` stands (it delivered, dependents start); the chip only says to look. A person's Accept clears it. */
+const DELIVERED_WITH_FAILURE: BoardChip = { key: 'warning', label: 'delivered, but a stage failed (see Runs)', tone: 'changes' };
 
 /** `queued`: the run session's queue (run id → position), so a task waiting there is not shown as running. */
 export async function listHubBoard(configDir: string, repoPath: string, queued: ReadonlyMap<string, number> = new Map(), now: Date = new Date()): Promise<{ tasks: BoardTask[]; capped: boolean; hubBoard: true }> {
@@ -47,20 +44,23 @@ export async function listHubBoard(configDir: string, repoPath: string, queued: 
   const plan = planSchedule(tasks, { now, limit: await parallelLimit(repoPath), timeZone, queued, ...(served ? {} : { only: (t: HubTask) => t.startRequested === true }) });
   const lastRun = await latestRuns(repoPath);
   const cards: BoardTask[] = tasks.map((t) => {
-    const failedRun = t.status === 'done' && t.accepted !== true ? failedLast(lastRun.get(t.id)) : undefined;
-    if (failedRun !== undefined) t = { ...t, status: 'failed', reason: failedRun };
-    const schedule = failedRun !== undefined ? { state: 'failed' as const, label: `failed: ${failedRun}`, reason: failedRun } : plan.byId.get(t.id)!;
+    const run = lastRun.get(t.id);
+    // Only the run record says the agent asked (`exitReason: 'incomplete'`, never a turn cap or a timeout); Home's inbox reads the same.
+    const asked = t.status === 'failed' && run?.asked !== undefined;
+    const planned = plan.byId.get(t.id)!;
+    const schedule = asked ? { ...planned, reason: ASKED_REASON, label: `failed: ${ASKED_REASON}` } : planned;
+    const warn = t.status === 'done' && t.accepted !== true && run?.anyFailed === true && run.stoppedBy === undefined;
     // Auto-run off: a card the scheduler would start next only waits for a hand start (unless one was asked for).
     const idle = !served && t.startRequested !== true && (schedule.state === 'ready' || schedule.state === 'waits-slot');
     const waiting = schedule.state === 'queued' || schedule.state === 'ready' || schedule.state === 'refused' || schedule.state === 'waits-slot';
     // A failed card sits on the station its run failed at (the Board's mark and the card panel read the same run).
-    const run = lastRun.get(t.id);
     const failedAt = t.status === 'failed' && run?.anyFailed === true && run.verifyFailed !== true ? run.failedStage : undefined;
     return {
       id: t.id,
       title: t.title,
       ...(failedAt !== undefined ? { stage: failedAt } : {}),
-      ...(t.status === 'failed' && (t.reason === ASKED_REASON || run?.asked !== undefined) ? { asked: true as const } : {}),
+      ...(asked ? { asked: true as const } : {}),
+      ...(warn ? { chips: [DELIVERED_WITH_FAILURE] } : {}),
       column: schedule.state === 'queued' ? 'queued' : COLUMN[t.status],
       state: idle ? 'auto-run is off — start it by hand' : schedule.label,
       ...(waiting ? { waiting: true } : {}),

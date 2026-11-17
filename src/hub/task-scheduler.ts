@@ -5,7 +5,7 @@ import { configuredFlow, readAppConfig } from './app-config.js';
 import { auditActorOf, reportAuditFailure, type Actor, type AuditAction, type AuditLog, type AuditOutcome } from './audit.js';
 import type { ProjectAllowlist } from './allowlist.js';
 import type { CredentialService } from './credentials.js';
-import { ASKED_REASON, editHubTask, hubTimeZone, listHubBoards, resetAndListHubTasks, resetStaleRunning, type HubTask } from './hub-tasks.js';
+import { editHubTask, INCOMPLETE_REASON, hubTimeZone, listHubBoards, resetAndListHubTasks, resetStaleRunning, type HubTask } from './hub-tasks.js';
 import { parallelLimit } from './hub-board.js';
 import { failureMessage } from './projects.js';
 import type { RunSession } from './run-session.js';
@@ -33,13 +33,14 @@ export interface SchedulerState {
 export const schedulerState = (): SchedulerState => ({ ticking: new Set(), live: new Set(), pending: new Map() });
 const key = (repoPath: string, id: string): string => `${repoPath}\n${id}`;
 
-export { ASKED_REASON };
+export { INCOMPLETE_REASON };
 
 export function ended(result: CreateRunResult): Pick<HubTask, 'status' | 'reason' | 'result'> {
-  // A partial result is not done: the agent asked instead of finishing, so dependents must not start.
+  // A partial result is not done (a turn cap, a timeout, or a question), so dependents must not start. Whether the agent
+  // asked is the run record's to say (RunSummary.asked): the board and the inbox read it there, never from this reason.
   if (result.implementerIncomplete === true) {
     const where = result.prUrl ?? (result.branch !== undefined ? `branch ${result.branch}` : undefined);
-    return { status: 'failed', reason: ASKED_REASON, ...(where !== undefined ? { result: where } : {}) };
+    return { status: 'failed', reason: INCOMPLETE_REASON, ...(where !== undefined ? { result: where } : {}) };
   }
   if (result.verificationFailed === true && (result.prUrl !== undefined || result.branch !== undefined)) {
     const where = result.prUrl ?? `branch ${result.branch}`;

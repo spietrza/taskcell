@@ -39,9 +39,8 @@ export async function askingCards(configDir: string, repoPath: string): Promise<
     if (run.asked === undefined) continue;
     const task = tasks?.get(key);
     const number = tasks !== undefined ? Number(key.slice('hub-'.length)) : issueNumberOf(key);
-    // A done task not accepted by a person was marked done by a store from before partial runs failed (hub-board.ts shows it failed too).
-    const waits = task !== undefined && (task.status === 'failed' || (task.status === 'done' && task.accepted !== true));
-    if (tasks !== undefined ? !waits : run.prUrl !== undefined) continue;
+    // A hub card waits while it is failed (an answer, a Retry or an Accept moves it on); hub-board.ts marks the same cards `asked`.
+    if (tasks !== undefined ? task?.status !== 'failed' : run.prUrl !== undefined) continue;
     if (number === undefined || !Number.isInteger(number)) continue;
     items.push({
       id: key,

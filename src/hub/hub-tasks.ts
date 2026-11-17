@@ -44,8 +44,10 @@ export interface HubTask {
   result?: string;
 }
 
-/** The reason a task fails with when its agent stopped before finishing: Home lists it under "Waiting for you". */
+/** The reason a failed card shows when its newest run's agent stopped to ask (RunSummary.asked): Home lists it under "Waiting for you". */
 export const ASKED_REASON = 'the agent stopped before finishing and is waiting for your answer (see "Waiting for you" on Home)';
+/** The reason a task fails with when its implementer did not finish: a turn cap, a timeout, or a question (the board tells them apart by the run). */
+export const INCOMPLETE_REASON = 'the agent did not finish the task (a turn cap, a time limit, or a question; see the run)';
 
 export const HUB_TASK_ID = /^hub-[1-9]\d{0,8}$/;
 export const MAX_TITLE_LENGTH = 300;

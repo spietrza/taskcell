@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, expect, test, vi } from 'vitest';
 import { createHubTask, listHubTasks, type HubTaskOwner } from './hub-tasks.js';
-import { ASKED_REASON, ended, schedulerState, scheduleTick } from './task-scheduler.js';
+import { INCOMPLETE_REASON, ended, schedulerState, scheduleTick } from './task-scheduler.js';
 
 let dir: string;
 const repo = '/srv/repo';
@@ -35,8 +35,8 @@ test('a run whose end could not be stored keeps its real result: the next tick w
 });
 
 test('a run whose agent stopped before finishing fails its task, even when it delivered a branch', async () => {
-  expect(ended({ branch: 'chore/a', implementerIncomplete: true })).toEqual({ status: 'failed', reason: ASKED_REASON, result: 'branch chore/a' });
-  expect(ended({ implementerIncomplete: true })).toEqual({ status: 'failed', reason: ASKED_REASON });
+  expect(ended({ branch: 'chore/a', implementerIncomplete: true })).toEqual({ status: 'failed', reason: INCOMPLETE_REASON, result: 'branch chore/a' });
+  expect(ended({ implementerIncomplete: true })).toEqual({ status: 'failed', reason: INCOMPLETE_REASON });
   expect(ended({ branch: 'chore/a' })).toEqual({ status: 'done', result: 'branch chore/a' });
 });
 

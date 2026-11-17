@@ -62,12 +62,12 @@ test('answering a GitHub card comments on the issue and puts the trigger label b
   expect(calls.at(-1)).toEqual(['issue', 'edit', '27', '--repo', 'o/r', '--add-label', 'ready for agent']);
 });
 
-test('a hub card an old store marked done on a run that asked still waits; an accepted one does not', async () => {
+test('a hub card waits only while it is failed: a done card (accepted or not) never does', async () => {
   await appConfig({ taskSource: 'hub' });
   for (const title of ['A', 'B']) await createHubTask(cfg, repo, { title, body: '', owner });
   await editHubTask(cfg, repo, 'hub-1', (x) => { x.status = 'done'; });
   await editHubTask(cfg, repo, 'hub-2', (x) => { x.status = 'done'; x.accepted = true; });
   await record('hub-1', asked);
   await record('hub-2', asked);
-  expect((await askingCards(cfg, repo)).map((i) => i.id)).toEqual(['hub-1']);
+  expect(await askingCards(cfg, repo)).toEqual([]);
 });
