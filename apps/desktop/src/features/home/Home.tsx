@@ -1,17 +1,28 @@
 import { useEffect, useMemo, useState } from 'react';
-import { ArrowRight, Info } from 'lucide-react';
+import { ArrowRight, CircleCheck, CircleX, GitMerge, Info, Play, Settings2, SquarePlus, type LucideIcon } from 'lucide-react';
 import { Button, cn } from '@/ui';
-import { listActive, listRunsAll, listTasksAll, type RepoReadFailure } from '../../ipc';
+import { listActive, listActivity, listRunsAll, listTasksAll, type RepoReadFailure } from '../../ipc';
 import { onStreamReset, subscribe } from '../../transport';
 import { inRepos } from '../../repoFilter';
 import { RepoFailures, isNoTaskSource } from '../../RepoViews';
 import { NeedsYou } from '../needs-you/NeedsYou';
-import type { FactoryState, LocalWorkerState, Project } from '../../wire';
+import type { ActivityEvent, FactoryState, LocalWorkerState, Project } from '../../wire';
+import { relTime } from '../../time';
 import { Floor } from './Floor';
-import { cantStart, floorRows, movingRows, stateCounts, thisWeek, type Card, type RunRow, type StampedActive, type StampedNeeds } from './homeModel';
+import { activityText, cantStart, floorRows, movingRows, stateCounts, thisWeek, type Card, type RunRow, type StampedActive, type StampedNeeds } from './homeModel';
 
 const TASKS_POLL_MS = 60000;
 const MOVING_SHOWN = 6;
+const ACTIVITY_SHOWN = 6;
+
+const ACTIVITY_ICON: Record<ActivityEvent['kind'], LucideIcon> = {
+  'run-started': Play,
+  'run-finished': CircleCheck,
+  'run-failed': CircleX,
+  'card-created': SquarePlus,
+  'pr-merged': GitMerge,
+  'settings-changed': Settings2,
+};
 
 /**
  * Reads `read` on mount, whenever the hub reports a change in one of `repos` (and after a stream gap), and, with
@@ -135,6 +146,9 @@ export function Home({
     repoPaths,
   );
 
+  // Run records and hub actions only (no tracker read): on mount and on a hub change, no timer.
+  const activity = useHubRead(() => listActivity(teamId).then((l) => inRepos(l, repoPaths)), `${teamId ?? ''}|${repoKey}`, repoPaths);
+
   const cards = tasks?.tasks ?? [];
   const counts = stateCounts(cards);
   const moving = useMemo(() => movingRows(cards, active ?? []), [tasks, active]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -218,11 +232,13 @@ export function Home({
               'Loading…'
             ) : week.merged > 0 ? (
               <>
-                <strong className="font-semibold tabular-nums">{week.merged}</strong> {week.merged === 1 ? 'pull request' : 'pull requests'} merged. Spend so far{' '}
+                <strong className="font-semibold tabular-nums">{week.merged}</strong> {week.merged === 1 ? 'pull request' : 'pull requests'} merged
+                {week.failed > 0 && <>, <strong className="font-semibold tabular-nums">{week.failed}</strong> failed</>}
+                {week.retried > 0 && <>, <strong className="font-semibold tabular-nums">{week.retried}</strong> passed after extra attempts</>}. Spend so far{' '}
                 <strong className="font-semibold tabular-nums">${week.spend.toFixed(2)}</strong>.
               </>
             ) : (
-              `No pull request merged yet; ${plural(week.runs, 'run', 'runs')}, $${week.spend.toFixed(2)}.`
+              `No pull request merged yet; ${[plural(week.runs, 'run', 'runs'), week.failed > 0 && `${week.failed} failed`, week.retried > 0 && `${week.retried} passed after extra attempts`].filter(Boolean).join(', ')}, $${week.spend.toFixed(2)}.`
             )}
           </p>
         </div>
@@ -230,6 +246,27 @@ export function Home({
           <Info className="mt-0.5 size-3.5 shrink-0" aria-hidden />
           <span>Review and merge in Taskcell, or open the pull request in GitHub and work there as usual. Taskcell sees the merge either way.</span>
         </div>
+        {activity !== null && activity.length > 0 && (
+          <section aria-label="Team and factory">
+            <div className="caption">Team and factory</div>
+            <ul className="mt-2 divide-y divide-border rounded-lg border border-border">
+              {activity.slice(0, ACTIVITY_SHOWN).map((e, i) => {
+                const Icon = ACTIVITY_ICON[e.kind];
+                return (
+                  <li key={`${e.time}-${e.kind}-${i}`} className="flex gap-2 px-3 py-2 text-sm">
+                    <Icon className={cn('mt-0.5 size-3.5 shrink-0 text-muted-foreground', e.kind === 'run-failed' && 'text-destructive-text')} aria-hidden />
+                    <span className="min-w-0">
+                      <span className="block break-words">{activityText(e)}</span>
+                      <span className="block text-xs text-muted-foreground">
+                        <span className="font-mono">{e.repoName}</span> · {relTime(Date.parse(e.time))}
+                      </span>
+                    </span>
+                  </li>
+                );
+              })}
+            </ul>
+          </section>
+        )}
       </aside>
     </div>
   );

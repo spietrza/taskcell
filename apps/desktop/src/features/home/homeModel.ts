@@ -1,4 +1,4 @@
-import type { BoardTask, FactoryState, LocalWorkerState, NeedsYouItem, Project, RepoStamp, RunSummary, ActiveRun } from '../../wire';
+import type { ActivityEvent, BoardTask, FactoryState, LocalWorkerState, NeedsYouItem, Project, RepoStamp, RunSummary, ActiveRun } from '../../wire';
 import { effectiveRunLocation } from '../../platform';
 import { titleKey } from '../../runLabels';
 import { STATIONS, STATION_SHORT, stationOf } from '../../stations';
@@ -28,8 +28,8 @@ export function stateCounts(tasks: readonly BoardTask[]): { moving: number; paus
 export type InboxKind = { caption: string; action: 'Review' | 'Answer'; broken: boolean };
 
 /** The inbox caption and primary action of a waiting item (both `taskcell:` and `vanguard:` labels). */
-export function inboxKind(item: Pick<NeedsYouItem, 'kind' | 'reason'>): InboxKind {
-  if (item.kind === 'issue') return { caption: 'Question', action: 'Answer', broken: false };
+export function inboxKind(item: Pick<NeedsYouItem, 'kind' | 'reason' | 'ask'>): InboxKind {
+  if (item.kind === 'issue') return { caption: item.ask === 'too-vague' ? 'Too vague' : 'Question', action: 'Answer', broken: false };
   if (item.reason.endsWith(':verify-failed')) return { caption: 'Verify failed', action: 'Review', broken: true };
   if (item.reason === 'changes requested') return { caption: 'Changes requested', action: 'Review', broken: false };
   return { caption: 'PR ready', action: 'Review', broken: false };
@@ -125,11 +125,42 @@ export function floorRows(
   return { rows, idle: projects.length - rows.length };
 }
 
-/** The last seven days: pull requests merged (distinct cards, by run time), runs and spend (reported dollars only; `≈` estimates and unknowns stay out). */
-export function thisWeek(runs: readonly RunRow[], now: number = Date.now()): { merged: number; runs: number; spend: number } {
+/**
+ * The last seven days: pull requests merged (distinct cards, by run time), runs, failed runs (a provider-limit stop is
+ * not a failure), runs that passed after extra attempts (a gate repair, an auto-resume or a fork variant: the records do not tell them apart,
+ * so this is not a count of self-repairs) and spend
+ * (reported dollars only; `≈` estimates and unknowns stay out).
+ */
+export function thisWeek(runs: readonly RunRow[], now: number = Date.now()): { merged: number; runs: number; failed: number; retried: number; spend: number } {
   const week = runs.filter((r) => now - Date.parse(r.timestamp) <= WEEK_MS);
   const merged = new Set(week.filter((r) => r.prState === 'merged').map((r) => titleKey(r.repoPath, r.taskId)));
-  return { merged: merged.size, runs: week.length, spend: week.reduce((n, r) => n + (r.costUnknown === true ? 0 : r.totalCostUsd), 0) };
+  return {
+    merged: merged.size,
+    runs: week.length,
+    failed: week.filter((r) => r.anyFailed && r.stoppedBy !== 'provider-limit').length,
+    retried: week.filter((r) => !r.anyFailed && (r.extraAttempts ?? 0) > 0).length,
+    spend: week.reduce((n, r) => n + (r.costUnknown === true ? 0 : r.totalCostUsd), 0),
+  };
+}
+
+const who = (login: string | undefined): string => (login === undefined ? 'Someone' : login === 'token' ? 'You' : login);
+
+/** One feed line in words: who did what. Settings saves name their keys, never values. */
+export function activityText(e: ActivityEvent): string {
+  switch (e.kind) {
+    case 'run-started':
+      return `${who(e.login)} started a run`;
+    case 'run-finished':
+      return `Run ${e.subject ?? ''} finished`.replace('  ', ' ');
+    case 'run-failed':
+      return `Run ${e.subject ?? ''} failed`.replace('  ', ' ');
+    case 'card-created':
+      return `${who(e.login)} created a card`;
+    case 'pr-merged':
+      return `${who(e.login)} merged PR ${e.subject ?? ''}`.trim();
+    case 'settings-changed':
+      return `${who(e.login)} changed settings: ${(e.keys ?? []).join(', ')}`;
+  }
 }
 
 export interface CantStart {

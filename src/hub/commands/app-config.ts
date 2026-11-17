@@ -3,13 +3,28 @@
 import { BadRequestError } from '../../sidecar/sidecar.js';
 import { assertSafeBaseBranch } from '../../core/base-branch.js';
 import { readAppConfig, readAppConfigStrict, writeAppConfig, type AppConfig as HubAppConfig } from '../app-config.js';
-import { appConfigRangeErrors, type AppConfig } from '../../wire.js';
+import { appConfigRangeErrors, type AppConfig, type ChatModelList } from '../../wire.js';
+import { listChatModels } from '../chat-models.js';
 import { type Args, defineCommands, requireString, changedKeys, repoTarget } from '../command-kit.js';
+import { settingsValueChanges } from '../audit.js';
+import type { RpcContext } from '../rpc.js';
+
+/** The saved app.json before a write, or undefined when the call carries no config or the read fails. */
+async function savedBefore(ctx: RpcContext, a: Args): Promise<Args | undefined> {
+  if (typeof a.config !== 'object' || a.config === null) return undefined;
+  try {
+    return (await readAppConfig(await ctx.allowlist.assertAllowed(requireString(a, 'repoPath')))) as Args;
+  } catch {
+    return undefined;
+  }
+}
 
 export interface AppConfigCommands {
   read_app_config: { args: { repoPath: string }; result: AppConfig };
   read_app_config_strict: { args: { repoPath: string }; result: AppConfig };
   write_app_config: { args: { repoPath: string; config: AppConfig }; result: void };
+  /** HUB_ONLY, read-only: the model ids the repository's saved doc-chat endpoint or provider offers (Settings → Fetch models). A key named by `keyEnv` stays on the hub. */
+  list_chat_models: { args: { repoPath: string }; result: ChatModelList };
 }
 
 export const commands = defineCommands<AppConfigCommands>({
@@ -36,8 +51,13 @@ export const commands = defineCommands<AppConfigCommands>({
     await writeAppConfig(real, config as HubAppConfig);
     return null;
   },
+  list_chat_models: async ({ args, allow }) => {
+    const real = await allow(requireString(args, 'repoPath'));
+    return listChatModels(real, await readAppConfig(real));
+  },
 }, {
   read_app_config: { write: false, repo: 'repoPath' },
+  list_chat_models: { write: false, repo: 'repoPath' },
   read_app_config_strict: { write: false, repo: 'repoPath' },
   // app.json steers the tracker, labels and target branches the hub acts on, so it is a server write like the others.
   write_app_config: { write: true, remote: true, repo: 'repoPath' },
@@ -46,13 +66,12 @@ export const commands = defineCommands<AppConfigCommands>({
     action: 'settings-change',
     target: repoTarget,
     detail: async (ctx, a) => {
-      if (typeof a.config !== 'object' || a.config === null) return [];
-      try {
-        const prev = await readAppConfig(await ctx.allowlist.assertAllowed(requireString(a, 'repoPath')));
-        return changedKeys(prev as Args, a.config as Args);
-      } catch {
-        return [];
-      }
+      const prev = await savedBefore(ctx, a);
+      return prev === undefined ? [] : changedKeys(prev, a.config as Args);
+    },
+    changes: async (ctx, a) => {
+      const prev = await savedBefore(ctx, a);
+      return prev === undefined ? [] : settingsValueChanges(prev, a.config as Args);
     },
   },
 });

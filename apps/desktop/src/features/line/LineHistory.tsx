@@ -24,9 +24,15 @@ export const keyLabel = (k: string): string => {
   return `${s === undefined ? 'General' : STATION_SHORT[s]} · ${k}`;
 };
 
+/** "old → new" for a key the hub recorded values for (its non-secret allowlist); null for a names-only key. */
+export function valueChange(e: SettingsHistoryEntry, key: string): string | null {
+  const c = e.changes?.find((x) => x.key === key);
+  return c === undefined ? null : `${c.from ?? 'unset'} → ${c.to ?? 'unset'}`;
+}
+
 const flowFile = (e: SettingsHistoryEntry): string | undefined => (e.detail.length === 0 && e.target.endsWith('.hcl') ? e.target.slice(e.target.lastIndexOf(':') + 1) : undefined);
 
-/** Saves made from the hub, newest first: who, when and which fields (names only, never values). Re-reads when `version` changes. */
+/** Saves made from the hub, newest first: who, when and which fields, with old → new values for the non-secret keys the hub records. Re-reads when `version` changes. */
 export function LineHistory({ project, version }: { project: string; version: number }) {
   const [rows, setRows] = useState<SettingsHistoryEntry[] | null>(null);
   const [failed, setFailed] = useState(false);
@@ -59,7 +65,14 @@ export function LineHistory({ project, version }: { project: string; version: nu
               {flowFile(e) !== undefined ? (
                 <div>flow {flowFile(e)} changed</div>
               ) : (
-                <ul className="font-mono text-xs">{e.detail.map((k) => <li key={k}>{keyLabel(k)}</li>)}</ul>
+                <ul className="font-mono text-xs">
+                  {e.detail.map((k) => (
+                    <li key={k} className="break-words">
+                      {keyLabel(k)}
+                      {valueChange(e, k) !== null && <span className="text-muted-foreground">: {valueChange(e, k)}</span>}
+                    </li>
+                  ))}
+                </ul>
               )}
             </li>
           ))}

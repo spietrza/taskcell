@@ -550,6 +550,9 @@ export interface RunSummary {
   estCostUsd?: number;
   /** Some entries without a reported cost have no estimate either (an unpriced model): the `≈` figure covers only the priced ones. On a run row it can be set with no `estCostUsd` (nothing priced). */
   estPartial?: true;
+  /** Extra agent calls the run's stages folded in (`RunRecord.attempts` − 1, summed); absent when every stage ran once. Not a repair count:
+   *  the records fold gate repairs, auto-resumes and fork variants into one `attempts` and do not tell them apart. */
+  extraAttempts?: number;
 }
 
 /** Period a cost breakdown covers: the last 7 / 30 days, or everything on the branch. */
@@ -750,6 +753,44 @@ export interface SettingsHistoryEntry {
   detail: string[];
   /** The repository path, or `<repo>:<file>.hcl` for a flow file. */
   target: string;
+  /** Old and new values of the changed keys on the non-secret allowlist (src/hub/audit.ts `SETTINGS_VALUE_KEYS`); absent on older lines. */
+  changes?: SettingsValueChange[];
+}
+
+/** One allowlisted, non-secret `app.json` value before and after a save; an absent side was unset. */
+export interface SettingsValueChange {
+  key: string;
+  from?: string;
+  to?: string;
+}
+
+/** Models offered in Settings → Doc chat model before any fetch (Claude ids the doc chat accepts). Free text stays possible. */
+export const CHAT_MODELS: readonly string[] = ['claude-sonnet-5-5', 'claude-opus-5-5', 'claude-haiku-5-5', 'claude-sonnet-5'];
+
+/**
+ * `list_chat_models`: what the repository's saved doc-chat endpoint or provider offers. `static` is {@link CHAT_MODELS};
+ * `origin` names where the list came from. `error` is a short safe reason (never a response body or a key); `models` is then empty.
+ */
+export interface ChatModelList {
+  source: 'openrouter' | 'endpoint' | 'static';
+  origin?: string;
+  models: string[];
+  error?: string;
+}
+
+/** One line of Home's activity feed (`list_activity`): built from run records and the hub audit log, never from a tracker read. */
+export interface ActivityEvent {
+  time: string;
+  /** `run-started` and `card-created`, `pr-merged`, `settings-changed` come from the hub's audit log (actions taken in the hub); the run outcomes from run records. */
+  kind: 'run-started' | 'run-finished' | 'run-failed' | 'card-created' | 'pr-merged' | 'settings-changed';
+  repoPath: string;
+  repoName: string;
+  /** The hub login that acted (or `token`); absent when the record names nobody. */
+  login?: string;
+  /** A run's task id, or the merged item (`#12`). */
+  subject?: string;
+  /** `settings-changed`: the app.json key names, never values. */
+  keys?: string[];
 }
 
 /** One line of `audit.jsonl`. `login` is a GitHub login, or `token` for header access. */
@@ -762,6 +803,8 @@ export interface AuditEntry {
   outcome: AuditOutcome;
   /** Names only, e.g. the settings keys a change touched. */
   detail?: string[];
+  /** `settings-change` of `app.json` only: values of the changed keys on the non-secret allowlist, never any other key's. */
+  changes?: SettingsValueChange[];
   /** Who acted and on what (src/core/audit.ts); with `prev`/`hash` it is one link of the tamper-evident chain. */
   actor?: { kind: 'user' | 'local' | 'token' | 'bot'; id?: string; name?: string };
   subject?: { repo?: string; issue?: number; pr?: number; runId?: string };
@@ -992,6 +1035,8 @@ export interface NeedsYouItem {
   baseBranch?: string;
   /** Why the hub refuses to merge this PR (set only when it would); the UI shows it instead of offering Merge. */
   mergeBlocked?: string;
+  /** An issue only: `'too-vague'` when the factory's last comment is triage's too-vague notice, otherwise `'question'` (also when the comment was not fetched). */
+  ask?: 'question' | 'too-vague';
 }
 
 /** A Fleet-screen spawned process (Fleet is enabled only on the desktop app's local hub). */

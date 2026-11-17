@@ -64,7 +64,7 @@ export async function savePaths(configDir: string, paths: string[]): Promise<voi
   await writeFile(projectsFile(configDir), JSON.stringify(paths, null, 2));
 }
 
-const repoDisplayName = (repoPath: string): string => basename(repoPath) || repoPath;
+export const repoDisplayName = (repoPath: string): string => basename(repoPath) || repoPath;
 
 /** Aggregate a repo's `.taskcell/runs` into a dashboard summary (+ live running count). */
 export async function aggregate(repoPath: string, now: Date = new Date()): Promise<Project> {
@@ -118,7 +118,7 @@ export async function aggregate(repoPath: string, now: Date = new Date()): Promi
 }
 
 /** The hub's project paths, limited to `only` when given. */
-async function loadScopedPaths(configDir: string, only?: readonly string[]): Promise<string[]> {
+export async function loadScopedPaths(configDir: string, only?: readonly string[]): Promise<string[]> {
   const paths = await loadPaths(configDir);
   return only === undefined ? paths : paths.filter((p) => only.includes(p));
 }
