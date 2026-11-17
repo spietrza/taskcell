@@ -790,6 +790,18 @@ describe('runPreflight with S6 custom providers', () => {
     expect(wrongKey.checks.find((c) => c.name === 'llm auth')).toMatchObject({ ok: false });
   });
 
+  it('a keyless custom provider needs no llm credential', async () => {
+    const repo = await mkdtemp(join(tmpdir(), 'vg-preflight-'));
+    await mkdir(join(repo, '.vanguard'), { recursive: true });
+    await writeFile(join(repo, '.vanguard', 'app.json'), JSON.stringify({ customProviders: [{ name: 'open-proxy', baseUrl: 'https://llm.example.com/api' }] }));
+    const report = await runPreflight(githubDoctor({ repoPath: repo, provider: 'open-proxy' }), {
+      env: { GH_TOKEN: 'gh' },
+      nodeVersion: '24.11.1',
+      run: makeRunner(),
+    });
+    expect(report.checks.find((c) => c.name === 'llm auth')).toMatchObject({ ok: true });
+  });
+
   it('generalization fixes the stale zai literal: openrouter llm auth honors OPENROUTER_API_KEY', async () => {
     const report = await runPreflight(githubDoctor({ provider: 'openrouter' }), {
       env: { GH_TOKEN: 'gh', OPENROUTER_API_KEY: 'or-key' },

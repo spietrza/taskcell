@@ -9,7 +9,7 @@ import { errorClause } from '../../errors';
 import { appConfigRangeErrors } from '../../wire';
 import { Field, Select } from '../settings/fields';
 import { useConfigForm } from '../settings/configForm';
-import { PROVIDER_CHOICES, providerLabel, selectableProviders } from '../settings/customProviders';
+import { PROVIDER_CHOICES, providerLabel } from '../settings/customProviders';
 import { AutoMerge } from '../settings/AutoMerge';
 import { WorkflowEditor } from '../workflow/WorkflowEditor';
 import { asCode } from './asCode';
@@ -130,7 +130,7 @@ export function LineEditor({ project }: { project: string }) {
           <>
             <Cell>
               <Field label="Review engine" hint="— optional; a different built-in provider reviews the work (custom providers cannot review)">
-                <Select value={cfg.reviewProvider ?? ''} onChange={(v) => set('reviewProvider', v || undefined)} options={selectableProviders(PROVIDER_CHOICES)} danglingLabel={(v) => (providerLabel(v) !== v ? providerLabel(v) : `${v} (not supported)`)} />
+                <Select value={cfg.reviewProvider ?? ''} onChange={(v) => set('reviewProvider', v || undefined)} options={[...PROVIDER_CHOICES, ...(cfg.reviewProvider === 'meridian' ? ['meridian'] : [])]} danglingLabel={(v) => (providerLabel(v) !== v ? providerLabel(v) : `${v} (not supported)`)} />
               </Field>
             </Cell>
             <FactRow label="Review model" value="set by --review-model, or the reviewer stage in Custom flows (the flow wins)" />

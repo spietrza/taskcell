@@ -112,6 +112,12 @@ test('providerOptionsFrom merges built-ins with healthy repo customs; errored en
   expect(options.map((o) => o.value)).toEqual(['claude', 'codex', 'my-proxy']);
 });
 
+test('providerOptionsFrom keeps a saved legacy meridian value and hides it otherwise', () => {
+  const withMeridian: Capabilities = { ...caps, providers: [...caps.providers, 'meridian'] };
+  expect(providerOptionsFrom(withMeridian, null).map((o) => o.value)).not.toContain('meridian');
+  expect(providerOptionsFrom(withMeridian, null, 'meridian').map((o) => o.value)).toContain('meridian');
+});
+
 test('the form fetches repo providers fresh for its project on open (S6)', async () => {
   vi.mocked(ipc.apiListProviders).mockResolvedValueOnce({ providers: [{ index: 0, name: 'my-proxy' }] });
   render(<NewRunForm capabilities={caps} project="/repo" onRun={vi.fn()} onCancel={() => {}} />);

@@ -784,7 +784,7 @@ Resolution is per provider: a user who saved only `OPENAI_API_KEY` runs Codex on
 instance's `CLAUDE_CODE_OAUTH_TOKEN` (`credentialSource` records `user` / `instance` for the run's provider).
 A run never receives keys of providers it does not use.
 
-A run on the starter's own credential never reads the hub's provider keys: a provider whose key the user cannot save (a repo custom provider's `keyEnv`, the legacy `meridian` alias's `MERIDIAN_BASE_URL`) is refused for it.
+A run on the starter's own credential never reads the hub's provider keys: a provider whose key the user cannot save (a repo custom provider's `keyEnv`, the legacy `meridian` alias's `MERIDIAN_BASE_URL`) is refused for it, and so is a keyless custom provider (no `keyEnv`): it authenticates on the instance's own endpoint, which a user's own credentials must not borrow.
 
 When the switch is on, each signed-in user saves their own provider credentials in Settings. They are
 keyed by the hub (Better Auth) user id — a GitHub, GitLab or Google user alike — and stored encrypted (AES-256-GCM) in `credentials.enc.json` in the hub
