@@ -48,7 +48,7 @@ test('grouping by project, source and triage', () => {
   expect(groupRows(cards, 'none', cardKeys)).toHaveLength(1);
   expect(groupRows(cards, 'project', cardKeys).map((l) => [l.label, l.rows.length])).toEqual([['a', 3], ['b', 1]]);
   expect(groupRows(cards, 'source', cardKeys).map((l) => l.label)).toEqual(['GitHub', 'GitLab', 'Linear', 'Taskcell board']);
-  expect(groupRows(cards, 'triage', cardKeys).map((l) => l.label)).toEqual(['Merged', 'Needs you', 'Other', 'Running']);
+  expect(groupRows(cards, 'triage', cardKeys).map((l) => l.label)).toEqual(['Merged', 'Other', 'Running', 'Waiting for you']);
   const runs = [run('gh-1'), run('gl-2')];
   expect(groupRows(runs, 'source', runKeys).map((l) => l.label)).toEqual(['GitHub', 'GitLab']);
 });

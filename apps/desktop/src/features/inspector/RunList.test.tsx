@@ -127,7 +127,7 @@ test('a list emptied by filters names them; Clear filters resets search, source,
   const hub = { triage: 'needs' as const, repos: ['/a'], sources: ['gitlab' as const], query: 'task', group: 'project' as const };
   render(<RunList runs={runs} active={[]} hub={hub} onHub={onHub} configured={['github', 'gitlab']} onSelect={noop} onOpenActive={noop} />);
   fireEvent.click(screen.getByRole('button', { name: 'failed' }));
-  expect(screen.getByText(/Active: Needs you, GitLab, Projects, search "task", Failed\./)).toBeInTheDocument();
+  expect(screen.getByText(/Active: Waiting for you, GitLab, Projects, search "task", Failed\./)).toBeInTheDocument();
   fireEvent.click(screen.getByRole('button', { name: 'Clear filters' }));
   // Projects and grouping are not filters this action owns.
   expect(onHub).toHaveBeenCalledWith({ ...hub, triage: 'all', sources: [], query: '' });

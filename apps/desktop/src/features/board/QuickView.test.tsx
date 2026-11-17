@@ -99,7 +99,7 @@ describe('QuickView', () => {
 
   test('a waiting pull request shows why, Reply and Merge (matched by its address)', async () => {
     open();
-    expect(await screen.findByText(/Needs you · Pull request ready/)).toBeInTheDocument();
+    expect(await screen.findByText(/Waiting for you · Pull request ready/)).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Merge into main' })).toBeInTheDocument();
     expect(screen.getByLabelText('reply to o/r#9')).toBeInTheDocument();
   });

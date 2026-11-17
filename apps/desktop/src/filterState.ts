@@ -23,7 +23,7 @@ export const DEFAULT_FILTER: HubFilter = { triage: 'all', repos: [], sources: []
 export const TRIAGES: { value: Triage; label: string }[] = [
   { value: 'all', label: 'All' },
   { value: 'running', label: 'Running' },
-  { value: 'needs', label: 'Needs you' },
+  { value: 'needs', label: 'Waiting for you' },
   { value: 'merged', label: 'Merged' },
 ];
 /** Card sources by the names Settings gives them (`TASK_SOURCES`): one name per source on every screen. */
@@ -175,7 +175,7 @@ export function filterActive<T extends { taskId: string } & RepoRow>(active: T[]
   return active.filter((a) => keep(f, { triage: 'running', source: runSource(a.taskId), repoPath: a.repoPath, text: searchText(a.taskId, meta?.(a.repoPath, a.taskId)) }));
 }
 
-const TRIAGE_LABEL: Record<string, string> = { running: 'Running', needs: 'Needs you', merged: 'Merged', other: 'Other' };
+const TRIAGE_LABEL: Record<string, string> = { running: 'Running', needs: 'Waiting for you', merged: 'Merged', other: 'Other' };
 const SOURCE_LABEL = Object.fromEntries(SOURCES.map((s) => [s.value, s.label]));
 
 /** The filters narrowing a list, by name, for a "nothing matches" message. */

@@ -40,7 +40,7 @@ const state = (): HubFilter => JSON.parse(screen.getByTestId('state').textConten
 
 test('triage, source, search and grouping update the state; no runner control', () => {
   render(<Harness />);
-  fireEvent.click(screen.getByRole('button', { name: 'Needs you' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Waiting for you' }));
   expect(state().triage).toBe('needs');
   fireEvent.click(screen.getAllByRole('button', { name: 'GitLab' })[0]);
   expect(state().sources).toEqual(['gitlab']);

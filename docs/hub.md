@@ -62,8 +62,8 @@ including the container hub) has no launch URL: open its public URL and sign in 
    **Fetch records** imports a run's `vanguard-runs` artifact into `.taskcell/remote-runs/<id>`, and
    the records open like local ones. No token, no Docker, no sandbox on this machine. The Board
    header counts the factory's work from issue labels — `Running N` (claimed or running) and
-   `Waiting K` (labelled `ready for agent`/`ready for spec`, not yet picked up) — so it shows the CI
-   backlog too. A `+` (`12+`) means the board holds only its first page of issues and the count is a
+   `Queued K` (labelled `ready for agent`/`ready for spec`, not yet picked up), then `Waiting for you M`
+   (the Board's Waiting for you filter, the same name as Home's section) — so it shows the CI backlog too. A `+` (`12+`) means the board holds only its first page of issues and the count is a
    lower bound.
 3. **Self-hosted.** Build `docker/hub.Dockerfile`, run it on a VPS (Coolify, Hetzner) behind Tailscale
    or an authenticating reverse proxy, and reach it from a laptop or a phone. Agent code runs on
@@ -577,7 +577,7 @@ When a run ends on a provider usage or rate limit, the issue or pull request get
 - **Card and quick view / task detail:** "Paused: provider limit", with "retries automatically after HH:MM" in local time (the date is included when it is not today; "soon" once that time has passed; no time when the marker is missing).
 - **Banner:** on the Board, one banner when at least one task of the shown repositories is paused: how many, the latest retry time, and what you can do (wait, or add credit / switch the model in Settings). No banner when none is paused. On Home a paused card is a row in Moving with "Paused · retries after HH:MM", the same hint line, and counts in the state sentence.
 - **Retry now:** `retry_paused_task` (`{ repoPath, number }`) ensures the recorded trigger exists, removes any stale trigger, adds the trigger, and only then removes the rate-limited label. A failed write leaves the hold in place and returns the reason; if only the final removal of the rate-limited label fails, the message says the issue was re-triggered. It has Start's rules: loopback only unless `TASKCELL_HUB_ALLOW_ADD=1`, GitHub issues only, refused for a closed or already-started issue; it also refuses an issue that is not paused, one with no marker from the factory, and a trigger that is not one of the project's. If the hold is removed meanwhile, it succeeds only when the issue was re-triggered: a run has already started (a started label is on the issue) or the recorded trigger was added since the first read; a trigger that was already there, or a hold a person removed, is refused with "no longer paused" and nothing is written. It is audited as `task-retry`.
-- **Runs:** a run that ended on a provider limit shows "stopped: provider limit" instead of "failed" (`stoppedBy` on the run summary), including local, imported and metrics-branch CI rows. The flag is written from a typed provider/usage-cap signal at the point the stage stops; final text and crash diagnostics are never matched. If any failed stage in the same run lacks that flag, the run remains failed. Provider-limit stops do not enter the Failed / Needs you filters or project failure count, are not remembered as failed runs in retrospective memory, and `taskcell history` prints them as "paused: provider limit".
+- **Runs:** a run that ended on a provider limit shows "stopped: provider limit" instead of "failed" (`stoppedBy` on the run summary), including local, imported and metrics-branch CI rows. The flag is written from a typed provider/usage-cap signal at the point the stage stops; final text and crash diagnostics are never matched. If any failed stage in the same run lacks that flag, the run remains failed. Provider-limit stops do not enter the Failed / Waiting for you filters or project failure count, are not remembered as failed runs in retrospective memory, and `taskcell history` prints them as "paused: provider limit".
 
 The views work at phone width (the quick view is a bottom drawer).
 
@@ -747,8 +747,8 @@ sources without a chain are marked "no chain". The desktop app has no separate q
 ## `gh` auth
 
 The hub shells out to `gh` for the Remote section (Settings → Runners) (listing GitHub Actions runs), CI-run import and
-Needs you. Reading needs a token with `actions:read`, `issues:read` and `pull_requests:read`
-(fine-grained PAT) or classic `repo` scope. Replying from Needs you also needs `issues:write` and
+Waiting for you. Reading needs a token with `actions:read`, `issues:read` and `pull_requests:read`
+(fine-grained PAT) or classic `repo` scope. Replying from Waiting for you also needs `issues:write` and
 `pull_requests:write` (comments and labels), and merging also needs `contents:write`; with a read-only token a reply fails when it posts the
 comment. Run `gh auth login` or set `GH_TOKEN`.
 

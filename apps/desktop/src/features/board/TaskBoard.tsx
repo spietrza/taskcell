@@ -288,7 +288,7 @@ export function TaskBoard({
       {counts !== null && (
         // A capped list is one page, so the numbers are lower bounds — `Running 3+ · Queued 12+`.
         <span className="text-xs tabular-nums text-muted-foreground">
-          {`Running ${counts.running} · Queued ${counts.queued} · Needs you ${counts.needsYou}`}
+          {`Running ${counts.running} · Queued ${counts.queued} · Waiting for you ${counts.needsYou}`}
         </span>
       )}
       <Button className="ml-auto" onClick={hubBoard ? () => setAdding((a) => !a) : onNewTask} startIcon={<FilePlus className="size-4" />} aria-expanded={hubBoard ? adding : undefined}>

@@ -359,7 +359,7 @@ export function QuickView({
           <div className="space-y-2">
             {/* The one orange thing here: the card waits for the user. */}
             <span className="inline-block rounded bg-primary/15 px-2 py-0.5 text-xs font-medium text-primary-text">
-              Needs you · {waitingWhy(item)}
+              Waiting for you · {waitingWhy(item)}
             </span>
             {/* A card's question is our run's own agent text; a tracker comment is anyone's and stays plain text. */}
             {item.lastComment && (item.kind === 'card'
