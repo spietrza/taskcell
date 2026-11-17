@@ -160,3 +160,17 @@ test('a run stopped by a provider limit is labelled as such, not as a plain fail
   fireEvent.click(screen.getByRole('button', { name: 'failed' }));
   expect(screen.queryByText('task-9')).toBeNull();
 });
+
+test('an open run the filters hide is named, with Clear', () => {
+  const base = { stages: ['implement'], totalCostUsd: 0, anyFailed: false };
+  const runs = [
+    { ...base, taskId: 'hub-2', timestamp: '2026-07-06T19:12:02.123Z', repoPath: '/b', repoName: 'b' },
+    { ...base, taskId: 'gh-7', timestamp: '2026-07-06T19:12:03.123Z', repoPath: '/a', repoName: 'a' },
+  ] as (RunSummary & { repoPath: string; repoName: string })[];
+  const onHub = vi.fn();
+  const hub = { triage: 'all' as const, repos: ['/a'], sources: [], query: '', group: 'none' as const };
+  render(<RunList runs={runs} active={[]} hub={hub} onHub={onHub} onSelect={noop} onOpenActive={noop} selected={`/b:hub-2:${runs[0]!.timestamp}`} paneOpen pane={<div />} />);
+  expect(screen.getByRole('status')).toHaveTextContent('hub-2 is hidden by your filters — Clear');
+  fireEvent.click(screen.getByRole('button', { name: 'Clear' }));
+  expect(onHub).toHaveBeenCalledWith(expect.objectContaining({ repos: [] }));
+});

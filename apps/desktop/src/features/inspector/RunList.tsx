@@ -1,5 +1,5 @@
 import { Fragment, useMemo, useState, type ReactElement, type ReactNode } from 'react';
-import { Button, Chip, Empty, Input, Timestamp, cn } from '@/ui';
+import { Button, Chip, Empty, Input, LINK_CLASS, Timestamp, cn } from '@/ui';
 import { Inbox, RefreshCw, Search } from 'lucide-react';
 import { contrastColor } from '../../color';
 import { FilterBar, NoMatch, pill } from '../../FilterBar';
@@ -112,6 +112,18 @@ export function RunList({
     const q = query.trim().toLowerCase();
     return filterActive(active, hub, meta).filter((a) => matches(q, a.repoPath, a.taskId));
   }, [active, query, filter, hub, meta]);
+
+  // The open run, when the filters hide its row: named, as the Board names a hidden open card.
+  const hiddenOpen = useMemo(() => {
+    if (!paneOpen || selected === undefined) return undefined;
+    if (shown.some((r) => runKey(r.repoPath, r.taskId, r.timestamp) === selected) || shownActive.some((a) => activeKey(a.repoPath, a.taskId) === selected)) return undefined;
+    return runs.find((r) => runKey(r.repoPath, r.taskId, r.timestamp) === selected)?.taskId ?? active.find((a) => activeKey(a.repoPath, a.taskId) === selected)?.taskId;
+  }, [paneOpen, selected, shown, shownActive, runs, active]);
+  const clearAll = (): void => {
+    setFilter('all');
+    setQuery('');
+    onHub?.(clearFilters(hub));
+  };
 
   // Would clearing the search bring rows back, or is it the pill / hub filter that empties the list?
   const searchHides = useMemo(() => {
@@ -290,6 +302,14 @@ export function RunList({
           </div>
         );
       })()}
+      {hiddenOpen !== undefined && (
+        <p role="status" className="text-xs text-muted-foreground">
+          {hiddenOpen} is hidden by your filters
+          {' — '}
+          {/* Also the project tab: it is what usually hides a run opened from Home or a link. */}
+          <button type="button" className={LINK_CLASS} onClick={() => { setFilter('all'); setQuery(''); onHub?.({ ...clearFilters(hub), repos: [] }); }}>Clear</button>
+        </p>
+      )}
       </div>
       {(() => {
         const rows = (
@@ -301,11 +321,7 @@ export function RunList({
             names={[...filterNames(hub), ...(!onHub && query.trim() !== '' ? [`search "${query.trim()}"`] : []), ...(filter !== 'all' ? [filter === 'passed' ? 'Passed' : 'Failed'] : [])]}
             onClearFilters={
               filter !== 'all' || query.trim() !== '' || (onHub && canClearFilters(hub))
-                ? () => {
-                    setFilter('all');
-                    setQuery('');
-                    onHub?.(clearFilters(hub));
-                  }
+                ? clearAll
                 : undefined
             }
           />
