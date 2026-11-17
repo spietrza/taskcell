@@ -25,12 +25,35 @@ const issueNumberOf = (key: string): number | undefined => {
   return m ? Number(m[1]) : undefined;
 };
 
+/** Where a GitHub card's answer goes: the repository, its trigger label, and the `gh` runner. */
+export interface GithubAnswerTarget {
+  repoSlug: string;
+  agentLabel?: string;
+  gh?: GhRunner;
+}
+
+/**
+ * Whether issue `number` still waits on an answer: open, and not carrying the trigger label an answer puts back (the
+ * issue flow's own marker that it went back to the factory). Undefined when `gh` cannot tell.
+ */
+async function issueAwaitsAnswer(target: GithubAnswerTarget, number: number): Promise<boolean | undefined> {
+  const label = target.agentLabel ?? DEFAULT_GITHUB_AGENT_LABEL;
+  try {
+    const out = await (target.gh ?? defaultGhRunner)(['issue', 'view', String(number), '--repo', target.repoSlug, '--json', 'state,labels']);
+    const issue = JSON.parse(out) as { state?: string; labels?: { name?: string }[] };
+    return issue.state === 'OPEN' && !(issue.labels ?? []).some((l) => l.name === label);
+  } catch {
+    return undefined;
+  }
+}
+
 /**
  * Cards whose newest run's agent stopped to ask (kind `card`, ask `question`). A hub-board card counts until it is
  * answered, retried or accepted; a GitHub card only when that run opened no pull request (a PR waits
- * in the list on its own) and the issue number is known. `id` is the card id.
+ * in the list on its own), the issue number is known, and, with a `github` target, the issue is open and not
+ * already answered (it carries the trigger label again). A `gh` failure keeps the card listed. `id` is the card id.
  */
-export async function askingCards(configDir: string, repoPath: string): Promise<NeedsYouItem[]> {
+export async function askingCards(configDir: string, repoPath: string, github?: GithubAnswerTarget): Promise<NeedsYouItem[]> {
   const runs = await latestRuns(repoPath);
   const hub = (await readAppConfig(repoPath)).taskSource === 'hub';
   const tasks = hub ? new Map((await listHubTasks(configDir, repoPath)).map((t) => [t.id, t])) : undefined;
@@ -42,6 +65,7 @@ export async function askingCards(configDir: string, repoPath: string): Promise<
     // A hub card waits while it is failed (an answer, a Retry or an Accept moves it on); hub-board.ts marks the same cards `asked`.
     if (tasks !== undefined ? task?.status !== 'failed' : run.prUrl !== undefined) continue;
     if (number === undefined || !Number.isInteger(number)) continue;
+    if (tasks === undefined && github !== undefined && (await issueAwaitsAnswer(github, number)) === false) continue;
     items.push({
       id: key,
       kind: 'card',
@@ -66,7 +90,8 @@ export async function answerCard(
   opts: { configDir: string; repoPath: string; id: string; body: string; owner: HubTaskOwner; repoSlug?: string; agentLabel?: string; gh?: GhRunner },
 ): Promise<void> {
   const { configDir, repoPath, id, body } = opts;
-  if (!(await askingCards(configDir, repoPath)).some((i) => i.id === id)) throw new BadRequestError(`${id} is not waiting for an answer`);
+  const github = opts.repoSlug !== undefined ? { repoSlug: opts.repoSlug, ...(opts.agentLabel !== undefined ? { agentLabel: opts.agentLabel } : {}), ...(opts.gh !== undefined ? { gh: opts.gh } : {}) } : undefined;
+  if (!(await askingCards(configDir, repoPath, github)).some((i) => i.id === id)) throw new BadRequestError(`${id} is not waiting for an answer`);
   if ((await readAppConfig(repoPath)).taskSource === 'hub') {
     await editHubTask(configDir, repoPath, id, (t) => {
       const next = `${t.body}\n\n## Answer\n${body}`;
@@ -81,10 +106,12 @@ export async function answerCard(
     return;
   }
   const number = issueNumberOf(id);
-  if (opts.repoSlug === undefined || number === undefined) throw new BadRequestError(`${id}: this project has no GitHub remote`);
+  if (github === undefined || number === undefined) throw new BadRequestError(`${id}: this project has no GitHub remote`);
+  // The list keeps a card `gh` could not check; an answer needs a positive read (the issue flow's issueIsWaiting rule).
+  if ((await issueAwaitsAnswer(github, number)) !== true) throw new BadRequestError(`${id} is not waiting for an answer (closed, already answered, or GitHub could not be read)`);
   const label = opts.agentLabel ?? DEFAULT_GITHUB_AGENT_LABEL;
   const gh = opts.gh ?? defaultGhRunner;
-  await commentGithubIssue(opts.repoSlug, String(number), body, gh);
-  await ensureLabel(opts.repoSlug, label, gh);
-  await gh(['issue', 'edit', String(number), '--repo', opts.repoSlug, '--add-label', label]);
+  await commentGithubIssue(github.repoSlug, String(number), body, gh);
+  await ensureLabel(github.repoSlug, label, gh);
+  await gh(['issue', 'edit', String(number), '--repo', github.repoSlug, '--add-label', label]);
 }

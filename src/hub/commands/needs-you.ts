@@ -3,7 +3,7 @@
 import { BadRequestError } from '../../sidecar/sidecar.js';
 import { listNeedsYou, mergeNeedsYou, replyNeedsYou, MAX_COMMENT_FETCHES } from '../needs-you.js';
 import { readAppConfig } from '../app-config.js';
-import { answerCard, askingCards } from '../asking.js';
+import { answerCard, askingCards, type GithubAnswerTarget } from '../asking.js';
 import * as projects from '../projects.js';
 import type { MigrateLabelsReport, NeedsYouItem, RepoReadFailure, RepoStamp } from '../../wire.js';
 import { migrateLabels } from '../../runners/migrate-labels.js';
@@ -23,6 +23,13 @@ export interface NeedsYouCommands {
   merge_needs_you: { args: { repoPath: string; id: string }; result: void };
 }
 
+/** A GitHub card's answer target: the repository and its configured trigger label (app.json `label`). */
+async function answerTarget(real: string, repoSlug: string | undefined): Promise<GithubAnswerTarget | undefined> {
+  if (repoSlug === undefined) return undefined;
+  const { label } = await readAppConfig(real);
+  return { repoSlug, ...(label?.trim() ? { agentLabel: label } : {}) };
+}
+
 export const commands = defineCommands<NeedsYouCommands>({
   migrate_labels: async ({ args, allow }) => {
     const real = await allow(requireString(args, 'repoPath'));
@@ -35,7 +42,7 @@ export const commands = defineCommands<NeedsYouCommands>({
     const real = await allow(requireString(args, 'repoPath'));
     const repoSlug = await githubSlug(real);
     // Cards whose run stopped to ask come from run records; a repository without a GitHub remote has only those.
-    return { items: [...(repoSlug === undefined ? [] : await listNeedsYou(repoSlug)), ...(await askingCards(ctx.configDir, real))] };
+    return { items: [...(repoSlug === undefined ? [] : await listNeedsYou(repoSlug)), ...(await askingCards(ctx.configDir, real, await answerTarget(real, repoSlug)))] };
   },
   list_needs_you_all: async ({ ctx, allow, scope }) => {
     // One comment-fetch budget for every repository, not MAX_COMMENT_FETCHES each.
@@ -45,7 +52,7 @@ export const commands = defineCommands<NeedsYouCommands>({
       allow,
       async (real) => {
         const repoSlug = await githubSlug(real);
-        return [...(repoSlug === undefined ? [] : await listNeedsYou(repoSlug, undefined, { commentBudget })), ...(await askingCards(ctx.configDir, real))];
+        return [...(repoSlug === undefined ? [] : await listNeedsYou(repoSlug, undefined, { commentBudget })), ...(await askingCards(ctx.configDir, real, await answerTarget(real, repoSlug)))];
       },
       await scope(),
     );

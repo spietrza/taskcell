@@ -56,10 +56,30 @@ test('answering a GitHub card comments on the issue and puts the trigger label b
   await appConfig({ taskSource: 'github' });
   await record('gh-27', asked);
   const calls: string[][] = [];
-  const gh = async (args: string[]): Promise<string> => { calls.push(args); return ''; };
+  const labels: string[] = [];
+  const gh = async (args: string[]): Promise<string> => {
+    calls.push(args);
+    if (args[1] === 'view') return JSON.stringify({ state: 'OPEN', labels: labels.map((name) => ({ name })) });
+    if (args[1] === 'edit') labels.push(args.at(-1)!);
+    return '';
+  };
   await answerCard({ configDir: cfg, repoPath: repo, id: 'gh-27', body: 'use the default', owner, repoSlug: 'o/r', gh });
-  expect(calls[0]).toEqual(['issue', 'comment', '27', '--repo', 'o/r', '--body', 'use the default']);
+  expect(calls.filter((c) => c[1] !== 'view')[0]).toEqual(['issue', 'comment', '27', '--repo', 'o/r', '--body', 'use the default']);
   expect(calls.at(-1)).toEqual(['issue', 'edit', '27', '--repo', 'o/r', '--add-label', 'ready for agent']);
+  // Answered: the trigger label is back, so the card leaves the list and a second answer is refused.
+  expect(await askingCards(cfg, repo, { repoSlug: 'o/r', gh })).toEqual([]);
+  await expect(answerCard({ configDir: cfg, repoPath: repo, id: 'gh-27', body: 'again', owner, repoSlug: 'o/r', gh })).rejects.toThrow(/not waiting/);
+});
+
+test('a GitHub card on a closed issue is neither listed nor answerable; one gh cannot read stays listed but is not answered', async () => {
+  await appConfig({ taskSource: 'github' });
+  await record('gh-27', asked);
+  const closed = async (): Promise<string> => JSON.stringify({ state: 'CLOSED', labels: [] });
+  expect(await askingCards(cfg, repo, { repoSlug: 'o/r', gh: closed })).toEqual([]);
+  await expect(answerCard({ configDir: cfg, repoPath: repo, id: 'gh-27', body: 'x', owner, repoSlug: 'o/r', gh: closed })).rejects.toThrow(/not waiting/);
+  const down = async (): Promise<string> => { throw new Error('offline'); };
+  expect((await askingCards(cfg, repo, { repoSlug: 'o/r', gh: down })).map((i) => i.id)).toEqual(['gh-27']);
+  await expect(answerCard({ configDir: cfg, repoPath: repo, id: 'gh-27', body: 'x', owner, repoSlug: 'o/r', gh: down })).rejects.toThrow(/not waiting/);
 });
 
 test('a hub card waits only while it is failed: a done card (accepted or not) never does', async () => {
