@@ -7,7 +7,7 @@ export function stationSummary(station: Station, cfg: AppConfig): string[] {
   switch (station) {
     case 'card': {
       const source = resolveTaskSource(cfg);
-      return [`label ${cfg.label || 'ready for agent'}`, source === undefined ? 'no task source' : taskSourceLabel(source)];
+      return [`label ${cfg.label || 'ready for agent'}`, source === undefined ? 'no card source' : taskSourceLabel(source)];
     }
     case 'spec':
       return [cfg.flow ? `flow ${cfg.flow}` : 'source default flow'];

@@ -10,7 +10,7 @@ import { CommandPalette } from './CommandPalette';
 import { RepoPicker } from './RepoPicker';
 import { TailwindDebugScreens } from './components/TailwindDebugScreens';
 import { Dashboard } from './features/dashboard/Dashboard';
-import { Home } from './features/home/Home';
+import { Home, HomeSkeleton } from './features/home/Home';
 import type { SettingsSection } from './features/settings/sections';
 import { Inspector } from './features/inspector/Inspector';
 import { Onboarding } from './features/onboarding/Onboarding';
@@ -453,7 +453,7 @@ export default function App() {
     home: 'Home',
     runs: 'Runs',
     board: 'Board',
-    task: 'New Task',
+    task: 'New card',
     settings: 'Settings',
   };
   // Home lives on the logo now; the project is picked in the filter (Board, Runs) or on the screen that needs one (Settings, New Task).
@@ -462,7 +462,7 @@ export default function App() {
     crumbs.push({ label: SCREEN_LABEL[screen] });
     crumbs.push({
       label: taskCrumb.name,
-      edit: { placeholder: 'Name this task…', ariaLabel: 'rename task', onCommit: taskCrumb.onRename },
+      edit: { placeholder: 'Name this card…', ariaLabel: 'rename card', onCommit: taskCrumb.onRename },
     });
   } else if (active && screen !== 'home') {
     if (crumb) {
@@ -562,7 +562,9 @@ export default function App() {
             <div className="h-full overflow-y-auto">
               {/* One tree whether or not a project is active, so the project cards do not remount when one is picked. */}
               <div className={cn(PAGE_CLASS, 'space-y-6')}>
-                {active && (
+                {/* Before the project list arrives, Home's skeleton: not "No projects yet" for a hub that has some. */}
+                {!projectsLoaded && <HomeSkeleton />}
+                {projectsLoaded && active && (
                   <Home
                     project={active.path}
                     projects={projects}
@@ -594,7 +596,7 @@ export default function App() {
                     onClose={() => setSetupOpen(false)}
                   />
                 )}
-                <Dashboard
+                {projectsLoaded && <Dashboard
                   projects={projects}
                   onOpenSetup={() => setSetupOpen(true)}
                   onOpen={(p) => enterProject(p.path)}
@@ -604,7 +606,7 @@ export default function App() {
                   onOpenAutoRun={openAutoRun}
                   factory={factoryStates}
                   localWorker={localWorkers}
-                />
+                />}
               </div>
             </div>
           ) : (

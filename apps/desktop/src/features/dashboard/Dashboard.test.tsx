@@ -20,16 +20,16 @@ describe('Dashboard platform', () => {
   test('projects with different platforms show side by side; an unset task source is not shown as GitHub Issues', () => {
     const [a, b] = projects;
     render(<Dashboard projects={[{ ...a!, taskSource: undefined, runLocation: undefined }, b!]} onOpen={() => {}} onAdd={() => {}} onRemove={() => {}} />);
-    expect(screen.getByText('No task source')).toBeInTheDocument();
+    expect(screen.getByText('No card source')).toBeInTheDocument();
     expect(screen.queryByText('GitHub Issues')).toBeNull();
     expect(screen.getByText('GitHub Actions')).toBeInTheDocument();
-    expect(screen.getByText('GitLab Issues')).toBeInTheDocument();
+    expect(screen.getByText('GitLab')).toBeInTheDocument();
     expect(screen.getByText('GitLab CI')).toBeInTheDocument();
   });
 
   test('an invalid combination is explained on the card', () => {
     render(<Dashboard projects={[{ ...first!, taskSource: 'linear', runLocation: 'github-actions' }]} onOpen={() => {}} onAdd={() => {}} onRemove={() => {}} />);
-    expect(screen.getByText(/Linear only supplies tasks/)).toBeInTheDocument();
+    expect(screen.getByText(/Linear only supplies cards/)).toBeInTheDocument();
   });
 });
 
@@ -38,7 +38,7 @@ describe('Dashboard hub-board project', () => {
 
   test('an unset run location reads as Local hub, with no CI mismatch note', () => {
     render(<Dashboard projects={[hub]} onOpen={() => {}} onAdd={() => {}} onRemove={() => {}} onOpenAutoRun={() => {}} factory={{ [hub.path]: factoryStateNone }} />);
-    expect(screen.getByText('Hub board')).toBeInTheDocument();
+    expect(screen.getByText('Taskcell board')).toBeInTheDocument();
     expect(screen.getByText('Local hub')).toBeInTheDocument();
     expect(screen.queryByText('GitHub Actions')).toBeNull();
     expect(screen.queryByRole('button', { name: /Enable factory|Hub worker|Factory checklist/ })).toBeNull();

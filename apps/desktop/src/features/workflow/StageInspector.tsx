@@ -105,7 +105,7 @@ export function StageInspector({
             <Button variant="text" color="secondary" onClick={() => setRows([...poolRows, newRow('')])} startIcon={<Plus className="size-4" />}>
               Add entry
             </Button>
-            <span className="block text-xs text-muted-foreground">Each run picks one entry by weight from its task id; an entry out of quota is skipped until its reset.</span>
+            <span className="block text-xs text-muted-foreground">Each run picks one entry by weight from its card id; an entry out of quota is skipped until its reset.</span>
           </div>
       ) : (
         <Field label="model (empty = library default)">

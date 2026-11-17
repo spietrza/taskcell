@@ -37,7 +37,7 @@ describe('CreateTaskDialog', () => {
     opener.focus();
     fireEvent.click(opener);
 
-    const dialog = screen.getByRole('dialog', { name: 'Create a task on GitHub?' });
+    const dialog = screen.getByRole('dialog', { name: 'Create a card on GitHub?' });
     expect(dialog).toHaveAttribute('aria-modal', 'true');
     expect(dialog).toHaveFocus();
 

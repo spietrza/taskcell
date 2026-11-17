@@ -116,7 +116,7 @@ test('a list emptied by filters names them; Clear filters resets search, source,
   fireEvent.click(screen.getByRole('button', { name: 'Clear filters' }));
   // Projects and grouping are not filters this action owns.
   expect(onHub).toHaveBeenCalledWith({ ...hub, triage: 'all', sources: [], query: '' });
-  expect(screen.getByRole('button', { name: 'All results' }).className).toContain('bg-primary');
+  expect(screen.getByRole('button', { name: 'All results' })).toHaveAttribute('aria-pressed', 'true');
 });
 
 test('the search matches a run by the board title, #issue and labels, not only the task id', () => {

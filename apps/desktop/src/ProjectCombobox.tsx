@@ -9,7 +9,7 @@ interface Item {
   color: string;
 }
 
-/** Project picker for the screens that act on one project (Settings, New Task). Searchable.
+/** Project picker for the screens that act on one project (Settings, New card). Searchable.
  * The Input is the in-flow anchor the popup positions against — keep it inside the control wrapper. */
 export function ProjectCombobox({
   projects,
@@ -37,7 +37,7 @@ export function ProjectCombobox({
         <Combobox.Input
           placeholder="Project…"
           title={active.name}
-          className="w-36 truncate bg-transparent py-0.5 pr-5 text-sm font-medium outline-none"
+          className="w-36 truncate bg-transparent py-0.5 pr-5 text-sm font-medium outline-none md:w-60"
         />
         <Combobox.Trigger aria-label="Switch project" className="absolute right-1 text-muted-foreground">
           <ChevronsUpDown className="size-3.5" />

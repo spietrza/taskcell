@@ -70,7 +70,7 @@ export function CreateTaskDialog({
         tabIndex={-1}
         className="w-[28rem] rounded-lg border border-border bg-background p-4 shadow-lg outline-none"
       >
-        <h2 id="create-task-title" className="text-sm font-medium">Create a task on {sourceName(source)}?</h2>
+        <h2 id="create-task-title" className="text-sm font-medium">Create a card on {sourceName(source)}?</h2>
         <p className="mt-2 text-sm text-muted-foreground">
           This creates a real issue and <strong>cannot be undone from here</strong>. It does not start a run.
         </p>
@@ -108,7 +108,7 @@ export function CreateTaskDialog({
             Cancel
           </Button>
           <Button onClick={onConfirm} loading={busy}>
-            Create task
+            Create card
           </Button>
         </div>
       </div>

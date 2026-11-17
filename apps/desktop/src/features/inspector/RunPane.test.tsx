@@ -43,7 +43,8 @@ test('a finished run: header with the issue link and one PR chip, the six statio
   const pane = screen.getByRole('region', { name: 'Run gh-r-3' });
   expect(within(pane).getByText('Disable the Send button while sending')).toBeInTheDocument();
   expect(within(pane).getByTitle('Target branch')).toHaveTextContent('main');
-  expect(within(pane).getByText('Started by Hub')).toBeInTheDocument();
+  // The shared hub token is not a person: no "Started by" line.
+  expect(within(pane).queryByText(/Started by/)).toBeNull();
   expect(screen.queryByText(/\btoken\b/)).toBeNull();
   // One issue link and one PR link, both in the header; no "Open in GitHub".
   expect(within(pane).getByRole('link', { name: /Issue #3/ })).toHaveAttribute('href', 'https://github.com/o/r/issues/3');

@@ -1,12 +1,12 @@
 import { Fragment } from 'react';
-import { cn } from '@/ui';
+import { LINK_CLASS, cn } from '@/ui';
 import { AlertCircle, CheckCircle2, Circle, CircleDot } from 'lucide-react';
 import { fmtDuration, stageLabel, type PaneStage } from './runStages';
 
 const ICON = {
   done: <CheckCircle2 className="size-4 shrink-0 text-success-text" aria-hidden />,
   failed: <AlertCircle className="size-4 shrink-0 text-destructive-text" aria-hidden />,
-  running: <CircleDot className="size-4 shrink-0 text-primary-text" aria-hidden />,
+  running: <CircleDot className="size-4 shrink-0 text-foreground" aria-hidden />,
   pending: <Circle className="size-4 shrink-0 text-muted-foreground/60" aria-hidden />,
 } as const;
 
@@ -31,11 +31,11 @@ export function StageLine({ stages, now, selected, onSelect, list = false }: { s
               <span className="min-w-0 text-sm font-medium leading-5 [overflow-wrap:anywhere]">{label}</span>
             </span>
             <span className={list ? 'absolute top-2 right-3 text-sm tabular-nums' : 'mt-1 block pl-6 text-sm tabular-nums'}>
-              {s.href !== undefined ? <a href={s.href} target="_blank" rel="noreferrer" className="text-primary-text underline">{time}</a> : time}
+              {s.href !== undefined ? <a href={s.href} target="_blank" rel="noreferrer" className={LINK_CLASS}>{time}</a> : time}
             </span>
             {s.phase === 'running' && (
               <span className="mt-2 block h-1 overflow-hidden rounded-full bg-muted" role="progressbar" aria-label={`${label} in progress`}>
-                <span className="block h-full w-1/3 animate-[stage-run_1.6s_ease-in-out_infinite] rounded-full bg-primary motion-reduce:animate-none motion-reduce:w-1/2" />
+                <span className="block h-full w-1/3 animate-[stage-run_1.6s_ease-in-out_infinite] rounded-full bg-foreground motion-reduce:animate-none motion-reduce:w-1/2" />
               </span>
             )}
           </>
@@ -43,7 +43,7 @@ export function StageLine({ stages, now, selected, onSelect, list = false }: { s
         const cls = cn(
           'flex min-w-24 flex-1 flex-col justify-start rounded-lg border text-left',
           list ? 'relative px-3 py-2' : 'p-3',
-          s.phase === 'running' ? 'border-primary bg-primary/5 text-foreground' : s.phase === 'pending' ? 'border-border/60 text-muted-foreground' : 'border-border',
+          s.phase === 'running' ? 'border-foreground/60 bg-muted/40 text-foreground' : s.phase === 'pending' ? 'border-border/60 text-muted-foreground' : 'border-border',
           s.phase === 'failed' && 'border-destructive/50',
           selected === i && s.phase !== 'running' && 'border-foreground/60 bg-muted/40',
           pickable && 'cursor-pointer hover:bg-muted/40',

@@ -3,7 +3,7 @@ import { Button, cn } from '@/ui';
 import { useNavGuardRegistry } from '../../navGuard';
 import { SETTINGS_SECTIONS, type SettingsSection } from './sections';
 import { Settings } from './Settings';
-import type { TeamScreen } from './Members';
+import { Members, type TeamScreen } from './Members';
 import { LineEditor } from '../line/LineEditor';
 import { AuditLog } from '../audit/AuditLog';
 import { Lessons } from '../lessons/Lessons';
@@ -69,7 +69,17 @@ export function SettingsScreen({
               </Button>
             </div>
           )}
-          <Settings project={project} {...(teamScreen ? { teamScreen } : {})} />
+          <Settings project={project} />
+          {/* The team is not this project's: its own section, saved as it is edited, not by the project's Save. */}
+          {teamScreen && (
+            <section aria-label="Team" className="mt-8 space-y-4 border-t border-border pt-6">
+              <div>
+                <h2 className="text-xl font-semibold">Team: {teamScreen.team.name}</h2>
+                <p className="text-sm text-muted-foreground">Members and repositories of the team, shared by every project in it. Changes apply at once.</p>
+              </div>
+              <Members {...teamScreen} />
+            </section>
+          )}
         </div>
       ) : section === 'line' ? (
         <div className="min-h-0 flex-1 overflow-y-auto pr-4">

@@ -159,7 +159,7 @@ export function TaskDrawer({
           {tabs.map(tab)}
           {activeId === null && panel === 'chat' && (
             <span className="shrink-0 border-b-2 border-primary px-2 py-1 text-sm text-muted-foreground">
-              New task…
+              New card…
             </span>
           )}
         </div>

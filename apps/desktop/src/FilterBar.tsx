@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { Button, Input, cn } from '@/ui';
 import { ListFilter, Search, X } from 'lucide-react';
 import { GROUPINGS, SOURCES, TRIAGES, type CardSource, type Grouping, type HubFilter, type Triage } from './filterState';
@@ -8,11 +8,16 @@ interface Repo {
   name: string;
 }
 
-const pill = (on: boolean): string =>
-  cn('rounded px-2 py-1 text-xs transition-colors', on ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:bg-muted');
+/** A filter toggle. On is ink on a well, never orange: orange means "needs you". */
+export const pill = (on: boolean): string =>
+  cn('rounded px-2 py-1 text-xs transition-colors', on ? 'bg-muted font-medium text-foreground' : 'text-muted-foreground hover:bg-muted');
 
-/** A searchable multi-select that stays usable with many repositories: the list scrolls and filters as you type. */
-function ProjectPicker({ repos, withCards, selected, onChange }: { repos: Repo[]; withCards: string[]; selected: string[]; onChange: (paths: string[]) => void }) {
+/** Up to this many projects, each is a tab; past it, the rest are behind "More…". */
+export const MAX_PROJECT_TABS = 6;
+
+/** A searchable multi-select that stays usable with many repositories: the list scrolls and filters as you type.
+ * `lit` marks the trigger as the selection when no tab is. */
+function ProjectPicker({ repos, withCards, selected, onChange, triggerLabel, lit }: { repos: Repo[]; withCards: string[]; selected: string[]; onChange: (paths: string[]) => void; triggerLabel: string; lit: boolean }) {
   const [open, setOpen] = useState(false);
   const [q, setQ] = useState('');
   const trigger = useRef<HTMLButtonElement>(null);
@@ -49,14 +54,13 @@ function ProjectPicker({ repos, withCards, selected, onChange }: { repos: Repo[]
     const on = all ? repos.map((r) => r.path) : selected;
     set(on.includes(path) ? on.filter((p) => p !== path) : [...on, path]);
   };
-  const label = all ? 'All projects' : selected.length === 1 ? (repos.find((r) => r.path === selected[0])?.name ?? '1 project') : `${selected.length} projects`;
   return (
-    <div ref={box} className="relative">
-      <button ref={trigger} type="button" aria-expanded={open} onClick={() => setOpen(!open)} className="rounded border border-border px-2 py-1 text-xs">
-        Projects: {label}
+    <div ref={box} className="relative shrink-0">
+      <button ref={trigger} type="button" aria-expanded={open} aria-label={`Projects: ${triggerLabel}`} onClick={() => setOpen(!open)} className={cn('-mb-px border-b-2 px-2 py-1 text-xs transition-colors', lit ? 'border-foreground font-medium text-foreground' : 'border-transparent text-muted-foreground hover:text-foreground')}>
+        {triggerLabel}
       </button>
       {open && (
-        <div role="group" aria-label="Projects" className="absolute left-0 top-full z-50 mt-1 w-64 rounded-md border border-border bg-background p-2 shadow-md max-md:static max-md:w-full max-md:shadow-none">
+        <div role="group" aria-label="Projects" className="absolute right-0 top-full z-50 mt-1 w-64 max-w-[calc(100vw-1.5rem)] rounded-md border border-border bg-background p-2 shadow-md">
           <Input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search projects…" aria-label="Search projects" startAdornment={<Search className="size-4" />} />
           <div className="mt-2 flex gap-2 text-xs">
             <button type="button" className="underline" onClick={() => set(repos.filter((r) => withCards.includes(r.path)).map((r) => r.path))}>
@@ -79,7 +83,7 @@ function ProjectPicker({ repos, withCards, selected, onChange }: { repos: Repo[]
                   type="button"
                   aria-label={`Only ${r.name}`}
                   onClick={() => set([r.path])}
-                  className="px-1 text-xs text-primary-text opacity-0 hover:underline focus-visible:opacity-100 group-hover:opacity-100 max-md:opacity-100"
+                  className="px-1 text-xs text-foreground underline-offset-2 opacity-0 hover:underline focus-visible:opacity-100 group-hover:opacity-100 max-md:opacity-100"
                 >
                   Only
                 </button>
@@ -94,12 +98,16 @@ function ProjectPicker({ repos, withCards, selected, onChange }: { repos: Repo[]
 }
 
 /**
- * "All · alpha · beta": one-click tabs over the same Projects filter (no second source of truth). A tab is the
- * filter narrowed to that one project; several picked in the Projects picker light no tab. Projects without cards
- * are left to the picker, so 70 repositories do not make 70 tabs (one picked stays as a tab).
+ * "All · alpha · beta": the one project control, as tabs over the Projects filter (`filter.repos`, no second source
+ * of truth). A tab is the filter narrowed to that one project. Up to MAX_PROJECT_TABS projects each get a tab; past
+ * that, the picked and busy ones do, and "More…" opens the searchable multi-select over all of them, so 70
+ * repositories do not make 70 tabs. Several picked light no tab: the chip or the More trigger says what is.
  */
 function ProjectTabs({ repos, withCards, selected, onChange }: { repos: Repo[]; withCards: string[]; selected: string[]; onChange: (paths: string[]) => void }) {
-  const tabs = repos.filter((r) => withCards.includes(r.path) || selected.includes(r.path));
+  const overflow = repos.length > MAX_PROJECT_TABS;
+  const tabs = overflow
+    ? [...repos.filter((r) => selected.includes(r.path)), ...repos.filter((r) => !selected.includes(r.path) && withCards.includes(r.path))].slice(0, MAX_PROJECT_TABS)
+    : repos;
   const tab = (key: string, label: string, on: boolean, paths: string[]) => (
     <button key={key} type="button" role="tab" aria-selected={on} onClick={() => onChange(paths)} className={cn('-mb-px shrink-0 border-b-2 px-2 py-1 text-xs transition-colors', on ? 'border-foreground font-medium text-foreground' : 'border-transparent text-muted-foreground hover:text-foreground')}>
       {label}
@@ -113,22 +121,27 @@ function ProjectTabs({ repos, withCards, selected, onChange }: { repos: Repo[]; 
         {tab('all', 'All', selected.length === 0, [])}
         {tabs.map((r) => tab(r.path, r.name, selected.length === 1 && selected[0] === r.path, [r.path]))}
       </div>
-      {several && (
+      {several && !overflow && (
         <span data-testid="tabs-several" title="Picked in Projects. A tab narrows to one project; All shows every one." className="mb-1 shrink-0 rounded border border-foreground px-1.5 py-0.5 text-xs font-medium">
           {selected.length} projects
         </span>
       )}
+      {overflow && (() => {
+        // The trigger is the selection when no tab is: several picked, or one that has no tab.
+        const lit = several || (selected.length === 1 && !tabs.some((r) => r.path === selected[0]));
+        const label = several ? `${selected.length} projects` : lit ? (repos.find((r) => r.path === selected[0])?.name ?? '1 project') : 'More…';
+        return <ProjectPicker repos={repos} withCards={withCards} selected={selected} onChange={onChange} triggerLabel={label} lit={lit} />;
+      })()}
     </div>
   );
 }
 
-/** Projects, card source and grouping: everything the phone folds into its Filters drawer. */
-function SecondaryControls({ filter, onChange, repos, withCards, sources }: Props) {
+/** Card source and grouping: everything the phone folds into its Filters drawer. Projects are the tabs above. */
+function SecondaryControls({ filter, onChange, sources }: Props) {
   const toggleSource = (s: CardSource): void =>
     onChange({ ...filter, sources: filter.sources.includes(s) ? filter.sources.filter((x) => x !== s) : [...filter.sources, s] });
   return (
     <>
-      {repos.length > 0 && <ProjectPicker repos={repos} withCards={withCards} selected={filter.repos} onChange={(r) => onChange({ ...filter, repos: r })} />}
       {sources.length === 1 && <span className="text-xs text-muted-foreground">Source: {SOURCES.find((s) => s.value === sources[0])?.label}</span>}
       {sources.length > 1 && (
       <div role="group" aria-label="Card source" className="flex flex-wrap gap-1">
@@ -166,6 +179,8 @@ interface Props {
   searchLabel?: string;
   /** The search box's tooltip: what it matches here and on the other screen that shares it. */
   searchHint?: string;
+  /** The screen's own controls, in the same row after search (Runs: All results / Passed / Failed). */
+  children?: ReactNode;
 }
 
 /** A list filtered to empty: names the search that did it (it is shared by Board and Runs and survives a reload) with a way to clear it.
@@ -218,7 +233,7 @@ export function FilterBar(props: Props) {
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
   }, [drawer]);
-  const active = (filter.repos.length > 0 ? 1 : 0) + (filter.sources.length > 0 ? 1 : 0) + (filter.group !== 'none' ? 1 : 0);
+  const active = (filter.sources.length > 0 ? 1 : 0) + (filter.group !== 'none' ? 1 : 0);
   return (
     <div className="mb-2 flex shrink-0 flex-wrap items-center gap-2" role="search" aria-label="Filters">
       {props.repos.length > 1 && <ProjectTabs repos={props.repos} withCards={props.withCards} selected={filter.repos} onChange={(r) => onChange({ ...filter, repos: r })} />}
@@ -241,6 +256,7 @@ export function FilterBar(props: Props) {
       <div className="flex flex-wrap items-center gap-2 max-md:hidden">
         <SecondaryControls {...props} />
       </div>
+      {props.children}
       <Button variant="outlined" className="md:hidden" onClick={() => setDrawer(true)} startIcon={<ListFilter className="size-4" />}>
         {`Filters${active > 0 ? ` (${active})` : ''}`}
       </Button>

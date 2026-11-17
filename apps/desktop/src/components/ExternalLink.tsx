@@ -1,4 +1,5 @@
 import { ExternalLink as Icon } from 'lucide-react';
+import { LINK_CLASS } from '@/ui';
 import { isDemoLink } from '../transport';
 
 /** The Git host a pull/merge request address belongs to, by its path (`/pull/N` vs `/-/merge_requests/N`). */
@@ -16,14 +17,15 @@ export function issueUrl(prUrl: string, issue: number): string | undefined {
 
 /**
  * An ordinary link out to the original system (new tab, copyable). The address always comes from the
- * server; with none, nothing is rendered.
+ * server; with none, nothing is rendered. `label` names the link for assistive tech where the same text repeats
+ * (every Board card has an "Open in GitHub").
  */
-export function ExternalLink({ href, children, className }: { href?: string; children: string; className?: string }) {
+export function ExternalLink({ href, children, className, label }: { href?: string; children: string; className?: string; label?: string }) {
   if (href === undefined || href === '') return null;
   // The demo's repository does not exist: its links show as plain text that says so.
   if (isDemoLink(href)) {
     return (
-      <span title="Demo project: this link goes nowhere." onClick={(e) => e.stopPropagation()} className={`text-xs text-muted-foreground ${className ?? ''}`}>
+      <span title="Demo project: this link goes nowhere." aria-label={label} onClick={(e) => e.stopPropagation()} className={`text-xs text-muted-foreground ${className ?? ''}`}>
         {children}
       </span>
     );
@@ -33,8 +35,9 @@ export function ExternalLink({ href, children, className }: { href?: string; chi
       href={href}
       target="_blank"
       rel="noreferrer"
+      aria-label={label}
       onClick={(e) => e.stopPropagation()}
-      className={`inline-flex items-center gap-1 text-xs text-primary-text hover:underline ${className ?? ''}`}
+      className={`inline-flex items-center gap-1 text-xs ${LINK_CLASS} ${className ?? ''}`}
     >
       {children}
       <Icon className="size-3" aria-hidden />

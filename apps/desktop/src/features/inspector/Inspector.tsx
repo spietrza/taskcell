@@ -23,6 +23,7 @@ import {
   type CreateRunParams,
 } from '../../ipc';
 import { RunList, activeKey, runKey } from './RunList';
+import { projectColor } from '../../color';
 import { RunPane } from './RunPane';
 import { issueNumber, titleKey } from '../../runLabels';
 import { CostBreakdown } from './CostBreakdown';
@@ -623,7 +624,7 @@ export function Inspector({
             onClick={onNewTask}
             startIcon={<FilePlus className="size-4" />}
           >
-            New Task
+            New card
           </Button>
           <Button variant="text" color="secondary" onClick={load} loading={loading} startIcon={<RefreshCw className="size-4" />}>
             Reload
@@ -698,6 +699,10 @@ export function Inspector({
             titles={titles}
             labels={labels}
             paneOpen={detail !== null || liveRun !== null}
+            identity={(path) => {
+              const p = projects.find((x) => x.path === (path ?? project));
+              return p && { name: p.name, color: projectColor(p) };
+            }}
             pane={
               detail ? (
                 <RunPane key={selectedKey} repo={detailRepo} repoName={repoNameOf(detailRepo)} taskId={detail.taskId} title={titleOf(detailRepo, detail.taskId)} issue={issueNumber(detail.taskId)} issueHref={taskUrls.get(titleKey(detailRepo, detail.taskId))} summary={runs.find((r) => r.taskId === detail.taskId && r.timestamp === detail.timestamp && (r.repoPath === undefined || r.repoPath === detailRepo))} detail={detail} tick={tick} onBack={closeRun} onCancel={cancelRun} />

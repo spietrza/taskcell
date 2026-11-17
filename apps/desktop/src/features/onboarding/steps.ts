@@ -6,7 +6,7 @@ export type StepState = 'done' | 'needs-action' | 'skipped';
 export const STEP_IDS: readonly StepId[] = ['git-host', 'model', 'repo'];
 
 export const STEP_TITLE: Record<StepId, string> = {
-  'git-host': 'Connect your Git host and tasks',
+  'git-host': 'Connect your Git host and cards',
   model: 'Choose the model credential',
   repo: 'Add your first repository',
 };

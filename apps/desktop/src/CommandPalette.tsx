@@ -77,7 +77,7 @@ export function CommandPalette({
             { id: 'settings', label: `Settings · ${projectName}`, icon: <SettingsIcon className="size-4" />, run: () => onScreen('settings') },
           ]
         : []),
-      ...(onNewTask ? [{ id: 'new-task', label: `New task · ${projectName}`, icon: <FilePlus className="size-4" />, run: onNewTask }] : []),
+      ...(onNewTask ? [{ id: 'new-task', label: `New card · ${projectName}`, icon: <FilePlus className="size-4" />, run: onNewTask }] : []),
       ...(onAutoRun ? [{ id: 'auto-run', label: `Auto-run · ${projectName}`, hint: 'Settings → Line', icon: <Factory className="size-4" />, run: onAutoRun }] : []),
       ...(onAddProject ?[{ id: 'add', label: 'Add project', icon: <FolderPlus className="size-4" />, run: onAddProject }] : []),
       { id: 'theme', label: 'Toggle theme', icon: <SunMoon className="size-4" />, run: onToggleTheme },
