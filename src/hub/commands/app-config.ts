@@ -7,16 +7,35 @@ import { appConfigRangeErrors, type AppConfig, type ChatModelList } from '../../
 import { listChatModels } from '../chat-models.js';
 import { type Args, defineCommands, requireString, changedKeys, repoTarget } from '../command-kit.js';
 import { settingsValueChanges } from '../audit.js';
+import { ForbiddenError } from '../credentials.js';
 import type { RpcContext } from '../rpc.js';
 
-/** The saved app.json before a write, or undefined when the call carries no config or the read fails. */
-async function savedBefore(ctx: RpcContext, a: Args): Promise<Args | undefined> {
-  if (typeof a.config !== 'object' || a.config === null) return undefined;
-  try {
-    return (await readAppConfig(await ctx.allowlist.assertAllowed(requireString(a, 'repoPath')))) as Args;
-  } catch {
-    return undefined;
-  }
+const before = new WeakMap<Args, Promise<Args | undefined>>();
+
+/** The saved app.json before a write, or undefined when the call carries no config or the read fails. Read once per
+ * call: the audit's detail and changes and the handler's owner gate share it (they see the same args object). */
+function savedBefore(ctx: RpcContext, a: Args): Promise<Args | undefined> {
+  const known = before.get(a);
+  if (known !== undefined) return known;
+  const read = (async (): Promise<Args | undefined> => {
+    if (typeof a.config !== 'object' || a.config === null) return undefined;
+    try {
+      return (await readAppConfig(await ctx.allowlist.assertAllowed(requireString(a, 'repoPath')))) as Args;
+    } catch {
+      return undefined;
+    }
+  })();
+  before.set(a, read);
+  return read;
+}
+
+/** Keys that decide where the hub sends a key named by `keyEnv` (doc chat, Fetch models, custom-provider runs). */
+const KEY_ROUTING_KEYS = ['chatBaseUrl', 'customProviders'] as const;
+const unset = (v: unknown): unknown => (v === undefined || v === null || v === '' || (Array.isArray(v) && v.length === 0) ? undefined : v);
+
+/** The key-routing keys a save would change; blank, null, [] and absent are the same "unset". */
+export function keyRoutingChanges(prev: Args, next: Args): string[] {
+  return KEY_ROUTING_KEYS.filter((k) => JSON.stringify(unset(prev[k])) !== JSON.stringify(unset(next[k])));
 }
 
 export interface AppConfigCommands {
@@ -36,10 +55,16 @@ export const commands = defineCommands<AppConfigCommands>({
     const real = await allow(requireString(args, 'repoPath'));
     return readAppConfigStrict(real);
   },
-  write_app_config: async ({ args, allow }) => {
+  write_app_config: async ({ ctx, args, allow, caller }) => {
     const real = await allow(requireString(args, 'repoPath'));
     const config = args.config;
     if (typeof config !== 'object' || config === null) throw new BadRequestError('config is required');
+    // A team member may change the other settings, but not where a hub key goes: an endpoint URL plus a `keyEnv`
+    // naming a hub env var would send that value to any host on the next Fetch models, doc chat or run.
+    if (!caller.owner) {
+      const changed = keyRoutingChanges((await savedBefore(ctx, args)) ?? {}, config as Args);
+      if (changed.length > 0) throw new ForbiddenError(`only the hub owner can change ${changed.join(' or ')}: it decides where a hub key is sent`);
+    }
     // A repository default or label-allowlist entry that git would misread is refused before it is saved,
     // not at the next run (one unsafe allowlist entry would refuse every labelled run and list_branches).
     const { baseBranch, baseBranches } = config as HubAppConfig;
