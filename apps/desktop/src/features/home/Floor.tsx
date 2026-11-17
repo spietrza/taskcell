@@ -41,8 +41,8 @@ export function StationStrip({ stations }: { stations: FloorStation[] }) {
 export function Floor({ rows, idle, onOpen }: { rows: FloorRow[]; idle: number; onOpen: (path: string) => void }) {
   if (rows.length === 0 && idle === 0) return null;
   return (
-    <section aria-label="The floor" className="space-y-3">
-      <h2 className="text-xl font-semibold">The floor</h2>
+    <section aria-label="Cards by station" className="space-y-3">
+      <h2 className="text-xl font-semibold">Cards by station</h2>
       {rows.length === 0 ? (
         <p className="text-sm text-muted-foreground">No open cards and no runs this week.</p>
       ) : (
@@ -62,7 +62,7 @@ export function Floor({ rows, idle, onOpen }: { rows: FloorRow[]; idle: number; 
                     <span className="block truncate text-xs text-muted-foreground">{runLocationLabel(effectiveRunLocation(r.project.taskSource, r.project.runLocation))}</span>
                   </span>
                 </span>
-                <StationStrip stations={r.stations} />
+                {r.open > 0 ? <StationStrip stations={r.stations} /> : <span className="text-sm text-muted-foreground">No open cards · {r.runsWeek} {r.runsWeek === 1 ? 'run' : 'runs'} this week</span>}
                 <span className="text-xs tabular-nums text-muted-foreground md:text-right">${r.spendWeek.toFixed(2)} this week</span>
               </button>
             </li>

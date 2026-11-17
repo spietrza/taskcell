@@ -92,6 +92,7 @@ describe('floorRows', () => {
   test('spend is this week only', () => {
     const { rows } = floorRows([a], [], [run('gh-1', DAY, { totalCostUsd: 2 }), run('gh-2', 8 * DAY, { totalCostUsd: 5 })], [], NOW);
     expect(rows[0]!.spendWeek).toBe(2);
+    expect(rows[0]!.runsWeek).toBe(1);
   });
 });
 

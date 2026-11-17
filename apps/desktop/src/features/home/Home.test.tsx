@@ -99,7 +99,7 @@ test('says what waits and what moves, lists the inbox, Moving, the floor and the
   expect(within(moving).getByText('Paused')).toBeInTheDocument();
   expect(within(moving).getByText(/add credit or switch the model/)).toBeInTheDocument();
   // The floor folds the idle project and names the stations in one image per project.
-  const floor = screen.getByRole('region', { name: 'The floor' });
+  const floor = screen.getByRole('region', { name: 'Cards by station' });
   expect(within(floor).getByText('and 1 idle project')).toBeInTheDocument();
   expect(within(floor).getByText(/Each card passes these stations: Card → Spec \(plan\)/)).toBeInTheDocument();
   expect(within(floor).getAllByRole('img').map((i) => i.getAttribute('aria-label'))).toContainEqual(expect.stringContaining('PR: 0 cards'));
@@ -214,7 +214,7 @@ test('first paint is one skeleton until the cards and runs arrive: no half headl
   mount();
   expect(screen.getByRole('status', { name: 'Loading Home' })).toBeInTheDocument();
   expect(screen.queryByRole('heading', { level: 1 })).toBeNull();
-  expect(screen.queryByRole('region', { name: 'The floor' })).toBeNull();
+  expect(screen.queryByRole('region', { name: 'Cards by station' })).toBeNull();
   release();
   // Both lines of the headline arrive together.
   expect(await screen.findByRole('heading', { level: 1 })).toHaveTextContent('1 card waits for you.1 is moving.');

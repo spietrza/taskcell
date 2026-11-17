@@ -92,6 +92,8 @@ export interface FloorRow {
   open: number;
   stations: FloorStation[];
   spendWeek: number;
+  /** Runs in the last 7 days. */
+  runsWeek: number;
 }
 
 /** One row per project with an open card or a run this week, busiest first; the rest are counted as idle. */
@@ -126,7 +128,7 @@ export function floorRows(
     }
     const week = runs.filter((r) => r.repoPath === p.path && now - Date.parse(r.timestamp) <= WEEK_MS);
     if (mine.length === 0 && week.length === 0) continue;
-    rows.push({ path: p.path, name: p.name, project: p, open: mine.length, stations, spendWeek: week.reduce((n, r) => n + (r.costUnknown === true ? 0 : r.totalCostUsd), 0) });
+    rows.push({ path: p.path, name: p.name, project: p, open: mine.length, stations, runsWeek: week.length, spendWeek: week.reduce((n, r) => n + (r.costUnknown === true ? 0 : r.totalCostUsd), 0) });
   }
   rows.sort((a, b) => b.open - a.open || a.name.localeCompare(b.name));
   return { rows, idle: projects.length - rows.length };
