@@ -3,6 +3,9 @@ import { Table, Chip, Input, ScrollTable, Timestamp } from '@/ui';
 import { callerCapabilities, readAudit } from '../../ipc';
 import { useAsync, usePhone } from '../../hooks';
 
+/** `token` is whoever holds the hub's own token (its owner); `unknown`, a refused sign-in (no valid token or session). */
+export const loginLabel = (login: string): string => (login === 'token' ? 'hub token (owner)' : login === 'unknown' ? 'unknown (not signed in)' : login);
+
 /** Read-only audit view, for admins: the hub's `caller_capabilities` says whether the caller is one. */
 export function AuditLog() {
   const [login, setLogin] = useState('');
@@ -33,7 +36,7 @@ export function AuditLog() {
                 {e.detail !== undefined && e.detail.length > 0 ? ` (${e.detail.join(', ')})` : ''}
               </div>
               <div className="flex gap-2 text-xs text-muted-foreground">
-                <span className="min-w-0 truncate">{e.login}</span>
+                <span className="min-w-0 truncate">{loginLabel(e.login)}</span>
                 <Timestamp ms={Date.parse(e.time)} className="ml-auto shrink-0 tabular-nums" />
               </div>
             </li>
@@ -55,7 +58,7 @@ export function AuditLog() {
               {data.map((e, i) => (
                 <Table.Row key={`${e.time}:${i}`}>
                   <Table.Cell className="tabular-nums text-muted-foreground"><Timestamp ms={Date.parse(e.time)} /></Table.Cell>
-                  <Table.Cell>{e.login}</Table.Cell>
+                  <Table.Cell>{loginLabel(e.login)}</Table.Cell>
                   <Table.Cell>{e.action}</Table.Cell>
                   {/* Targets are long paths with no spaces: they wrap anywhere so Outcome stays inside the page. */}
                   <Table.Cell className="min-w-48 max-w-md whitespace-normal text-muted-foreground [overflow-wrap:anywhere]">
