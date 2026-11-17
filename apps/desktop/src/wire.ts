@@ -165,6 +165,8 @@ export interface RepoSkill {
   check: 'local' | 'current' | 'outdated' | 'unknown';
   /** Runs recorded with the skill; absent when none used it. */
   usage?: { runs: number; passRate?: number; avgRepairRounds: number; avgCostUsd: number };
+  /** Runs that used the skill in the last 30 days (`taskcell stats --skills --since 30d`); 0 when none. */
+  runs30d: number;
 }
 
 /** One live lesson (src/core/lessons.ts) on the wire. */
@@ -453,6 +455,9 @@ export interface RunRecord {
    * reads no skills. Absent on older records.
    */
   skills?: { named: string[]; available: string[]; notes?: string[] };
+  /** Installed skills the stage's agent used, from its `run_complete` metric line (`read_run` joins it in); `[]` = none.
+   *  Absent on older runs and when the stage's transcript was withheld. */
+  skillsUsed?: string[];
 }
 
 export interface Proof {

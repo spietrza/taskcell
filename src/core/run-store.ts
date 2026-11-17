@@ -20,6 +20,7 @@ import type { VisualProofResult } from '../pipeline/visual-proof.js';
 import { ciRunUrl, diffUrlFor, httpsUrl } from './links.js';
 import { reviewVerdictOf } from '../pipeline/review-verdict.js';
 import { parseSkillsUsed, sanitizeSkillIds } from './skills-used.js';
+import { parseMetrics } from './stats.js';
 import type { DecisionProbeResult } from './decision-probe.js';
 import type { BaseMergeEvent } from './conflict-stats.js';
 import type { Finding, Proof, RunDetail, RunRecord, RunSummary, StageDetail, VisualProof } from '../wire.js';
@@ -330,7 +331,30 @@ export async function recentWatchTimestamps(root: string, sinceMs: number): Prom
  * against path traversal before any filesystem access.
  */
 export async function readRun(root: string, taskId: string, timestamp: string): Promise<RunDetail> {
-  return readRunRecords(root, taskId, timestamp, true);
+  const detail = await readRunRecords(root, taskId, timestamp, true);
+  return withSkillsUsed(root, detail);
+}
+
+/**
+ * Attach each stage's `skillsUsed` from the run's `run_complete` metric lines (the record JSON does not
+ * carry it). A stage whose line lacks the field (older runs, a withheld transcript) stays without it.
+ * shortcut: reads the whole metrics.jsonl per call; index it by run if the file grows large.
+ */
+async function withSkillsUsed(root: string, detail: RunDetail): Promise<RunDetail> {
+  const text = await readTextNoSymlink(join(root, 'metrics.jsonl')).catch(() => '');
+  if (text === '') return detail;
+  const used = new Map<string, string[]>();
+  for (const m of parseMetrics(text)) {
+    if (m.taskId === detail.taskId && m.ts === detail.timestamp && m.stage !== undefined && m.skillsUsed !== undefined) used.set(m.stage, m.skillsUsed);
+  }
+  if (used.size === 0) return detail;
+  return {
+    ...detail,
+    stages: detail.stages.map((s) => {
+      const skills = s.record.stage === undefined ? undefined : used.get(s.record.stage);
+      return skills === undefined ? s : { ...s, record: { ...s.record, skillsUsed: skills } };
+    }),
+  };
 }
 
 /** Record/proof-only read for the board; never opens diff/transcript files. */

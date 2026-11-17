@@ -2,7 +2,7 @@
 // contract, validation and handler live here; `pnpm gen:wire` derives Commands, COMMAND_NAMES and dispatch from it (see CONTRIBUTING.md).
 import { stat } from 'node:fs/promises';
 import { join } from 'node:path';
-import { aggregateSkills } from '../../core/skill-stats.js';
+import { aggregateSkills, parseSince, withinWindow } from '../../core/skill-stats.js';
 import { parseMetrics } from '../../core/stats.js';
 import { cachedResolver, recordedMetrics, skillsAddPr, skillsDiscover, skillsChecked, skillsRemovePr, skillsUpdate, type SkillsPrResult } from '../../core/skills.js';
 import type { DiscoveredSkill, PendingSkillPr, RepoSkill } from '../../wire.js';
@@ -91,10 +91,14 @@ export const commands = defineCommands<SkillsCommands>({
     // A project without a skills directory has no skills: the empty state, not an error.
     const present = await stat(dir).then((st) => st.isDirectory(), () => false);
     const [rows, metrics] = await Promise.all([present ? skillsChecked(dir, upstreamHead) : Promise.resolve([]), recordedMetrics(real)]);
-    const usage = new Map(aggregateSkills(parseMetrics(metrics)).map((r) => [r.skill, r.with]));
+    const records = parseMetrics(metrics);
+    const usage = new Map(aggregateSkills(records).map((r) => [r.skill, r.with]));
+    // The same window `stats --skills --since 30d` applies.
+    const recent = new Map(aggregateSkills(withinWindow(records, parseSince('30d'))).map((r) => [r.skill, r.with.runs]));
     const skills = rows.map((r): RepoSkill => {
       const u = usage.get(r.name);
       return {
+        runs30d: recent.get(r.name) ?? 0,
         name: r.name,
         source: r.source,
         commit: r.commit.slice(0, 7),
