@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'vitest';
-import { STATIONS, STATION_SHORT, cardStationOf, runStationOf, stationOf } from './stations';
+import { STATIONS, STATION_SHORT, cardStationOf, detailOutcome, runStationOf, stationOf } from './stations';
 
 const at = (column: Parameters<typeof stationOf>[0]['column'], stage?: string, opts?: Parameters<typeof stationOf>[1]): number =>
   stationOf({ column, ...(stage !== undefined ? { stage } : {}) }, opts).at;
@@ -54,14 +54,27 @@ describe('runStationOf', () => {
 });
 
 describe('cardStationOf', () => {
-  test('a finished card follows its newest run; a live or waiting card its column', () => {
+  test('a card in Review or failed follows its newest run; a Done card is done; a live or waiting card its column', () => {
     const failed = { anyFailed: true, failedStage: 'implementer' };
-    expect(cardStationOf({ column: 'done' }, failed)).toEqual({ at: 2, failed: true });
+    expect(cardStationOf({ column: 'verify-failed' }, failed)).toEqual({ at: 2, failed: true });
+    // The store says done (a delivered run may carry a failed stage): past the line, as the Board's Done column.
+    expect(cardStationOf({ column: 'done' }, failed)).toEqual({ at: STATIONS.length, failed: false });
     expect(cardStationOf({ column: 'done' }, undefined)).toEqual({ at: STATIONS.length, failed: false });
     expect(cardStationOf({ column: 'queued' }, failed)).toEqual({ at: 0, failed: false });
     expect(cardStationOf({ column: 'running', stage: 'reviewer' }, failed)).toEqual({ at: 4, failed: false });
   });
-  test('a failed hub card with a stage sits on that stage\'s station', () => {
+  test('a failed hub card with a stage sits on that stage\'s station; one that asked waits there, not failed', () => {
     expect(stationOf({ column: 'verify-failed', stage: 'implementer' })).toEqual({ at: 2, failed: true });
+    expect(stationOf({ column: 'verify-failed', stage: 'implementer', asked: true })).toEqual({ at: 2, failed: false });
+  });
+  test('a run that stopped to ask waits in the Cell; its gates read passed when its proof passed (the receipt\'s source)', () => {
+    const asked = { anyFailed: true, failedStage: 'implementer', asked: 'Which file?' };
+    expect(cardStationOf({ column: 'verify-failed', stage: 'implementer', asked: true }, asked)).toEqual({ at: 2, failed: false });
+    const record = (r: Record<string, unknown>) => ({ record: { taskId: 'hub-4', timestamp: 't', turns: 1, worktreePath: '', worktreePreserved: false, ...r } }) as never;
+    const outcome = detailOutcome({ stages: [record({ stage: 'implementer', completed: false, exitReason: 'incomplete', finalText: 'Which file?' })], proof: { passed: true } as never });
+    expect(outcome).toMatchObject({ asked: 'Which file?', verifyPassed: true, failedStage: 'implementer' });
+    expect(runStationOf(outcome)).toEqual({ at: 2, failed: false, passed: [3] });
+    // A turn cap is not a question: the Cell stays failed.
+    expect(runStationOf(detailOutcome({ stages: [record({ stage: 'implementer', completed: false, exitReason: 'maxTurns', finalText: '' })] }))).toEqual({ at: 2, failed: true });
   });
 });

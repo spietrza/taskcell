@@ -123,7 +123,8 @@ export function RunPane({
         : undefined;
 
   // One state for the chip's word and its colour: the Runs row's (its summary), else the record read the same way.
-  const outcome = summary ?? (detail !== undefined ? detailOutcome(detail) : undefined);
+  // The Runs row carries the outcome; only the record says the gates passed (the receipt reads the same proof).
+  const outcome = summary !== undefined ? { ...summary, ...(detail?.proof?.passed === true ? { verifyPassed: true as const } : {}) } : detail !== undefined ? detailOutcome(detail) : undefined;
   const word = running ? 'running' : timeline.terminal === 'cancelled' ? 'cancelled' : timeline.terminal === 'error' ? 'failed' : outcome !== undefined ? runStateWord(outcome) : 'passed';
   const status = (
     <Chip color={runStateTone(word)} variant="outlined">

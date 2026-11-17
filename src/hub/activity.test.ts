@@ -36,6 +36,11 @@ describe('activityFeed', () => {
     expect(JSON.stringify(feed)).not.toContain('"from"');
   });
 
+  test('a run whose agent stopped to ask reads as asked, not failed', () => {
+    const feed = activityFeed([run('/r/a', 'hub-4', '2026-11-17T10:00:00.000Z', { anyFailed: true, asked: 'Which file?' })], [], repos);
+    expect(feed.map((e) => e.kind)).toEqual(['run-asked']);
+  });
+
   test('leaves out other repositories, failed actions, unnamed lines and a provider-limit stop as a failure', () => {
     const feed = activityFeed(
       [run('/r/c', '#1', '2026-11-17T10:00:00.000Z'), run('/r/a', '#2', '2026-11-17T10:00:00.000Z', { anyFailed: true, stoppedBy: 'provider-limit' })],

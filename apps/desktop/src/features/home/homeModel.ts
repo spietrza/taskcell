@@ -1,7 +1,7 @@
 import type { ActivityEvent, BoardTask, FactoryState, LocalWorkerState, NeedsYouItem, Project, RepoStamp, RunSummary, ActiveRun } from '../../wire';
 import { effectiveRunLocation } from '../../platform';
 import { titleKey } from '../../runLabels';
-import { STATIONS, STATION_SHORT, cardStationOf, stationOf } from '../../stations';
+import { STATIONS, STATION_SHORT, cardStationOf } from '../../stations';
 import { stageLabel } from '../inspector/runStages';
 import { matchNeedsYou } from '../board/QuickView';
 import { retryWords } from '../board/paused';
@@ -53,7 +53,8 @@ function statusLine(t: Card): string {
   if (t.paused !== undefined) return 'Paused by a provider limit.';
   if (t.schedule !== undefined) return t.schedule.label;
   if (t.column === 'claimed') return 'Writing the spec.';
-  const station = STATIONS[stationOf(t).at] ?? 'cell';
+  // A moving card has no finished run yet: the one mapping places it by its column.
+  const station = STATIONS[cardStationOf(t, undefined).at] ?? 'cell';
   return t.stage === undefined ? `${STATION_SHORT[station]}.` : `${STATION_SHORT[station]}: ${stageLabel(t.stage)}`;
 }
 
@@ -160,6 +161,8 @@ export function activityText(e: ActivityEvent): string {
       return `Run ${e.subject ?? ''} finished`.replace('  ', ' ');
     case 'run-failed':
       return `Run ${e.subject ?? ''} failed`.replace('  ', ' ');
+    case 'run-asked':
+      return `Run ${e.subject ?? ''} stopped to ask`.replace('  ', ' ');
     case 'card-created':
       return `${who(e.login)} created a card`;
     case 'pr-merged':

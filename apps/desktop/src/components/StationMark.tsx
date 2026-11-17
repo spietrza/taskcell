@@ -12,7 +12,7 @@ export function stationName(at: number, failed: boolean, short = false): string 
  * A compact station indicator: six ticks (done ones filled, the current one ink, red when failed) and the station's
  * short name. `at` and `failed` come from `stationOf` / `runStationOf`; `at` 6 is past the line.
  */
-export function StationMark({ at, failed, className }: { at: number; failed: boolean; className?: string }) {
+export function StationMark({ at, failed, passed, className }: { at: number; failed: boolean; passed?: readonly number[]; className?: string }) {
   return (
     <span role="img" aria-label={`Station: ${stationName(at, failed)}`} data-station={STATIONS[at] ?? 'done'} className={cn('inline-flex items-center gap-1.5', className)}>
       <span className="flex gap-0.5" aria-hidden>
@@ -21,7 +21,7 @@ export function StationMark({ at, failed, className }: { at: number; failed: boo
             key={k}
             className={cn(
               'h-1.5 w-2.5 rounded-full',
-              i < at ? 'bg-foreground/40' : i === at ? (failed ? 'bg-destructive' : 'bg-foreground') : 'bg-border',
+              i < at || passed?.includes(i) === true ? 'bg-foreground/40' : i === at ? (failed ? 'bg-destructive' : 'bg-foreground') : 'bg-border',
             )}
           />
         ))}

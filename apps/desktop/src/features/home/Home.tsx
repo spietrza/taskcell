@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { ArrowRight, CircleCheck, CircleX, GitMerge, Info, Play, Settings2, SquarePlus, type LucideIcon } from 'lucide-react';
+import { ArrowRight, CircleCheck, CircleX, GitMerge, Info, MessageCircleQuestionMark, Play, Settings2, SquarePlus, type LucideIcon } from 'lucide-react';
 import { Button, Skeleton, cn } from '@/ui';
 import { listActive, listActivity, listRunsAll, listTasksAll, type RepoReadFailure } from '../../ipc';
 import { onStreamReset, subscribe } from '../../transport';
@@ -19,6 +19,7 @@ const ACTIVITY_ICON: Record<ActivityEvent['kind'], LucideIcon> = {
   'run-started': Play,
   'run-finished': CircleCheck,
   'run-failed': CircleX,
+  'run-asked': MessageCircleQuestionMark,
   'card-created': SquarePlus,
   'pr-merged': GitMerge,
   'settings-changed': Settings2,

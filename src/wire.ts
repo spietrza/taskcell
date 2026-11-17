@@ -801,8 +801,8 @@ export interface ChatModelList {
 /** One line of Home's activity feed (`list_activity`): built from run records and the hub audit log, never from a tracker read. */
 export interface ActivityEvent {
   time: string;
-  /** `run-started` and `card-created`, `pr-merged`, `settings-changed` come from the hub's audit log (actions taken in the hub); the run outcomes from run records. */
-  kind: 'run-started' | 'run-finished' | 'run-failed' | 'card-created' | 'pr-merged' | 'settings-changed';
+  /** `run-started` and `card-created`, `pr-merged`, `settings-changed` come from the hub's audit log (actions taken in the hub); the run outcomes from run records (`run-asked`: its agent stopped to ask). */
+  kind: 'run-started' | 'run-finished' | 'run-failed' | 'run-asked' | 'card-created' | 'pr-merged' | 'settings-changed';
   repoPath: string;
   repoName: string;
   /** The hub login that acted (or `token`); absent when the record names nobody. */

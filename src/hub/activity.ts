@@ -53,7 +53,9 @@ export function activityFeed(
     if (!repos.has(r.repoPath)) continue;
     // shortcut: a run summary carries its start time, not its end; the feed places the outcome there until records carry an end time.
     const failed = r.anyFailed && r.stoppedBy !== 'provider-limit';
-    events.push({ time: r.timestamp, kind: failed ? 'run-failed' : 'run-finished', ...stamp(r.repoPath, repos), subject: r.taskId, ...(r.startedBy !== undefined ? { login: r.startedBy } : {}) });
+    // A run whose agent stopped to ask waits on a person: not a failure in the feed.
+    const kind = r.asked !== undefined ? 'run-asked' : failed ? 'run-failed' : 'run-finished';
+    events.push({ time: r.timestamp, kind, ...stamp(r.repoPath, repos), subject: r.taskId, ...(r.startedBy !== undefined ? { login: r.startedBy } : {}) });
   }
   for (const e of audit) {
     const ev = fromAudit(e, repos);

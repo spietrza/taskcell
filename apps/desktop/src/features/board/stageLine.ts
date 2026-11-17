@@ -1,5 +1,5 @@
 import type { BoardTask, RunDetail } from '../../wire';
-import { STATIONS, STATION_LABEL, stationOf, type Station } from '../../stations';
+import { STATIONS, STATION_LABEL, stationOf, type Place, type Station } from '../../stations';
 
 export type StageStatus = 'done' | 'current' | 'waiting' | 'failed';
 export interface StageStep {
@@ -28,12 +28,13 @@ export function repairAttempts(run?: Pick<RunDetail, 'stages'>): number {
  * The six stations for a place on the line (`stationOf`, `runStationOf`, `cardStationOf`): stations before `at` are done,
  * after it waiting; `at` itself is current, or failed. `repairs` notes the gate repairs on a current Gates station.
  */
-export function stepsAt(place: { at: number; failed: boolean }, opts: { repairs?: number; maxRepairs?: number } = {}): StageStep[] {
+export function stepsAt(place: Place, opts: { repairs?: number; maxRepairs?: number } = {}): StageStep[] {
   const { at, failed } = place;
+  const passed = new Set(place.passed ?? []);
   const repairs = opts.repairs ?? 0;
   const cap = opts.maxRepairs ?? DEFAULT_MAX_REPAIRS;
   return STATIONS.map((key, i): StageStep => {
-    const status: StageStatus = i < at ? 'done' : i > at ? 'waiting' : failed ? 'failed' : 'current';
+    const status: StageStatus = i < at || passed.has(i) ? 'done' : i > at ? 'waiting' : failed ? 'failed' : 'current';
     const step: StageStep = { key, label: STATION_LABEL[key], status };
     if (key === 'gates' && repairs > 0 && status === 'current') step.note = `repair ${Math.min(repairs, cap)} of ${cap}`;
     return step;

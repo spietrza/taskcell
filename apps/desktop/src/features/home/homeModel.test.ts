@@ -123,6 +123,7 @@ describe('activityText', () => {
     [{ kind: 'run-started', login: 'token' }, 'You started a run'],
     [{ kind: 'run-finished', subject: 'gh-1' }, 'Run gh-1 finished'],
     [{ kind: 'run-failed', subject: 'gh-2' }, 'Run gh-2 failed'],
+    [{ kind: 'run-asked', subject: 'hub-4' }, 'Run hub-4 stopped to ask'],
     [{ kind: 'card-created', login: 'ann' }, 'ann created a card'],
     [{ kind: 'pr-merged', login: 'ann', subject: '#12' }, 'ann merged PR #12'],
     [{ kind: 'settings-changed', login: 'bob', keys: ['budgetUsd', 'label'] }, 'bob changed settings: budgetUsd, label'],
