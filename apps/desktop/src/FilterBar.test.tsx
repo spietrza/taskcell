@@ -115,6 +115,15 @@ test('a grouped Board with no matching card says so, and a grouped Runs table ha
   expect(screen.getByText('GitLab', { selector: 'li' })).toBeInTheDocument();
 });
 
+test('a press outside closes the Projects popup; a press inside keeps it', () => {
+  render(<Harness />);
+  fireEvent.click(screen.getAllByRole('button', { name: /^Projects:/ })[0]!);
+  fireEvent.pointerDown(screen.getByLabelText('Search projects'));
+  expect(screen.getByRole('group', { name: 'Projects' })).toBeInTheDocument();
+  fireEvent.pointerDown(document.body);
+  expect(screen.queryByRole('group', { name: 'Projects' })).toBeNull();
+});
+
 test('Escape closes the Projects popup and returns focus to its button', () => {
   render(<Harness />);
   const trigger = screen.getAllByRole('button', { name: /^Projects:/ })[0]!;

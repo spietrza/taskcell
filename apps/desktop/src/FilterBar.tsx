@@ -16,6 +16,7 @@ function ProjectPicker({ repos, withCards, selected, onChange }: { repos: Repo[]
   const [open, setOpen] = useState(false);
   const [q, setQ] = useState('');
   const trigger = useRef<HTMLButtonElement>(null);
+  const box = useRef<HTMLDivElement>(null);
   // Escape closes the popup and hands focus back to its button. One Escape closes one layer: a layer above that
   // took the key (defaultPrevented) keeps it, and this one stops it before an enclosing layer's listener.
   useEffect(() => {
@@ -27,8 +28,16 @@ function ProjectPicker({ repos, withCards, selected, onChange }: { repos: Repo[]
       setOpen(false);
       trigger.current?.focus();
     };
+    // A press outside the picker (a card, the board) closes it, as any popover does.
+    const onDown = (e: PointerEvent): void => {
+      if (!box.current?.contains(e.target as Node)) setOpen(false);
+    };
     document.addEventListener('keydown', onKey);
-    return () => document.removeEventListener('keydown', onKey);
+    document.addEventListener('pointerdown', onDown);
+    return () => {
+      document.removeEventListener('keydown', onKey);
+      document.removeEventListener('pointerdown', onDown);
+    };
   }, [open]);
   const shown = repos.filter((r) => r.name.toLowerCase().includes(q.trim().toLowerCase()));
   // An empty selection means every project (all boxes show checked). Picking every project, or unpicking the
@@ -42,7 +51,7 @@ function ProjectPicker({ repos, withCards, selected, onChange }: { repos: Repo[]
   };
   const label = all ? 'All projects' : selected.length === 1 ? (repos.find((r) => r.path === selected[0])?.name ?? '1 project') : `${selected.length} projects`;
   return (
-    <div className="relative">
+    <div ref={box} className="relative">
       <button ref={trigger} type="button" aria-expanded={open} onClick={() => setOpen(!open)} className="rounded border border-border px-2 py-1 text-xs">
         Projects: {label}
       </button>
