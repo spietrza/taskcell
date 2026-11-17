@@ -192,7 +192,7 @@ export function listNeedsYouAll(teamId?: string): Promise<Commands['list_needs_y
 /** Hub-only: post `body` as the caller's own comment on the item, then move it on (issue: `needs
  *  info` -> `ready for agent`; PR: adds `needs revision`). Throws with no label change when the item
  *  is no longer in a waiting state. */
-export function replyNeedsYou(repoPath: string, id: string, kind: 'issue' | 'pr', body: string): Promise<void> {
+export function replyNeedsYou(repoPath: string, id: string, kind: 'issue' | 'pr' | 'card', body: string): Promise<void> {
   return call('reply_needs_you', { repoPath, id, kind, body });
 }
 

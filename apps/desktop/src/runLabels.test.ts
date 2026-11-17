@@ -1,5 +1,5 @@
 import { expect, test } from 'vitest';
-import { issueNumber, repoInitials, startedByLabel, titleKey } from './runLabels';
+import { cardIdOf, issueNumber, repoInitials, runStateTone, runStateWord, startedByLabel, titleKey } from './runLabels';
 
 test('"started by" never says token: the shared hub identity and the local worker get plain names', () => {
   expect(startedByLabel('token')).toBe('Hub');
@@ -25,4 +25,20 @@ test('avatar initials come from the first two words of the repository name', () 
   expect(repoInitials('taskcell-demo-form')).toBe('TD');
   expect(repoInitials('api')).toBe('AP');
   expect(repoInitials(undefined)).toBe('?');
+});
+
+test('the state word and its colour are one reading: a failed run is never green, a verify failure is failed', () => {
+  const tone = (r: Parameters<typeof runStateWord>[0]): string => runStateTone(runStateWord(r));
+  expect(runStateWord({ anyFailed: true })).toBe('failed');
+  expect(tone({ anyFailed: true })).toBe('destructive');
+  expect(runStateWord({ anyFailed: false, verifyFailed: true, prUrl: 'u' })).toBe('failed');
+  expect(runStateWord({ anyFailed: true, asked: 'which file?' })).toBe('asks you');
+  expect(tone({ anyFailed: true, asked: 'which file?' })).toBe('warning');
+  expect(runStateWord({ anyFailed: false, cardDone: true })).toBe('done, no PR');
+  expect(tone({ anyFailed: false, prState: 'merged', prUrl: 'u' })).toBe('success');
+});
+
+test('a run\'s card id is the one the Board shows', () => {
+  expect(cardIdOf('gh-spietrza-taskcell-demo-form-27')).toBe('gh-27');
+  expect(cardIdOf('hub-4')).toBe('hub-4');
 });

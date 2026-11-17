@@ -30,7 +30,7 @@ test('every row shows its station: an open PR on PR, a failed gate red on Gates,
   const base = { timestamp: '2026-07-06T19:12:02.123Z', totalCostUsd: 0, anyFailed: false };
   const runs = [
     { ...base, taskId: 'gh-1', stages: ['implementer'], prUrl: 'https://github.com/o/r/pull/5' },
-    { ...base, taskId: 'gh-2', stages: ['implementer', 'verify'], anyFailed: true },
+    { ...base, taskId: 'gh-2', stages: ['implementer', 'verify'], verifyFailed: true as const },
   ];
   render(<RunList runs={runs} active={[{ taskId: 'gh-3', sessionFile: '/x', lastActivityMs: Date.now() }]} onSelect={noop} onOpenActive={noop} />);
   const [live, pr, failed] = screen.getAllByTestId('run-row');

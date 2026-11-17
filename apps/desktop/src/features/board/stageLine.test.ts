@@ -1,5 +1,6 @@
 import { describe, expect, test } from 'vitest';
-import { liveStage, liveStations, repairAttempts, runStations, stageLine } from './stageLine';
+import { liveStage, liveStations, repairAttempts, stageLine, stepsAt } from './stageLine';
+import { detailOutcome, runStationOf } from '../../stations';
 import type { RunDetail } from '../../wire';
 
 const statuses = (column: Parameters<typeof stageLine>[0]['column'], stage?: string, opts?: Parameters<typeof stageLine>[1]): string =>
@@ -52,19 +53,22 @@ describe('repairAttempts', () => {
   });
 });
 
-describe('runStations', () => {
+describe('a finished run on the line (runStationOf, the one mapping)', () => {
   const rec = (stage: string, completed = true) => ({ record: { stage, completed } as never });
-  const status = (steps: { status: string }[]): string => steps.map((s) => s.status[0]).join('');
-  test('merged: every station done', () => {
-    expect(status(runStations({ stages: [rec('implementer')], prUrl: 'u' }, true))).toBe('dddddd');
+  const status = (run: Parameters<typeof detailOutcome>[0], card?: Parameters<typeof detailOutcome>[1]): string =>
+    stepsAt(runStationOf(detailOutcome(run, card))).map((s) => s.status[0]).join('');
+  test('merged, or done without a PR: every station done', () => {
+    expect(status({ stages: [rec('implementer')], prUrl: 'u' }, { prState: 'merged' })).toBe('dddddd');
+    expect(status({ stages: [rec('implementer')] }, { cardDone: true })).toBe('dddddd');
   });
-  test('open PR waits on you; no PR leaves the PR station waiting', () => {
-    expect(status(runStations({ stages: [rec('implementer')], prUrl: 'u' }, false))).toBe('dddddc');
-    expect(status(runStations({ stages: [rec('implementer')] }, false))).toBe('dddddw');
+  test('a pass waits on the PR station, with or without a PR', () => {
+    expect(status({ stages: [rec('implementer')], prUrl: 'u' })).toBe('dddddc');
+    expect(status({ stages: [rec('implementer')] })).toBe('dddddc');
   });
-  test('a failed gate or stage marks its station', () => {
-    expect(status(runStations({ stages: [rec('implementer')], proof: { passed: false } as never }, false))).toBe('dddfww');
-    expect(status(runStations({ stages: [rec('implementer'), rec('reviewer', false)] }, false))).toBe('ddddfw');
+  test('a failed gate or stage marks its station, even with a PR or a done card', () => {
+    expect(status({ stages: [rec('implementer')], proof: { passed: false } as never })).toBe('dddfww');
+    expect(status({ stages: [rec('implementer'), rec('reviewer', false)], prUrl: 'u' })).toBe('ddddfw');
+    expect(status({ stages: [rec('implementer', false)] }, { cardDone: true })).toBe('ddfwww');
   });
 });
 

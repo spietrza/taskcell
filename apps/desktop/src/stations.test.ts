@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'vitest';
-import { STATIONS, STATION_SHORT, runStationOf, stationOf } from './stations';
+import { STATIONS, STATION_SHORT, cardStationOf, runStationOf, stationOf } from './stations';
 
 const at = (column: Parameters<typeof stationOf>[0]['column'], stage?: string, opts?: Parameters<typeof stationOf>[1]): number =>
   stationOf({ column, ...(stage !== undefined ? { stage } : {}) }, opts).at;
@@ -37,15 +37,31 @@ describe('stationOf', () => {
 });
 
 describe('runStationOf', () => {
-  const run = { stages: ['spec', 'implementer', 'verify'], anyFailed: false };
-  test('merged is past the line; an open PR sits on PR; a pass without one on Review', () => {
+  const run = { anyFailed: false };
+  test('merged, or a card done without a PR, is past the line; any other pass waits on the PR station', () => {
     expect(runStationOf({ ...run, prState: 'merged', prUrl: 'u' }).at).toBe(STATIONS.length);
+    expect(runStationOf({ ...run, cardDone: true }).at).toBe(STATIONS.length);
     expect(runStationOf({ ...run, prUrl: 'u' })).toEqual({ at: 5, failed: false });
-    expect(runStationOf(run)).toEqual({ at: 4, failed: false });
+    expect(runStationOf(run)).toEqual({ at: 5, failed: false });
   });
-  test('a failure marks the station of its last stage; a provider-limit stop is not a failure', () => {
-    expect(runStationOf({ ...run, anyFailed: true })).toEqual({ at: 3, failed: true });
-    expect(runStationOf({ ...run, stages: ['tech-spec'], anyFailed: true })).toEqual({ at: 1, failed: true });
-    expect(runStationOf({ ...run, anyFailed: true, stoppedBy: 'provider-limit' })).toEqual({ at: 3, failed: false });
+  test('a failure marks the station of its failed stage, PR or not; a provider-limit stop is not a failure', () => {
+    expect(runStationOf({ ...run, anyFailed: true, failedStage: 'implementer', prUrl: 'u' })).toEqual({ at: 2, failed: true });
+    expect(runStationOf({ ...run, anyFailed: true, failedStage: 'tech-spec' })).toEqual({ at: 1, failed: true });
+    expect(runStationOf({ ...run, anyFailed: true, failedStage: 'reviewer', stoppedBy: 'provider-limit' })).toEqual({ at: 4, failed: false });
+    expect(runStationOf({ ...run, verifyFailed: true, prUrl: 'u' })).toEqual({ at: 3, failed: true });
+    expect(runStationOf({ ...run, anyFailed: true, failedStage: 'implementer', cardDone: true })).toEqual({ at: 2, failed: true });
+  });
+});
+
+describe('cardStationOf', () => {
+  test('a finished card follows its newest run; a live or waiting card its column', () => {
+    const failed = { anyFailed: true, failedStage: 'implementer' };
+    expect(cardStationOf({ column: 'done' }, failed)).toEqual({ at: 2, failed: true });
+    expect(cardStationOf({ column: 'done' }, undefined)).toEqual({ at: STATIONS.length, failed: false });
+    expect(cardStationOf({ column: 'queued' }, failed)).toEqual({ at: 0, failed: false });
+    expect(cardStationOf({ column: 'running', stage: 'reviewer' }, failed)).toEqual({ at: 4, failed: false });
+  });
+  test('a failed hub card with a stage sits on that stage\'s station', () => {
+    expect(stationOf({ column: 'verify-failed', stage: 'implementer' })).toEqual({ at: 2, failed: true });
   });
 });

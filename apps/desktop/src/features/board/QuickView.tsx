@@ -6,7 +6,7 @@ import { errorMessage } from '../../errors';
 import { useAppConfig, useAsync } from '../../hooks';
 import { isDemoLink } from '../../transport';
 import type { BoardTask, RepoStamp, RunDetail, RunSummary } from '../../wire';
-import { STATION_SHORT } from '../../stations';
+import { STATION_SHORT, cardStationOf } from '../../stations';
 import { costLabel, estTitle } from '../../cost';
 import { verdictWord } from '../../status';
 import { AgentText } from '../../components/AgentText';
@@ -15,7 +15,7 @@ import { MergeButton, ReplyBox } from '../needs-you/NeedsYou';
 import { PausedPanel } from './paused';
 import { receipt } from './receipt';
 import { SkillPicker } from './SkillPicker';
-import { repairAttempts, repairCap, stageLine, type StageStatus } from './stageLine';
+import { repairAttempts, repairCap, stepsAt, type StageStatus } from './stageLine';
 import { diffStat, stationNote, stationState } from './stationNotes';
 import { taskRefKey } from './taskref';
 import { ScheduleEditor, ScheduleLines } from './Schedule';
@@ -55,7 +55,8 @@ export function matchNeedsYou(items: NeedsYouItem[], task: Pick<BoardTask, 'id' 
   const number = m && !isPullRequestCard(task.id) ? Number(m[1]) : undefined;
   return (
     items.find((i) =>
-      i.kind === 'pr' ? prUrl !== undefined && i.url === prUrl : task.source === 'github' && number !== undefined && i.number === number,
+      i.kind === 'card' ? i.id === taskRefKey(task.id)
+      : i.kind === 'pr' ? prUrl !== undefined && i.url === prUrl : task.source === 'github' && number !== undefined && i.number === number,
     ) ?? null
   );
 }
@@ -253,8 +254,10 @@ export function QuickView({
     };
   }, [task.id, repoPath, mayWait, run, prUrl, nonce]);
 
-  const steps = stageLine(task, { prExists: prUrl !== undefined, repairs: repairAttempts(run?.detail), maxRepairs: repairCap(run?.detail) });
-  const noteCtx = { task, ...(cfgStatus === 'ready' ? { cfg } : {}), ...(run?.detail ? { detail: run.detail } : {}), ...(prUrl !== undefined ? { prUrl } : {}) };
+  // A finished card follows its newest run (the Runs row's own mapping); a live or waiting one its column.
+  const lineOpts = { prExists: prUrl !== undefined, repairs: repairAttempts(run?.detail), maxRepairs: repairCap(run?.detail) };
+  const steps = stepsAt(cardStationOf(task, latest?.source === 'ci' ? undefined : latest, lineOpts), lineOpts);
+  const noteCtx = { task, ...(cfgStatus === 'ready' ? { cfg } : {}), ...(run?.detail ? { detail: run.detail } : {}), ...(prUrl !== undefined ? { prUrl } : {}), merged: latest?.prState === 'merged' };
   const facts = receipt(run?.detail, latest?.totalCostUsd);
   const repo = task.repoName ?? repoPath.split('/').filter(Boolean).pop() ?? repoPath;
   const reload = (): void => setNonce((n) => n + 1);

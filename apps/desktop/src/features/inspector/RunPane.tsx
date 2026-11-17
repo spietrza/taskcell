@@ -4,9 +4,10 @@ import { ArrowLeft, Clock, GitBranch, RefreshCw, Square } from 'lucide-react';
 import { readRunEvents, readSession } from '../../ipc';
 import { subscribe } from '../../transport';
 import { ExternalLink, hostName, issueUrl } from '../../components/ExternalLink';
-import { repoInitials, runStateWord, startedByLabel } from '../../runLabels';
+import { askedOf, cardIdOf, repoInitials, runStateTone, runStateWord, startedByLabel } from '../../runLabels';
+import { detailOutcome, runStationOf } from '../../stations';
 import { costLabel, estLabel } from '../../cost';
-import { liveStage, liveStations, runStations } from '../board/stageLine';
+import { liveStage, liveStations, stepsAt } from '../board/stageLine';
 import { StreamView } from './StreamView';
 import { RunDetail } from './RunDetail';
 import { StageLine } from './StageLine';
@@ -121,22 +122,23 @@ export function RunPane({
         ? stages.reduce((n, s) => n + (s.ms ?? 0), 0)
         : undefined;
 
-  const passed = detail && (detail.proof ? detail.proof.passed : !detail.stages.some((s) => !s.record.completed));
-  const status = running ? (
-    <Chip color="primary" variant="outlined">
-      <span className="inline-flex items-center gap-1">
-        <RefreshCw className="size-3 animate-spin motion-reduce:animate-none" aria-hidden />
-        running
-      </span>
+  // One state for the chip's word and its colour: the Runs row's (its summary), else the record read the same way.
+  const outcome = summary ?? (detail !== undefined ? detailOutcome(detail) : undefined);
+  const word = running ? 'running' : timeline.terminal === 'cancelled' ? 'cancelled' : timeline.terminal === 'error' ? 'failed' : outcome !== undefined ? runStateWord(outcome) : 'passed';
+  const status = (
+    <Chip color={runStateTone(word)} variant="outlined">
+      {running ? (
+        <span className="inline-flex items-center gap-1">
+          <RefreshCw className="size-3 animate-spin motion-reduce:animate-none" aria-hidden />
+          running
+        </span>
+      ) : (
+        word
+      )}
     </Chip>
-  ) : timeline.terminal === 'cancelled' ? (
-    <Chip color="secondary" variant="outlined">cancelled</Chip>
-  ) : timeline.terminal === 'error' || passed === false ? (
-    <Chip color="destructive" variant="outlined">failed</Chip>
-  ) : (
-    <Chip color="success" variant="outlined">{summary !== undefined ? runStateWord(summary) : detail?.prUrl !== undefined ? 'PR open' : 'passed'}</Chip>
   );
   const merged = summary?.prState === 'merged';
+  const asked = running ? undefined : askedOf(summary, detail);
   // The header carries the run's only issue link and only PR link.
   const prUrl = running ? undefined : detail?.prUrl;
   const prNumber = prUrl === undefined ? undefined : /(\d+)\/?$/.exec(prUrl)?.[1];
@@ -158,12 +160,12 @@ export function RunPane({
             <code className="rounded border border-border bg-muted px-1.5 py-0.5 text-xs" title="Target branch">{base}</code>
           </>
         )}
-        {issue !== undefined &&
-          (issueHref !== undefined ? (
-            <ExternalLink href={issueHref} className="text-sm tabular-nums">{`Issue #${issue}`}</ExternalLink>
-          ) : (
-            <span className="tabular-nums text-muted-foreground">#{issue}</span>
-          ))}
+        {/* The card id, as the Board names the card (gh-27, hub-4). */}
+        {issueHref !== undefined ? (
+          <ExternalLink href={issueHref} className="font-mono text-sm">{cardIdOf(taskId)}</ExternalLink>
+        ) : (
+          <span className="font-mono text-muted-foreground">{cardIdOf(taskId)}</span>
+        )}
         {prUrl !== undefined && (
           <ExternalLink href={prUrl} className="rounded-full border border-border px-2 py-0.5 text-sm tabular-nums">
             {`${hostName(prUrl) === 'GitLab' ? 'MR !' : 'PR #'}${prNumber ?? ''}`}
@@ -192,9 +194,16 @@ export function RunPane({
           </Button>
         )}      </div>
 
+      {asked !== undefined && (
+        <div role="note" className="shrink-0 rounded-lg border border-warning/40 bg-warning/10 px-3 py-2 text-sm">
+          <div className="font-medium text-warning-text">Stopped to ask you: the agent ended before finishing and waits for your answer (Home → Waiting for you).</div>
+          {/* Agent text, rendered as a plain text node. */}
+          <div className="mt-1 max-h-32 overflow-y-auto whitespace-pre-wrap break-words text-muted-foreground">{asked}</div>
+        </div>
+      )}
       <StationTrack
-        steps={detail ? runStations(detail, merged) : liveStations(liveAt, timeline.terminal === 'error')}
-        ctx={detail ? { task: { column: merged ? 'done' : 'review' }, detail, ...(detail.prUrl !== undefined ? { prUrl: detail.prUrl } : {}) } : { task: { column: 'running', ...(liveAt !== undefined ? { stage: liveAt } : {}) } }}
+        steps={detail && outcome !== undefined ? stepsAt(runStationOf(outcome)) : liveStations(liveAt, timeline.terminal === 'error')}
+        ctx={detail ? { task: { column: merged ? 'done' : 'review' }, detail, merged, ...(detail.prUrl !== undefined ? { prUrl: detail.prUrl } : {}) } : { task: { column: 'running', ...(liveAt !== undefined ? { stage: liveAt } : {}) } }}
       />
       <div className="flex flex-col gap-3 md:grid md:min-h-0 md:flex-1 md:grid-cols-[minmax(0,1fr)_20rem] md:items-start">
         <div className="md:order-2 md:max-h-full md:overflow-y-auto">

@@ -62,7 +62,7 @@ test('a run started from the Board lands in the Runs split view, not the old str
   fireEvent.click(screen.getByRole('button', { name: /^run$/i }));
   // The launch switches to Runs by itself: the split view, never the old full-screen strip.
   expect(await screen.findByRole('button', { name: 'Reload' })).toBeInTheDocument();
-  expect(window.location.search).toBe('?screen=runs');
+  expect(window.location.search).toMatch(/^\?screen=runs(&run=|$)/);
   expect(screen.queryByText('starting…')).toBeNull();
   expect(screen.queryByRole('button', { name: 'show live run' })).toBeNull();
   // While the sealed cell starts the list says so, never "No runs found".
@@ -135,5 +135,6 @@ test("a running card's Open the run opens that card's live run on Runs, not just
   fireEvent.click(await screen.findByRole('button', { name: 'Open the run' }));
   // gh-7's run, not the first live one the list would pick by itself.
   expect(await screen.findByRole('region', { name: 'Run gh-7' })).toBeInTheDocument();
-  expect(window.location.search).toBe('?screen=runs');
+  // The address names the open run, so a reload or a shared link opens it again.
+  expect(window.location.search).toBe('?screen=runs&run=gh-7');
 });

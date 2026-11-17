@@ -1,7 +1,7 @@
 import type { ActivityEvent, BoardTask, FactoryState, LocalWorkerState, NeedsYouItem, Project, RepoStamp, RunSummary, ActiveRun } from '../../wire';
 import { effectiveRunLocation } from '../../platform';
 import { titleKey } from '../../runLabels';
-import { STATIONS, STATION_SHORT, stationOf } from '../../stations';
+import { STATIONS, STATION_SHORT, cardStationOf, stationOf } from '../../stations';
 import { stageLabel } from '../inspector/runStages';
 import { matchNeedsYou } from '../board/QuickView';
 import { retryWords } from '../board/paused';
@@ -29,7 +29,7 @@ export type InboxKind = { caption: string; action: 'Review' | 'Answer'; broken: 
 
 /** The inbox caption and primary action of a waiting item (both `taskcell:` and `vanguard:` labels). */
 export function inboxKind(item: Pick<NeedsYouItem, 'kind' | 'reason' | 'ask'>): InboxKind {
-  if (item.kind === 'issue') return { caption: item.ask === 'too-vague' ? 'Too vague' : 'Question', action: 'Answer', broken: false };
+  if (item.kind === 'issue' || item.kind === 'card') return { caption: item.ask === 'too-vague' ? 'Too vague' : 'Question', action: 'Answer', broken: false };
   if (item.reason.endsWith(':verify-failed')) return { caption: 'Verify failed', action: 'Review', broken: true };
   if (item.reason === 'changes requested') return { caption: 'Changes requested', action: 'Review', broken: false };
   return { caption: 'PR ready', action: 'Review', broken: false };
@@ -103,6 +103,12 @@ export function floorRows(
 ): { rows: FloorRow[]; idle: number } {
   const prUrls = new Map<string, string>();
   for (const r of runs) if (r.prUrl !== undefined) prUrls.set(titleKey(r.repoPath, r.taskId), r.prUrl);
+  // Each card's newest local run: a finished card sits where that run left it (the Runs row's mapping).
+  const latest = new Map<string, RunRow>();
+  for (const r of runs) {
+    const k = titleKey(r.repoPath, r.taskId);
+    if (r.source !== 'ci' && (latest.get(k)?.timestamp ?? '') < r.timestamp) latest.set(k, r);
+  }
   const rows: FloorRow[] = [];
   for (const p of projects) {
     const stations = STATIONS.map((): FloorStation => ({ n: 0, failed: 0, waiting: 0 }));
@@ -110,7 +116,7 @@ export function floorRows(
     const mineNeeds = needs.filter((i) => i.repoPath === p.path);
     for (const t of mine) {
       const prUrl = prUrls.get(titleKey(t.repoPath, t.id));
-      const { at, failed } = stationOf(t, { prExists: prUrl !== undefined });
+      const { at, failed } = cardStationOf(t, latest.get(titleKey(t.repoPath, t.id)), { prExists: prUrl !== undefined });
       const s = stations[at];
       if (!s) continue;
       s.n += 1;
