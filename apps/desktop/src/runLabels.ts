@@ -17,9 +17,20 @@ export const cardIdOf = (taskId: string): string => (issueNumber(taskId) !== und
 /** Key of a board card for a run: the repository plus the folded task id (see taskRefKey). */
 export const titleKey = (repoPath: string | undefined, taskId: string): string => `${repoPath ?? ''}|${taskRefKey(taskId)}`;
 
-/** Two letters for a repository's avatar (`taskcell-demo-form` -> `TD`). */
-export function repoInitials(name: string | undefined): string {
-  const words = (name ?? '?').split(/[^A-Za-z0-9]+/).filter(Boolean);
+const nameWords = (name: string): string[] => name.split(/[^A-Za-z0-9]+/).filter(Boolean);
+
+/**
+ * Two letters for a repository's avatar (`taskcell-demo-form` -> `TD`). With `siblings` (the names shown beside it), the
+ * leading words they all share are skipped, so `taskcell-demo-form` and `taskcell-demo-local` read `FO` and `LO`, not both `TD`.
+ */
+export function repoInitials(name: string | undefined, siblings: readonly string[] = []): string {
+  let words = nameWords(name ?? '?');
+  const others = siblings.filter((s) => s !== name).map(nameWords);
+  if (others.length > 0) {
+    let shared = 0;
+    while (shared < words.length - 1 && others.every((o) => o[shared]?.toLowerCase() === words[shared]!.toLowerCase())) shared += 1;
+    words = words.slice(shared);
+  }
   return ((words[0]?.[0] ?? '?') + (words[1]?.[0] ?? words[0]?.[1] ?? '')).toUpperCase();
 }
 

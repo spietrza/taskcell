@@ -25,7 +25,7 @@ import {
 import { RunList, activeKey, runKey } from './RunList';
 import { projectColor } from '../../color';
 import { RunPane } from './RunPane';
-import { cardIdOf, issueNumber, titleKey } from '../../runLabels';
+import { cardIdOf, issueNumber, repoInitials, titleKey } from '../../runLabels';
 import { setUrlParam, urlParam } from '../../screenUrl';
 import { CostBreakdown } from './CostBreakdown';
 import { ConflictStats } from './ConflictStats';
@@ -723,7 +723,7 @@ export function Inspector({
             paneOpen={detail !== null || liveRun !== null}
             identity={(path) => {
               const p = projects.find((x) => x.path === (path ?? project));
-              return p && { name: p.name, color: projectColor(p) };
+              return p && { name: p.name, color: projectColor(p), initials: repoInitials(p.name, projects.map((x) => x.name)) };
             }}
             pane={
               detail ? (

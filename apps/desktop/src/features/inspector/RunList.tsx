@@ -1,4 +1,4 @@
-import { Fragment, useMemo, useState, type KeyboardEvent, type ReactElement, type ReactNode } from 'react';
+import { Fragment, useMemo, useState, type ReactElement, type ReactNode } from 'react';
 import { Button, Chip, Empty, Input, Timestamp, cn } from '@/ui';
 import { Inbox, RefreshCw, Search } from 'lucide-react';
 import { contrastColor } from '../../color';
@@ -9,23 +9,16 @@ import { costLabel, estTitle } from '../../cost';
 import { RunsSplit } from './RunsSplit';
 import { StationMark } from '../../components/StationMark';
 import { runStationOf, stationOf } from '../../stations';
-import { issueNumber, repoInitials, runStateTone, runStateWord, titleKey } from '../../runLabels';
+import { cardIdOf, repoInitials, runStateTone, runStateWord, titleKey } from '../../runLabels';
 import type { ActiveRun, RunSummary } from '../../taskcell-output';
 import type { RepoStamp } from '../../wire';
 
 type Filter = 'all' | 'passed' | 'failed';
 type Run = RunSummary & Partial<RepoStamp>;
 type Active = ActiveRun & Partial<RepoStamp>;
-const isFailed = (r: Pick<RunSummary, 'anyFailed' | 'stoppedBy'>): boolean => r.anyFailed && r.stoppedBy === undefined;
-/** A clickable row is also a keyboard stop: Tab reaches it, Enter or Space opens it (keys on a link inside it stay the link's). */
-const rowKeys = (open: () => void): { tabIndex: number; onKeyDown: (e: KeyboardEvent<HTMLElement>) => void } => ({
-  tabIndex: 0,
-  onKeyDown: (e) => {
-    if (e.target !== e.currentTarget || (e.key !== 'Enter' && e.key !== ' ')) return;
-    e.preventDefault();
-    open();
-  },
-});
+/** The Passed / Failed pills read the row's own chip word: a failed verify is failed even when every stage completed. */
+const isFailed = (r: RunSummary): boolean => runStateWord(r) === 'failed';
+const isPassed = (r: RunSummary): boolean => runStateTone(runStateWord(r)) === 'success';
 
 /** Row keys: what `selected` is compared with. */
 export const runKey = (repoPath: string | undefined, taskId: string, timestamp: string): string => `${repoPath ?? ''}:${taskId}:${timestamp}`;
@@ -82,7 +75,7 @@ export function RunList({
   pane?: ReactNode;
   paneOpen?: boolean;
   /** A row's project, for its avatar: the project's name and colour (`projectColor`). Undefined: initials on a plain well. */
-  identity?: ((repoPath: string | undefined) => { name: string; color: string } | undefined) | undefined;
+  identity?: ((repoPath: string | undefined) => { name: string; color: string; initials?: string } | undefined) | undefined;
 }) {
   const [query, setQuery] = useState('');
   const [filter, setFilter] = useState<Filter>('all');
@@ -107,7 +100,7 @@ export function RunList({
     const q = query.trim().toLowerCase();
     return filterRuns(runs, hub, meta).filter((r) => {
       if (!matches(q, r.repoPath, r.taskId)) return false;
-      if (filter === 'passed' && r.anyFailed) return false;
+      if (filter === 'passed' && !isPassed(r)) return false;
       if (filter === 'failed' && !isFailed(r)) return false;
       return true;
     });
@@ -123,7 +116,7 @@ export function RunList({
   // Would clearing the search bring rows back, or is it the pill / hub filter that empties the list?
   const searchHides = useMemo(() => {
     const h = { ...hub, query: '' };
-    return filterRuns(runs, h, meta).some((r) => filter === 'all' || (filter === 'failed' ? isFailed(r) : !r.anyFailed)) || (filter === 'all' && filterActive(active, h, meta).length > 0);
+    return filterRuns(runs, h, meta).some((r) => filter === 'all' || (filter === 'failed' ? isFailed(r) : isPassed(r))) || (filter === 'all' && filterActive(active, h, meta).length > 0);
   }, [runs, active, filter, hub, meta]);
 
   // Rows of both kinds share the lanes; a running row sorts first within its lane.
@@ -141,35 +134,23 @@ export function RunList({
   );
 
   const row = (key: string, repoName: string | undefined, taskId: string, repoPath: string | undefined, station: { at: number; failed: boolean }, chip: ReactElement, age: ReactElement, open?: () => void, extra?: ReactElement): ReactElement => {
-    const issue = issueNumber(taskId);
     const title = titles?.get(titleKey(repoPath, taskId));
     const who = identity?.(repoPath);
-    return (
-      <li
-        key={key}
-        data-testid="run-row"
-        aria-current={selected === key ? 'true' : undefined}
-        onClick={open}
-        {...(open ? rowKeys(open) : {})}
-        className={cn(
-          'flex items-center gap-3 border-b border-border/60 px-3 py-2.5',
-          open && 'cursor-pointer hover:bg-muted/50 focus-visible:outline focus-visible:outline-2 focus-visible:-outline-offset-2',
-          selected === key && 'bg-muted',
-        )}
-      >
+    const body = (
+      <>
         <span
           className={cn('grid size-8 shrink-0 place-items-center rounded-full text-[11px] font-bold', who === undefined && 'bg-muted')}
           style={who && { backgroundColor: who.color, color: contrastColor(who.color) }}
           aria-hidden
         >
-          {repoInitials(who?.name ?? repoName ?? taskId)}
+          {who?.initials ?? repoInitials(who?.name ?? repoName ?? taskId)}
         </span>
         <span className="min-w-0 flex-1">
           {showRepo && repoName !== undefined && <span className="block truncate text-sm font-medium">{repoName}</span>}
-          {/* The card's id first, so a long title truncates without hiding it. */}
+          {/* The card's id first (as the Board and the breadcrumb show it: gh-27, hub-4), so a long title truncates without hiding it. */}
           <span className={cn('flex min-w-0 gap-1.5 text-sm', showRepo ? 'text-muted-foreground' : 'font-medium')}>
-            {issue !== undefined ? <span className="shrink-0 tabular-nums text-muted-foreground">#{issue}</span> : title !== undefined && <span className="shrink-0 font-mono text-xs leading-5 text-muted-foreground">{taskId}</span>}
-            <span className="min-w-0 truncate">{title ?? taskId}</span>
+            {title !== undefined && <span className="shrink-0 font-mono text-xs leading-5 text-muted-foreground">{cardIdOf(taskId)}</span>}
+            <span className="min-w-0 truncate">{title ?? cardIdOf(taskId)}</span>
           </span>
           <StationMark {...station} className="mt-0.5" />
           {extra}
@@ -178,6 +159,19 @@ export function RunList({
           {chip}
           <span className="text-xs tabular-nums text-muted-foreground">{age}</span>
         </span>
+      </>
+    );
+    const rowClass = 'flex w-full items-center gap-3 px-3 py-2.5 text-left';
+    return (
+      <li key={key} data-testid="run-row" aria-current={selected === key ? 'true' : undefined} className={cn('border-b border-border/60', selected === key && 'bg-muted')}>
+        {/* An openable row is a button (Tab, Enter, Space); a CI row holds its own link instead. */}
+        {open ? (
+          <button type="button" onClick={open} className={cn(rowClass, 'cursor-pointer hover:bg-muted/50 focus-visible:outline focus-visible:outline-2 focus-visible:-outline-offset-2')}>
+            {body}
+          </button>
+        ) : (
+          <div className={rowClass}>{body}</div>
+        )}
       </li>
     );
   };

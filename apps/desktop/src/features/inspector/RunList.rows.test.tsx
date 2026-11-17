@@ -11,7 +11,7 @@ test('a row shows the repository, the board title with the issue number, a PR ch
   render(<RunList runs={[run]} active={[]} showRepo titles={titles} selected={runKey('/r/shop', run.taskId, run.timestamp)} onSelect={noop} onOpenActive={noop} />);
   const row = screen.getByTestId('run-row');
   expect(row).toHaveTextContent('shop');
-  expect(row).toHaveTextContent('#214CSV export skips corrections');
+  expect(row).toHaveTextContent('gh-214CSV export skips corrections');
   expect(row).toHaveTextContent('PR open');
   expect(row).toHaveAttribute('aria-current', 'true');
 });
@@ -39,7 +39,7 @@ test('every row shows its station: an open PR on PR, a failed gate red on Gates,
   expect(failed!.querySelector('[role="img"]')).toHaveAttribute('aria-label', 'Station: Gates (failed)');
 });
 
-test('a row\'s avatar is its project\'s colour and initials, and the issue number comes before the title', () => {
+test('a row\'s avatar is its project\'s colour and initials, and the card id comes before the title', () => {
   const run = { taskId: 'gh-acme-shop-214', timestamp: '2026-07-06T19:12:02.123Z', stages: [], totalCostUsd: 0, anyFailed: false, repoPath: '/r/shop' };
   const titles = new Map([['/r/shop|gh-214', 'A very long title that truncates']]);
   render(<RunList runs={[run]} active={[]} titles={titles} identity={(p) => (p === '/r/shop' ? { name: 'acme-shop', color: '#112233' } : undefined)} onSelect={noop} onOpenActive={noop} />);
@@ -47,5 +47,11 @@ test('a row\'s avatar is its project\'s colour and initials, and the issue numbe
   const avatar = row.querySelector('[aria-hidden]') as HTMLElement;
   expect(avatar).toHaveTextContent('AS');
   expect(avatar).toHaveStyle({ backgroundColor: '#112233' });
-  expect(row).toHaveTextContent(/^AS#214A very long title/);
+  expect(row).toHaveTextContent(/^ASgh-214A very long title/);
+});
+
+test('an identity\'s own initials win: projects that share a name prefix read apart', () => {
+  const run = { taskId: 'hub-4', timestamp: '2026-07-06T19:12:02.123Z', stages: [], totalCostUsd: 0, anyFailed: false, repoPath: '/r/local' };
+  render(<RunList runs={[run]} active={[]} identity={() => ({ name: 'taskcell-demo-local', color: '#112233', initials: 'LO' })} onSelect={noop} onOpenActive={noop} />);
+  expect(screen.getByTestId('run-row').querySelector('[aria-hidden]')).toHaveTextContent('LO');
 });

@@ -42,3 +42,10 @@ test('a run\'s card id is the one the Board shows', () => {
   expect(cardIdOf('gh-spietrza-taskcell-demo-form-27')).toBe('gh-27');
   expect(cardIdOf('hub-4')).toBe('hub-4');
 });
+
+test('repoInitials skips the leading words the shown names share', () => {
+  expect(repoInitials('taskcell-demo-form')).toBe('TD');
+  expect(repoInitials('taskcell-demo-form', ['taskcell-demo-form', 'taskcell-demo-local'])).toBe('FO');
+  expect(repoInitials('taskcell-demo-local', ['taskcell-demo-form', 'taskcell-demo-local'])).toBe('LO');
+  expect(repoInitials('acme-shop', ['acme-shop', 'billing'])).toBe('AS');
+});

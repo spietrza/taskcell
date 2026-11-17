@@ -83,19 +83,27 @@ test('a list emptied by another filter names the filters, with no Clear search t
   expect(screen.queryByRole('button', { name: 'Clear search' })).toBeNull();
 });
 
-test('rows are keyboard stops: Enter opens a run, a CI-only row is not one', () => {
+test('an openable row is a button: Enter or a click opens it; a CI-only row is not one', () => {
   const run: RunSummary = { taskId: 'task-7', timestamp: '2026-07-06T19:12:02.123Z', stages: ['implement'], totalCostUsd: 0.1, anyFailed: false };
   const onSelect = vi.fn();
   const onOpenActive = vi.fn();
   const active: ActiveRun[] = [{ taskId: 'task-live', sessionFile: '/x.jsonl', lastActivityMs: Date.now() }];
   render(<RunList runs={[run, { ...run, taskId: 'task-ci', source: 'ci' }]} active={active} onSelect={onSelect} onOpenActive={onOpenActive} />);
-  const row = screen.getByText('task-7').closest('li')!;
-  expect(row).toHaveAttribute('tabindex', '0');
-  fireEvent.keyDown(row, { key: 'Enter' });
+  fireEvent.click(screen.getByText('task-7').closest('button')!);
   expect(onSelect).toHaveBeenCalledWith(run);
-  fireEvent.keyDown(screen.getByText('task-live').closest('li')!, { key: ' ' });
+  fireEvent.click(screen.getByText('task-live').closest('button')!);
   expect(onOpenActive).toHaveBeenCalledWith(active[0]);
-  expect(screen.getByText('task-ci').closest('li')).not.toHaveAttribute('tabindex');
+  expect(screen.getByText('task-ci').closest('button')).toBeNull();
+});
+
+test('the Passed and Failed pills follow the row\'s chip: a failed verify with every stage completed is failed', () => {
+  const base = { timestamp: '2026-07-06T19:12:02.123Z', stages: ['implement'], totalCostUsd: 0, anyFailed: false };
+  const runs: RunSummary[] = [{ ...base, taskId: 'task-ok' }, { ...base, taskId: 'task-red', verifyFailed: true }];
+  render(<RunList runs={runs} active={[]} onSelect={noop} onOpenActive={noop} />);
+  fireEvent.click(screen.getByRole('button', { name: 'passed' }));
+  expect(screen.getAllByTestId('run-row').map((r) => r.textContent)).toEqual([expect.stringContaining('task-ok')]);
+  fireEvent.click(screen.getByRole('button', { name: 'failed' }));
+  expect(screen.getAllByTestId('run-row').map((r) => r.textContent)).toEqual([expect.stringContaining('task-red')]);
 });
 
 test('the result pills say "All results", so Runs has one "All" (triage) beside the shared filter bar', () => {
