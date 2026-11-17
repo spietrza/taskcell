@@ -112,7 +112,7 @@ export function NewHubTask({ repoPath, onCreated, onCancel }: { repoPath: string
         <input type="date" className={cn(FIELD, 'w-auto')} value={date} onChange={(e) => setDate(e.target.value)} />
       </label>
       <div className="sm:pt-4">
-        <Button type="submit" disabled={title.trim() === ''}>Add card</Button>
+        <Button type="submit" disabled={title.trim() === ''} title={title.trim() === '' ? 'Type a title first' : undefined}>Add card</Button>
         {onCancel && <Button variant="text" className="ml-2" onClick={onCancel}>Cancel</Button>}
         {error !== null && <div role="alert" className="mt-1 text-xs text-destructive-text">{error}</div>}
       </div>
