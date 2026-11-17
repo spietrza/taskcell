@@ -1,7 +1,7 @@
-import { useState } from 'react';
+import { useState, type ReactNode } from 'react';
 import { Button, Chip, Input, ScrollTable, Table } from '@/ui';
 import { RefreshCw } from 'lucide-react';
-import { addSkillPr, discoverSkills, listRepoSkills, removeSkillPr, updateSkillPr } from '../../ipc';
+import { addSkillPr, discoverSkills, listPendingSkillPrs, listRepoSkills, removeSkillPr, updateSkillPr } from '../../ipc';
 import { errorClause, errorMessage } from '../../errors';
 import { gateProps, useAsync, useCallerCapabilities } from '../../hooks';
 import { ExternalLink } from '../../components/ExternalLink';
@@ -13,6 +13,26 @@ const pct = (v: number | undefined): string => (v === undefined ? '-' : `${(v * 
 
 /** A skill needs an update PR when its upstream moved. */
 export const isOutdated = (s: RepoSkill): boolean => s.check === 'outdated';
+
+const prNumber = (u: string): string => /\/(\d+)\/?$/.exec(u)?.[1] ?? '';
+
+/** The folder a skill sits in: skills/engineering/foo -> skills/engineering; a root skill has none. */
+const groupOf = (path: string): string => (path.includes('/') ? path.slice(0, path.lastIndexOf('/')) : '(root)');
+
+/** A group checkbox: checked when all of its skills are picked, indeterminate when some are. */
+function GroupBox({ label, all, some, onChange }: { label: string; all: boolean; some: boolean; onChange: (on: boolean) => void }): ReactNode {
+  return (
+    <input
+      type="checkbox"
+      aria-label={`Select all in ${label}`}
+      checked={all}
+      ref={(el) => {
+        if (el) el.indeterminate = some && !all;
+      }}
+      onChange={(e) => onChange(e.target.checked)}
+    />
+  );
+}
 
 /** A pull request a skills action opened, or why it did not. */
 type Outcome = { kind: 'ok'; prUrl: string } | { kind: 'error'; message: string };
@@ -27,15 +47,27 @@ export function Skills({ project }: { project: string }) {
   const [picked, setPicked] = useState<string[]>([]);
   const [busy, setBusy] = useState<string | null>(null);
   const [outcome, setOutcome] = useState<Record<string, Outcome>>({});
+  // The PR an add opened, kept until the view is left: its skills are not in the list until it is merged.
+  const [notice, setNotice] = useState<{ prUrl: string; names: string[] } | null>(null);
   const { data, error, loading } = useAsync(() => listRepoSkills(project), [project, nonce]);
+  // Best effort: a caller who may not read the forge, or a project without a GitHub remote, simply sees none.
+  const { data: pendingData } = useAsync(() => listPendingSkillPrs(project).catch(() => ({ prs: [] })), [project, nonce]);
+  const pending = pendingData?.prs ?? [];
   const caps = useCallerCapabilities(project)?.project;
+  const groups = Object.entries(
+    (found?.skills ?? []).reduce<Record<string, DiscoveredSkill[]>>((acc, s) => ({ ...acc, [groupOf(s.path)]: [...(acc[groupOf(s.path)] ?? []), s] }), {}),
+  );
   const shown = (data?.skills ?? []).filter((s) => !onlyOutdated || isOutdated(s));
 
-  const run = async (key: string, action: () => Promise<{ prUrl: string }>): Promise<boolean> => {
+  const run = async (key: string, action: () => Promise<{ prUrl: string }>, names: string[] = []): Promise<boolean> => {
     setBusy(key);
     try {
       const { prUrl } = await action();
       setOutcome((o) => ({ ...o, [key]: { kind: 'ok', prUrl } }));
+      if (key === 'add') {
+        setNotice({ prUrl, names });
+        setNonce((n) => n + 1);
+      }
       return true;
     } catch (e) {
       setOutcome((o) => ({ ...o, [key]: { kind: 'error', message: errorClause(errorMessage(e)) } }));
@@ -69,6 +101,8 @@ export function Skills({ project }: { project: string }) {
   const result = (key: string) => {
     const o = outcome[key];
     if (o === undefined) return null;
+    // An add's PR stays in the notice below; the inline link is for the per-skill actions.
+    if (key === 'add' && o.kind === 'ok') return null;
     return o.kind === 'ok' ? (
       <ExternalLink href={webUrl(o.prUrl)}>Pull request opened</ExternalLink>
     ) : (
@@ -99,24 +133,69 @@ export function Skills({ project }: { project: string }) {
         {result('add')}
       </div>
       <p className="text-xs text-muted-foreground">A repository or a folder in it — paste the GitHub link to the folder.</p>
+      {notice && (
+        <p role="status" className="rounded border border-border bg-muted/40 px-3 py-2 text-sm">
+          <ExternalLink href={webUrl(notice.prUrl)}>{`Pull request ${prNumber(notice.prUrl) && `#${prNumber(notice.prUrl)} `}opened`}</ExternalLink>
+          {notice.names.length > 0 && `: ${notice.names.join(', ')}`} — the skill{notice.names.length > 1 ? 's' : ''} appear{notice.names.length > 1 ? '' : 's'} here once it is merged.
+        </p>
+      )}
+      {pending.length > 0 && (
+        <section aria-label="Waiting for merge" className="space-y-1 text-sm">
+          <h3 className="text-xs font-medium text-muted-foreground">Waiting for merge</h3>
+          <ul className="space-y-1">
+            {pending.map((p) => (
+              <li key={p.number} className="flex flex-wrap items-center gap-2">
+                <ExternalLink href={webUrl(p.url)}>{`Pull request #${p.number}`}</ExternalLink>
+                <span>{p.names.join(', ')}</span>
+              </li>
+            ))}
+          </ul>
+          <p className="text-xs text-muted-foreground">After merging, pull the hub checkout to see them here.</p>
+        </section>
+      )}
       {found && (
         <fieldset className="space-y-1 rounded border border-border p-3 text-sm">
           <legend className="px-1 text-xs text-muted-foreground">
             Found {found.skills.length} skill{found.skills.length === 1 ? '' : 's'} in this repository — pick which to add
           </legend>
-          {found.skills.map((s) => (
-            <label key={s.path} className="flex items-center gap-2">
-              <input type="checkbox" checked={picked.includes(s.path)} onChange={(e) => setPicked((p) => (e.target.checked ? [...p, s.path] : p.filter((x) => x !== s.path)))} />
-              <span className="font-medium">{s.name}</span>
-              <span className="font-mono text-xs text-muted-foreground">{s.path}</span>
-            </label>
-          ))}
+          <div className="flex items-center gap-2">
+            <Button variant="text" color="secondary" onClick={() => setPicked(found.skills.map((s) => s.path))}>
+              Select all
+            </Button>
+            <Button variant="text" color="secondary" onClick={() => setPicked([])}>
+              Clear
+            </Button>
+          </div>
+          {groups.map(([group, items]) => {
+            const n = items.filter((s) => picked.includes(s.path)).length;
+            const toggle = (on: boolean): void => setPicked((p) => [...p.filter((x) => !items.some((s) => s.path === x)), ...(on ? items.map((s) => s.path) : [])]);
+            return (
+              <div key={group} role="group" aria-label={group} className="space-y-1">
+                <div className="flex items-center gap-2 font-mono text-xs text-muted-foreground">
+                  <GroupBox label={group} all={n === items.length} some={n > 0} onChange={toggle} />
+                  {group} ({n}/{items.length})
+                </div>
+                {items.map((s) => (
+                  <label key={s.path} className="flex items-center gap-2 pl-5">
+                    <input type="checkbox" checked={picked.includes(s.path)} onChange={(e) => setPicked((p) => (e.target.checked ? [...p, s.path] : p.filter((x) => x !== s.path)))} />
+                    <span className="font-medium">{s.name}</span>
+                    <span className="font-mono text-xs text-muted-foreground">{s.path}</span>
+                  </label>
+                ))}
+              </div>
+            );
+          })}
           <Button
             variant="outlined"
             disabled={busy !== null || picked.length === 0}
-            onClick={() => void run('add', () => addSkillPr(project, found.source, { ref: found.commit, paths: found.skills.map((s) => s.path).filter((p) => picked.includes(p)) })).then((ok) => ok && setFound(null))}
+            onClick={() => {
+              const chosen = found.skills.filter((s) => picked.includes(s.path));
+              void run('add', () => addSkillPr(project, found.source, { ref: found.commit, paths: chosen.map((s) => s.path) }), chosen.map((s) => s.name)).then((ok) => {
+                if (ok) setFound(null);
+              });
+            }}
           >
-            Add selected
+            {picked.length === 0 ? 'Add skills' : `Add ${picked.length} skill${picked.length === 1 ? '' : 's'}`}
           </Button>
         </fieldset>
       )}

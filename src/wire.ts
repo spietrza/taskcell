@@ -144,6 +144,13 @@ export interface DiscoveredSkill {
   name: string;
 }
 
+/** An open pull request that adds skills (`list_pending_skill_prs`): they appear in the list once it is merged. */
+export interface PendingSkillPr {
+  number: number;
+  url: string;
+  names: string[];
+}
+
 /** One skill of a repository's skills directory on the wire: `skills list`, `skills check` and `stats --skills` joined. */
 export interface RepoSkill {
   name: string;

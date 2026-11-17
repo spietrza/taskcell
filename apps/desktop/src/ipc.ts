@@ -564,6 +564,11 @@ export function discoverSkills(repoPath: string, source: string): Promise<Comman
   return call('discover_skills', { repoPath, source });
 }
 
+/** Hub-only, owner only: the project's open skill-add PRs (reads the forge, writes nothing). */
+export function listPendingSkillPrs(repoPath: string): Promise<Commands['list_pending_skill_prs']['result']> {
+  return call('list_pending_skill_prs', { repoPath });
+}
+
 /** Hub-only, owner only, a mutation: open a PR that removes a skill. */
 export function removeSkillPr(repoPath: string, name: string): Promise<Commands['remove_skill_pr']['result']> {
   return call('remove_skill_pr', { repoPath, name });

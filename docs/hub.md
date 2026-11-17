@@ -852,6 +852,10 @@ An `export` line only takes effect for a hub started after it: the hub reads its
 start. After exporting, restart the hub (or save the key in Settings → credentials, where that
 exists) and then press **Check again**.
 
+## Adding skills from a repository
+
+In Settings > Skills, **Add skill** lists the skills found in a pasted repository, grouped by parent folder (`skills/engineering`, `skills/in-progress`). **Select all** and **Clear** act on the whole list, each folder has a checkbox of its own (partly ticked shows as indeterminate), and the button counts what is ticked ("Add 12 skills"). The add opens one pull request in the project, so the skills show in the list only once it is merged and the hub checkout is pulled (the hub never pulls it for you). Until then a notice keeps the pull request link and the skill names, and **Waiting for merge** lists the project's open skill-add pull requests (branch prefix `chore/taskcell-skills-add-`) from `list_pending_skill_prs`: read-only, owner only, GitHub projects only (other forges show none), one `gh pr list` per refresh.
+
 ## Choosing skills
 
 Skills are picked automatically for a run. To make a task use specific ones, pick them in the hub:

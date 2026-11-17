@@ -13,6 +13,7 @@ const fixture: RepoSkill[] = [
   { name: 'simplify', source: 'https://github.com/o/simplify', commit: 'def5678', status: 'pinned', check: 'current' },
 ];
 
+let pendingPrs: unknown[] = [];
 let discovered: unknown = { commit: 'c'.repeat(40), skills: [{ path: 'skills/only', name: 'only' }] };
 
 function stubHub(fail: Record<string, string> = {}): { cmd: string; body: unknown }[] {
@@ -23,7 +24,7 @@ function stubHub(fail: Record<string, string> = {}): { cmd: string; body: unknow
     calls.push({ cmd, body: init?.body ? JSON.parse(String(init.body)) : undefined });
     const message = fail[cmd];
     if (message !== undefined) return new Response(JSON.stringify({ error: { kind: 'bad-request', message } }), { status: 400 });
-    const result = cmd === 'list_repo_skills' ? { skills: fixture } : cmd === 'discover_skills' ? discovered : { prUrl: 'https://github.com/o/r/pull/9' };
+    const result = cmd === 'list_repo_skills' ? { skills: fixture } : cmd === 'discover_skills' ? discovered : cmd === 'list_pending_skill_prs' ? { prs: pendingPrs } : { prUrl: 'https://github.com/o/r/pull/9' };
     return new Response(JSON.stringify({ result }), { status: 200, headers: { 'content-type': 'application/json' } });
   }));
   return calls;
@@ -67,8 +68,8 @@ test('Add skill looks through the repository first; one skill found is ticked, a
   expect(await screen.findByText(/Found 1 skill in this repository/)).toBeInTheDocument();
   expect(screen.getByLabelText(/skills\/only/)).toBeChecked();
   expect(calls.some((c) => c.cmd === 'add_skill_pr')).toBe(false);
-  fireEvent.click(screen.getByRole('button', { name: 'Add selected' }));
-  expect(await screen.findByRole('link', { name: /Pull request opened/ })).toBeInTheDocument();
+  fireEvent.click(screen.getByRole('button', { name: 'Add 1 skill' }));
+  expect(await screen.findByRole('link', { name: /Pull request #9 opened/ })).toBeInTheDocument();
   expect(calls.find((c) => c.cmd === 'add_skill_pr')?.body).toEqual({ repoPath: '/repo', source: 'https://x/y', ref: 'c'.repeat(40), paths: ['skills/only'] });
 });
 
@@ -80,11 +81,11 @@ test('a repository of several skills shows a picker; only the ticked ones are ad
   fireEvent.change(screen.getByLabelText('Skill source'), { target: { value: 'https://github.com/o/many' } });
   fireEvent.click(screen.getByRole('button', { name: 'Add skill' }));
   expect(await screen.findByText(/Found 3 skills in this repository/)).toBeInTheDocument();
-  expect(screen.getByRole('button', { name: 'Add selected' })).toBeDisabled();
+  expect(screen.getByRole('button', { name: 'Add skills' })).toBeDisabled();
   fireEvent.click(screen.getByLabelText(/skills\/a/));
   fireEvent.click(screen.getByLabelText(/skills\/c/));
-  fireEvent.click(screen.getByRole('button', { name: 'Add selected' }));
-  await screen.findByRole('link', { name: /Pull request opened/ });
+  fireEvent.click(screen.getByRole('button', { name: 'Add 2 skills' }));
+  await screen.findByRole('link', { name: /Pull request #9 opened/ });
   expect(calls.find((c) => c.cmd === 'add_skill_pr')?.body).toMatchObject({ paths: ['skills/a', 'skills/c'] });
   discovered = { commit: 'c'.repeat(40), skills: [{ path: 'skills/only', name: 'only' }] };
 });
@@ -108,4 +109,60 @@ test('a link to a branch only (no folder) still goes through discovery', async (
   fireEvent.click(screen.getByRole('button', { name: 'Add skill' }));
   await screen.findByText(/Found 1 skill/);
   expect(calls.some((c) => c.cmd === 'discover_skills')).toBe(true);
+});
+
+test('Select all, Clear and the folder checkboxes (with a partial state) drive the picked list and the button count', async () => {
+  discovered = {
+    commit: 'e'.repeat(40),
+    skills: [
+      { path: 'skills/engineering/a', name: 'a' },
+      { path: 'skills/engineering/b', name: 'b' },
+      { path: 'skills/in-progress/c', name: 'c' },
+    ],
+  };
+  const calls = stubHub();
+  render(<Skills project="/repo" />);
+  await screen.findByText('caveman');
+  fireEvent.change(screen.getByLabelText('Skill source'), { target: { value: 'https://github.com/o/many' } });
+  fireEvent.click(screen.getByRole('button', { name: 'Add skill' }));
+  await screen.findByText(/Found 3 skills/);
+  const eng = screen.getByLabelText('Select all in skills/engineering') as HTMLInputElement;
+  fireEvent.click(screen.getByRole('button', { name: 'Select all' }));
+  expect(screen.getByRole('button', { name: 'Add 3 skills' })).toBeEnabled();
+  fireEvent.click(screen.getByLabelText(/skills\/engineering\/a/));
+  expect(eng.indeterminate).toBe(true);
+  expect(eng.checked).toBe(false);
+  fireEvent.click(eng);
+  expect(eng.checked).toBe(true);
+  fireEvent.click(screen.getByRole('button', { name: 'Clear' }));
+  expect(screen.getByRole('button', { name: 'Add skills' })).toBeDisabled();
+  fireEvent.click(screen.getByLabelText('Select all in skills/in-progress'));
+  fireEvent.click(screen.getByRole('button', { name: 'Add 1 skill' }));
+  await screen.findByRole('link', { name: /Pull request #9 opened/ });
+  expect(calls.find((c) => c.cmd === 'add_skill_pr')?.body).toMatchObject({ paths: ['skills/in-progress/c'] });
+  discovered = { commit: 'c'.repeat(40), skills: [{ path: 'skills/only', name: 'only' }] };
+});
+
+test('after an add the notice stays with the PR link and the skill names', async () => {
+  stubHub();
+  render(<Skills project="/repo" />);
+  await screen.findByText('caveman');
+  fireEvent.change(screen.getByLabelText('Skill source'), { target: { value: 'https://x/y' } });
+  fireEvent.click(screen.getByRole('button', { name: 'Add skill' }));
+  await screen.findByText(/Found 1 skill/);
+  fireEvent.click(screen.getByRole('button', { name: 'Add 1 skill' }));
+  const notice = await screen.findByRole('status');
+  expect(notice).toHaveTextContent('Pull request #9 opened: only — the skill appears here once it is merged.');
+});
+
+test('open skill-add PRs are listed under Waiting for merge', async () => {
+  pendingPrs = [{ number: 29, url: 'https://github.com/o/r/pull/29', names: ['ponytail', 'caveman'] }];
+  stubHub();
+  render(<Skills project="/repo" />);
+  const link = await screen.findByRole('link', { name: 'Pull request #29' });
+  expect(link).toHaveAttribute('href', 'https://github.com/o/r/pull/29');
+  expect(screen.getByText('ponytail, caveman')).toBeInTheDocument();
+  expect(screen.getByRole('region', { name: 'Waiting for merge' })).toBeInTheDocument();
+  expect(screen.getByText(/pull the hub checkout/)).toBeInTheDocument();
+  pendingPrs = [];
 });

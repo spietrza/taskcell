@@ -145,6 +145,13 @@ export interface DiscoveredSkill {
   name: string;
 }
 
+/** An open pull request that adds skills (`list_pending_skill_prs`): they appear in the list once it is merged. */
+export interface PendingSkillPr {
+  number: number;
+  url: string;
+  names: string[];
+}
+
 /** One skill of a repository's skills directory on the wire: `skills list`, `skills check` and `stats --skills` joined. */
 export interface RepoSkill {
   name: string;
@@ -1332,6 +1339,8 @@ export interface Commands {
   add_skill_pr: { args: { repoPath: string; source: string; ref?: string; path?: string; paths?: string[]; name?: string }; result: { prUrl: string } };
   /** HUB_ONLY, owner only (it reads the network): the skills a repository holds, from its tree listing alone. `commit` is what to pin them to. */
   discover_skills: { args: { repoPath: string; source: string }; result: { commit: string; skills: DiscoveredSkill[] } };
+  /** HUB_ONLY, owner only (it reads the forge): the project's open skill-add PRs, by branch prefix. GitHub only; others get an empty list. */
+  list_pending_skill_prs: { args: { repoPath: string }; result: { prs: PendingSkillPr[] } };
   /** HUB_ONLY, owner only: `skills remove` delivered as a PR. */
   remove_skill_pr: { args: { repoPath: string; name: string }; result: { prUrl: string } };
   /** `hubBoard`: the project's task source is the hub's own board (its cards are created and scheduled in the hub). */
@@ -1450,6 +1459,7 @@ export const COMMAND_NAMES = [
   'list_lessons',
   'list_needs_you',
   'list_needs_you_all',
+  'list_pending_skill_prs',
   'list_projects',
   'list_remote_runs',
   'list_repo_skills',

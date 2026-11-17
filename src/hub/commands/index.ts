@@ -117,6 +117,7 @@ export const COMMAND_NAMES = [
   'list_lessons',
   'list_needs_you',
   'list_needs_you_all',
+  'list_pending_skill_prs',
   'list_projects',
   'list_remote_runs',
   'list_repo_skills',

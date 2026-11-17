@@ -13,6 +13,8 @@ const cli = vi.hoisted(() => ({
   cachedResolver: vi.fn(() => async () => undefined),
 }));
 vi.mock('../../core/skills.js', () => cli);
+const gh = vi.hoisted(() => vi.fn());
+vi.mock('../../tasks/github.js', async (orig) => ({ ...(await orig<object>()), defaultGhRunner: gh }));
 
 const outsider: typeof OWNER = { user: { id: 'u2', email: 'u2@x.test', name: 'Member' }, owner: false };
 const PR = 'https://github.com/o/r/pull/9';
@@ -137,4 +139,18 @@ test('without the owner role, update, add and remove are refused before anything
   await expect(dispatchRpc(ctx, 'remove_skill_pr', { repoPath: repo, name: 'a' }, outsider)).rejects.toThrow('only the hub owner');
   expect(cli.skillsAddPr).not.toHaveBeenCalled();
   expect(cli.skillsRemovePr).not.toHaveBeenCalled();
+});
+
+test('list_pending_skill_prs lists only open skill-add branches, with the skill names from the title', async () => {
+  const repo = await tmpGitRepo('https://github.com/allowed/repo.git');
+  const { ctx } = await makeCtx(repo);
+  gh.mockResolvedValue(JSON.stringify([
+    { number: 29, url: 'https://github.com/allowed/repo/pull/29', title: 'chore(skills): add ponytail, caveman', headRefName: 'chore/taskcell-skills-add-30233a99' },
+    { number: 30, url: 'https://github.com/allowed/repo/pull/30', title: 'chore(skills): remove a', headRefName: 'chore/taskcell-skills-remove-1' },
+  ]));
+  expect(await dispatchRpc(ctx, 'list_pending_skill_prs', { repoPath: repo })).toEqual({
+    prs: [{ number: 29, url: 'https://github.com/allowed/repo/pull/29', names: ['ponytail', 'caveman'] }],
+  });
+  expect(gh).toHaveBeenCalledWith(expect.arrayContaining(['--repo', 'allowed/repo', '--state', 'open']));
+  await expect(dispatchRpc(ctx, 'list_pending_skill_prs', { repoPath: repo }, outsider)).rejects.toThrow('only the hub owner');
 });
