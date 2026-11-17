@@ -677,15 +677,15 @@ describe('beginRun → listRuns/readRun round trip', () => {
     expect(byId.get('TES-3')!.stoppedBy).toBeUndefined();
   });
 
-  it('sums the extra attempts of its stages as repairs; a run whose stages ran once has none', async () => {
+  it('sums the extra attempts of its stages; a run whose stages ran once has none', async () => {
     await beginRun(repo, 'TES-R', TS).writeStages([
       { name: 'implementer', result: { ...result, taskId: 'TES-R', attempts: 3 } },
       { name: 'reviewer', result: { ...result, taskId: 'TES-R', attempts: 2 } },
     ]);
     await beginRun(repo, 'TES-ONCE', TS).writeStages([{ name: 'implementer', result: { ...result, taskId: 'TES-ONCE' } }]);
     const byId = new Map((await listRuns(runsRoot(repo))).map((r) => [r.taskId, r]));
-    expect(byId.get('TES-R')?.repairs).toBe(3);
-    expect(byId.get('TES-ONCE')).not.toHaveProperty('repairs');
+    expect(byId.get('TES-R')?.extraAttempts).toBe(3);
+    expect(byId.get('TES-ONCE')).not.toHaveProperty('extraAttempts');
   });
 
   it('keeps a run failed when one failed stage is genuine and another stopped on a provider limit', async () => {

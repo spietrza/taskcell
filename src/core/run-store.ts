@@ -233,7 +233,7 @@ async function parseRunSummaries(root: string): Promise<RunSummary[]> {
       const ciUrl = httpsUrl(records.find((r) => r.ciUrl !== undefined)?.ciUrl);
       const startedBy = records.find((r) => r.startedBy !== undefined)?.startedBy;
       const trigger = records.some((r) => r.trigger === 'watch') ? 'watch' : undefined;
-      const repairs = records.reduce((n, r) => n + (typeof r.attempts === 'number' && r.attempts > 1 ? Math.floor(r.attempts) - 1 : 0), 0);
+      const extraAttempts = records.reduce((n, r) => n + (typeof r.attempts === 'number' && r.attempts > 1 ? Math.floor(r.attempts) - 1 : 0), 0);
       summaries.push({
         taskId: first.taskId,
         timestamp,
@@ -248,7 +248,7 @@ async function parseRunSummaries(root: string): Promise<RunSummary[]> {
         ...(ciUrl !== undefined ? { ciUrl } : {}),
         ...(startedBy !== undefined ? { startedBy } : {}),
         ...(trigger !== undefined ? { trigger } : {}),
-        ...(repairs > 0 ? { repairs } : {}),
+        ...(extraAttempts > 0 ? { extraAttempts } : {}),
       });
     }
   }

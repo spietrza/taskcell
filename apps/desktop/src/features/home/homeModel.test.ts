@@ -105,9 +105,10 @@ describe('thisWeek', () => {
     expect(w.merged).toBe(2);
   });
 
-  test('failed leaves out a provider-limit stop; fixed themselves is a passed run that needed a repair', () => {
-    const w = thisWeek([run('gh-1', DAY, { anyFailed: true }), run('gh-2', DAY, { anyFailed: true, stoppedBy: 'provider-limit' }), run('gh-3', DAY, { repairs: 1 }), run('gh-4', DAY, { anyFailed: true, repairs: 3 }), run('gh-5', 8 * DAY, { repairs: 1 })], NOW);
-    expect(w).toMatchObject({ runs: 4, failed: 2, fixed: 1 });
+  test('failed leaves out a provider-limit stop; retried is a passed run with extra attempts (repair or resume alike)', () => {
+    const w = thisWeek([run('gh-1', DAY, { anyFailed: true }), run('gh-2', DAY, { anyFailed: true, stoppedBy: 'provider-limit' }), run('gh-3', DAY, { extraAttempts: 1 }), run('gh-4', DAY, { anyFailed: true, extraAttempts: 3 }), run('gh-5', 8 * DAY, { extraAttempts: 1 })], NOW);
+    expect(w).toMatchObject({ runs: 4, failed: 2, retried: 1 });
+    expect(w).not.toHaveProperty('fixed'); // no figure may claim self-repairs: the records cannot separate them from resumes
   });
 
   test('spend leaves out runs with no cost data', () => {

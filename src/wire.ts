@@ -550,8 +550,9 @@ export interface RunSummary {
   estCostUsd?: number;
   /** Some entries without a reported cost have no estimate either (an unpriced model): the `≈` figure covers only the priced ones. On a run row it can be set with no `estCostUsd` (nothing priced). */
   estPartial?: true;
-  /** Extra agent calls the run's stages folded in (gate repairs and auto-resumes: `RunRecord.attempts` − 1, summed); absent when every stage ran once. */
-  repairs?: number;
+  /** Extra agent calls the run's stages folded in (`RunRecord.attempts` − 1, summed); absent when every stage ran once. Not a repair count:
+   *  the records fold gate repairs, auto-resumes and fork variants into one `attempts` and do not tell them apart. */
+  extraAttempts?: number;
 }
 
 /** Period a cost breakdown covers: the last 7 / 30 days, or everything on the branch. */

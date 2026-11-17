@@ -111,7 +111,7 @@ test('says what waits and what moves, lists the inbox, Moving, the floor and the
 test('the week counts failed and self-fixed runs, and the feed lists team and factory events in the shown repositories', async () => {
   const at = (ago: number): string => new Date(NOW - ago).toISOString();
   const r = (taskId: string, extra: Partial<RunSummary>): RunSummary & { repoPath: string; repoName: string } => ({ taskId, timestamp: at(1000), stages: [], totalCostUsd: 1, anyFailed: false, repoPath: beta.path, repoName: 'beta', ...extra });
-  runs = [r('gh-1', { prState: 'merged' }), r('gh-2', { anyFailed: true }), r('gh-3', { repairs: 2 })];
+  runs = [r('gh-1', { prState: 'merged' }), r('gh-2', { anyFailed: true }), r('gh-3', { extraAttempts: 2 })];
   activity = [
     { time: at(60_000), kind: 'pr-merged', repoPath: beta.path, repoName: 'beta', login: 'ann', subject: '#12' },
     { time: at(120_000), kind: 'settings-changed', repoPath: alpha.path, repoName: 'alpha', login: 'token', keys: ['budgetUsd'] },
@@ -119,7 +119,7 @@ test('the week counts failed and self-fixed runs, and the feed lists team and fa
   ];
   mount();
   const week = screen.getByRole('complementary', { name: 'This week' });
-  await waitFor(() => expect(week).toHaveTextContent('1 pull request merged, 1 failed, 1 fixed themselves. Spend so far $3.00.'));
+  await waitFor(() => expect(week).toHaveTextContent('1 pull request merged, 1 failed, 1 passed after extra attempts. Spend so far $3.00.'));
   const feed = await screen.findByRole('region', { name: 'Team and factory' });
   expect(within(feed).getAllByRole('listitem').map((li) => li.textContent)).toEqual([expect.stringContaining('ann merged PR #12'), expect.stringContaining('You changed settings: budgetUsd')]);
   expect(calls.filter((c) => c === 'list_activity')).toHaveLength(1);

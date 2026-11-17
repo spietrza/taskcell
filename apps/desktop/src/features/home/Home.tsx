@@ -234,11 +234,11 @@ export function Home({
               <>
                 <strong className="font-semibold tabular-nums">{week.merged}</strong> {week.merged === 1 ? 'pull request' : 'pull requests'} merged
                 {week.failed > 0 && <>, <strong className="font-semibold tabular-nums">{week.failed}</strong> failed</>}
-                {week.fixed > 0 && <>, <strong className="font-semibold tabular-nums">{week.fixed}</strong> fixed themselves</>}. Spend so far{' '}
+                {week.retried > 0 && <>, <strong className="font-semibold tabular-nums">{week.retried}</strong> passed after extra attempts</>}. Spend so far{' '}
                 <strong className="font-semibold tabular-nums">${week.spend.toFixed(2)}</strong>.
               </>
             ) : (
-              `No pull request merged yet; ${[plural(week.runs, 'run', 'runs'), week.failed > 0 && `${week.failed} failed`, week.fixed > 0 && `${week.fixed} fixed themselves`].filter(Boolean).join(', ')}, $${week.spend.toFixed(2)}.`
+              `No pull request merged yet; ${[plural(week.runs, 'run', 'runs'), week.failed > 0 && `${week.failed} failed`, week.retried > 0 && `${week.retried} passed after extra attempts`].filter(Boolean).join(', ')}, $${week.spend.toFixed(2)}.`
             )}
           </p>
         </div>

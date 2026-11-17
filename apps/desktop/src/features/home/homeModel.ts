@@ -127,17 +127,18 @@ export function floorRows(
 
 /**
  * The last seven days: pull requests merged (distinct cards, by run time), runs, failed runs (a provider-limit stop is
- * not a failure), runs that fixed themselves (a stage needed a repair or resume and the run still passed) and spend
+ * not a failure), runs that passed after extra attempts (a gate repair, an auto-resume or a fork variant: the records do not tell them apart,
+ * so this is not a count of self-repairs) and spend
  * (reported dollars only; `≈` estimates and unknowns stay out).
  */
-export function thisWeek(runs: readonly RunRow[], now: number = Date.now()): { merged: number; runs: number; failed: number; fixed: number; spend: number } {
+export function thisWeek(runs: readonly RunRow[], now: number = Date.now()): { merged: number; runs: number; failed: number; retried: number; spend: number } {
   const week = runs.filter((r) => now - Date.parse(r.timestamp) <= WEEK_MS);
   const merged = new Set(week.filter((r) => r.prState === 'merged').map((r) => titleKey(r.repoPath, r.taskId)));
   return {
     merged: merged.size,
     runs: week.length,
     failed: week.filter((r) => r.anyFailed && r.stoppedBy !== 'provider-limit').length,
-    fixed: week.filter((r) => !r.anyFailed && (r.repairs ?? 0) > 0).length,
+    retried: week.filter((r) => !r.anyFailed && (r.extraAttempts ?? 0) > 0).length,
     spend: week.reduce((n, r) => n + (r.costUnknown === true ? 0 : r.totalCostUsd), 0),
   };
 }
