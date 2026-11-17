@@ -279,9 +279,9 @@ export function TaskBoard({
         </span>
       )}
       {counts !== null && (
-        // A capped list is one page, so both numbers are lower bounds — `Running 3+ · Waiting 12+`.
+        // A capped list is one page, so the numbers are lower bounds — `Running 3+ · Queued 12+`.
         <span className="text-xs tabular-nums text-muted-foreground">
-          Running {counts.running} · Waiting {counts.waiting}
+          {`Running ${counts.running} · Queued ${counts.queued} · Needs you ${counts.needsYou}`}
         </span>
       )}
       {!hubBoard && (

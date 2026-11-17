@@ -284,13 +284,13 @@ describe('TaskBoard', () => {
   test('an uncapped list shows exact header counts, as a single text run', async () => {
     mockListTasks.mockResolvedValue({ tasks: COUNTS_TASKS, capped: false });
     render(<TaskBoard project="/repo" repos={[]} onOpenTask={() => {}} onNewTask={() => {}} />);
-    expect(await screen.findByText('Running 2 · Waiting 2')).toBeInTheDocument();
+    expect(await screen.findByText('Running 2 · Queued 2 · Needs you 0')).toBeInTheDocument();
   });
 
   test('a capped list makes both header counts a lower bound', async () => {
     mockListTasks.mockResolvedValue({ tasks: COUNTS_TASKS, capped: true });
     render(<TaskBoard project="/repo" repos={[]} onOpenTask={() => {}} onNewTask={() => {}} />);
-    expect(await screen.findByText('Running 2+ · Waiting 2+')).toBeInTheDocument();
+    expect(await screen.findByText('Running 2+ · Queued 2+ · Needs you 0+')).toBeInTheDocument();
   });
 
   test('error branch renders no Running/Waiting text', async () => {
