@@ -200,7 +200,7 @@ export function LineEditor({ project }: { project: string }) {
                     aria-pressed={on}
                     onClick={() => setStation(key)}
                     className={cn(
-                      'min-w-0 rounded-lg border p-3 text-left transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary',
+                      'flex min-w-0 flex-col items-stretch justify-start rounded-lg border p-3 text-left transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary',
                       on ? 'border-primary bg-primary/5' : 'border-border hover:bg-muted/40',
                     )}
                   >
