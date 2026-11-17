@@ -62,6 +62,7 @@ export function Inspector({
   onTaskCrumb,
   onNewTask,
   onOpenBoard,
+  onOpenRuns,
   onOpenSettings,
   onOpenSetup,
 }: {
@@ -86,6 +87,8 @@ export function Inspector({
   onTaskCrumb: (c: { name: string; onRename: (v: string) => void } | null) => void;
   onNewTask: () => void;
   onOpenBoard: () => void;
+  /** Switches to Runs, where a run launched from the Board opens in the split pane. */
+  onOpenRuns?: () => void;
   /** Opens this project's Settings (the Board's "no task source yet" hint). */
   onOpenSettings?: () => void;
   /** Reopen the first-run guide (Settings). */
@@ -452,6 +455,7 @@ export function Inspector({
     setTypedRun(started); // "starting…" — "run live" derives from this
     setDetail(null);
     setLiveRun(null);
+    if (screen !== 'runs') onOpenRuns?.();
     void apiCreateRun(params)
       .then((res) => {
         if (runGen.current !== gen) return; // a newer run owns the strip

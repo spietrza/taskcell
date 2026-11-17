@@ -1,11 +1,10 @@
 // Its own file: the capabilities are cached per module, and App.test.tsx's hub stubs answer them with null.
 import { afterEach, beforeEach, expect, test, vi } from 'vitest';
-import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import App from './App';
 import { projects } from './dev/fixtures';
 
 const SETUP = { tools: [], models: { claude: false, codex: false } };
-const navButton = (name: string): HTMLElement => within(screen.getByRole('complementary')).getByRole('button', { name: new RegExp(`^${name}`) });
 
 beforeEach(() => {
   localStorage.clear();
@@ -60,9 +59,9 @@ test('a run started from the Board lands in the Runs split view, not the old str
   fireEvent.change(await screen.findByPlaceholderText(/issue ref/), { target: { value: '7' } });
   await waitFor(() => expect(screen.getByRole('button', { name: /^run$/i })).toBeEnabled());
   fireEvent.click(screen.getByRole('button', { name: /^run$/i }));
-  // Going to Runs after the launch shows the split view, never the old full-screen strip.
-  fireEvent.click(navButton('Runs'));
+  // The launch switches to Runs by itself: the split view, never the old full-screen strip.
   expect(await screen.findByRole('button', { name: 'Reload' })).toBeInTheDocument();
+  expect(window.location.search).toBe('?screen=runs');
   expect(screen.queryByText('starting…')).toBeNull();
   expect(screen.queryByRole('button', { name: 'show live run' })).toBeNull();
   // A running row opens in the pane beside the list, with no "running — view" chip.
