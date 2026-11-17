@@ -4,7 +4,7 @@ import { CursorProvider } from './cursor.js';
 import { ZaiProvider, ZAI_BASE_URL, ZAI_DEFAULT_MODEL } from './zai.js';
 import { OpenRouterProvider, OPENROUTER_BASE_URL, OPENROUTER_DEFAULT_MODEL } from './openrouter.js';
 import { MeridianProvider, MERIDIAN_PLACEHOLDER_TOKEN } from './meridian.js';
-import { CustomProvider } from './custom.js';
+import { CustomProvider, KEYLESS_PLACEHOLDER_TOKEN } from './custom.js';
 import { AgentError } from '../core/errors.js';
 import { registerInjectedSecretEnvVars } from '../core/secret-scan.js';
 import type { AgentProvider } from './provider.js';
@@ -250,8 +250,10 @@ function resolveSpec(name: string, customs?: readonly CustomProviderEntry[]): Pr
       egressHost: new URL(baseUrl).hostname,
       ...(baseUrl.startsWith('http:') ? { plainHttp: true } : {}),
       key: {
-        hostEnv: [keyEnv],
-        toSandboxSecrets: (key) => ({ ANTHROPIC_BASE_URL: baseUrl, ANTHROPIC_AUTH_TOKEN: key }),
+        // Keyless (no keyEnv): empty hostEnv, placeholder token. Direct-only like every custom, so
+        // --llm-proxy is refused; egressHost above keeps the host on the --egress allowlist.
+        hostEnv: keyEnv !== undefined ? [keyEnv] : [],
+        toSandboxSecrets: (key) => ({ ANTHROPIC_BASE_URL: baseUrl, ANTHROPIC_AUTH_TOKEN: keyEnv !== undefined ? key : KEYLESS_PLACEHOLDER_TOKEN }),
       },
     };
   }
@@ -422,7 +424,7 @@ export function providerSecrets(
       }
     }
 
-    const value = key.hostEnv.map((k) => env[k]).find((v) => v !== undefined && v !== '');
+    const value = key.hostEnv.length === 0 ? '' : key.hostEnv.map((k) => env[k]).find((v) => v !== undefined && v !== '');
     if (value === undefined) {
       throw new AgentError(`Provider "${name}" needs ${key.hostEnv.join(' or ')} in the environment.`);
     }

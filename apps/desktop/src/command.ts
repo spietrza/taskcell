@@ -9,7 +9,7 @@ import { SOURCES } from './sources';
  *
  * `--llm-proxy` is deliberately NOT emitted: it is provider-specific (the sidecar owns the
  * Claude CLI transport), wrong for the subscription/OAuth providers most runs use, and rejected
- * outright by direct-only providers like meridian. The New Run command is editable, so a zai /
+ * outright by direct-only providers (custom endpoints). The New Run command is editable, so a zai /
  * openrouter user adds `--llm-proxy` by hand.
  * ponytail: no per-provider proxy gating until a validated provider→proxy classification exists.
  *

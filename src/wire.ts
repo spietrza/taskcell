@@ -285,8 +285,11 @@ export interface CustomProviderSpec {
   name: string;
   /** Absolute http:/https: URL — becomes ANTHROPIC_BASE_URL verbatim. */
   baseUrl: string;
-  /** Host env var NAME holding the key (read at dispatch, never stored). */
-  keyEnv: string;
+  /**
+   * Host env var NAME holding the key (read at dispatch, never stored). Omit for a keyless endpoint
+   * (a proxy that holds its own auth): a non-empty placeholder token is injected instead.
+   */
+  keyEnv?: string;
   /** Forced default model (zai pattern) for endpoints that don't serve the CLI's Claude default. */
   model?: string;
 }

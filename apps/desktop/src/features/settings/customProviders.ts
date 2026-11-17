@@ -39,6 +39,22 @@ const RESERVED_KEY_ENVS: readonly string[] = [
 ];
 const isReservedKeyEnv = (keyEnv: string): boolean => /^(TASKCELL|VANGUARD)_/i.test(keyEnv) || RESERVED_KEY_ENVS.includes(keyEnv.toUpperCase());
 
+/** Legacy built-in kept for saved configs and the CLI alias; the UI no longer offers it as a choice. */
+const LEGACY_PROVIDER = 'meridian';
+
+/** Built-ins the UI offers: everything but the legacy `meridian` (an Anthropic-compatible endpoint is a custom provider now). */
+export const PROVIDER_CHOICES: readonly string[] = PROVIDERS.filter((n) => n !== LEGACY_PROVIDER);
+
+/** How a provider value reads in the UI: the legacy `meridian` is shown generically, never by product. */
+export function providerLabel(name: string): string {
+  return name === LEGACY_PROVIDER ? 'Anthropic-compatible endpoint (MERIDIAN_BASE_URL)' : name;
+}
+
+/** Drop the legacy provider from an offered list unless it is the saved current value (kept so saving other fields does not change it). */
+export function selectableProviders(names: readonly string[], current?: string): string[] {
+  return names.filter((n) => n !== LEGACY_PROVIDER || n === current);
+}
+
 /** First violated rule for a Settings custom-provider row, or undefined when saveable. */
 export function customProviderRowError(row: Row, index: number, all: Row[]): string | undefined {
   // Rows loaded from a hand-edited file can carry keys the editor doesn't know; the core loader
@@ -50,8 +66,8 @@ export function customProviderRowError(row: Row, index: number, all: Row[]): str
   if (PROVIDERS.includes(row.name)) return `"${row.name}" is a built-in provider name`;
   if (all.findIndex((r) => r.name === row.name) !== index) return `duplicate provider name "${row.name}"`;
   if (!/^https?:\/\//.test(row.baseUrl) || !isUrl(row.baseUrl)) return 'Endpoint URL must be an absolute http:// or https:// URL';
-  if (!KEY_ENV_RE.test(row.keyEnv)) return 'API key variable must be a valid environment variable name';
-  if (isReservedKeyEnv(row.keyEnv)) return `API key variable must not name a credential Taskcell uses itself (${row.keyEnv}); give the provider its own variable`;
+  if (row.keyEnv !== undefined && !KEY_ENV_RE.test(row.keyEnv)) return 'API key variable must be a valid environment variable name, or empty for a proxy that holds its own auth';
+  if (row.keyEnv !== undefined && isReservedKeyEnv(row.keyEnv)) return `API key variable must not name a credential Taskcell uses itself (${row.keyEnv}); give the provider its own variable`;
   if (row.model === '') return 'Model must be non-empty when set';
   return undefined;
 }

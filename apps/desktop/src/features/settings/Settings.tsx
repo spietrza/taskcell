@@ -178,7 +178,7 @@ export function Settings({ project, teamScreen }: { project: string; teamScreen?
 
         <div className="space-y-3 border-t border-border pt-4">
           <div className="flex items-center gap-2">
-            <span className="text-sm font-semibold">Custom providers</span>
+            <span className="text-sm font-semibold">Anthropic-compatible endpoints (proxy)</span>
             <span className="text-xs text-muted-foreground">
               — Anthropic-compatible endpoints run with <code>--provider &lt;name&gt;</code>
             </span>
@@ -186,7 +186,7 @@ export function Settings({ project, teamScreen }: { project: string; teamScreen?
               variant="text"
               color="secondary"
               className="ml-auto"
-              onClick={() => setCustoms([...customs, { name: '', baseUrl: '', keyEnv: '' }])}
+              onClick={() => setCustoms([...customs, { name: '', baseUrl: '' }])}
             >
               Add
             </Button>
@@ -197,10 +197,10 @@ export function Settings({ project, teamScreen }: { project: string; teamScreen?
                 <Field label="Provider name" hint="— lowercase, e.g. my-proxy">
                   <Input value={row.name} onChange={(e) => setRow(i, { name: e.target.value })} className="w-full font-mono text-xs" />
                 </Field>
-                <Field label="API key variable" hint="— the name of the environment variable that holds the key, never the key itself">
+                <Field label="API key variable" hint="— the name of the environment variable that holds the key, never the key itself; leave empty for a proxy that holds its own auth">
                   <Input
-                    value={row.keyEnv}
-                    onChange={(e) => setRow(i, { keyEnv: e.target.value })}
+                    value={row.keyEnv ?? ''}
+                    onChange={(e) => setRow(i, { keyEnv: e.target.value || undefined })}
                     className="w-full font-mono text-xs"
                     placeholder="MY_PROXY_API_KEY"
                   />
@@ -246,7 +246,7 @@ export function Settings({ project, teamScreen }: { project: string; teamScreen?
           <p className="mt-1 text-sm text-muted-foreground">
             LLM credentials are inherited from your environment / keychain. Here they are never stored or sent
             over any API; a hub also stores its own instance credentials (see below). A custom provider stores only the <em>name</em> of the environment variable holding
-            its key.
+            its key (an endpoint that holds its own auth needs none).
           </p>
         </div>
       </div>

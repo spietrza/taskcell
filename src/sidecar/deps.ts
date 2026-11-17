@@ -53,7 +53,7 @@ export function credentialEnv(credential: RunCredential | undefined, choice: Pro
     for (const name of [...CREDENTIAL_NAMES, ...providerKeyEnvNames(choice)]) delete env[name];
     for (const name of usedProviderNames(choice)) {
       const keyEnvs = claudeCliKeyEnv(name, choice.customProviders);
-      if (keyEnvs !== undefined && !keyEnvs.some((k) => credential.env[k] !== undefined)) {
+      if (keyEnvs !== undefined && keyEnvs.length > 0 && !keyEnvs.some((k) => credential.env[k] !== undefined)) {
         throw new BadRequestError(`provider "${name}" cannot run on your own credentials: save ${keyEnvs.join(' or ')} in Settings → Credentials, or pick another provider`);
       }
     }

@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { Button, Collapsible, Input } from '@/ui';
 import { Play } from 'lucide-react';
 import { EnumSelect } from './EnumSelect';
+import { providerLabel, selectableProviders } from '../settings/customProviders';
 import { SkillPicker } from '../board/SkillPicker';
 import { apiListFlows, apiListProviders } from '../../ipc';
 import type { Capabilities, CreateRunParams, RepoFlowInfo, RepoProviderInfo } from '../../ipc';
@@ -33,11 +34,12 @@ export function flowOptionsFrom(
 export function providerOptionsFrom(
   capabilities: Capabilities,
   repoProviders: RepoProviderInfo[] | 'error' | null,
+  current?: string,
 ): { value: string; label: string }[] {
   const seen = new Set<string>();
   const unique = (name: string): boolean => !seen.has(name) && (seen.add(name), true);
   return [
-    ...capabilities.providers.filter(unique).map((p) => ({ value: p, label: p })),
+    ...selectableProviders(capabilities.providers, current).filter(unique).map((p) => ({ value: p, label: providerLabel(p) })),
     ...(Array.isArray(repoProviders)
       ? repoProviders
           .filter((p): p is RepoProviderInfo & { name: string } => p.name !== undefined && p.error === undefined && unique(p.name))
@@ -111,7 +113,7 @@ export function NewRunForm({
     };
   }, [project]);
   const flowOptions = flowOptionsFrom(capabilities, repoFlows);
-  const providerOptions = providerOptionsFrom(capabilities, repoProviders);
+  const providerOptions = providerOptionsFrom(capabilities, repoProviders, provider);
 
   const maxTurnsNum = Number(maxTurns);
   // Mirrors validateCreateRun (sidecar): non-blank issueRef, positive-integer maxTurns, non-blank base.

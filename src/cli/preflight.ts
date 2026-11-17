@@ -275,7 +275,7 @@ export async function runPreflight(cmd: PreflightCommand, opts: PreflightOptions
   try {
     const keyEnvs = cmd.provider !== undefined ? claudeCliKeyEnv(cmd.provider, customs) : undefined;
     if (keyEnvs !== undefined) {
-      llmAuthPresent = keyEnvs.some((name) => hasEnv(env, name));
+      llmAuthPresent = keyEnvs.length === 0 || keyEnvs.some((name) => hasEnv(env, name)); // [] = keyless custom
     } else {
       // Codex/Cursor-only consumes no Anthropic credential in direct mode (#391); --llm-proxy still needs
       // one for the primary sidecar. Mirrors agentAuthFromEnv so preflight stops exactly when the run would.

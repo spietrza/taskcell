@@ -100,13 +100,19 @@ warning naming the provider rather than leaving the exposure silent:
   run consumes no Anthropic-family credential, so the proxy's primary sidecar has nothing to hold and
   cannot start; exporting `CLAUDE_CODE_OAUTH_TOKEN` as well does not change that, because the run never
   uses it. The key is injected into the sandbox and the run starts.
-- **Direct-mode-only providers** — Meridian ([MERIDIAN-provider.md](MERIDIAN-provider.md)) and repo
-  custom providers (`.taskcell/app.json` `customProviders`). They point the Claude CLI at their own
+- **Direct-mode-only providers** — Anthropic-compatible endpoints: repo custom providers
+  (`.taskcell/app.json` `customProviders`, e.g. a self-hosted proxy such as Meridian or CLIProxyAPI; see
+  [MERIDIAN-provider.md](MERIDIAN-provider.md) as an example) and the legacy `meridian` alias. They point the Claude CLI at their own
   endpoint and authenticate on that host, exposing no upstream a sidecar could target, so their key
   is injected into the sandbox. A custom provider's `keyEnv` must be a variable of its own: any name
   starting with `TASKCELL_` or `VANGUARD_` (reserved for Taskcell's own settings), and known credential
   names (the built-in providers', git hosts', and `AWS_SECRET_ACCESS_KEY`, `NPM_TOKEN`,
-  `OTEL_EXPORTER_OTLP_HEADERS` and the like), are refused in any letter case.
+  `OTEL_EXPORTER_OTLP_HEADERS` and the like), are refused in any letter case. `keyEnv` may be omitted for
+  a proxy that holds its own auth: a non-empty placeholder token is injected, the provider stays
+  direct-mode only, and under `--egress` its host is allowlisted (an `http://` endpoint still cannot
+  traverse the egress enclave). In the Hub, Settings lists these under "Anthropic-compatible endpoints
+  (proxy)"; a project already saved with `provider: "meridian"` keeps working and shows as "Anthropic-compatible
+  endpoint (MERIDIAN_BASE_URL)".
 
 If the proxy's trusted sidecar itself fails to start — usually a missing or stale sandbox image, since
 it runs inside `taskcell-sandbox:latest` like the egress enclave — the run fails fast rather than
@@ -778,7 +784,7 @@ Resolution is per provider: a user who saved only `OPENAI_API_KEY` runs Codex on
 instance's `CLAUDE_CODE_OAUTH_TOKEN` (`credentialSource` records `user` / `instance` for the run's provider).
 A run never receives keys of providers it does not use.
 
-A run on the starter's own credential never reads the hub's provider keys: a provider whose key the user cannot save (a repo custom provider's `keyEnv`, meridian's `MERIDIAN_BASE_URL`) is refused for it.
+A run on the starter's own credential never reads the hub's provider keys: a provider whose key the user cannot save (a repo custom provider's `keyEnv`, the legacy `meridian` alias's `MERIDIAN_BASE_URL`) is refused for it.
 
 When the switch is on, each signed-in user saves their own provider credentials in Settings. They are
 keyed by the hub (Better Auth) user id — a GitHub, GitLab or Google user alike — and stored encrypted (AES-256-GCM) in `credentials.enc.json` in the hub

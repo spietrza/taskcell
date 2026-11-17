@@ -73,7 +73,7 @@ exist and are load-bearing:
   latent silent-wrong-endpoint trap live for `provider = "zai"` stage pins today.
 
 **Out (deferred, each with its trigger):**
-- **Keyless custom providers (`keyEnv` optional).** Cut in round 2: the motivating case is keyed;
+- **Keyless custom providers (`keyEnv` optional).** *Since shipped* (the generic endpoint replaces meridian as the UI choice): `keyEnv` omitted ⇒ empty `hostEnv`, placeholder `ANTHROPIC_AUTH_TOKEN`, `claudeCliKeyEnv` = `[]` (preflight/auth/deps treat `[]` as satisfied), still direct-only and egress-listed. Cut in round 2: the motivating case is keyed;
   keyless-single-URL is exactly what meridian already does; and keyless was the only part of the
   registry diff that *changed* semantics (`providerSecrets` const-secrets branch,
   `claudeCliKeyEnv` no longer meaning "owns transport") instead of adding to them — it also

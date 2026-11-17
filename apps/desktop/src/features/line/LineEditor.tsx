@@ -9,7 +9,7 @@ import { errorClause } from '../../errors';
 import { appConfigRangeErrors } from '../../wire';
 import { Field, Select } from '../settings/fields';
 import { useConfigForm } from '../settings/configForm';
-import { PROVIDERS } from '../settings/customProviders';
+import { PROVIDER_CHOICES, providerLabel, selectableProviders } from '../settings/customProviders';
 import { AutoMerge } from '../settings/AutoMerge';
 import { WorkflowEditor } from '../workflow/WorkflowEditor';
 import { asCode } from './asCode';
@@ -66,7 +66,7 @@ export function LineEditor({ project }: { project: string }) {
   };
 
   const healthyCustomNames = customs.filter((_, i) => customErrors[i] === undefined).map((r) => r.name);
-  const providerOptions = [...PROVIDERS, ...healthyCustomNames];
+  const providerOptions = [...PROVIDER_CHOICES, ...healthyCustomNames];
   const taskSource = resolveTaskSource(cfg);
   const runner = runLocationLabel(effectiveRunLocation(taskSource, cfg.runLocation));
   // Errors in fields only General edits still block Publish: say where to fix them.
@@ -100,7 +100,7 @@ export function LineEditor({ project }: { project: string }) {
           <>
             <Cell>
               <Field label="Engine" hint="— which model service runs the stages">
-                <Select value={cfg.provider ?? ''} onChange={(v) => set('provider', v || undefined)} options={providerOptions} danglingLabel={(v) => `${v} (not configured)`} />
+                <Select value={cfg.provider ?? ''} onChange={(v) => set('provider', v || undefined)} options={providerOptions} danglingLabel={(v) => (providerLabel(v) !== v ? providerLabel(v) : `${v} (not configured)`)} />
               </Field>
             </Cell>
             <Cell>
@@ -130,7 +130,7 @@ export function LineEditor({ project }: { project: string }) {
           <>
             <Cell>
               <Field label="Review engine" hint="— optional; a different built-in provider reviews the work (custom providers cannot review)">
-                <Select value={cfg.reviewProvider ?? ''} onChange={(v) => set('reviewProvider', v || undefined)} options={PROVIDERS} danglingLabel={(v) => `${v} (not supported)`} />
+                <Select value={cfg.reviewProvider ?? ''} onChange={(v) => set('reviewProvider', v || undefined)} options={selectableProviders(PROVIDER_CHOICES)} danglingLabel={(v) => (providerLabel(v) !== v ? providerLabel(v) : `${v} (not supported)`)} />
               </Field>
             </Cell>
             <FactRow label="Review model" value="set by --review-model, or the reviewer stage in Custom flows (the flow wins)" />

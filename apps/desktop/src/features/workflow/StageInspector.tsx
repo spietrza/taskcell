@@ -3,6 +3,7 @@ import { Button, Input } from '@/ui';
 import { Plus, Trash2 } from 'lucide-react';
 import { formatPoolRows, isPoolValue, parsePoolRows, type PoolRow } from './modelPool';
 import { EnumSelect } from '../inspector/EnumSelect';
+import { providerLabel, selectableProviders } from '../settings/customProviders';
 import type { StageDecl, StageOverrides } from '../../ipc';
 
 const EFFORTS = ['low', 'medium', 'high', 'xhigh', 'max'] as const;
@@ -94,7 +95,7 @@ export function StageInspector({
                 <EnumSelect
                   value={row.provider}
                   onValueChange={(v) => updateRow(i, { provider: v })}
-                  options={[...new Set([...providers, ...(row.provider !== '' ? [row.provider] : [])])].map((p) => ({ value: p, label: p }))}
+                  options={[...new Set([...selectableProviders(providers, row.provider), ...(row.provider !== '' ? [row.provider] : [])])].map((p) => ({ value: p, label: providerLabel(p) }))}
                 />
                 <Input aria-label={`pool entry ${i + 1} id`} value={row.model} onChange={(e) => updateRow(i, { model: e.target.value })} className="flex-1 font-mono text-xs" placeholder="id" />
                 <Input aria-label={`pool weight ${i + 1}`} type="number" min={1} value={row.weight} onChange={(e) => updateRow(i, { weight: Math.max(1, Math.trunc(Number(e.target.value)) || 1) })} className="w-16" />
@@ -148,7 +149,7 @@ export function StageInspector({
         <EnumSelect
           value={o.provider ?? INHERIT}
           onValueChange={(v) => onSetOverride('provider', v === INHERIT ? undefined : v)}
-          options={[{ value: INHERIT, label: 'inherit' }, ...providers.map((p) => ({ value: p, label: p }))]}
+          options={[{ value: INHERIT, label: 'inherit' }, ...selectableProviders(providers, o.provider).map((p) => ({ value: p, label: providerLabel(p) }))]}
         />
       </Field>
       <Field label="resume_previous">
