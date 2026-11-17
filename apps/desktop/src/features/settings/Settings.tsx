@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react';
-import { Button, Input } from '@/ui';
+import { Button, Input, Tooltip } from '@/ui';
+import { Info } from 'lucide-react';
 import { Members, type TeamScreen } from './Members';
 import { apiCapabilitiesCached, apiListFlows, writeAppConfig } from '../../ipc';
 import { gateProps, useAppConfig, useCallerCapabilities } from '../../hooks';
@@ -13,16 +14,47 @@ import type { AppConfig } from '../../taskcell-output';
 import { appConfigRangeErrors, type CustomProviderSpec } from '../../wire';
 import { errorClause, errorMessage } from '../../errors';
 
-function Field({ label, hint, error, children }: { label: string; hint?: string; error?: string | undefined; children: ReactNode }) {
-  return (
+/** `help`: what the setting does, behind an info icon next to the label (hover or focus). */
+function Field({ label, hint, help, error, children }: { label: string; hint?: string; help?: string; error?: string | undefined; children: ReactNode }) {
+  const field = (
     <label className="block space-y-1">
       <span className="text-sm">
         {label}
+        {help && <Help text={help} />}
         {hint && <span className="ml-1 text-xs text-muted-foreground">{hint}</span>}
       </span>
       {children}
       {error !== undefined && <span role="alert" className="block text-xs text-destructive-text">{error}</span>}
     </label>
+  );
+  if (!help) return field;
+  // Screen readers get the help as text after the field: inside the <label> it would join the field's name.
+  return (
+    <div>
+      {field}
+      <span className="sr-only">{help}</span>
+    </div>
+  );
+}
+
+/** The hover popup for sighted users; Field repeats the text for screen readers. */
+function Help({ text }: { text: string }) {
+  return (
+    <Tooltip.Root>
+      <Tooltip.Trigger
+        render={
+          // Inside the field's <label>: a click must not move focus to the input.
+          <span aria-hidden data-testid="field-help" onClick={(e) => e.preventDefault()} className="ml-1 inline-flex size-4 translate-y-0.5 cursor-help items-center justify-center text-muted-foreground hover:text-foreground" />
+        }
+      >
+        <Info className="size-3.5" aria-hidden />
+      </Tooltip.Trigger>
+      <Tooltip.Portal>
+        <Tooltip.Positioner side="top" sideOffset={6}>
+          <Tooltip.Popup className="z-50 max-w-xs rounded-md border border-border bg-background px-2.5 py-1.5 text-xs leading-relaxed text-foreground shadow-md">{text}</Tooltip.Popup>
+        </Tooltip.Positioner>
+      </Tooltip.Portal>
+    </Tooltip.Root>
   );
 }
 
@@ -208,7 +240,7 @@ export function Settings({ project, teamScreen }: { project: string; teamScreen?
           </div>
         </div>
         <div className="grid grid-cols-2 gap-4">
-          <Field label="Task source">
+          <Field label="Task source" help="Where this project's tasks come from. The Board lists them, and the factory takes its work from here.">
             <select
               value={taskSource ?? ''}
               onChange={(e) => {
@@ -228,7 +260,7 @@ export function Settings({ project, teamScreen }: { project: string; teamScreen?
               ))}
             </select>
           </Field>
-          <Field label="Runs on">
+          <Field label="Runs on" help="Where a task's run happens: in your CI (GitHub Actions, GitLab CI), on a machine running taskcell watch, or in this hub on this computer.">
             <select
               value={effectiveRunLocation(taskSource, cfg.runLocation)}
               onChange={(e) => set('runLocation', runLocationOf(e.target.value))}
@@ -249,12 +281,12 @@ export function Settings({ project, teamScreen }: { project: string; teamScreen?
           </p>
         )}
         <div className="grid grid-cols-2 gap-4">
-          <Field label="Label filter">
+          <Field label="Trigger label" help="The label that hands an issue to the factory. The Board lists only issues that carry it, New Task adds it, and a hub that runs tasks itself (Runs on: Local hub) starts the ones that get it. Empty: the Board lists every issue and the hub starts on the ready for agent label.">
             <Input
               value={cfg.label ?? ''}
               onChange={(e) => set('label', e.target.value || undefined)}
               className="w-full"
-              placeholder="taskcell-ready"
+              placeholder="ready for agent"
             />
           </Field>
         </div>
