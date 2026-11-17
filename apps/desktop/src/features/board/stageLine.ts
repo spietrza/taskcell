@@ -58,3 +58,18 @@ export function runStations(run: Pick<RunDetail, 'stages' | 'proof' | 'prUrl'>, 
     return { key, label: STATION_LABEL[key], status };
   });
 }
+
+/**
+ * A live run's six stations: `stage` = the running stage (else the last finished one), whose station is current;
+ * none yet = the card was just claimed. `failed` marks the current station red (the run errored).
+ */
+export function liveStations(stage: string | undefined, failed = false): StageStep[] {
+  const steps = stageLine(stage === undefined ? { column: 'claimed' } : { column: 'running', stage });
+  return failed ? steps.map((s) => (s.status === 'current' ? { ...s, status: 'failed' } : s)) : steps;
+}
+
+/** The stage a live run's stations follow: the running one, else the last finished; the gate step (`tests`) as `gates` so stationOf reads it. */
+export function liveStage(stages: { name: string; phase: string }[]): string | undefined {
+  const at = stages.find((s) => s.phase === 'running') ?? [...stages].reverse().find((s) => s.phase !== 'pending');
+  return at?.name === 'tests' ? 'gates' : at?.name;
+}

@@ -335,19 +335,36 @@ export async function readRun(root: string, taskId: string, timestamp: string): 
   return withSkillsUsed(root, detail);
 }
 
+type SkillsIndex = Map<string, Map<string, string[]>>;
+/** Per metrics.jsonl: its size+mtime and the `taskId|ts` -> stage -> skillsUsed index built from it. The file only grows, so a changed stamp rebuilds. */
+const skillsIndexCache = new Map<string, { stamp: string; index: SkillsIndex }>();
+
+/** The skillsUsed index of a runs root's metrics.jsonl, parsed once per file change; undefined when there is no file. */
+async function skillsIndex(file: string): Promise<SkillsIndex | undefined> {
+  const st = await lstat(file).catch(() => undefined);
+  if (st === undefined || !st.isFile()) return undefined;
+  const stamp = `${st.size}:${st.mtimeMs}`;
+  const hit = skillsIndexCache.get(file);
+  if (hit?.stamp === stamp) return hit.index;
+  const index: SkillsIndex = new Map();
+  for (const m of parseMetrics(await readTextNoSymlink(file).catch(() => ''))) {
+    if (m.ts === undefined || m.stage === undefined || m.skillsUsed === undefined) continue;
+    const key = `${m.taskId}|${m.ts}`;
+    const run = index.get(key) ?? new Map<string, string[]>();
+    run.set(m.stage, m.skillsUsed);
+    index.set(key, run);
+  }
+  skillsIndexCache.set(file, { stamp, index });
+  return index;
+}
+
 /**
  * Attach each stage's `skillsUsed` from the run's `run_complete` metric lines (the record JSON does not
  * carry it). A stage whose line lacks the field (older runs, a withheld transcript) stays without it.
- * shortcut: reads the whole metrics.jsonl per call; index it by run if the file grows large.
  */
 async function withSkillsUsed(root: string, detail: RunDetail): Promise<RunDetail> {
-  const text = await readTextNoSymlink(join(root, 'metrics.jsonl')).catch(() => '');
-  if (text === '') return detail;
-  const used = new Map<string, string[]>();
-  for (const m of parseMetrics(text)) {
-    if (m.taskId === detail.taskId && m.ts === detail.timestamp && m.stage !== undefined && m.skillsUsed !== undefined) used.set(m.stage, m.skillsUsed);
-  }
-  if (used.size === 0) return detail;
+  const used = (await skillsIndex(join(root, 'metrics.jsonl')))?.get(`${detail.taskId}|${detail.timestamp}`);
+  if (used === undefined) return detail;
   return {
     ...detail,
     stages: detail.stages.map((s) => {

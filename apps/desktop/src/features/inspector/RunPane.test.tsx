@@ -53,7 +53,7 @@ test('a finished run: header with the issue link and one PR chip, the six statio
   expect(stations.map((s) => s.getAttribute('data-status'))).toEqual(['done', 'done', 'done', 'done', 'done', 'current']);
   const receipt = screen.getByRole('region', { name: 'Receipt' });
   expect(within(receipt).getByText('Cost').nextSibling).toHaveTextContent('$0.50');
-  expect(within(receipt).getByText('Spec').nextSibling).toHaveTextContent('not yet');
+  expect(within(receipt).getByText('Spec').nextSibling).toHaveTextContent('from the issue');
   expect(within(receipt).queryByText('Skills used')).toBeNull(); // recorded before the field
   expect(screen.getByRole('tab', { name: 'What the factory did', selected: true })).toBeInTheDocument();
   expect(screen.getByTestId('step-0')).toHaveTextContent('Code');
@@ -61,7 +61,7 @@ test('a finished run: header with the issue link and one PR chip, the six statio
   expect(screen.getByTestId('step-1')).toHaveTextContent('1m 15s');
   expect(screen.getByLabelText('Total time')).toHaveTextContent('2m 16s');
   expect(screen.getByText('PR open')).toBeInTheDocument();
-  expect(screen.queryByRole('button', { name: 'Cancel' })).toBeNull();
+  expect(screen.queryByRole('button', { name: 'Stop run' })).toBeNull();
   await waitFor(() => expect(readRunEvents).toHaveBeenCalledWith('/r', 'gh-r-3', detail.timestamp));
 });
 
@@ -121,10 +121,10 @@ test('a running run: the stage line comes from the persisted events, the running
   render(<RunPane {...props} active={{ taskId: 'gh-r-3', sessionFile: '/s.jsonl', lastActivityMs: Date.now() }} onCancel={onCancel} />);
   // Sandbox, Code, Tests (passed: Review only starts on a green gate), Review (running), Simplify, PR (pending).
   await waitFor(() => expect(screen.getByTestId('stage-3')).toHaveAttribute('data-phase', 'running'));
-  expect(screen.getByTestId('stage-0')).toHaveTextContent('Sealed cell');
+  expect(screen.getByTestId('stage-0')).toHaveTextContent('Cell');
   expect(screen.getByTestId('stage-0')).toHaveAttribute('data-phase', 'done');
   expect(screen.getByTestId('stage-1')).toHaveTextContent('30s');
-  expect(screen.getByTestId('stage-2')).toHaveTextContent('Tests');
+  expect(screen.getByTestId('stage-2')).toHaveTextContent('Gates');
   expect(screen.getByTestId('stage-2')).toHaveAttribute('data-phase', 'done');
   expect(screen.getByTestId('stage-4')).toHaveTextContent('Waiting');
   expect(screen.getByTestId('stage-5')).toHaveTextContent('PR');
@@ -132,14 +132,21 @@ test('a running run: the stage line comes from the persisted events, the running
   expect(within(screen.getByTestId('stage-3')).getByRole('progressbar')).toBeInTheDocument();
   expect(screen.getByLabelText('Total time')).toHaveTextContent('1m 0');
   await waitFor(() => expect(screen.getByRole('log', { name: 'Live log' })).toHaveTextContent('Read · src/a.ts'));
-  fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
+  // Receipt first, as on a finished run: everything pending reads "not yet"; Review is the current station.
+  expect(screen.getByText('in progress')).toBeInTheDocument();
+  expect(within(screen.getByRole('region', { name: 'Receipt' })).getByText('Author').nextSibling).toHaveTextContent('not yet');
+  const stations = within(screen.getByRole('list', { name: 'Stations' })).getAllByRole('listitem');
+  expect(stations.map((x) => x.getAttribute('data-status'))).toEqual(['done', 'done', 'done', 'done', 'current', 'waiting']);
+  expect(stations[2]).toHaveTextContent('Cell');
+  expect(screen.getByRole('tab', { name: 'Transcript' })).toBeInTheDocument();
+  fireEvent.click(screen.getByRole('button', { name: 'Stop run' }));
   expect(onCancel).toHaveBeenCalledWith('run-9');
 });
 
 test('a running run the hub has no events for has no Cancel and says it waits for the first stage', async () => {
   render(<RunPane {...props} active={{ taskId: 'gh-r-3', sessionFile: '/s.jsonl', lastActivityMs: Date.now() }} />);
   expect(await screen.findByText('Waiting for the first stage…')).toBeInTheDocument();
-  expect(screen.queryByRole('button', { name: 'Cancel' })).toBeNull();
+  expect(screen.queryByRole('button', { name: 'Stop run' })).toBeNull();
 });
 
 test('the back button is the way out on a narrow screen', async () => {
@@ -166,10 +173,10 @@ const sealedEvents = (tail: Record<string, unknown>[] = []) => {
   };
 };
 
-test('a finished run keeps its Sealed cell step from the event log', async () => {
+test('a finished run keeps its Cell step from the event log', async () => {
   vi.mocked(readRunEvents).mockResolvedValue(sealedEvents());
   render(<RunPane {...props} detail={detail} />);
-  await waitFor(() => expect(screen.getByTestId('step-0')).toHaveTextContent('Sealed cell'));
+  await waitFor(() => expect(screen.getByTestId('step-0')).toHaveTextContent('Cell'));
   expect(screen.getByTestId('step-0')).toHaveTextContent('4s');
   expect(screen.getByTestId('step-1')).toHaveTextContent('Code');
 });
@@ -178,6 +185,6 @@ test('the Tests and PR cards stay when the live run turns terminal', async () =>
   vi.mocked(readRunEvents).mockResolvedValue(sealedEvents([{ type: 'run-error', message: 'boom' }]));
   render(<RunPane {...props} active={{ taskId: 'gh-r-3', sessionFile: '/s.jsonl', lastActivityMs: Date.now() }} />);
   await waitFor(() => expect(screen.getByTestId('stage-5')).toHaveTextContent('PR'));
-  expect(screen.getByTestId('stage-0')).toHaveTextContent('Sealed cell');
-  expect(screen.getByTestId('stage-2')).toHaveTextContent('Tests');
+  expect(screen.getByTestId('stage-0')).toHaveTextContent('Cell');
+  expect(screen.getByTestId('stage-2')).toHaveTextContent('Gates');
 });

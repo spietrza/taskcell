@@ -1,18 +1,20 @@
 import { useEffect, useRef, useState } from 'react';
-import { Button, Chip } from '@/ui';
+import { Button, Chip, Tabs } from '@/ui';
 import { ArrowLeft, Clock, GitBranch, RefreshCw, Square } from 'lucide-react';
 import { readRunEvents, readSession } from '../../ipc';
 import { subscribe } from '../../transport';
 import { ExternalLink, hostName, issueUrl } from '../../components/ExternalLink';
 import { repoInitials, runStateWord, startedByLabel } from '../../runLabels';
-import { costLabel } from '../../cost';
+import { costLabel, estLabel } from '../../cost';
+import { liveStage, liveStations, runStations } from '../board/stageLine';
+import { StreamView } from './StreamView';
 import { RunDetail } from './RunDetail';
 import { StageLine } from './StageLine';
 import { RunReceipt, StationTrack } from './RunReceipt';
 import { foldRunEvents, fmtDuration, gateMs, stagesFromRecords, withGateSteps, withPendingGateSteps, toLogLines, type LoggedEvent, type LogLine } from './runStages';
 import type { ActiveRun, RunDetail as RunDetailT, RunSummary, SessionRead } from '../../taskcell-output';
 
-/** The open run, for the Runs split view: header, stage line, log tail, and (finished) the full record below. */
+/** The open run, for the Runs split view, receipt first (v3): header, the six stations, the receipt, then what the factory did / Diff / Transcript. */
 export function RunPane({
   repo,
   repoName,
@@ -89,6 +91,7 @@ export function RunPane({
   }, [active?.sessionFile, tick, reload]);
 
   const timeline = foldRunEvents(events);
+  const [tab, setTab] = useState('activity');
   const running = live && timeline.terminal === undefined;
   useEffect(() => {
     if (!running) return;
@@ -99,10 +102,12 @@ export function RunPane({
   // The sealed cell is no stage record: its card comes from the event log (a run logged before it existed has none), live and finished alike.
   const sealed = timeline.stages[0]?.name === 'sandbox' ? timeline.stages.slice(0, 1) : [];
   const stages = detail ? [...sealed, ...withGateSteps(stagesFromRecords(detail.stages), detail.proof, detail.prUrl, gateMs(timeline.stages))] : timeline.stages.length > 0 ? withPendingGateSteps(timeline.stages) : timeline.stages;
+  const liveAt = liveStage(stages);
   // A finished run shows its transcripts in the Transcript tab; the log tail is the live run's.
   const lines: LogLine[] = detail ? [] : toLogLines(session?.entries ?? []);
   useEffect(() => {
-    tail.current?.scrollIntoView({ block: 'end' });
+    // Scroll the log box only, not the page around it.
+    if (tail.current) tail.current.scrollTop = tail.current.scrollHeight;
   }, [lines.length]);
 
   const startedAt = timeline.startedAt;
@@ -183,45 +188,64 @@ export function RunPane({
         {by !== undefined && <span className="text-xs text-muted-foreground">Started by {by}</span>}
         {running && timeline.runId !== undefined && (
           <Button variant="outlined" color="secondary" onClick={() => onCancel(timeline.runId!)} startIcon={<Square className="size-3.5" />}>
-            Cancel
+            Stop run
           </Button>
         )}      </div>
 
-      {detail ? (
-        <>
-          <StationTrack detail={detail} merged={merged} />
-          <div className="flex flex-col gap-3 md:grid md:min-h-0 md:flex-1 md:grid-cols-[minmax(0,1fr)_20rem] md:items-start">
-            <div className="md:order-2 md:max-h-full md:overflow-y-auto">
-              <RunReceipt detail={detail} project={repo} merged={merged} cost={summary !== undefined ? costLabel(summary) : undefined} />
-            </div>
-            <div className="max-md:shrink-0 md:order-1 md:h-full md:min-h-0">
-              <RunDetail detail={detail} project={repo} prLink={false} steps={stages} />
-            </div>
-          </div>
-        </>
-      ) : (
-        <>
-          {stages.length > 0 ? (
-            <StageLine stages={stages} now={now} />
+      <StationTrack
+        steps={detail ? runStations(detail, merged) : liveStations(liveAt, timeline.terminal === 'error')}
+        ctx={detail ? { task: { column: merged ? 'done' : 'review' }, detail, ...(detail.prUrl !== undefined ? { prUrl: detail.prUrl } : {}) } : { task: { column: 'running', ...(liveAt !== undefined ? { stage: liveAt } : {}) } }}
+      />
+      <div className="flex flex-col gap-3 md:grid md:min-h-0 md:flex-1 md:grid-cols-[minmax(0,1fr)_20rem] md:items-start">
+        <div className="md:order-2 md:max-h-full md:overflow-y-auto">
+          {detail ? (
+            <RunReceipt detail={detail} project={repo} merged={merged} cost={summary !== undefined ? costLabel(summary) : undefined} />
           ) : (
-            <p className="text-sm text-muted-foreground">{running ? 'Waiting for the first stage…' : 'This run has no stage records.'}</p>
+            <RunReceipt detail={{ taskId, timestamp: '', stages: [] }} project={repo} merged={false} cost={estLabel(session?.estCostUsd)} live />
           )}
-
-          <div className="max-h-56 shrink-0 overflow-y-auto rounded-lg border border-border bg-muted/40 p-3 font-mono text-xs leading-relaxed" role="log" aria-label={running ? 'Live log' : 'Stage log'}>
-            {lines.length === 0 ? (
-              <span className="text-muted-foreground">{running ? 'Waiting for output…' : 'No transcript for this stage.'}</span>
-            ) : (
-              lines.map((l, i) => (
-                <div key={i} className={l.cmd ? '' : 'text-muted-foreground'}>
-                  {l.cmd && <b className="mr-2">$</b>}
-                  <span className="break-words">{l.text}</span>
+        </div>
+        <div className="max-md:shrink-0 md:order-1 md:h-full md:min-h-0">
+          {detail ? (
+            <RunDetail detail={detail} project={repo} prLink={false} steps={stages} />
+          ) : (
+            <Tabs.Root value={tab} onValueChange={(v) => setTab(String(v))} className="flex h-full min-h-0 flex-col">
+              <Tabs.List className="shrink-0">
+                <Tabs.Tab value="activity">What the factory did</Tabs.Tab>
+                <Tabs.Tab value="diff">Diff</Tabs.Tab>
+                <Tabs.Tab value="transcript">Transcript</Tabs.Tab>
+                <Tabs.Indicator />
+              </Tabs.List>
+              <Tabs.Panel value="activity" className="min-h-0 flex-1 space-y-3 overflow-y-auto pt-4">
+                {stages.length > 0 ? (
+                  <StageLine stages={stages} now={now} list />
+                ) : (
+                  <p className="text-sm text-muted-foreground">{running ? 'Waiting for the first stage…' : 'This run has no stage records.'}</p>
+                )}
+                <div ref={tail} className="max-h-56 shrink-0 overflow-y-auto rounded-lg border border-border bg-muted/40 p-3 font-mono text-xs leading-relaxed" role="log" aria-label={running ? 'Live log' : 'Stage log'}>
+                  {lines.length === 0 ? (
+                    <span className="text-muted-foreground">{running ? 'Waiting for output…' : 'No transcript for this stage.'}</span>
+                  ) : (
+                    lines.map((l, i) => (
+                      <div key={i} className={l.cmd ? '' : 'text-muted-foreground'}>
+                        {l.cmd && <b className="mr-2">$</b>}
+                        <span className="break-words">{l.text}</span>
+                      </div>
+                    ))
+                  )}
                 </div>
-              ))
-            )}
-            <div ref={tail} />
-          </div>
-        </>
-      )}
+              </Tabs.Panel>
+              <Tabs.Panel value="diff" className="min-h-0 flex-1 overflow-y-auto pt-4">
+                <p className="text-sm text-muted-foreground">No diff yet: the cell is still working. It shows here when the run finishes.</p>
+              </Tabs.Panel>
+              <Tabs.Panel value="transcript" className="min-h-0 flex-1 overflow-y-auto pt-4">
+                <div className="rounded border border-border bg-muted/30 p-4">
+                  <StreamView entries={session?.entries ?? []} empty="No output yet." />
+                </div>
+              </Tabs.Panel>
+            </Tabs.Root>
+          )}
+        </div>
+      </div>
     </section>
   );
 }

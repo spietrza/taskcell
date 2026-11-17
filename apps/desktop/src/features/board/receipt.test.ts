@@ -12,15 +12,15 @@ describe('receipt', () => {
   });
 
   test('a run without facts never guesses', () => {
-    expect(receipt(run()).map((f) => f.value)).toEqual(Array(4).fill('not yet'));
+    expect(receipt(run()).map((f) => f.value)).toEqual(Array(4).fill('not recorded'));
   });
 
-  test('known facts shown, missing ones stay "not yet"', () => {
+  test('known facts shown, missing ones stay "not recorded"', () => {
     const facts = receipt(
       run({ proof: { command: 'pnpm test', exitCode: 0, passed: true } as RunDetail['proof'], stages: [stage({ stage: 'reviewer', verdict: 'pass' })] }),
       0.75,
     );
-    expect(values(facts)).toEqual({ tests: 'passed', review: 'passed', secrets: 'not yet', cost: '$0.75' });
+    expect(values(facts)).toEqual({ tests: 'passed', review: 'passed', secrets: 'not recorded', cost: '$0.75' });
   });
 
   test('failing tests and review verdicts', () => {
@@ -31,13 +31,13 @@ describe('receipt', () => {
 
   test('secret scan: clean only with a kept implementer diff; found on a scan-withheld diff; blocked is ambiguous', () => {
     expect(values(receipt(run({ stages: [stage({ stage: 'implementer' }, 'diff')] }))).secrets).toBe('clean');
-    expect(values(receipt(run({ stages: [stage({ stage: 'reviewer' }, 'diff')] }))).secrets).toBe('not yet');
+    expect(values(receipt(run({ stages: [stage({ stage: 'reviewer' }, 'diff')] }))).secrets).toBe('not recorded');
     expect(values(receipt(run({ stages: [stage({ stage: 'implementer', diffOmitted: 'secret-scan' })] }))).secrets).toBe('secret found');
-    expect(values(receipt(run({ stages: [stage({ stage: 'implementer', diffOmitted: 'secret-blocked' }, 'diff')] }))).secrets).toBe('not yet');
+    expect(values(receipt(run({ stages: [stage({ stage: 'implementer', diffOmitted: 'secret-blocked' }, 'diff')] }))).secrets).toBe('not recorded');
   });
 
   test('zero cost is not a fact', () => {
-    expect(values(receipt(run(), 0)).cost).toBe('not yet');
+    expect(values(receipt(run(), 0)).cost).toBe('not recorded');
   });
 });
 
@@ -45,9 +45,9 @@ describe('receiptRows', () => {
   const rows = (r: RunDetail, cost?: string): Record<string, string> => Object.fromEntries(receiptRows(r, cost).map((x) => [x.label, x.value]));
   const diff = 'diff --git a/src/a.ts b/src/a.ts\n+x\ndiff --git a/.github/workflows/ci.yml b/.github/workflows/ci.yml\n-y\n';
 
-  test('an empty record: every row "not yet", no Skills used row', () => {
-    const r = rows(run());
-    expect(r).toEqual({ Spec: 'not yet', Author: 'not yet', Reviewer: 'not yet', Gates: 'not yet', 'Secret scan': 'not yet', 'CI config': 'not yet', Diff: 'not yet', Cost: 'not yet' });
+  test('a finished empty record: "not recorded", Spec "from the issue", no Skills used row; a live one: all "not yet"', () => {
+    expect(rows(run())).toEqual({ Spec: 'from the issue', Author: 'not recorded', Reviewer: 'not recorded', Gates: 'not recorded', 'Secret scan': 'not recorded', 'CI config': 'not recorded', Diff: 'not recorded', Cost: 'not recorded' });
+    expect(new Set(receiptRows(run(), undefined, true).map((x) => x.value))).toEqual(new Set(['not yet']));
   });
 
   test('fills rows from the records', () => {

@@ -2,6 +2,7 @@ import type { RunDetail } from '../../wire';
 import { diffStat } from './stationNotes';
 
 const NOT_YET = 'not yet';
+const NOT_RECORDED = 'not recorded';
 export interface ReceiptFact {
   key: 'tests' | 'review' | 'secrets' | 'cost';
   label: string;
@@ -9,9 +10,9 @@ export interface ReceiptFact {
   tone: 'pass' | 'fail' | 'none';
 }
 
-/** The four facts of the receipt. A fact the run record does not carry reads "not yet" — never a guess. */
+/** The four facts of the receipt: "not yet" with no finished run, "not recorded" for a fact its record does not carry — never a guess. */
 export function receipt(run: RunDetail | undefined, totalCostUsd?: number): ReceiptFact[] {
-  const none = (key: ReceiptFact['key'], label: string): ReceiptFact => ({ key, label, value: NOT_YET, tone: 'none' });
+  const none = (key: ReceiptFact['key'], label: string): ReceiptFact => ({ key, label, value: run === undefined ? NOT_YET : NOT_RECORDED, tone: 'none' });
   if (run === undefined) return [none('tests', 'Tests'), none('review', 'Second-AI review'), none('secrets', 'Secret scan'), none('cost', 'Cost')];
 
   const proof = run.proof;
@@ -61,13 +62,13 @@ function diffPaths(diff: string): string[] {
 
 /**
  * The run page's receipt (v3 "Receipt so far"): the four facts plus who wrote and reviewed it, the gate
- * command, CI config, the diff size and the skills used. A value the records do not carry reads "not yet".
+ * command, CI config, the diff size and the skills used. A missing value reads "not yet" on a live run, "not recorded" after.
  * Skills used: "none" for a recorded empty list, no row at all for a run recorded before the field.
  */
-export function receiptRows(run: RunDetail, cost: string | undefined): ReceiptRow[] {
+export function receiptRows(run: RunDetail, cost: string | undefined, live = false): ReceiptRow[] {
   const facts = Object.fromEntries(receipt(run).map((f) => [f.key, f]));
   const row = (label: string, value: string | undefined, tone: ReceiptFact['tone'] = 'none'): ReceiptRow =>
-    value === undefined || value === '' ? { label, value: NOT_YET, tone: 'none' } : { label, value, tone };
+    value === undefined || value === '' ? { label, value: live ? NOT_YET : NOT_RECORDED, tone: 'none' } : { label, value, tone };
   const record = (re: RegExp) => run.stages.find((s) => s.record.stage !== undefined && re.test(s.record.stage));
   const spec = record(/spec|plan/i);
   const author = record(/implement/i);
@@ -79,7 +80,8 @@ export function receiptRows(run: RunDetail, cost: string | undefined): ReceiptRo
   const skills = [...new Set(recorded.flatMap((s) => s.record.skillsUsed ?? []))];
 
   return [
-    row('Spec', spec?.record.model),
+    // A finished run without a spec stage built from the card itself.
+    row('Spec', spec?.record.model ?? (live ? undefined : 'from the issue')),
     row('Author', author?.record.model),
     reviewer === undefined
       ? row('Reviewer', undefined)

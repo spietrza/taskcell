@@ -213,6 +213,9 @@ describe('beginRun — writing', () => {
     const root = runsRoot(repo);
     expect((await readRun(root, 'TES-U1', TS)).stages.map((s) => [s.record.stage, s.record.skillsUsed])).toEqual([['implementer', ['simplify']], ['reviewer', []]]);
     expect((await readRun(root, 'TES-U2', TS)).stages[0]!.record).not.toHaveProperty('skillsUsed');
+    // A run written after the index was built is seen: the grown file rebuilds it.
+    await beginRun(repo, 'TES-U3', TS).writeStages([{ name: 'implementer', result: { ...result, taskId: 'TES-U3', transcript } }], { skillIds: ['simplify'] });
+    expect((await readRun(root, 'TES-U3', TS)).stages[0]!.record.skillsUsed).toEqual(['simplify']);
   });
 
   it('writes lessonsLoaded and lessonIds on the metric line, 0 when none, and nothing when the caller passes no lessons', async () => {
