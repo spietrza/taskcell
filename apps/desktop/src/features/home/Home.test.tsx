@@ -219,3 +219,17 @@ test('first paint is one skeleton until the cards and runs arrive: no half headl
   expect(await screen.findByRole('heading', { level: 1 })).toHaveTextContent('1 card waits for you.1 is moving.');
   expect(screen.queryByRole('status', { name: 'Loading Home' })).toBeNull();
 });
+
+test('says when the shared project filter narrows Home, and clears it', async () => {
+  const onShowAll = vi.fn();
+  mount({ repoPaths: [beta.path], onShowAll });
+  expect(await screen.findByText(/Showing beta only: the project filter from the Board and Runs/)).toBeInTheDocument();
+  fireEvent.click(screen.getByRole('button', { name: 'Show all projects' }));
+  expect(onShowAll).toHaveBeenCalled();
+});
+
+test('no scope line when every project is shown', async () => {
+  mount();
+  await screen.findByRole('heading', { level: 1 });
+  expect(screen.queryByText(/project filter from the Board/)).toBeNull();
+});

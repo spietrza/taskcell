@@ -598,6 +598,7 @@ export default function App() {
                     }
                     onOpenFactory={openAutoRun}
                     onOpenBoard={() => goto('board')}
+                    onShowAll={() => changeFilter({ ...filter, repos: [] })}
                   />
                 )}
                 {showSetup && (
