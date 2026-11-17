@@ -6,6 +6,7 @@ import type { SettingsSection } from './sections';
 import { NavGuardContext, createNavGuardRegistry } from '../../navGuard';
 
 vi.mock('./Settings', () => ({ Settings: () => <div>general content</div> }));
+vi.mock('./CredentialsPanel', () => ({ CredentialsPanel: () => <div>credentials content</div> }));
 vi.mock('../line/LineEditor', () => ({ LineEditor: () => <div>line content</div> }));
 afterEach(() => vi.restoreAllMocks());
 
@@ -44,12 +45,14 @@ test('switching sections goes through the unsaved-changes guard', () => {
   expect(screen.getByText('general content')).toBeInTheDocument();
 });
 
-test('General offers to reopen the setup guide only when given a handler', () => {
+test('Team & hub offers to reopen the setup guide only when given a handler; General does not hold it', () => {
   const onOpenSetup = vi.fn();
-  const { rerender } = render(<SettingsScreen project="/r" fleet={null} remote={null} />);
+  const { rerender } = render(<SettingsScreen project="/r" fleet={null} remote={null} start="hub" />);
   expect(screen.queryByRole('button', { name: 'Reopen setup guide' })).toBeNull();
   rerender(<SettingsScreen project="/r" fleet={null} remote={null} onOpenSetup={onOpenSetup} />);
   fireEvent.click(screen.getByRole('button', { name: 'Reopen setup guide' }));
+  fireEvent.click(screen.getByRole('tab', { name: 'General' }));
+  expect(screen.queryByRole('button', { name: 'Reopen setup guide' })).toBeNull();
   expect(onOpenSetup).toHaveBeenCalled();
 });
 

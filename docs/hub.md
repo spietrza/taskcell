@@ -296,7 +296,7 @@ A team is a name, members (login + role `admin` or `member`) and repositories, s
 
 **Editing.** `team_add_member`, `team_set_role`, `team_remove_member`, `team_add_repository` and `team_remove_repository` need an admin and the same bind permission as `add_project`. The last admin of a team can be neither removed nor demoted.
 
-**UI.** The team switcher sits in the top bar next to the brand (a menu with more than one team, the plain name with one) and the choice is remembered in the browser. Home (including Waiting for you), Board and Runs list the selected team's repositories. Settings → General ends with a **Team** section (members and repositories of the selected team), set apart from the project's settings above it: an admin edits, a member reads. Team changes apply at once; they are not part of the project's Save.
+**UI.** The team switcher sits in the top bar next to the brand (a menu with more than one team, the plain name with one) and the choice is remembered in the browser. Home (including Waiting for you), Board and Runs list the selected team's repositories. Settings → **Team & hub** (`?screen=settings&section=hub`) holds the hub-wide settings, apart from any project: the **Team** section (members and repositories of the selected team; an admin edits, a member reads), the per-user and instance credentials, and the setup guide. Team changes apply at once; they are not part of the project's Save.
 
 ## Wire format
 
@@ -510,7 +510,7 @@ is the usual reference for "don't mount the docker socket without justification.
 
 ## Home
 
-Home is the landing screen, a command center built only from data the hub already serves. The main navigation (Home, Board, Runs, Settings) is in the top bar, and a tab bar at the bottom on a phone. The top bar has no project picker: Board and Runs choose repositories in their filter, Home shows every project, and Settings and New card start with a **Project:** picker. **Settings** opens a menu of its sections (General, Line, Runners, Lessons, Skills, Audit); the address names the open one, `?screen=settings&section=line`, so a link or a reload lands on it. Until the waiting items, cards and runs first arrive, Home shows one loading skeleton in their place (no half headline, no empty floor). Top to bottom:
+Home is the landing screen, a command center built only from data the hub already serves. The main navigation (Home, Board, Runs, Settings) is in the top bar, and a tab bar at the bottom on a phone. The top bar has no project picker: Board and Runs choose repositories in their filter, Home shows every project, and Settings and New card start with a **Project:** picker (not on the hub-wide Team & hub and Audit sections). **Settings** opens a menu of its sections (General, Line, Runners, Lessons, Skills, Team & hub, Audit); the address names the open one, `?screen=settings&section=line`, so a link or a reload lands on it. Until the waiting items, cards and runs first arrive, Home shows one loading skeleton in their place (no half headline, no empty floor). Top to bottom:
 
 - **State sentence.** "N cards wait for you." and, under it, "M are moving, K paused by a provider limit." N is the length of Waiting for you (the number badging Home in the top bar). M counts cards in `claimed` or `running` that are not paused; K counts cards held by a provider limit (the factory retries them itself).
 - **Waiting for you.** The list below. Review / Answer opens a row.

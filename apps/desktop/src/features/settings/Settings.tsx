@@ -1,6 +1,5 @@
 import { Button, Input } from '@/ui';
 import { gateProps } from '../../hooks';
-import { CredentialsPanel } from './CredentialsPanel';
 import { combinationNote, effectiveRunLocation, legacySource, resolveTaskSource, RUN_LOCATIONS, runLocationOf, TASK_SOURCES, taskSourceOf } from '../../platform';
 import { projectColor } from '../../color';
 import type { CustomProviderSpec } from '../../wire';
@@ -237,13 +236,12 @@ export function Settings({ project }: { project: string }) {
           </div>
           <p className="mt-1 text-sm text-muted-foreground">
             LLM credentials are inherited from your environment / keychain. Here they are never stored or sent
-            over any API; a hub also stores its own instance credentials (see below). A custom provider stores only the <em>name</em> of the environment variable holding
+            over any API; a hub also stores its own instance credentials (Settings → Team &amp; hub). A custom provider stores only the <em>name</em> of the environment variable holding
             its key (an endpoint that holds its own auth needs none).
           </p>
         </div>
       </div>
       )}
-      <CredentialsPanel />
     </div>
   );
 }

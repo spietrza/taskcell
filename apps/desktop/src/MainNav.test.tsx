@@ -38,14 +38,14 @@ test('Board, Runs and Settings are disabled without a project; Home stays clicka
   expect(screen.getByRole('button', { name: 'Home' })).toBeEnabled();
 });
 
-test('Settings opens a menu of its six sections; picking one names it', async () => {
+test('Settings opens a menu of its seven sections; picking one names it', async () => {
   // The menu's motion reads matchMedia; jsdom has none.
   vi.stubGlobal('matchMedia', vi.fn(() => ({ matches: false, addEventListener: vi.fn(), removeEventListener: vi.fn() })));
   const onSettings = vi.fn();
   mount({ onSettings });
   fireEvent.click(screen.getByRole('button', { name: /^Settings/ }));
   const items = await screen.findAllByRole('menuitem');
-  expect(items.map((i) => i.textContent)).toEqual(['General', 'Line', 'Runners', 'Lessons', 'Skills', 'Audit']);
+  expect(items.map((i) => i.textContent)).toEqual(['General', 'Line', 'Runners', 'Lessons', 'Skills', 'Team & hub', 'Audit']);
   fireEvent.click(screen.getByRole('menuitem', { name: 'Line' }));
   expect(onSettings).toHaveBeenCalledWith('line');
   vi.unstubAllGlobals();

@@ -9,6 +9,7 @@ import { AuditLog } from '../audit/AuditLog';
 import { Lessons } from '../lessons/Lessons';
 import { Skills } from '../skills/Skills';
 import { LocalRunner } from './LocalRunner';
+import { CredentialsPanel } from './CredentialsPanel';
 
 /**
  * Settings, with the sections the prototype puts under it: General (the project's settings), Line (the
@@ -24,7 +25,7 @@ export function SettingsScreen({
   onSection,
 }: {
   project: string;
-  /** The selected team's Members section (hub), shown under General. */
+  /** The selected team's Members section (hub), shown under Team & hub. */
   teamScreen?: TeamScreen;
   /** Reopens the first-run guide. */
   onOpenSetup?: () => void;
@@ -62,18 +63,21 @@ export function SettingsScreen({
       </div>
       {section === 'general' ? (
         <div className="min-h-0 flex-1 overflow-y-auto pr-4">
+          <Settings project={project} />
+        </div>
+      ) : section === 'hub' ? (
+        // Hub-wide settings, not the picked project's: no project picker here, and nothing waits for the project's Save.
+        <div className="min-h-0 flex-1 space-y-8 overflow-y-auto pr-4">
           {onOpenSetup && (
-            <div className="mb-4 flex items-center gap-3 rounded-lg border border-border p-3 text-sm">
+            <div className="flex items-center gap-3 rounded-lg border border-border p-3 text-sm">
               <span>Setup guide: sign-ins, model credential and first repository.</span>
               <Button className="ml-auto" variant="outlined" onClick={onOpenSetup}>
                 Reopen setup guide
               </Button>
             </div>
           )}
-          <Settings project={project} />
-          {/* The team is not this project's: its own section, saved as it is edited, not by the project's Save. */}
           {teamScreen && (
-            <section aria-label="Team" className="mt-8 space-y-4 border-t border-border pt-6">
+            <section aria-label="Team" className="space-y-4">
               <div>
                 <h2 className="text-xl font-semibold">Team: {teamScreen.team.name}</h2>
                 <p className="text-sm text-muted-foreground">Members and repositories of the team, shared by every project in it. Changes apply at once.</p>
@@ -81,6 +85,7 @@ export function SettingsScreen({
               <Members {...teamScreen} />
             </section>
           )}
+          <CredentialsPanel />
         </div>
       ) : section === 'line' ? (
         <div className="min-h-0 flex-1 overflow-y-auto pr-4">

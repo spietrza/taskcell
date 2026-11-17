@@ -293,7 +293,7 @@ export function EnableFactoryDialog({ project, onClose, startLocal = false }: { 
               <div className="mt-1 flex flex-wrap gap-1">
                 {local.credentials.names.map((c) => <Chip key={c} color="secondary" variant="outlined">{c}</Chip>)}
               </div>
-              {!local.credentials.present && <p className="mt-1 text-xs text-muted-foreground">Set one in the hub&apos;s environment or add it in Settings → Credentials. Any one of these is enough.</p>}
+              {!local.credentials.present && <p className="mt-1 text-xs text-muted-foreground">Set one in the hub&apos;s environment or add it in Settings → Team &amp; hub. Any one of these is enough.</p>}
             </Section>
             <Section title="2. Doctor passed (run on the hub's machine)">
               {local.source === 'hub' ? (

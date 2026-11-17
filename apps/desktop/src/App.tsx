@@ -11,7 +11,7 @@ import { RepoPicker } from './RepoPicker';
 import { TailwindDebugScreens } from './components/TailwindDebugScreens';
 import { Dashboard } from './features/dashboard/Dashboard';
 import { Home, HomeSkeleton } from './features/home/Home';
-import type { SettingsSection } from './features/settings/sections';
+import { HUB_WIDE_SECTIONS, type SettingsSection } from './features/settings/sections';
 import { Inspector } from './features/inspector/Inspector';
 import { Onboarding } from './features/onboarding/Onboarding';
 import { StarterTaskDialog } from './features/onboarding/StarterTaskDialog';
@@ -484,7 +484,8 @@ export default function App() {
     // No crumb for a screen alone: the top-bar nav already marks it (it read "Settings | Settings").
   }
   const projectPicker =
-    active && (screen === 'settings' || screen === 'task') ? (
+    // Hub-wide Settings sections (Team & hub, Audit) belong to no project: no picker there.
+    active && ((screen === 'settings' && !HUB_WIDE_SECTIONS.includes(settingsSection)) || screen === 'task') ? (
       <div className="flex shrink-0 items-center gap-2 border-b border-border px-4 py-2 text-sm">
         <span className="text-muted-foreground">Project:</span>
         <ProjectCombobox projects={projects} active={active} onSelect={(v) => navigate(() => setActiveProject(v))} />
