@@ -8,6 +8,7 @@ import type { CustomProviderSpec } from '../../wire';
 import { errorClause } from '../../errors';
 import { Field, SELECT_CLASS } from './fields';
 import { useConfigForm } from './configForm';
+import { ChatModelField } from './ChatModelField';
 
 export function Settings({ project, teamScreen }: { project: string; teamScreen?: TeamScreen }) {
   const { cfg, cfgStatus, dirty, saved, saveError, saveGate, lastSaved, set, customs, customErrors, rangeErrors, savable, save, discard } = useConfigForm(project);
@@ -167,14 +168,7 @@ export function Settings({ project, teamScreen }: { project: string; teamScreen?
             placeholder="80"
           />
         </Field>
-        <Field label="Doc chat model" hint="— the Docs editor chat (uses your Claude auth from the environment)">
-          <Input
-            value={cfg.chatModel ?? ''}
-            onChange={(e) => set('chatModel', e.target.value || undefined)}
-            className="w-full font-mono text-xs"
-            placeholder="claude-sonnet-5"
-          />
-        </Field>
+        <ChatModelField project={project} value={cfg.chatModel ?? ''} onChange={(v) => set('chatModel', v)} />
 
         <div className="space-y-3 border-t border-border pt-4">
           <div className="flex items-center gap-2">
