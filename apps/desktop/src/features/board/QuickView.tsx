@@ -1,9 +1,10 @@
 import { useEffect, useState, type ReactNode, type Ref } from 'react';
 import { Button, Timestamp, cn } from '@/ui';
 import { Check, Circle, CircleDot, Play, X } from 'lucide-react';
-import { apiSetTaskSkills, fetchSpec, listNeedsYou, listRuns, readRun, type NeedsYouItem } from '../../ipc';
+import { apiSetTaskSkills, fetchSpec, hubTaskStart, listNeedsYou, listRuns, readRun, type NeedsYouItem } from '../../ipc';
 import { errorMessage } from '../../errors';
 import { useAppConfig, useAsync } from '../../hooks';
+import { isDemoLink } from '../../transport';
 import type { BoardTask, RepoStamp, RunDetail, RunSummary } from '../../wire';
 import { STATION_SHORT } from '../../stations';
 import { costLabel, estTitle } from '../../cost';
@@ -255,8 +256,23 @@ export function QuickView({
   const facts = receipt(run?.detail, latest?.totalCostUsd);
   const repo = task.repoName ?? repoPath.split('/').filter(Boolean).pop() ?? repoPath;
   const reload = (): void => setNonce((n) => n + 1);
+  const [starting, setStarting] = useState(false);
+  const [startError, setStartError] = useState<string | null>(null);
+  // A hub-board card is started through the hub scheduler (picks it up within ~15 s); other cards open the run form.
+  const startRun = (): void => {
+    if (!hubCard) return onStartRun?.();
+    setStarting(true);
+    setStartError(null);
+    hubTaskStart(repoPath, task.id)
+      .then(() => onChanged?.())
+      .catch((e: unknown) => {
+        setStartError(errorMessage(e));
+        setStarting(false);
+      });
+  };
   const issueCard = !isPullRequestCard(task.id) && !isInvalidHubCard(task.id);
-  const runnable = issueCard && onStartRun !== undefined && (task.column === 'queued' || task.column === 'verify-failed');
+  const hubCard = isHubTaskCard(task.id);
+  const runnable = issueCard && (hubCard || onStartRun !== undefined) && (task.column === 'queued' || task.column === 'verify-failed');
   const implementer = run?.detail?.stages.find((s) => s.record.stage === 'implementer');
   const model = implementer?.record.model;
   const stat = diffStat(implementer?.diff);
@@ -277,8 +293,8 @@ export function QuickView({
         <div className="flex items-center gap-2">
           <div className="flex min-w-0 flex-1 items-center gap-2 font-mono text-[11px] text-muted-foreground">
             <span className="max-w-[12rem] truncate rounded bg-muted px-1.5 py-0.5" title={repo}>{repo}</span>
-            {task.url !== undefined && task.source !== undefined ? (
-              <a href={task.url} target="_blank" rel="noreferrer" title={`Open in ${TRACKER_NAME[task.source]}`} className="shrink-0 text-primary-text hover:underline">
+            {task.url !== undefined && !isDemoLink(task.url) ? (
+              <a href={task.url} target="_blank" rel="noreferrer" className="shrink-0 rounded text-primary-text hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
                 {task.id}
               </a>
             ) : (
@@ -298,10 +314,11 @@ export function QuickView({
       {/* The action row stays under the header while the body scrolls. */}
       <div className="flex shrink-0 flex-wrap items-center gap-2 border-b border-border/60 px-4 py-2.5">
         {runnable && (
-          <Button onClick={onStartRun} startIcon={<Play className="size-4" />}>
-            Start run
+          <Button disabled={starting} onClick={startRun} startIcon={<Play className="size-4" />}>
+            {starting ? 'Starting…' : 'Start run'}
           </Button>
         )}
+        {startError !== null && <div role="alert" className="w-full break-words text-xs text-destructive-text">{startError}</div>}
         {(task.column === 'running' || task.column === 'claimed') && (
           <span role="status" className="flex items-center gap-2 text-sm">
             <span className="size-2 animate-pulse rounded-full bg-foreground" aria-hidden />

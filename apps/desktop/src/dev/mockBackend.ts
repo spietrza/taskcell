@@ -196,6 +196,7 @@ const commandHandlers = {
   hub_task_accept: (args: { id?: string } | undefined) => ({ id: args?.id ?? 'hub-1' }),
   hub_task_archive: (args: { id?: string } | undefined) => ({ id: args?.id ?? 'hub-1' }),
   hub_task_delete: (args: { id?: string } | undefined) => ({ id: args?.id ?? 'hub-1' }),
+  hub_task_start: (args: { id?: string } | undefined) => ({ id: args?.id ?? 'hub-1' }),
   hub_task_retry: (args: { id?: string } | undefined) => ({ id: args?.id ?? 'hub-1' }),
   start_task: (args: { label?: string } | undefined) => ({ status: 'labelled', label: args?.label ?? 'ready for agent', waitingOn: [] }),
   // Hub-only Enable factory flow (EnableFactoryDialog).

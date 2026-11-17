@@ -619,6 +619,11 @@ export function hubTaskCreate(repoPath: string, title: string, body: string, sch
   return call('hub_task_create', { repoPath, title, body, ...schedule });
 }
 
+/** HUB_ONLY: ask the hub scheduler to start a todo hub-board task (within ~15 s, even with auto-run off). */
+export function hubTaskStart(repoPath: string, id: string): Promise<{ id: string }> {
+  return call('hub_task_start', { repoPath, id });
+}
+
 /** HUB_ONLY: put a failed hub-board task back to todo. */
 export function hubTaskRetry(repoPath: string, id: string): Promise<{ id: string }> {
   return call('hub_task_retry', { repoPath, id });

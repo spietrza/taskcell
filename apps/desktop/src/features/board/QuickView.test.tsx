@@ -13,9 +13,10 @@ vi.mock('../../ipc', () => ({
   apiListSkills: vi.fn(async () => ({ skills: ['db', 'release'] })),
   apiSetTaskSkills: vi.fn(async (_repo: string, _id: string, skills: string[]) => ({ skills })),
   readAppConfigStrict: vi.fn(async () => ({})),
+  hubTaskStart: vi.fn(async (_repo: string, id: string) => ({ id })),
   fetchSpec: vi.fn(async () => 'The issue body.'),
 }));
-import { apiListSkills, apiSetTaskSkills, listNeedsYou, listRuns, readAppConfigStrict, readRun } from '../../ipc';
+import { hubTaskStart, apiListSkills, apiSetTaskSkills, listNeedsYou, listRuns, readAppConfigStrict, readRun } from '../../ipc';
 
 const PR = 'https://github.com/o/r/pull/9';
 const item = (over: Partial<NeedsYouItem>): NeedsYouItem => ({ id: 'o/r#9', kind: 'pr', number: 9, repoSlug: 'o/r', title: 'T', url: PR, reason: 'taskcell:needs-human-review', baseRef: 'main', ...over });
@@ -99,6 +100,40 @@ test('a paused pull request card offers no issue-only actions', async () => {
   expect(screen.queryByRole('button', { name: 'Full page' })).toBeNull();
   expect(screen.queryByRole('button', { name: 'Retry now' })).toBeNull();
   expect(screen.queryByText(/skills/i)).toBeNull();
+});
+
+describe('QuickView start and header', () => {
+  const queued: QuickTask = { ...task, column: 'queued', waiting: true };
+  test('a hub card calls hub_task_start, shows Starting and reloads the board', async () => {
+    vi.mocked(listRuns).mockResolvedValue([]);
+    const onStartRun = vi.fn();
+    const onChanged = vi.fn();
+    render(<QuickView task={{ id: 'hub-3', title: 'H', column: 'queued', state: 'queued' }} project="/repo" onClose={() => {}} onFullPage={() => {}} onStartRun={onStartRun} onChanged={onChanged} />);
+    fireEvent.click(screen.getByRole('button', { name: 'Start run' }));
+    expect(screen.getByRole('button', { name: 'Starting…' })).toBeDisabled();
+    await vi.waitFor(() => expect(onChanged).toHaveBeenCalled());
+    expect(hubTaskStart).toHaveBeenCalledWith('/repo', 'hub-3');
+    expect(onStartRun).not.toHaveBeenCalled();
+    expect(screen.queryByRole('link', { name: 'hub-3' })).toBeNull();
+  });
+  test('a hub start error is shown', async () => {
+    vi.mocked(listRuns).mockResolvedValue([]);
+    vi.mocked(hubTaskStart).mockRejectedValueOnce(new Error('nope'));
+    render(<QuickView task={{ id: 'hub-3', title: 'H', column: 'queued', state: 'queued' }} project="/repo" onClose={() => {}} onFullPage={() => {}} />);
+    fireEvent.click(screen.getByRole('button', { name: 'Start run' }));
+    expect(await screen.findByRole('alert')).toHaveTextContent('nope');
+  });
+  test('a GitHub card opens the form, its id is the issue link and the header has no Open in GitHub', async () => {
+    vi.mocked(listRuns).mockResolvedValue([]);
+    const onStartRun = vi.fn();
+    render(<QuickView task={queued} project="/repo" onClose={() => {}} onFullPage={() => {}} onStartRun={onStartRun} />);
+    fireEvent.click(screen.getByRole('button', { name: 'Start run' }));
+    expect(onStartRun).toHaveBeenCalled();
+    expect(hubTaskStart).not.toHaveBeenCalled();
+    expect(screen.getByRole('link', { name: 'gh-7' })).toHaveAttribute('href', 'https://github.com/o/r/issues/7');
+    expect(within(screen.getByRole('banner')).queryByText('Open in GitHub')).toBeNull();
+    expect(await screen.findByText('No runs yet.')).toBeInTheDocument();
+  });
 });
 
 describe('QuickView skills', () => {
