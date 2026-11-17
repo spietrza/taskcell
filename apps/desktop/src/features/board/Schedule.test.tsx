@@ -95,6 +95,7 @@ describe('NewHubTask', () => {
     const onCreated = vi.fn();
     render(<NewHubTask repoPath="/r" onCreated={onCreated} />);
     expect(screen.getByRole('button', { name: 'Add card' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Add card' })).toHaveAttribute('title', 'Type a title first');
     fireEvent.change(screen.getByLabelText('Title'), { target: { value: 'Add a health endpoint' } });
     fireEvent.change(screen.getByLabelText(/What to do/), { target: { value: 'GET /healthz answers 200' } });
     fireEvent.click(screen.getByRole('button', { name: 'Add card' }));
