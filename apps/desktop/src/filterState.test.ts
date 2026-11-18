@@ -46,6 +46,9 @@ test('runs filter by triage (merged from prState), source and search', () => {
   const done = [run('hub-1', { cardDone: true }), run('hub-4', { anyFailed: true, asked: 'Which file?', cardDone: true })];
   expect(filterRuns(done, f({ triage: 'merged' })).map((r) => r.taskId)).toEqual(['hub-1', 'hub-4']);
   expect(filterRuns(done, f({ triage: 'needs' }))).toEqual([]);
+  // Waiting for you = a card's newest run that asked or failed; a failed run a newer run replaced no longer waits.
+  const tries = [run('gh-7', { anyFailed: true, timestamp: '1' }), run('gh-7', { timestamp: '2' }), run('gh-8', { anyFailed: true, timestamp: '1' }), run('hub-9', { asked: 'Which file?' })];
+  expect(filterRuns(tries, f({ triage: 'needs' })).map((r) => r.taskId)).toEqual(['gh-8', 'hub-9']);
 });
 
 test('grouping by project, source and triage', () => {

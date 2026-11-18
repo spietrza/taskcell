@@ -12,7 +12,7 @@ export function stationSummary(station: Station, cfg: AppConfig): string[] {
       return [...label, source === undefined ? 'no card source' : taskSourceLabel(source)];
     }
     case 'spec':
-      return [cfg.flow ? `flow ${cfg.flow}` : 'source default flow'];
+      return [cfg.flow ? `flow ${cfg.flow}` : 'standard flow (no custom flow)'];
     case 'cell':
       return [
         `engine ${cfg.provider || 'default'}`,

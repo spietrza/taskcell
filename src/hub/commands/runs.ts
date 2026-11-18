@@ -82,6 +82,12 @@ async function hubBoardReader(configDir: string, real: string): Promise<(() => P
   return (await readAppConfig(real)).taskSource === 'hub' ? async () => (await listHubBoard(configDir, real)).tasks : undefined;
 }
 
+/** Marks a hub-board project's done-card runs for the project summary; a tracker project is left as is (no tracker read). */
+export const hubDoneMarker = (ctx: { deps: Parameters<typeof invokeCoreMethod>[0]; configDir: string }): projects.MarkDone => async (real, runs) => {
+  const reader = await hubBoardReader(ctx.configDir, real);
+  return reader === undefined ? runs : markMerged(ctx.deps, real, runs, reader);
+};
+
 export const commands = defineCommands<RunsCommands>({
   list_runs: async ({ ctx, args, allow }) => {
     const real = await allow(requireString(args, 'repoPath'));

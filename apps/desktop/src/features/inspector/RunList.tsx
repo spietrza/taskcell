@@ -3,7 +3,7 @@ import { Button, Chip, Empty, Input, LINK_CLASS, Timestamp, cn } from '@/ui';
 import { Inbox, RefreshCw, Search } from 'lucide-react';
 import { contrastColor } from '../../color';
 import { FilterBar, NoMatch, pill } from '../../FilterBar';
-import { DEFAULT_FILTER, canClearFilters, clearFilters, effectiveFilter, filterActive, filterNames, filterRuns, groupRows, offeredSources, runKeys, runSource, saveChange, searchText, type RunMeta, type CardSource, type HubFilter } from '../../filterState';
+import { DEFAULT_FILTER, canClearFilters, clearFilters, effectiveFilter, filterActive, filterNames, filterRuns, groupRows, offeredSources, runKeys, runSource, runTriage, supersededRuns, saveChange, searchText, type RunMeta, type CardSource, type HubFilter } from '../../filterState';
 import { ExternalLink, hostName } from '../../components/ExternalLink';
 import { costLabel, estTitle } from '../../cost';
 import { RunsSplit } from './RunsSplit';
@@ -131,6 +131,7 @@ export function RunList({
     return filterRuns(runs, h, meta).some((r) => filter === 'all' || (filter === 'failed' ? isFailed(r) : isPassed(r))) || (filter === 'all' && filterActive(active, h, meta).length > 0);
   }, [runs, active, filter, hub, meta]);
 
+  const superseded = useMemo(() => supersededRuns(runs), [runs]);
   // Rows of both kinds share the lanes; a running row sorts first within its lane.
   const lanes = useMemo(
     () =>
@@ -140,9 +141,9 @@ export function RunList({
           ...shown.map((r): Item => ({ kind: 'run', r, taskId: r.taskId, repoPath: r.repoPath, repoName: r.repoName })),
         ],
         hub.group,
-        { triage: (i) => (i.kind === 'active' ? 'running' : runKeys.triage(i.r)), source: runKeys.source },
+        { triage: (i) => (i.kind === 'active' ? 'running' : runTriage(i.r, superseded.has(i.r))), source: runKeys.source },
       ),
-    [shownActive, shown, hub.group],
+    [shownActive, shown, hub.group, superseded],
   );
 
   const row = (key: string, repoName: string | undefined, taskId: string, repoPath: string | undefined, station: { at: number; failed: boolean }, chip: ReactElement, age: ReactElement, open?: () => void, extra?: ReactElement): ReactElement => {

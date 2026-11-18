@@ -6,7 +6,7 @@ describe('stationSummary', () => {
   it('says what an unset value means, for every station', () => {
     expect(stationSummary('card', {})).toEqual(['label "ready for agent"', 'no card source']);
     expect(stationSummary('card', { taskSource: 'hub' })).toEqual(['Taskcell board']);
-    expect(stationSummary('spec', {})).toEqual(['source default flow']);
+    expect(stationSummary('spec', {})).toEqual(['standard flow (no custom flow)']);
     expect(stationSummary('cell', { taskSource: 'github' })).toEqual(['engine default', 'no budget cap', 'runner GitHub Actions']);
     expect(stationSummary('gates', {})).toEqual(['default verify', 'secret scan']);
     expect(stationSummary('review', {})).toEqual(['same engine']);

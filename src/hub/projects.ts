@@ -7,7 +7,7 @@ import { withCiRuns } from './ci-metrics.js';
 import { listActive } from './active.js';
 import { fanOut } from '../pipeline/fan-out.js';
 import { redactForPublish } from '../core/secret-scan.js';
-import type { RepoReadFailure, RepoStamp, RunLocationId, TaskSourceId } from '../wire.js';
+import type { RepoReadFailure, RepoStamp, RunLocationId, RunSummary, TaskSourceId } from '../wire.js';
 
 export interface Project {
   path: string;
@@ -69,10 +69,13 @@ export async function savePaths(configDir: string, paths: string[]): Promise<voi
 export const repoDisplayName = (repoPath: string): string => basename(repoPath) || repoPath;
 
 /** Aggregate a repo's `.taskcell/runs` into a dashboard summary (+ live running count). */
-export async function aggregate(repoPath: string, now: Date = new Date()): Promise<Project> {
+/** Marks the runs of done cards (`markMerged`), so a done card's asked run is not counted as waiting. */
+export type MarkDone = <T extends RunSummary>(repoPath: string, runs: T[]) => Promise<T[]>;
+
+export async function aggregate(repoPath: string, now: Date = new Date(), markDone?: MarkDone): Promise<Project> {
   const name = repoDisplayName(repoPath);
   const [summaries, runningCount, appConfig] = await Promise.all([
-    listRunSummaries(defaultRunsRoot(repoPath)).then((local) => withCiRuns(repoPath, local)),
+    listRunSummaries(defaultRunsRoot(repoPath)).then((local) => withCiRuns(repoPath, local)).then((all) => (markDone !== undefined ? markDone(repoPath, all) : all)),
     listActive(repoPath).then((active) => active.length),
     readAppConfig(repoPath),
   ]);
@@ -81,6 +84,9 @@ export async function aggregate(repoPath: string, now: Date = new Date()): Promi
   const cutoff = now.getTime() - 24 * 60 * 60 * 1000;
 
   const tasks = new Set<string>();
+  // A card's newest run: an older asked run was answered by the run after it.
+  const newest = new Map<string, string>();
+  for (const s of summaries) if ((newest.get(s.taskId) ?? '') < s.timestamp) newest.set(s.taskId, s.timestamp);
   let totalCostUsd = 0;
   let failedCount = 0;
   let askedCount = 0;
@@ -91,8 +97,10 @@ export async function aggregate(repoPath: string, now: Date = new Date()): Promi
     tasks.add(s.taskId);
     totalCostUsd += s.totalCostUsd;
     if (s.source === 'ci') ciRunCount += 1;
-    // A run that stopped to ask waits on a person: counted apart, never as failed.
-    if (s.asked !== undefined) askedCount += 1;
+    // A run that stopped to ask waits on a person until answered (a newer run) or its card is done: counted apart, never as failed.
+    if (s.asked !== undefined) {
+      if (s.cardDone !== true && newest.get(s.taskId) === s.timestamp) askedCount += 1;
+    }
     else if (s.anyFailed && s.stoppedBy === undefined) failedCount += 1;
     if (lastRun === undefined || s.timestamp > lastRun) {
       lastRun = s.timestamp;
@@ -127,9 +135,9 @@ export async function loadScopedPaths(configDir: string, only?: readonly string[
   return only === undefined ? paths : paths.filter((p) => only.includes(p));
 }
 
-export async function list(configDir: string, only?: readonly string[]): Promise<Project[]> {
+export async function list(configDir: string, only?: readonly string[], markDone?: MarkDone): Promise<Project[]> {
   const paths = await loadScopedPaths(configDir, only);
-  return Promise.all(paths.map((p) => aggregate(p)));
+  return Promise.all(paths.map((p) => aggregate(p, new Date(), markDone)));
 }
 
 /** Add a path (de-duped — adding an already-present path is a no-op for the stored list). */

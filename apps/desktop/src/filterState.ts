@@ -87,12 +87,26 @@ export function cardTriage(t: Pick<BoardTask, 'column'>): Exclude<Triage, 'all'>
 }
 
 /**
- * The same bucket for a finished run: failed needs you; merged needs the hub's `prState`, or `cardDone` (its card sits in
- * Done, as the Board's Merged pill reads it). `running` is for active runs only.
+ * The same bucket for a finished run: merged needs the hub's `prState`, or `cardDone` (its card sits in Done, as the
+ * Board's Merged pill reads it). It waits for you only as its card's newest run (`superseded` = a newer run of the same
+ * card exists) that stopped to ask or failed, as Home's inbox reads it. `running` is for active runs only.
  */
-export function runTriage(r: Pick<RunSummary, 'anyFailed' | 'prState' | 'stoppedBy' | 'cardDone'>): Exclude<Triage, 'all'> | 'other' {
+export function runTriage(r: Pick<RunSummary, 'anyFailed' | 'prState' | 'stoppedBy' | 'cardDone' | 'asked'>, superseded = false): Exclude<Triage, 'all'> | 'other' {
   if (r.prState === 'merged' || r.cardDone === true) return 'merged';
-  return r.anyFailed && r.stoppedBy === undefined ? 'needs' : 'other';
+  if (superseded) return 'other';
+  return r.asked !== undefined || (r.anyFailed && r.stoppedBy === undefined) ? 'needs' : 'other';
+}
+
+/** The runs a newer run of the same card (project + task id) has replaced. */
+export function supersededRuns<T extends Pick<RunSummary, 'taskId' | 'timestamp'> & RepoRow>(runs: readonly T[]): Set<T> {
+  const newest = new Map<string, T>();
+  for (const r of runs) {
+    const k = `${r.repoPath ?? ''}\0${r.taskId}`;
+    const cur = newest.get(k);
+    if (cur === undefined || cur.timestamp < r.timestamp) newest.set(k, r);
+  }
+  const latest = new Set(newest.values());
+  return new Set(runs.filter((r) => !latest.has(r)));
 }
 
 /** A card's source; a card without a tracker belongs to the Taskcell board. */
@@ -170,7 +184,8 @@ export function filterCards<T extends BoardTask & RepoRow>(cards: T[], f: HubFil
 }
 
 export function filterRuns<T extends RunSummary & RepoRow>(runs: T[], f: HubFilter, meta?: RunMeta): T[] {
-  return runs.filter((r) => keep(f, { triage: runTriage(r), source: runSource(r.taskId), repoPath: r.repoPath, text: searchText(r.taskId, meta?.(r.repoPath, r.taskId)) }));
+  const old = supersededRuns(runs);
+  return runs.filter((r) => keep(f, { triage: runTriage(r, old.has(r)), source: runSource(r.taskId), repoPath: r.repoPath, text: searchText(r.taskId, meta?.(r.repoPath, r.taskId)) }));
 }
 
 /** In-flight runs are "running"; they match no other triage. */
@@ -226,4 +241,4 @@ export function groupRows<T extends RepoRow & { repoName?: string }>(
 }
 
 export const cardKeys = { triage: cardTriage, source: cardSource };
-export const runKeys = { triage: runTriage, source: (r: { taskId: string }): CardSource => runSource(r.taskId) };
+export const runKeys = { triage: (r: Parameters<typeof runTriage>[0]) => runTriage(r), source: (r: { taskId: string }): CardSource => runSource(r.taskId) };

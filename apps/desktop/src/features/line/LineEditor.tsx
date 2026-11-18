@@ -104,7 +104,7 @@ export function LineEditor({ project }: { project: string }) {
         return (
           <>
             <FactRow label="Tech-spec model" value="set by the CLI flag --spec-model" note="The hub has no setting for it. The flow's own planner stage is separate: its model is set under Custom flows." />
-            <FactRow label="Runs with flow" value={cfg.flow || 'the source default'} note="Pick the flow under Custom flows." />
+            <FactRow label="Runs with flow" value={cfg.flow || 'Standard (no custom flow)'} note="Pick the flow under Custom flows." />
           </>
         );
       case 'cell':
@@ -270,7 +270,7 @@ export function LineEditor({ project }: { project: string }) {
             <details className="rounded-lg border border-border">
               <summary className="cursor-pointer px-4 py-3 text-sm font-semibold">Custom flows (advanced)</summary>
               <div className="space-y-3 border-t border-border p-4">
-                <Field label="Runs with flow" hint="— runs the Hub starts for this project use it, so the models set below apply; — = the source default">
+                <Field label="Runs with flow" hint="— runs the Hub starts for this project use it, so the models set below apply; — = the standard flow">
                   <Select value={cfg.flow ?? ''} onChange={(v) => set('flow', v || undefined)} options={flowNames} danglingLabel={(v) => `${v} (not found)`} />
                 </Field>
                 <div className="h-[40rem] overflow-x-auto">
