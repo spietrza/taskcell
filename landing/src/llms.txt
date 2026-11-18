@@ -50,6 +50,7 @@ The CLI is `taskcell`; `vanguard` (the project's former name) still works as a d
 
 ## Links
 
+- Contact: support@taskcell.dev (questions, purchases, licensing); security reports: security@taskcell.dev or a private GitHub advisory
 - [Source code and README](https://github.com/spietrza/taskcell)
 - [Security policy](https://github.com/spietrza/taskcell/blob/main/SECURITY.md)
 - [OWASP mapping](https://github.com/spietrza/taskcell/blob/main/docs/security/owasp-mapping.md)

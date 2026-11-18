@@ -25,6 +25,7 @@ const html = [
   ['>Security policy</a>', '>Polityka bezpieczeństwa</a>'],
   ['>Security review</a>', '>Przegląd bezpieczeństwa</a>'],
   ['>MIT license</a>', '>Licencja MIT</a>'],
+  ['>Contact: support@taskcell.dev</a>', '>Kontakt: support@taskcell.dev</a>'],
   ['taskcell.dev · self-hosted software factory', 'taskcell.dev · fabryka oprogramowania, którą uruchamiasz u siebie'],
   ['Fonts: Schibsted Grotesk', 'Fonty: Schibsted Grotesk'],
 ];
