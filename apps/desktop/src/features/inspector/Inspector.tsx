@@ -287,7 +287,10 @@ export function Inspector({
       await loadRuns();
       setTick((t) => t + 1);
       const o = openRef.current;
-      if (o) setDetail(await readRun(o.repo, o.ref));
+      if (!o) return;
+      const d = await readRun(o.repo, o.ref);
+      // The pane moved on while this read ran (another run opened, or it followed a live one): keep what it shows.
+      if (openRef.current === o) setDetail(d);
     } catch {
       // transient mid-write; next event resyncs
     }
@@ -406,6 +409,20 @@ export function Inspector({
     if (done) void open(done);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [liveRun, runs, shownActive]);
+
+  // A question answered in the pane starts a new run of that card: the pane follows it once the list shows it live.
+  const answered = useRef<{ repo: string; taskId: string } | null>(null);
+  useEffect(() => {
+    const w = answered.current;
+    if (w === null) return;
+    const a = shownActive.find((x) => x.taskId === w.taskId && (x.repoPath ?? project) === w.repo);
+    if (!a) return;
+    answered.current = null;
+    openRef.current = null; // a refresh still in flight would re-open the asked run over the live one
+    setDetail(null);
+    setLiveRun(a);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [shownActive]);
 
   // The listener is registered once, so it reaches the latest render's `refresh` through a ref.
   const refreshRef = useRef(refresh);
@@ -745,7 +762,7 @@ export function Inspector({
             }}
             pane={
               detail ? (
-                <RunPane key={selectedKey} repo={detailRepo} repoName={repoNameOf(detailRepo)} initials={repoInitials(repoNameOf(detailRepo), projects.map((p) => p.name))} taskId={detail.taskId} title={titleOf(detailRepo, detail.taskId)} issue={issueNumber(detail.taskId)} issueHref={taskUrls.get(titleKey(detailRepo, detail.taskId))} summary={runs.find((r) => r.taskId === detail.taskId && r.timestamp === detail.timestamp && (r.repoPath === undefined || r.repoPath === detailRepo))} detail={detail} tick={tick} onBack={closeRun} onCancel={cancelRun} />
+                <RunPane key={selectedKey} repo={detailRepo} repoName={repoNameOf(detailRepo)} initials={repoInitials(repoNameOf(detailRepo), projects.map((p) => p.name))} taskId={detail.taskId} title={titleOf(detailRepo, detail.taskId)} issue={issueNumber(detail.taskId)} issueHref={taskUrls.get(titleKey(detailRepo, detail.taskId))} summary={runs.find((r) => r.taskId === detail.taskId && r.timestamp === detail.timestamp && (r.repoPath === undefined || r.repoPath === detailRepo))} detail={detail} tick={tick} onBack={closeRun} onCancel={cancelRun} onAnswered={() => { answered.current = { repo: detailRepo, taskId: detail.taskId }; void refresh(); }} />
               ) : liveRun ? (
                 <RunPane key={selectedKey} repo={liveRun.repoPath ?? project} repoName={liveRun.repoName ?? repoNameOf(liveRun.repoPath ?? project)} initials={repoInitials(liveRun.repoName ?? repoNameOf(liveRun.repoPath ?? project), projects.map((p) => p.name))} taskId={liveRun.taskId} title={titleOf(liveRun.repoPath ?? project, liveRun.taskId)} issue={issueNumber(liveRun.taskId)} issueHref={taskUrls.get(titleKey(liveRun.repoPath ?? project, liveRun.taskId))} active={shownActive.find((a) => a.taskId === liveRun.taskId && (a.repoPath ?? project) === (liveRun.repoPath ?? project)) ?? liveRun} tick={tick} onBack={closeRun} onCancel={cancelRun} />
               ) : (

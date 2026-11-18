@@ -33,7 +33,10 @@ export function RunPane({
   tick,
   onBack,
   onCancel,
+  onAnswered,
 }: {
+  /** The card's question was answered here: the caller follows the run that answer starts. */
+  onAnswered?: (() => void) | undefined;
   /** The repository the run belongs to (its path). */
   repo: string;
   repoName?: string | undefined;
@@ -206,7 +209,7 @@ export function RunPane({
           <div className="font-medium text-warning-text">Stopped to ask you: the agent ended before finishing and waits for your answer below.</div>
           {/* The run's own agent question: light markdown, no images, http(s) links only. */}
           <div className="mt-1 max-h-40 overflow-y-auto break-words text-muted-foreground"><AgentQuestion>{asked}</AgentQuestion></div>
-          <div className="mt-2"><CardAnswer project={repo} taskId={taskId} /></div>
+          <div className="mt-2"><CardAnswer project={repo} taskId={taskId} onReplied={onAnswered} /></div>
         </div>
       )}
       <StationTrack

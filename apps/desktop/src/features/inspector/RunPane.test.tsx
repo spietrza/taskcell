@@ -212,3 +212,16 @@ test('a run whose agent stopped to ask: the chip word and colour come from one s
   const stations = within(screen.getByRole('list', { name: 'Stations' })).getAllByRole('listitem');
   expect(stations.map((s) => s.getAttribute('data-status'))).toEqual(['done', 'done', 'current', 'done', 'waiting', 'waiting']);
 });
+
+test('a question answered in the pane tells the caller, so it can follow the run the answer starts', async () => {
+  const ipc = await import('../../ipc');
+  vi.spyOn(ipc, 'listNeedsYou').mockResolvedValue({ items: [{ kind: 'card', id: 'hub-4', number: 4, repoSlug: '', title: 'T', url: '', reason: 'question', lastComment: { author: 'agent', body: 'Which file?' } }] });
+  vi.spyOn(ipc, 'replyNeedsYou').mockResolvedValue(undefined);
+  const asking: RunDetail = { taskId: 'hub-4', timestamp: '2026-11-17T15:53:58.120Z', stages: [stage('implementer', 25_000, { taskId: 'hub-4', completed: false, exitReason: 'incomplete', finalText: 'Which file?' })] };
+  const row = { taskId: 'hub-4', timestamp: asking.timestamp, stages: ['implementer'], anyFailed: true, failedStage: 'implementer', asked: 'Which file?', totalCostUsd: 0.2 } as never;
+  const onAnswered = vi.fn();
+  render(<RunPane {...props} taskId="hub-4" issue={undefined} detail={asking} summary={row} onAnswered={onAnswered} />);
+  fireEvent.change(await screen.findByRole('textbox', { name: 'reply to hub-4' }), { target: { value: 'config.json' } });
+  fireEvent.click(screen.getByRole('button', { name: 'Reply' }));
+  await waitFor(() => expect(onAnswered).toHaveBeenCalledOnce());
+});
