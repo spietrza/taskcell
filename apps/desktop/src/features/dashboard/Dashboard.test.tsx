@@ -140,3 +140,11 @@ test('a project card says what its numbers and chips are: spend, runs in 24h, ca
   expect(screen.getByText('Cards from')).toBeInTheDocument();
   expect(screen.getByText('run on')).toBeInTheDocument();
 });
+
+test('a GitLab project whose factory is ready in CI says it runs on GitLab CI, not on its stored "local"', () => {
+  const p = { ...first!, taskSource: 'gitlab' as const, runLocation: 'local' as const };
+  const ready = { ...factoryStateNone, state: 'ready' as const, plan: { provider: 'gitlab' } as FactoryState['plan'] };
+  render(<Dashboard projects={[p]} onOpen={() => {}} onAdd={() => {}} onRemove={() => {}} factory={{ [p.path]: ready }} />);
+  expect(screen.getByText('GitLab CI')).toBeInTheDocument();
+  expect(screen.queryByText('Local hub')).not.toBeInTheDocument();
+});

@@ -73,9 +73,11 @@ export function Dashboard({
         <>
           <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
             {projects.map((p) => {
-              const location = effectiveRunLocation(p.taskSource, p.runLocation);
-              const note = combinationNote(p.taskSource, location);
               const fs = factory?.[p.path];
+              // A factory installed in CI is where the cards run, whatever the stored setting says (Enable factory does not set it).
+              const ci = fs?.state === 'ready' && p.taskSource !== 'hub' ? ((fs.plan?.provider ?? (p.taskSource === 'gitlab' ? 'gitlab' : 'github')) === 'gitlab' ? 'gitlab-ci' : 'github-actions') : undefined;
+              const location = ci ?? effectiveRunLocation(p.taskSource, p.runLocation);
+              const note = combinationNote(p.taskSource, location);
               const lw = localWorker?.[p.path];
               const last = p.lastRun ? relTime(new Date(p.lastRun).getTime()) : null;
               const color = projectColor(p);
