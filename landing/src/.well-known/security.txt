@@ -1,4 +1,5 @@
 Contact: https://github.com/spietrza/taskcell/security/advisories/new
+Contact: mailto:security@taskcell.dev
 Policy: https://github.com/spietrza/taskcell/blob/main/SECURITY.md
 Preferred-Languages: en
 Canonical: https://taskcell.dev/.well-known/security.txt
