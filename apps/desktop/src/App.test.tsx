@@ -6,6 +6,12 @@ import { projects, runDetail, runs } from './dev/fixtures';
 import { STARTER_TASK } from './features/onboarding/steps';
 import type { Team } from './wire';
 
+/** The top bar's team menu: open it, pick the team by name. */
+async function pickTeam(name: string): Promise<void> {
+  fireEvent.click(screen.getByRole('button', { name: /^Team: / }));
+  fireEvent.click(await screen.findByRole('menuitem', { name: new RegExp(`^${name}`) }));
+}
+
 // Settings is its own test target; here it only has to be a screen the nav can leave.
 vi.mock('./features/settings/SettingsScreen', () => ({ SettingsScreen: () => <div>settings screen</div> }));
 
@@ -153,7 +159,7 @@ test('switching to a team with no repositories clears Home’s live runs and dis
   render(<App />);
   expect(await screen.findByText(`RUN${p.path}`)).toBeInTheDocument();
   expect(navButton('Board')).toBeEnabled();
-  fireEvent.change(screen.getByLabelText('Team'), { target: { value: 'b' } });
+  await pickTeam('Beta');
   await waitFor(() => expect(screen.queryByText(`RUN${p.path}`)).toBeNull());
   // Nothing to open without a project: only Home stays clickable.
   for (const name of ['Board', 'Runs', 'Settings']) expect(navButton(name)).toBeDisabled();
@@ -180,10 +186,10 @@ test('a project in both teams stays selected across a team switch, while the new
   window.history.replaceState(null, '', '/?screen=settings');
   render(<App />);
   expect(await screen.findByTitle(p2.name)).toBeInTheDocument();
-  fireEvent.change(screen.getByLabelText('Team'), { target: { value: 'b' } });
+  await pickTeam('Beta');
   await waitFor(() => expect(asked).toContain('b'));
   release([p1, p2]);
-  await waitFor(() => expect(screen.getByLabelText('Team')).toHaveValue('b'));
+  await waitFor(() => expect(screen.getByRole('button', { name: 'Team: Beta' })).toBeInTheDocument());
   await new Promise((r) => setTimeout(r, 50));
   // Still the shared project in the picker, not the new team's first.
   expect(screen.getByTitle(p2.name)).toBeInTheDocument();
@@ -271,7 +277,7 @@ test('switching team clears the previous team’s runs at once, before the new t
   // A project opens on its Board; the runs are one tab over.
   fireEvent.click(await screen.findByRole('button', { name: 'Runs' }));
   expect(await screen.findByText('A-RUN')).toBeInTheDocument();
-  fireEvent.change(screen.getByLabelText('Team'), { target: { value: 'b' } });
+  await pickTeam('Beta');
   await waitFor(() => expect(screen.queryByText('A-RUN')).toBeNull());
   release({ runs: [run('B-RUN')], failures: [] });
   expect(await screen.findByText('B-RUN')).toBeInTheDocument();

@@ -567,7 +567,7 @@ export default function App() {
           />
         }
         // Always shown: the server and team switchers live here, even when the selected team has no project yet.
-        team={<TeamSwitcher teams={teams} active={team} onSelect={chooseTeam} />}
+        team={<TeamSwitcher teams={teams} active={team} onSelect={chooseTeam} {...(addGate?.allowed === false ? {} : { onAddProject: add })} />}
         switchers={<ServerSwitcher />}
         crumbs={crumbs}
         onHome={() => goto('home')}

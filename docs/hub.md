@@ -296,7 +296,7 @@ A team is a name, members (login + role `admin` or `member`) and repositories, s
 
 **Editing.** `team_add_member`, `team_set_role`, `team_remove_member`, `team_add_repository` and `team_remove_repository` need an admin and the same bind permission as `add_project`. The last admin of a team can be neither removed nor demoted.
 
-**UI.** The team switcher sits in the top bar next to the brand (a menu with more than one team, the plain name with one) and the choice is remembered in the browser. Home (including Waiting for you), Board and Runs list the selected team's repositories. Settings → **Team & hub** (`?screen=settings&section=hub`) holds the hub-wide settings, apart from any project: the **Team** section (members and repositories of the selected team; an admin edits, a member reads), the per-user and instance credentials, and the setup guide. Team changes apply at once; they are not part of the project's Save.
+**UI.** The team switcher sits in the top bar next to the brand as **name · team**: its menu lists the teams (with their people, or their projects on a local hub, which has the one **Default** team) and **Set up a new project** and the choice is remembered in the browser. Home (including Waiting for you), Board and Runs list the selected team's repositories. Settings → **Team & hub** (`?screen=settings&section=hub`) holds the hub-wide settings, apart from any project: the **Team** section (members and repositories of the selected team; an admin edits, a member reads), the per-user and instance credentials, and the setup guide. Team changes apply at once; they are not part of the project's Save.
 
 ## Wire format
 
