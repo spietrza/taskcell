@@ -247,10 +247,17 @@ describe('gitlabReviewHost', () => {
     expect(gitlabReviewHost('group/project').kind).toBe('glab');
   });
 
-  it('newPrTarget: glab, with no GitHub push-token provider', () => {
+  it('newPrTarget: glab, pushing with GITLAB_TOKEN (never a GitHub token)', async () => {
     const target = gitlabReviewHost('group/project').newPrTarget({ title: 't', body: () => 'b' });
     expect(target).toMatchObject({ kind: 'new-pr', cli: 'glab', title: 't' });
-    expect(target).not.toHaveProperty('tokenProvider');
+    const saved = process.env['GITLAB_TOKEN'];
+    process.env['GITLAB_TOKEN'] = 'glpat-test';
+    try {
+      expect(target.kind === 'new-pr' ? await target.tokenProvider?.() : undefined).toBe('glpat-test');
+    } finally {
+      if (saved === undefined) delete process.env['GITLAB_TOKEN'];
+      else process.env['GITLAB_TOKEN'] = saved;
+    }
   });
 
   it('publishVerdict throws when reviewerOutcome is missing', async () => {

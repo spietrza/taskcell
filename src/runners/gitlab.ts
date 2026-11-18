@@ -34,7 +34,8 @@ export type RunGitlabIssueResult = RunIssueResult;
 export function gitlabReviewHost(project: string, glab?: GlabRunner): ReviewHost {
   return {
     kind: 'glab',
-    newPrTarget: (pr) => ({ kind: 'new-pr', ...pr, cli: 'glab' }),
+    // GITLAB_TOKEN pushes the branch: GitLab CI's job token usually may not.
+    newPrTarget: (pr) => ({ kind: 'new-pr', ...pr, cli: 'glab', tokenProvider: async () => process.env['GITLAB_TOKEN'] }),
     publishVerdict: (input: PublishVerdictInput) => publishGitlabVerdict(project, input, glab),
     addFailureLabel: (mrUrl: string, kind: ProofFailureKind) => addGitlabFailureLabel(project, mrUrl, kind, glab),
     addGateConfigLabel: (mrUrl: string) => addGitlabGateConfigLabel(project, mrUrl, glab),
