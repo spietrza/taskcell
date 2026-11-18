@@ -211,54 +211,58 @@ export function RunPane({
         steps={detail && outcome !== undefined ? stepsAt(runStationOf(outcome)) : liveStations(liveAt, timeline.terminal === 'error')}
         ctx={detail ? { task: { column: merged ? 'done' : 'review' }, detail, merged, ...(detail.prUrl !== undefined ? { prUrl: detail.prUrl } : {}) } : { task: { column: 'running', ...(liveAt !== undefined ? { stage: liveAt } : {}) } }}
       />
-      <div className="flex flex-col gap-3 md:grid md:min-h-0 md:flex-1 md:grid-cols-[minmax(0,1fr)_20rem] md:items-start">
-        <div className="md:order-2 md:max-h-full md:overflow-y-auto">
-          {detail ? (
-            <RunReceipt detail={detail} project={repo} merged={merged} cost={summary !== undefined ? costLabel(summary) : undefined} />
-          ) : (
-            <RunReceipt detail={{ taskId, timestamp: '', stages: [] }} project={repo} merged={false} cost={estLabel(session?.estCostUsd)} live />
-          )}
-        </div>
-        <div className="max-md:shrink-0 md:order-1 md:h-full md:min-h-0">
-          {detail ? (
-            <RunDetail detail={detail} project={repo} prLink={false} steps={stages} />
-          ) : (
-            <Tabs.Root value={tab} onValueChange={(v) => setTab(String(v))} className="flex h-full min-h-0 flex-col">
-              <Tabs.List className="shrink-0">
-                <Tabs.Tab value="activity">What the factory did</Tabs.Tab>
-                <Tabs.Tab value="diff">Diff</Tabs.Tab>
-                <Tabs.Tab value="transcript">Transcript</Tabs.Tab>
-                <Tabs.Indicator />
-              </Tabs.List>
-              <Tabs.Panel value="activity" className="min-h-0 flex-1 space-y-3 overflow-y-auto pt-4">
-                {stages.length > 0 ? (
-                  <StageLine stages={stages} now={now} list />
-                ) : (
-                  <p className="text-sm text-muted-foreground">{running ? 'Waiting for the first stage…' : 'This run has no stage records.'}</p>
-                )}
-                <div ref={tail} className="max-h-56 shrink-0 overflow-y-auto rounded-lg border border-border bg-muted/40 p-3 font-mono text-xs leading-relaxed" role="log" aria-label={running ? 'Live log' : 'Stage log'}>
-                  {lines.length === 0 ? (
-                    <span className="text-muted-foreground">{running ? 'Waiting for output…' : 'No transcript for this stage.'}</span>
+      {/* Two columns only when the pane itself is wide enough (a container query, not the window): beside the run list
+          a 1024 px window leaves the pane too narrow for the tabs and the receipt side by side. Stacked, it scrolls. */}
+      <div className="@container min-h-0 md:flex-1 md:overflow-y-auto">
+        <div className="flex flex-col gap-3 @3xl:grid @3xl:h-full @3xl:min-h-0 @3xl:grid-cols-[minmax(0,1fr)_20rem] @3xl:items-start">
+          <div className="@3xl:order-2 @3xl:max-h-full @3xl:overflow-y-auto">
+            {detail ? (
+              <RunReceipt detail={detail} project={repo} merged={merged} cost={summary !== undefined ? costLabel(summary) : undefined} />
+            ) : (
+              <RunReceipt detail={{ taskId, timestamp: '', stages: [] }} project={repo} merged={false} cost={estLabel(session?.estCostUsd)} live />
+            )}
+          </div>
+          <div className="shrink-0 @3xl:order-1 @3xl:h-full @3xl:min-h-0">
+            {detail ? (
+              <RunDetail detail={detail} project={repo} prLink={false} steps={stages} />
+            ) : (
+              <Tabs.Root value={tab} onValueChange={(v) => setTab(String(v))} className="flex h-full min-h-0 flex-col">
+                <Tabs.List className="shrink-0 overflow-x-auto">
+                  <Tabs.Tab value="activity" className="whitespace-nowrap">What the factory did</Tabs.Tab>
+                  <Tabs.Tab value="diff" className="whitespace-nowrap">Diff</Tabs.Tab>
+                  <Tabs.Tab value="transcript" className="whitespace-nowrap">Transcript</Tabs.Tab>
+                  <Tabs.Indicator />
+                </Tabs.List>
+                <Tabs.Panel value="activity" className="min-h-0 flex-1 space-y-3 overflow-y-auto pt-4">
+                  {stages.length > 0 ? (
+                    <StageLine stages={stages} now={now} list />
                   ) : (
-                    lines.map((l, i) => (
-                      <div key={i} className={l.cmd ? '' : 'text-muted-foreground'}>
-                        {l.cmd && <b className="mr-2">$</b>}
-                        <span className="break-words">{l.text}</span>
-                      </div>
-                    ))
+                    <p className="text-sm text-muted-foreground">{running ? 'Waiting for the first stage…' : 'This run has no stage records.'}</p>
                   )}
-                </div>
-              </Tabs.Panel>
-              <Tabs.Panel value="diff" className="min-h-0 flex-1 overflow-y-auto pt-4">
-                <p className="text-sm text-muted-foreground">No diff yet: the cell is still working. It shows here when the run finishes.</p>
-              </Tabs.Panel>
-              <Tabs.Panel value="transcript" className="min-h-0 flex-1 overflow-y-auto pt-4">
-                <div className="rounded border border-border bg-muted/30 p-4">
-                  <StreamView entries={session?.entries ?? []} empty="No output yet." />
-                </div>
-              </Tabs.Panel>
-            </Tabs.Root>
-          )}
+                  <div ref={tail} className="max-h-56 shrink-0 overflow-y-auto rounded-lg border border-border bg-muted/40 p-3 font-mono text-xs leading-relaxed" role="log" aria-label={running ? 'Live log' : 'Stage log'}>
+                    {lines.length === 0 ? (
+                      <span className="text-muted-foreground">{running ? 'Waiting for output…' : 'No transcript for this stage.'}</span>
+                    ) : (
+                      lines.map((l, i) => (
+                        <div key={i} className={l.cmd ? '' : 'text-muted-foreground'}>
+                          {l.cmd && <b className="mr-2">$</b>}
+                          <span className="break-words">{l.text}</span>
+                        </div>
+                      ))
+                    )}
+                  </div>
+                </Tabs.Panel>
+                <Tabs.Panel value="diff" className="min-h-0 flex-1 overflow-y-auto pt-4">
+                  <p className="text-sm text-muted-foreground">No diff yet: the cell is still working. It shows here when the run finishes.</p>
+                </Tabs.Panel>
+                <Tabs.Panel value="transcript" className="min-h-0 flex-1 overflow-y-auto pt-4">
+                  <div className="rounded border border-border bg-muted/30 p-4">
+                    <StreamView entries={session?.entries ?? []} empty="No output yet." />
+                  </div>
+                </Tabs.Panel>
+              </Tabs.Root>
+            )}
+          </div>
         </div>
       </div>
     </section>

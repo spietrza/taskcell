@@ -55,11 +55,11 @@ export function RunDetail({ detail, project, prLink = true, steps }: { detail: R
       onValueChange={(v) => setTab(String(v))}
       className="flex h-full min-h-0 flex-col"
     >
-      <Tabs.List className="shrink-0">
-        <Tabs.Tab value="activity">What the factory did</Tabs.Tab>
-        <Tabs.Tab value="spec">Spec</Tabs.Tab>
-        <Tabs.Tab value="diff">Diff</Tabs.Tab>
-        <Tabs.Tab value="transcript">Transcript</Tabs.Tab>
+      <Tabs.List className="shrink-0 overflow-x-auto">
+        <Tabs.Tab value="activity" className="whitespace-nowrap">What the factory did</Tabs.Tab>
+        <Tabs.Tab value="spec" className="whitespace-nowrap">Spec</Tabs.Tab>
+        <Tabs.Tab value="diff" className="whitespace-nowrap">Diff</Tabs.Tab>
+        <Tabs.Tab value="transcript" className="whitespace-nowrap">Transcript</Tabs.Tab>
         <Tabs.Indicator />
       </Tabs.List>
 

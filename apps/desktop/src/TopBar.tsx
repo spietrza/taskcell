@@ -45,7 +45,7 @@ export function TopBar({
         title="Back to dashboard"
       >
         <Logo className="size-5" />
-        <span className="font-heading font-bold tracking-tight max-md:hidden">Taskcell Hub</span>
+        <span className="whitespace-nowrap font-heading font-bold tracking-tight max-lg:hidden">Taskcell Hub</span>
       </button>
       {team}
       {nav}
@@ -53,11 +53,11 @@ export function TopBar({
         <>
           <span className="text-border max-md:hidden">|</span>
           <Breadcrumb.Root className="min-w-0">
-            <Breadcrumb.List>
+            <Breadcrumb.List className="flex-nowrap">
               {crumbs.map((c, i) => (
                 <Fragment key={i}>
                   {i > 0 && <Breadcrumb.Separator />}
-                  <Breadcrumb.Item>
+                  <Breadcrumb.Item className="min-w-0 whitespace-nowrap">
                     {c.edit ? (
                       <Breadcrumb.Page>
                         <InlineEdit
@@ -72,7 +72,7 @@ export function TopBar({
                         {c.label}
                       </Breadcrumb.Link>
                     ) : (
-                      <Breadcrumb.Page>{c.label}</Breadcrumb.Page>
+                      <Breadcrumb.Page className="block truncate">{c.label}</Breadcrumb.Page>
                     )}
                   </Breadcrumb.Item>
                 </Fragment>
