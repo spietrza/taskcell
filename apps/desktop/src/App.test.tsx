@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, expect, test, vi } from 'vitest';
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import App from './App';
+import { captureHubToken } from './transport';
 import { projects, runDetail, runs } from './dev/fixtures';
 import { STARTER_TASK } from './features/onboarding/steps';
 import type { Team } from './wire';
@@ -52,6 +53,11 @@ afterEach(() => {
   cleanup();
   vi.unstubAllGlobals();
   delete window.__TASKCELL_HUB__;
+  // A fresh launch clears the transport's "token refused" state: the restart test must not mute the next ones.
+  window.history.replaceState(null, '', '/#token=reset');
+  captureHubToken();
+  window.sessionStorage.clear();
+  window.history.replaceState(null, '', '/');
 });
 
 test('a hub with no projects opens the setup guide; Dismiss remembers it', async () => {
