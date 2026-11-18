@@ -397,7 +397,7 @@ request is replayed, so a run is never started twice.
 | `TASKCELL_HUB_HOST` | `127.0.0.1` |
 | `TASKCELL_HUB_PORT` | `7777` |
 | `TASKCELL_HUB_UI_DIR` | `<pkg>/apps/desktop/dist` |
-| `TASKCELL_HUB_CONFIG_DIR` | `$XDG_CONFIG_HOME/vanguard-hub` else `~/.config/vanguard-hub` |
+| `TASKCELL_HUB_CONFIG_DIR` | `$XDG_CONFIG_HOME/vanguard-hub` else `~/.config/vanguard-hub` (one hub per dir: a second hub on the same dir refuses to start, since it would mark the first one's live runs as interrupted) |
 | `TASKCELL_HUB_WATCH_POLL` | — |
 | `TASKCELL_HUB_WATCH_INTERVAL_MS` | `2000` |
 | `TASKCELL_HUB_SECRET` | — (32 bytes, base64: `openssl rand -base64 32`. When set, this operator-held key protects the [credential store](#per-user-provider-credentials); keep it stable across restarts and outside the config directory. It also decrypts the retired `<config dir>/.vanguard-hub/credentials.enc` once on start so its keys can move into the unified store. If migration cannot complete, the hub reports a value-free reason, keeps the legacy file and starts) |
