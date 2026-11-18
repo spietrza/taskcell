@@ -23,7 +23,7 @@ async function githubRepo(extra: Record<string, unknown> = {}): Promise<string> 
 }
 
 /** A session that takes every run and settles it by hand. */
-function fakeSession(): { session: RunSession; refs: string[]; end: (i: number) => void } {
+function fakeSession(): { session: RunSession; refs: string[]; end: (i: number, r?: CreateRunResult) => void } {
   const refs: string[] = [];
   const settle: Array<(r: CreateRunResult) => void> = [];
   const session = {
@@ -33,7 +33,7 @@ function fakeSession(): { session: RunSession; refs: string[]; end: (i: number) 
       return new Promise<CreateRunResult>((ok) => settle.push(ok));
     },
   } as unknown as RunSession;
-  return { session, refs, end: (i) => settle[i]!({}) };
+  return { session, refs, end: (i, r = {}) => settle[i]!(r) };
 }
 
 const issues = (...n: number[]): string => JSON.stringify(n.map((number) => ({ number, labels: [{ name: 'ready for agent' }] })));
@@ -96,6 +96,23 @@ test('a tick picks up labelled issues once, records the pick-up, and skips start
   expect(refs).toEqual(['2']);
   expect(gh.mock.calls[0]![0]).toEqual(expect.arrayContaining(['--repo', 'acme/widgets', '--label', 'ready for agent']));
   expect(await readLocalWorker(cfg, repo)).toMatchObject({ lastPickup: '#2', enabled: true });
+});
+
+test('a picked issue walks the watch labels: trigger -> running, then needs-human-review on a PR or released without one', async () => {
+  const repo = await githubRepo({ concurrency: 2 });
+  await setLocalWorker(cfg, repo, true, undefined, deps());
+  const { session, end } = fakeSession();
+  const gh = vi.fn(async (a: string[]) => (a[0] === 'issue' && a[1] === 'list' ? issues(1, 2) : a[0] === 'label' ? JSON.stringify([{ name: 'ready for agent' }, { name: 'taskcell:running' }, { name: 'taskcell:needs-human-review' }]) : JSON.stringify({ labels: [{ name: 'ready for agent' }, { name: 'taskcell:running' }] })));
+  await sweepLocalWorkers(ctxOf(repo, session, gh));
+  const edits = (): string[][] => gh.mock.calls.map((c) => c[0]).filter((a) => a[0] === 'issue' && a[1] === 'edit');
+  expect(edits()[0]).toEqual(expect.arrayContaining(['1', '--add-label', 'taskcell:running', '--remove-label', 'ready for agent']));
+  end(0, { prUrl: 'https://github.com/acme/widgets/pull/9' } as CreateRunResult);
+  end(1);
+  await new Promise((r) => setTimeout(r, 10));
+  const after = edits().slice(2);
+  expect(after.find((a) => a[2] === '1')).toEqual(expect.arrayContaining(['--add-label', 'taskcell:needs-human-review', '--remove-label', 'taskcell:running']));
+  expect(after.find((a) => a[2] === '2')).toEqual(expect.arrayContaining(['--remove-label', 'taskcell:running']));
+  expect(after.find((a) => a[2] === '2')).not.toContain('--add-label');
 });
 
 test('the parallel-run limit caps pick-ups per project; a finished run frees a slot', async () => {
