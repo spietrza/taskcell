@@ -16,4 +16,12 @@
     <loc>https://taskcell.dev/pl/hosting/</loc>
     <xhtml:link rel="alternate" hreflang="en" href="https://taskcell.dev/hosting/"/>
   </url>
+  <url>
+    <loc>https://taskcell.dev/privacy/</loc>
+    <xhtml:link rel="alternate" hreflang="pl" href="https://taskcell.dev/pl/privacy/"/>
+  </url>
+  <url>
+    <loc>https://taskcell.dev/pl/privacy/</loc>
+    <xhtml:link rel="alternate" hreflang="en" href="https://taskcell.dev/privacy/"/>
+  </url>
 </urlset>
