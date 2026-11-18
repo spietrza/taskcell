@@ -169,4 +169,10 @@ describe('cantStart', () => {
     expect(cantStart([project('a', { taskSource: 'github', runLocation: 'watch' })], waiting(), state('broken', 'x'), {})).toEqual([]);
     expect(cantStart([project('a', { taskSource: 'hub', runLocation: 'local' })], waiting(), {}, { '/r/a': worker({ enabled: false }) })).toEqual([]);
   });
+
+  test('a project stored as "local" whose factory is ready in GitLab CI is not blamed on the Local hub worker', () => {
+    const gitlab = project('a', { taskSource: 'gitlab', runLocation: 'local' });
+    const ready: Record<string, FactoryState> = { '/r/a': { state: 'ready', steps: [], plan: { provider: 'gitlab' } as FactoryState['plan'] } };
+    expect(cantStart([gitlab], waiting(), ready, { '/r/a': worker({ enabled: false }) })).toEqual([]);
+  });
 });

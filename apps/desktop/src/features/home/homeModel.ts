@@ -1,5 +1,5 @@
 import type { ActivityEvent, BoardTask, FactoryState, LocalWorkerState, NeedsYouItem, Project, RepoStamp, RunSummary, ActiveRun } from '../../wire';
-import { effectiveRunLocation } from '../../platform';
+import { runsOn } from '../../platform';
 import { titleKey } from '../../runLabels';
 import { STATIONS, STATION_SHORT, cardStationOf } from '../../stations';
 import { stageLabel } from '../inspector/runStages';
@@ -202,7 +202,7 @@ export function cantStart(
     if (p.taskSource === 'hub') continue;
     const count = tasks.filter((t) => t.repoPath === p.path && t.waiting === true).length;
     if (count === 0) continue;
-    const location = effectiveRunLocation(p.taskSource, p.runLocation);
+    const location = runsOn(p, factory[p.path]);
     if (location === 'local') {
       const w = workers[p.path];
       if (!w) continue;

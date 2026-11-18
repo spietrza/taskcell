@@ -45,6 +45,15 @@ export function effectiveRunLocation(source: string | null | undefined, location
   return location == null && source === 'hub' ? 'local' : runLocationOf(location);
 }
 
+/**
+ * Where a project's cards actually run: a factory installed in CI (Enable factory, which does not change the stored
+ * setting) wins over the stored run location; otherwise the stored one, as effectiveRunLocation reads it.
+ */
+export function runsOn(p: { taskSource?: string | null; runLocation?: string | null }, f?: { state: string; plan?: { provider: 'github' | 'gitlab' } }): RunLocationId {
+  if (f?.state === 'ready' && p.taskSource !== 'hub') return (f.plan?.provider ?? (p.taskSource === 'gitlab' ? 'gitlab' : 'github')) === 'gitlab' ? 'gitlab-ci' : 'github-actions';
+  return effectiveRunLocation(p.taskSource, p.runLocation);
+}
+
 export const taskSourceLabel = (v: string | null | undefined): string => TASK_SOURCES.find((s) => s.id === taskSourceOf(v))!.label;
 export const runLocationLabel = (v: string | null | undefined): string => RUN_LOCATIONS.find((r) => r.id === runLocationOf(v))!.label;
 

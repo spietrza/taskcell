@@ -1,5 +1,6 @@
 import { STATIONS, STATION_SHORT } from '../../stations';
-import { runLocationLabel, effectiveRunLocation } from '../../platform';
+import { runLocationLabel, runsOn } from '../../platform';
+import type { FactoryState } from '../../wire';
 import { projectColor } from '../../color';
 import type { FloorRow, FloorStation } from './homeModel';
 
@@ -38,7 +39,7 @@ export function StationStrip({ stations }: { stations: FloorStation[] }) {
 }
 
 /** The factory floor: one row per busy project with its cards on the six stations. Idle projects fold into one line. */
-export function Floor({ rows, idle, onOpen }: { rows: FloorRow[]; idle: number; onOpen: (path: string) => void }) {
+export function Floor({ rows, idle, onOpen, factory }: { rows: FloorRow[]; idle: number; onOpen: (path: string) => void; factory?: Readonly<Record<string, FactoryState>> }) {
   if (rows.length === 0 && idle === 0) return null;
   return (
     <section aria-label="Cards by station" className="space-y-3">
@@ -59,7 +60,7 @@ export function Floor({ rows, idle, onOpen }: { rows: FloorRow[]; idle: number; 
                   <span className="h-8 w-1 shrink-0 rounded-sm" style={{ backgroundColor: projectColor(r.project) }} aria-hidden />
                   <span className="min-w-0">
                     <span className="block truncate font-medium">{r.name}</span>
-                    <span className="block truncate text-xs text-muted-foreground">{runLocationLabel(effectiveRunLocation(r.project.taskSource, r.project.runLocation))}</span>
+                    <span className="block truncate text-xs text-muted-foreground">{runLocationLabel(runsOn(r.project, factory?.[r.project.path]))}</span>
                   </span>
                 </span>
                 {r.open > 0 ? <StationStrip stations={r.stations} /> : <span className="text-sm text-muted-foreground">No open cards · {r.runsWeek} {r.runsWeek === 1 ? 'run' : 'runs'} this week</span>}

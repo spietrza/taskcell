@@ -2,7 +2,7 @@ import { useState, type CSSProperties } from 'react';
 import { Button, Card, Chip, Empty } from '@/ui';
 import { FolderPlus, LayoutGrid, X } from 'lucide-react';
 import { projectColor } from '../../color';
-import { combinationNote, effectiveRunLocation, runLocationLabel, taskSourceLabel } from '../../platform';
+import { combinationNote, runLocationLabel, runsOn, taskSourceLabel } from '../../platform';
 import { relTime } from '../../time';
 import type { Project } from '../../taskcell-output';
 import { gateProps } from '../../hooks';
@@ -74,9 +74,7 @@ export function Dashboard({
           <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
             {projects.map((p) => {
               const fs = factory?.[p.path];
-              // A factory installed in CI is where the cards run, whatever the stored setting says (Enable factory does not set it).
-              const ci = fs?.state === 'ready' && p.taskSource !== 'hub' ? ((fs.plan?.provider ?? (p.taskSource === 'gitlab' ? 'gitlab' : 'github')) === 'gitlab' ? 'gitlab-ci' : 'github-actions') : undefined;
-              const location = ci ?? effectiveRunLocation(p.taskSource, p.runLocation);
+              const location = runsOn(p, fs);
               const note = combinationNote(p.taskSource, location);
               const lw = localWorker?.[p.path];
               const last = p.lastRun ? relTime(new Date(p.lastRun).getTime()) : null;

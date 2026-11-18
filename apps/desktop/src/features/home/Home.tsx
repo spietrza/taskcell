@@ -277,7 +277,7 @@ export function Home({
             </Button>
           </section>
         )}
-        <Floor rows={floor.rows} idle={floor.idle} onOpen={onEnterProject} />
+        <Floor rows={floor.rows} idle={floor.idle} onOpen={onEnterProject} factory={factoryStates} />
       </div>
       )}
       <aside aria-label="This week" className="min-w-0 space-y-4 lg:pt-2">
