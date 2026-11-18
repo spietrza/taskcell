@@ -1,5 +1,29 @@
 # Changelog
 
+## [1.16.8](https://github.com/spietrza/taskcell/compare/v1.16.7...v1.16.8) (2026-11-18)
+
+
+### Features
+
+* hub Home command center, prototype alignment, and factory fixes from a live demo ([#1223](https://github.com/spietrza/taskcell/issues/1223)) ([776b722](https://github.com/spietrza/taskcell/commit/776b7224db3f480f6e1982182f26810bc45bd887))
+
+
+### Bug Fixes
+
+* hub UI fixes from a local review pass ([#1217](https://github.com/spietrza/taskcell/issues/1217)) ([a4c7df4](https://github.com/spietrza/taskcell/commit/a4c7df431875e986e2e62bced68b9ac3847f292b))
+
+
+### Documentation
+
+* add privacy policy page ([#1221](https://github.com/spietrza/taskcell/issues/1221)) ([f08d186](https://github.com/spietrza/taskcell/commit/f08d186529e2ce62dbcfd5f82ecd8aba8d9f851b))
+* add support@ and security@ contacts ([#1220](https://github.com/spietrza/taskcell/issues/1220)) ([9caef7b](https://github.com/spietrza/taskcell/commit/9caef7bcb3c4dcdfb2d0058ee23d186bcb06a8e3))
+* add terms of service page ([#1222](https://github.com/spietrza/taskcell/issues/1222)) ([560071c](https://github.com/spietrza/taskcell/commit/560071ca5af44150002b167d220018c48073385b))
+
+
+### Miscellaneous
+
+* release 1.16.8 ([02a05ed](https://github.com/spietrza/taskcell/commit/02a05edab583f50a98d36cd2d1111d64a7ece5ce))
+
 ## [1.16.7](https://github.com/spietrza/taskcell/compare/v1.16.6...v1.16.7) (2026-11-17)
 
 
