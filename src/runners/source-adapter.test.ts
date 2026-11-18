@@ -934,7 +934,7 @@ describe('runSourcedIssue', () => {
 
     expect(result.prUrl).toBeUndefined();
     expect(writeStages).toHaveBeenCalledTimes(1);
-    expect(writeStages.mock.calls[0]).toEqual([[stageOutcome('reviewer')], { flow: 'default', provider: 'claude', baseBranch: 'main', maxRepairIterations: 2, lessonIds: [], skills: { named: [], available: [] } }]);
+    expect(writeStages.mock.calls[0]).toEqual([[stageOutcome('reviewer')], { flow: 'default', provider: 'claude', baseBranch: 'main', maxRepairIterations: 2, lessonIds: [], skills: { named: [], available: [] }, noChanges: true }]);
     expect(publishForReview).not.toHaveBeenCalled();
     expect(order).toEqual([]);
     expect(resolveAndRunVisualProof).toHaveBeenCalled();

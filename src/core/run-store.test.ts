@@ -741,6 +741,13 @@ describe('beginRun → listRuns/readRun round trip', () => {
     expect(byId.get('TES-OK')).not.toHaveProperty('verifyFailed');
   });
 
+  it('a run that finished but delivered nothing waits on a person: its implementer reply is what it asked', async () => {
+    const said = { ...result, taskId: 'TES-NONE', finalText: 'I have not changed anything. To do this I need the database host.' };
+    await beginRun(repo, 'TES-NONE', TS).writeStages([{ name: 'implementer', result: said }], { noChanges: true });
+    const run = (await listRuns(runsRoot(repo))).find((r) => r.taskId === 'TES-NONE');
+    expect(run?.asked).toBe('I have not changed anything. To do this I need the database host.');
+  });
+
   it('keeps a run failed when one failed stage is genuine and another stopped on a provider limit', async () => {
     const failed = { ...result, taskId: 'TES-MIXED', completed: false, exitReason: 'error' as const, finalText: 'tests failed' };
     const limited = { ...failed, finalText: 'provider stopped', stoppedBy: 'provider-limit' as const };

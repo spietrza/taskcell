@@ -67,7 +67,7 @@ import { readEnv } from '../core/env.js';
 /** Issue label that skips the base-red check: the task is meant to fix the red base. */
 export const BASE_RED_OK_LABEL = 'taskcell:base-red-ok';
 /** A verify command that installs its dependencies before running anything (the auto-detected JS shape). */
-const SELF_INSTALLING_VERIFY_RE = /^\s*(?:pnpm|yarn|npm) install --frozen-lockfile\s*&&/;
+const SELF_INSTALLING_VERIFY_RE = /^\s*(?:(?:pnpm|yarn|npm) install --frozen-lockfile|npm ci|npm install --no-package-lock)\s*&&/;
 
 /** Agent-pipeline options shared by the `run` and `watch` commands, threaded verbatim into the *Deps. */
 export interface RunOptions extends ProviderChoice {
@@ -1076,7 +1076,7 @@ async function runSourcedIssueAttempt(
       });
       if (delivery.kind === 'secret-blocked') return await endSecretBlocked(delivery.block);
       if (delivery.kind === 'no-changes') {
-        await writer.writeStages(outcomes, stageMeta());
+        await writer.writeStages(outcomes, { ...stageMeta(), noChanges: true });
         await stepSummary('no-changes');
         onEvent({ type: 'run-end' });
         return { task, ...(!implementerDone ? { implementerIncomplete: true } : {}) };

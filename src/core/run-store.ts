@@ -255,7 +255,8 @@ async function parseRunSummaries(root: string): Promise<RunSummary[]> {
       const extraAttempts = records.reduce((n, r) => n + (typeof r.attempts === 'number' && r.attempts > 1 ? Math.floor(r.attempts) - 1 : 0), 0);
       const failedStage = failed.find((r) => r.stage !== undefined)?.stage;
       // `incomplete`: the agent stopped on its own without its done signal (no turn cap, no timeout): it waits on a person.
-      const stoppedEarly = records.find((r) => r.stage === 'implementer' && r.exitReason === 'incomplete' && r.stoppedBy === undefined);
+      // Or it finished but delivered nothing: what it ended on (a question, a "nothing to do") waits on a person too.
+      const stoppedEarly = records.find((r) => r.stage === 'implementer' && ((r.exitReason === 'incomplete' && r.stoppedBy === undefined) || (r.completed && r.noChanges === true)));
       const asked = stoppedEarly === undefined ? undefined : askedText(stoppedEarly.finalText);
       // shortcut: only a proof stamped with the run's own timestamp counts (not readRunDetail's fallback for older runs).
       const proofName = `${sanitizeTimestamp(timestamp)}.proof.json`;
@@ -553,6 +554,8 @@ export interface WriteStagesOptions {
   baseBranch?: string;
   /** Gate-config files the delivered diff changed; recorded on every stage (any delivery kind). */
   configPaths?: readonly string[];
+  /** The run delivered nothing (an empty diff): its implementer's last words are what it waits on. */
+  noChanges?: true;
   /** The run's gate-repair cap (`--max-repair-iterations`), recorded on every stage. */
   maxRepairIterations?: number;
   /** The sandbox image's content digest (IsolatedSandboxProvider.imageDigest), recorded on every
@@ -614,6 +617,7 @@ interface WriteRecordOptions {
   imageDigest?: string;
   baseBranch?: string;
   configPaths?: readonly string[];
+  noChanges?: true;
   maxRepairIterations?: number;
   credentialSource?: 'instance' | 'user';
   startedBy?: string;
@@ -684,6 +688,7 @@ async function writeRecord(repoPath: string, taskId: string, timestamp: string, 
     ...(opts.imageDigest !== undefined ? { imageDigest: opts.imageDigest } : {}),
     ...(opts.baseBranch !== undefined ? { baseBranch: opts.baseBranch } : {}),
     ...(opts.configPaths !== undefined && opts.configPaths.length > 0 ? { configPaths: [...opts.configPaths] } : {}),
+    ...(opts.noChanges === true ? { noChanges: true } : {}),
     ...(opts.maxRepairIterations !== undefined ? { maxRepairIterations: opts.maxRepairIterations } : {}),
     ...(opts.credentialSource !== undefined ? { credentialSource: opts.credentialSource } : {}),
     ...(diffOmitted !== undefined ? { diffOmitted } : {}),
@@ -787,6 +792,7 @@ export function beginRun(
           ...(opts.imageDigest !== undefined ? { imageDigest: opts.imageDigest } : {}),
           ...(opts.baseBranch !== undefined ? { baseBranch: opts.baseBranch } : {}),
           ...(opts.configPaths !== undefined ? { configPaths: opts.configPaths } : {}),
+          ...(opts.noChanges === true ? { noChanges: true } : {}),
           ...(opts.maxRepairIterations !== undefined ? { maxRepairIterations: opts.maxRepairIterations } : {}),
           ...(opts.credentialSource !== undefined ? { credentialSource: opts.credentialSource } : {}),
           ...(runOpts.startedBy !== undefined ? { startedBy: runOpts.startedBy } : {}),
@@ -798,7 +804,7 @@ export function beginRun(
       }
       const first = outcomes[0];
       if (first === undefined) return;
-      const { omitDiff: _omitDiff, baseBranch: _baseBranch, configPaths: _configPaths, maxRepairIterations: _maxRepairIterations, lessonIds: _lessonIds, skills: _skills, skillIds: _skillIds, modelPicks: _modelPicks, ...trace } = opts;
+      const { omitDiff: _omitDiff, baseBranch: _baseBranch, configPaths: _configPaths, noChanges: _noChanges, maxRepairIterations: _maxRepairIterations, lessonIds: _lessonIds, skills: _skills, skillIds: _skillIds, modelPicks: _modelPicks, ...trace } = opts;
       await exportRunTrace({
         taskId,
         timestamp,
