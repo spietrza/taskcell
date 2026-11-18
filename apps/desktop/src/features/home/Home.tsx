@@ -131,12 +131,11 @@ export function Home({
   onSeeAllMoving,
   onOpenFactory,
   onOpenBoard,
-  onShowAll,
 }: {
   /** The active project: where a waiting item without its own repository is answered. */
   project: string;
   projects: Project[];
-  /** The repositories shown: the team's, narrowed by the shared filter. */
+  /** The repositories shown: every project of the team. */
   repoPaths: string[];
   teamId?: string | undefined;
   /** The app's poll of what waits for the user (null = not loaded yet). */
@@ -150,8 +149,6 @@ export function Home({
   onSeeAllMoving: () => void;
   onOpenFactory: (p: { path: string; name: string }) => void;
   onOpenBoard: () => void;
-  /** Clears the shared project filter; Home offers it when that filter hides some projects. */
-  onShowAll?: () => void;
 }) {
   const repoKey = repoPaths.join('\n');
   const shown = useMemo(() => projects.filter((p) => repoPaths.includes(p.path)), [projects, repoKey]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -196,18 +193,6 @@ export function Home({
     <div className="grid gap-x-8 gap-y-6 lg:grid-cols-[minmax(0,1fr)_20rem]">
       {loading ? <HomeSkeleton /> : (
       <div className="min-w-0 space-y-6">
-        {shown.length < projects.length && (
-          <p data-home-scope className="flex flex-wrap items-center gap-x-2 text-xs text-muted-foreground">
-            <span>
-              Showing {shown.length === 1 ? shown[0]!.name : `${shown.length} of ${projects.length} projects`} only: the project filter from the Board and Runs.
-            </span>
-            {onShowAll && (
-              <Button variant="text" color="secondary" className="h-6 px-1 text-xs" onClick={onShowAll}>
-                Show all projects
-              </Button>
-            )}
-          </p>
-        )}
         {needs !== null && <StateSentence waiting={needs.items.length} moving={tasks === null ? null : counts.moving} paused={counts.paused} />}
         <RepoFailures failures={readFailures} total={repoPaths.length} />
         <NeedsYou

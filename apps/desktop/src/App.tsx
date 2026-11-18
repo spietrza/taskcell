@@ -425,9 +425,8 @@ export default function App() {
   const showHome = screen === 'home' || !active;
   const titleBar = !showHome && active ? projectColor(active) : null;
   const needsYou = active !== null;
-  // The selected team's repositories the filter's Projects keep (none picked = all): Home's section and the
-  // badge poll read "All repositories" for them only, as Board and Runs do.
-  const repoPaths = projects.map((p) => p.path).filter((p) => filter.repos.length === 0 || filter.repos.includes(p));
+  // Home and the needs-you badge always cover every project of the team: the Board/Runs project filter is theirs alone.
+  const repoPaths = projects.map((p) => p.path);
   const repoKey = repoPaths.join('\n');
 
   // Another scope: the old one's items and error must not show while the new read is out.
@@ -598,7 +597,6 @@ export default function App() {
                     }
                     onOpenFactory={openAutoRun}
                     onOpenBoard={() => goto('board')}
-                    onShowAll={() => changeFilter({ ...filter, repos: [] })}
                   />
                 )}
                 {showSetup && (
