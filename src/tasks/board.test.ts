@@ -89,7 +89,7 @@ describe('toBoardTask waiting flag', () => {
 
   it('a trigger-labelled queued task is waiting', () => {
     const t = toBoardTask('github', { ...base, ref: '904', state: 'open', labels: ['ready for spec'] });
-    expect(t).toEqual({ id: 'gh-904', title: 'T', column: 'queued', state: 'ready for spec', source: 'github', waiting: true });
+    expect(t).toEqual({ id: 'gh-904', title: 'T', column: 'queued', state: 'ready for spec', source: 'github', waiting: true, factoryLabels: ['ready for spec'] });
   });
 
   it('an unlabelled open issue has no waiting property', () => {
@@ -352,4 +352,10 @@ describe('toBoardTask paused', () => {
     expect(toBoardTask('github', { ...base, labels: ['bug'] }).paused).toBeUndefined();
     expect(toBoardTask('github', { ...base, state: 'closed', labels: ['taskcell:rate-limited'] }).paused).toBeUndefined();
   });
+});
+
+test('toBoardTask lists the factory lifecycle labels apart from the team tags', () => {
+  const card = toBoardTask('gitlab', { id: '2', ref: '2', title: 't', labels: ['taskcell::running', 'frontend', 'needs info', 'ready for agent'], state: 'opened', description: '' } as unknown as Parameters<typeof toBoardTask>[1]);
+  expect(card.factoryLabels).toEqual(['taskcell::running', 'needs info', 'ready for agent']);
+  expect(card.labels).toEqual(['frontend', 'needs info']);
 });

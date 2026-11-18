@@ -13,6 +13,7 @@ import { useApproverDecisions } from './useApproverDecisions';
 import { decisionForTask, decisionWords } from './approverDecision';
 import { CHIP_TONE, QuickView, TRACKER_NAME, type QuickTask } from './QuickView';
 import { NewHubTask, ScheduleLines } from './Schedule';
+import { FactoryLabelChips, isFactoryLabel } from './factoryLabels';
 import { boardCountLabels } from './counts';
 import { taskRefKey } from './taskref';
 import { PausedBanner, PausedLine } from './paused';
@@ -347,6 +348,7 @@ export function TaskBoard({
                           </div>
                           <div className="text-sm leading-snug">{t.title}</div>
                           <StationMark {...cardStationOf(t, lastRuns.get(t.id))} />
+                          <FactoryLabelChips labels={t.factoryLabels} />
                           {t.column === 'running' && t.stage && <div className="font-mono text-[11px]">stage: {t.stage}</div>}
                           {(t.column === 'review' || t.column === 'done') && !!t.chips?.length && (
                             <div className="flex flex-wrap gap-1">
@@ -366,7 +368,7 @@ export function TaskBoard({
                             <div className="pt-0.5 font-mono text-[11px] text-muted-foreground">→ {t.baseBranch}</div>
                           )}
                           {/* The tracker's bare open/closed adds nothing the column does not say. */}
-                          {t.state && t.state !== t.column && !/^(open|opened|closed)$/i.test(t.state) && t.schedule === undefined && (
+                          {t.state && t.state !== t.column && !/^(open|opened|closed)$/i.test(t.state) && !isFactoryLabel(t.state) && t.schedule === undefined && (
                             <div className="pt-0.5 text-[11px] text-muted-foreground">{t.state}</div>
                           )}
                         </Card.Content>
