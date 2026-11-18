@@ -848,7 +848,7 @@ the server; the UI moves it into `sessionStorage` and strips it from the address
 keeps working but a new tab on the bare URL needs the launch URL again. A `#token=…` that turns up on
 an already-open page is stored at once only when the tab has no token or the hub has refused the one it
 holds; otherwise it is kept in memory and used only if the hub then refuses the held token. So a link in
-a spec or a comment cannot replace a working token, and a launch URL pasted after a restart reconnects. Once the hub refuses a tab's token (it restarted), the tab stops calling it and shows the restart notice until a new launch URL arrives, so an old tab left open does not fill the audit log with refused sign-ins. The address also names the open
+a spec or a comment cannot replace a working token, and a launch URL pasted after a restart reconnects. Once the hub refuses a tab's token (it restarted), the tab stops calling it and shows the restart notice until a new launch URL arrives (pasted into its address bar, it reconnects and reloads the page), so an old tab left open does not fill the audit log with refused sign-ins. The address also names the open
 screen (`?screen=runs`), so a reload returns to it and Back/Forward move between screens. A hub bound beyond loopback
 has no launch URL: browsers sign in at `/sign-in`, also behind a reverse proxy. Reaching the port is therefore not enough to drive the hub,
 but the token is a launch secret, not per-user authentication: it does not replace authentication at

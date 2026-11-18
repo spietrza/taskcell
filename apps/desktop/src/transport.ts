@@ -125,6 +125,7 @@ function adoptPendingToken(): boolean {
 }
 
 export function captureHubToken(): void {
+  restartShown = false; // a fresh launch shows no banner yet
   takeFragmentToken(true);
 }
 
@@ -195,9 +196,21 @@ function notify(handlers: Set<() => void>): void {
   for (const h of handlers) h();
 }
 
+/** This page told the person the hub refused its token (the restart banner is up). */
+let restartShown = false;
+
 function notifyHubRestarted(): void {
   heldTokenRefused = true;
+  restartShown = true;
   notify(restartHandlers);
+}
+
+/** A refused tab took a new launch URL and the hub answered: reload, so the banner goes and the event stream,
+ * closed for good by the 401, reopens with every screen's data (the new token stays in sessionStorage). */
+function reloadAfterReconnect(): void {
+  if (!restartShown) return;
+  restartShown = false;
+  window.location.reload();
 }
 
 function notifyHubConnectionIssue(): void {
@@ -276,6 +289,7 @@ async function hubInvoke<T>(cmd: string, args?: Record<string, unknown>): Promis
   // different problem, and telling the operator to reload would be wrong (docs/hub.md).
   if (response.status === 401 && isHubTokenRejected(body)) notifyHubRestarted();
   if (response.status === 401 && isHubSignInRequired(body)) redirectToSignIn();
+  if (response.ok) reloadAfterReconnect();
   return decodeResponse<T>(response.status, body);
 }
 

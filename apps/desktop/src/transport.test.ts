@@ -574,9 +574,13 @@ test('a refused tab stops asking the hub until a new launch URL arrives, then re
   await new Promise((r) => setTimeout(r, 0));
   expect(offered).toEqual(['old']);
   expect(restarts).toEqual([1]);
+  const reload = vi.fn();
+  vi.stubGlobal('location', { ...window.location, reload, hash: '#token=new', pathname: '/', search: '' });
   window.history.replaceState(null, '', '/#token=new');
   await expect(invoke('list_runs', {})).resolves.toBe('ok');
   expect(offered).toEqual(['old', 'new']);
+  // Reconnected: one reload clears the banner and reopens the event stream.
+  expect(reload).toHaveBeenCalledTimes(1);
   unsub();
   unlisten();
 });
