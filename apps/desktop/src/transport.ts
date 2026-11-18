@@ -10,6 +10,7 @@ import {
   HUB_TOKEN_HEADER,
   HUB_EVENTS_SESSION_PATH,
   HUB_TOKEN_FRAGMENT_PARAM,
+  HUB_TOKEN_REJECTED,
   isHubTokenRejected,
   isHubSignInRequired,
 } from './hub-wire';
@@ -262,6 +263,9 @@ async function hubPost(cmd: string, args?: Record<string, unknown>): Promise<{ r
 
 async function hubInvoke<T>(cmd: string, args?: Record<string, unknown>): Promise<T> {
   const sent = hubToken();
+  // A refused token stays refused until a new one arrives (a pasted launch URL, captured just above): asking the hub
+  // again only fills its audit log with refused sign-ins. The restart banner is already up.
+  if (heldTokenRefused) throw HUB_TOKEN_REJECTED;
   let { response, body } = await hubPost(cmd, args);
   // The hub refused the held token while a pasted one waits (the hub restarted): take it and ask once more.
   // A call that was in flight when another one took it finds the stored token changed, and asks again too.
@@ -329,6 +333,8 @@ async function openEventsSession(): Promise<'ok' | 'restarted' | 'issue'> {
  * failed session request notifies instead of opening; the next subscribe retries it. */
 function ensureHubSource(): void {
   if (hubSource || hubSourceOpening) return;
+  hubToken(); // takes a pasted launch URL
+  if (heldTokenRefused) return; // as for an RPC: no session request on a refused token
   hubSourceOpening = true;
   void openEventsSession()
     // As for an RPC: a refused token with a pasted one waiting is retried once with that one.

@@ -58,6 +58,9 @@ function probeOnly(probe: () => Promise<Response>): (url: string) => Promise<Res
 }
 
 afterEach(() => {
+  // A fresh launch clears the module's "token refused" state, so one test's refusal does not mute the next.
+  window.history.replaceState(null, '', '/#token=reset');
+  captureHubToken();
   delete window.__TASKCELL_HUB__;
   delete window.__TASKCELL_MOCK__;
   window.sessionStorage.clear();
@@ -556,5 +559,24 @@ test('a refused tab stores a pasted launch URL at once; a pending token that is 
   window.history.replaceState(null, '', '/#token=fresh');
   await expect(invoke('list_runs', {})).resolves.toBe('ok');
   expect(offered.at(-1)).toBe('fresh');
+  unlisten();
+});
+
+test('a refused tab stops asking the hub until a new launch URL arrives, then reconnects', async () => {
+  launchWith('old');
+  const offered = stubTokenHub(() => 'new');
+  const restarts: number[] = [];
+  const unlisten = await onHubRestart(() => restarts.push(1));
+  await expect(invoke('list_runs', {})).rejects.toBe('invalid hub token');
+  // Later calls (polling) and the event stream send nothing: no refused sign-in lines in the audit log.
+  await expect(invoke('list_runs', {})).rejects.toBe('invalid hub token');
+  const unsub = await subscribe('run-progress', () => {});
+  await new Promise((r) => setTimeout(r, 0));
+  expect(offered).toEqual(['old']);
+  expect(restarts).toEqual([1]);
+  window.history.replaceState(null, '', '/#token=new');
+  await expect(invoke('list_runs', {})).resolves.toBe('ok');
+  expect(offered).toEqual(['old', 'new']);
+  unsub();
   unlisten();
 });
