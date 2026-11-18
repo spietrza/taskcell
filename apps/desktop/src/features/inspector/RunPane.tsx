@@ -153,7 +153,7 @@ export function RunPane({
   const by = startedByLabel(startedBy ?? detail?.stages.find((s) => s.record.startedBy !== undefined)?.record.startedBy);
 
   return (
-    <section className="flex h-full min-h-0 flex-col gap-3 max-md:overflow-y-auto" aria-label={`Run ${taskId}`}>
+    <section className="flex h-full min-h-0 flex-col gap-3 overflow-y-auto" aria-label={`Run ${taskId}`}>
       <div className="flex shrink-0 flex-wrap items-center gap-x-2 gap-y-1 text-sm">
         <Button variant="text" color="secondary" className="md:hidden" onClick={onBack} startIcon={<ArrowLeft className="size-4" />}>
           Back to runs
@@ -205,7 +205,7 @@ export function RunPane({
         <div role="note" className="shrink-0 rounded-lg border border-warning/40 bg-warning/10 px-3 py-2 text-sm">
           <div className="font-medium text-warning-text">Stopped to ask you: the agent ended before finishing and waits for your answer below.</div>
           {/* The run's own agent question: light markdown, no images, http(s) links only. */}
-          <div className="mt-1 max-h-64 overflow-y-auto break-words text-muted-foreground"><AgentQuestion>{asked}</AgentQuestion></div>
+          <div className="mt-1 max-h-40 overflow-y-auto break-words text-muted-foreground"><AgentQuestion>{asked}</AgentQuestion></div>
           <div className="mt-2"><CardAnswer project={repo} taskId={taskId} /></div>
         </div>
       )}
@@ -215,7 +215,7 @@ export function RunPane({
       />
       {/* Two columns only when the pane itself is wide enough (a container query, not the window): beside the run list
           a 1024 px window leaves the pane too narrow for the tabs and the receipt side by side. Stacked, it scrolls. */}
-      <div className="@container min-h-0 md:flex-1 md:overflow-y-auto">
+      <div className="@container min-h-0 md:min-h-[32rem] md:flex-1 md:overflow-y-auto">
         <div className="flex flex-col gap-3 @3xl:grid @3xl:h-full @3xl:min-h-0 @3xl:grid-cols-[minmax(0,1fr)_20rem] @3xl:items-start">
           <div className="@3xl:order-2 @3xl:max-h-full @3xl:overflow-y-auto">
             {detail ? (
