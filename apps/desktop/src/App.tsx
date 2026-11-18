@@ -68,6 +68,14 @@ export default function App() {
   // ⌘K's picks: a finished run for Runs, a card for the Board (a fresh object per pick).
   const [focusRun, setFocusRun] = useState<PaletteRun | null>(null);
   const [openCard, setOpenCard] = useState<PaletteCard | null>(null);
+  // A pick is spent once its screen is left: the Inspector remounts on the next screen and would open it again there.
+  useEffect(() => {
+    if (screen !== 'runs') {
+      setFocusRun(null);
+      setFocusRunning(null);
+    }
+    if (screen !== 'board') setOpenCard(null);
+  }, [screen]);
   const [crumb, setCrumb] = useState<string | null>(null);
   // The task screen's trailing breadcrumb: the open conversation's name, click-to-rename
   // (dogfood r3). Published by TaskDraftScreen, cleared on its unmount.
