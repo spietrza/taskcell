@@ -124,11 +124,11 @@ describe('GitLabTaskFetcher', () => {
 });
 
 describe('commentGitlabIssue', () => {
-  it('calls glab issue note create with correct args', async () => {
+  it('calls glab issue note with the iid and no create subcommand', async () => {
     const calls: string[][] = [];
     const glab = async (args: string[]) => { calls.push(args); return ''; };
     await commentGitlabIssue('g/p', 'g/p#5', 'hello', glab);
-    expect(calls[0]).toEqual(['issue', 'note', 'create', '5', '--repo', 'g/p', '-m', 'hello']);
+    expect(calls[0]).toEqual(['issue', 'note', '5', '--repo', 'g/p', '-m', 'hello']);
   });
 });
 

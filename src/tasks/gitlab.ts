@@ -158,7 +158,8 @@ export async function commentGitlabIssue(
   body: string,
   glab: GlabRunner = defaultGlabRunner,
 ): Promise<void> {
-  await glab(['issue', 'note', 'create', issueIID(issueRef), '--repo', project, '-m', neutralizeQuickActions(redactForPublish(body))]);
+  // `glab issue note` takes the iid directly: unlike `glab mr note`, it has no `create` subcommand.
+  await glab(['issue', 'note', issueIID(issueRef), '--repo', project, '-m', neutralizeQuickActions(redactForPublish(body))]);
 }
 
 /** Comment an MR link back onto the source GitLab issue (closes the loop). */
