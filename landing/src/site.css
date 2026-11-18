@@ -442,6 +442,10 @@ p { max-width: 62ch; }
 .report.sent:focus { outline: none; }
 .report.sent a { display: inline-flex; align-items: center; min-height: 44px; }
 
+/* ---------- privacy policy (privacy/index.html): the request page layout with headings and a list ---------- */
+.policy > h2 { grid-column: 1 / 9; margin-top: 48px; font-size: var(--step-lead); }
+.policy > ul { grid-column: 1 / 9; margin-top: 16px; padding-left: 20px; display: grid; gap: 8px; }
+
 /* ---------- 404 ---------- */
 .lost { min-height: calc(100svh - 72px); align-content: center; padding-bottom: 80px; }
 .lost h1 { grid-column: 1 / -1; font-size: var(--step-display); }
@@ -477,7 +481,7 @@ p { max-width: 62ch; }
   .pairs.two, .server { margin-top: 40px; }
   .holds { display: none; }
   .quiz { grid-row: auto; }
-  .request > p, .form, .report.sent { grid-column: 1 / -1; }
+  .request > p, .form, .report.sent, .policy > h2, .policy > ul { grid-column: 1 / -1; }
   .quiz { grid-column: 1 / -1; margin-top: 40px; padding: 20px 16px; }
   .opts.two, .quiz-result { grid-template-columns: minmax(0, 1fr); }
   .request { padding-top: 40px; }
