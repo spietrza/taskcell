@@ -15,7 +15,7 @@ Only the latest minor release gets security fixes. The `v1` tag used by the reus
 
 **Do not open a public issue, pull request or discussion for a security problem.**
 
-Report it privately through GitHub: **Security → Report a vulnerability** on [spietrza/taskcell](https://github.com/spietrza/taskcell/security/advisories/new).
+Report it privately through GitHub: **Security → Report a vulnerability** on [spietrza/taskcell](https://github.com/spietrza/taskcell/security/advisories/new). No GitHub account? Email [security@taskcell.dev](mailto:security@taskcell.dev).
 
 Include:
 
