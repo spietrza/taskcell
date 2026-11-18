@@ -67,7 +67,7 @@ else
     fi
     exit "${BUILD_STATUS}"
   fi
-  echo "Zbudowano ${TAG}${ALIAS_TAG:+ (alias ${ALIAS_TAG})} (claude ${VERSION}${CURSOR_VERSION:+, cursor ${CURSOR_VERSION}})"
+  echo "Built ${TAG}${ALIAS_TAG:+ (alias ${ALIAS_TAG})} (claude ${VERSION}${CURSOR_VERSION:+, cursor ${CURSOR_VERSION}})"
 fi
 # Weryfikacja kontraktu CLI (R4): obecność narzędzi i flag.
 docker run --rm "${TAG}" sh -lc 'claude --version && git --version && bun --version'
