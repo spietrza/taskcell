@@ -198,7 +198,7 @@ export function gitlabMergeRequestWatchPrimitives(
         const listArgs = [
           'mr', 'list',
           '--repo', opts.project,
-          '--state', 'opened',
+          // Opened is glab's default; `--state` is not a `glab mr list` flag (the CI template's glab rejects it).
           '--label', form,
           '--output', 'json',
         ];
