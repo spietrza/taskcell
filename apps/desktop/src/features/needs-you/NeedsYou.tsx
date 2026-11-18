@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, type ReactNode } from 'react';
 import { Button, Textarea } from '@/ui';
 import { errorClause } from '../../errors';
 import { RefreshCw } from 'lucide-react';
@@ -114,6 +114,7 @@ export function NeedsYou({
   repoCount,
   onReload,
   onOpenBoard,
+  context,
 }: {
   /** Where an item without its own repository is replied to. */
   project: string;
@@ -124,6 +125,8 @@ export function NeedsYou({
   onReload: () => void;
   /** Where the empty state sends the user to start work. */
   onOpenBoard?: () => void;
+  /** Links shown above an opened item's question: where its context lives (the card, the run that asked). */
+  context?: (item: NeedsYouItem & Partial<RepoStamp>) => ReactNode;
 }) {
   const [open, setOpen] = useState<string | null>(null);
 
@@ -205,6 +208,7 @@ export function NeedsYou({
                 </div>
                 {expanded && (
                   <div className="space-y-2">
+                    {context?.(item)}
                     {item.lastComment && (
                       // Untrusted GitHub text, rendered as a plain text node (React escapes it), never as HTML/Markdown.
                       <div className="rounded bg-muted/40 px-3 py-2 text-sm">

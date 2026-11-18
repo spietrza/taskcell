@@ -191,6 +191,8 @@ export function Inspector({
     if (!focusRun) return;
     autoPicked.current = true;
     setTaskDetailId(null);
+    // Also as the screen's linked run: a list load that follows a screen switch clears the detail and would pick the newest.
+    linkedRun.current = `${focusRun.taskId}@${focusRun.timestamp}`;
     void open(focusRun);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [focusRun]);

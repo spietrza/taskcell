@@ -220,3 +220,18 @@ test('first paint is one skeleton until the cards and runs arrive: no half headl
   expect(await screen.findByRole('heading', { level: 1 })).toHaveTextContent('1 card waits for you.1 is moving.');
   expect(screen.queryByRole('status', { name: 'Loading Home' })).toBeNull();
 });
+
+test('an opened card question links to its card and to the run that asked', async () => {
+  const asked = { kind: 'card' as const, id: 'hub-4', number: 4, repoSlug: '', title: 'Validate the config', url: '', repoPath: alpha.path, repoName: 'alpha', lastComment: { author: 'agent', body: 'Which file?' } };
+  const old = { taskId: 'hub-4', timestamp: new Date(NOW - 9000).toISOString(), stages: [], totalCostUsd: 0.1, anyFailed: false, repoPath: alpha.path, repoName: 'alpha' };
+  const newest = { ...old, timestamp: new Date(NOW - 1000).toISOString(), asked: 'Which file?' };
+  runs = [old, newest] as typeof runs;
+  const onOpenCard = vi.fn();
+  const onOpenRun = vi.fn();
+  mount({ needs: { items: [asked as never], failures: [] }, onOpenCard, onOpenRun });
+  fireEvent.click(await screen.findByRole('button', { name: 'Answer Validate the config' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Open the card' }));
+  expect(onOpenCard).toHaveBeenCalledWith({ id: 'hub-4', title: 'Validate the config', repoPath: alpha.path });
+  fireEvent.click(await screen.findByRole('button', { name: /Open the run/ }));
+  expect(onOpenRun.mock.calls[0]![0].timestamp).toBe(newest.timestamp);
+});

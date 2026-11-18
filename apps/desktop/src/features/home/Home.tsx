@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { ArrowRight, CircleCheck, CircleX, GitMerge, Info, MessageCircleQuestionMark, Play, Settings2, SquarePlus, type LucideIcon } from 'lucide-react';
-import { Button, Skeleton, cn } from '@/ui';
+import { Button, LINK_CLASS, Skeleton, cn } from '@/ui';
 import { listActive, listActivity, listRunsAll, listTasksAll, type RepoReadFailure } from '../../ipc';
 import { onStreamReset, subscribe } from '../../transport';
 import { inRepos } from '../../repoFilter';
@@ -131,6 +131,8 @@ export function Home({
   onSeeAllMoving,
   onOpenFactory,
   onOpenBoard,
+  onOpenCard,
+  onOpenRun,
 }: {
   /** The active project: where a waiting item without its own repository is answered. */
   project: string;
@@ -149,6 +151,9 @@ export function Home({
   onSeeAllMoving: () => void;
   onOpenFactory: (p: { path: string; name: string }) => void;
   onOpenBoard: () => void;
+  /** A waiting card's context: its panel on the Board, and the run whose agent asked. */
+  onOpenCard?: (c: { id: string; title: string; repoPath?: string }) => void;
+  onOpenRun?: (run: RunRow) => void;
 }) {
   const repoKey = repoPaths.join('\n');
   const shown = useMemo(() => projects.filter((p) => repoPaths.includes(p.path)), [projects, repoKey]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -203,6 +208,25 @@ export function Home({
           repoCount={repoPaths.length}
           onReload={onReloadNeeds}
           onOpenBoard={onOpenBoard}
+          context={(item) => {
+            if (item.kind !== 'card') return null;
+            // The card's newest run is the one that asked (homeModel reads asks the same way).
+            const run = (runs ?? []).filter((r) => r.taskId === item.id && r.repoPath === item.repoPath).sort((a, b) => b.timestamp.localeCompare(a.timestamp))[0];
+            return (
+              <div className="flex flex-wrap gap-x-4 gap-y-1 text-sm">
+                {onOpenCard && (
+                  <button type="button" className={LINK_CLASS} onClick={() => onOpenCard({ id: item.id, title: item.title, ...(item.repoPath !== undefined ? { repoPath: item.repoPath } : {}) })}>
+                    Open the card
+                  </button>
+                )}
+                {onOpenRun && run !== undefined && (
+                  <button type="button" className={LINK_CLASS} onClick={() => onOpenRun(run)}>
+                    Open the run: what it changed and why it stopped
+                  </button>
+                )}
+              </div>
+            );
+          }}
         />
         {stuck.length > 0 && (
           <div role="alert" data-cant-start className="space-y-1 rounded-lg border border-destructive/40 bg-destructive/10 p-3 text-sm">

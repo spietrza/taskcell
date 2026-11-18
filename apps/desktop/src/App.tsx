@@ -597,6 +597,8 @@ export default function App() {
                     }
                     onOpenFactory={openAutoRun}
                     onOpenBoard={() => goto('board')}
+                    onOpenCard={openCardFromPalette}
+                    onOpenRun={openRunFromPalette}
                   />
                 )}
                 {showSetup && (
