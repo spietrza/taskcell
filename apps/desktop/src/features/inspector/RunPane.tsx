@@ -13,6 +13,7 @@ import { StreamView } from './StreamView';
 import { RunDetail } from './RunDetail';
 import { StageLine } from './StageLine';
 import { RunReceipt, StationTrack } from './RunReceipt';
+import { CardAnswer } from '../needs-you/CardAnswer';
 import { foldRunEvents, fmtDuration, gateMs, stagesFromRecords, withGateSteps, withPendingGateSteps, toLogLines, type LoggedEvent, type LogLine } from './runStages';
 import type { ActiveRun, RunDetail as RunDetailT, RunSummary, SessionRead } from '../../taskcell-output';
 
@@ -202,9 +203,10 @@ export function RunPane({
 
       {asked !== undefined && (
         <div role="note" className="shrink-0 rounded-lg border border-warning/40 bg-warning/10 px-3 py-2 text-sm">
-          <div className="font-medium text-warning-text">Stopped to ask you: the agent ended before finishing and waits for your answer (Home → Waiting for you).</div>
+          <div className="font-medium text-warning-text">Stopped to ask you: the agent ended before finishing and waits for your answer below.</div>
           {/* The run's own agent question: light markdown, no images, http(s) links only. */}
-          <div className="mt-1 max-h-32 overflow-y-auto break-words text-muted-foreground"><AgentQuestion>{asked}</AgentQuestion></div>
+          <div className="mt-1 max-h-64 overflow-y-auto break-words text-muted-foreground"><AgentQuestion>{asked}</AgentQuestion></div>
+          <div className="mt-2"><CardAnswer project={repo} taskId={taskId} /></div>
         </div>
       )}
       <StationTrack

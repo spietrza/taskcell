@@ -48,6 +48,7 @@ import type { RepoReadFailure, RepoStamp } from '../../wire';
 import type { TeamScreen } from '../settings/Members';
 import type { Project } from '../../taskcell-output';
 import { publishRuns, type PaletteCard, type PaletteRun } from '../../paletteIndex';
+import { CardAnswer } from '../needs-you/CardAnswer';
 import type { RunSummary, RunDetail as RunDetailT, ActiveRun, RunRef, RunSource } from '../../taskcell-output';
 
 export function Inspector({
@@ -685,7 +686,8 @@ export function Inspector({
       )}
       {detail && screen !== 'runs' ? (
         // A CI run imported from Settings opens as the plain detail; on Runs the record is the split view's right pane.
-        <div ref={detailRef} tabIndex={-1} className="flex min-h-0 flex-1 flex-col outline-none">
+        <div ref={detailRef} tabIndex={-1} className="flex min-h-0 flex-1 flex-col gap-3 outline-none">
+          <CardAnswer project={detailRepo} taskId={detail.taskId} showQuestion />
           <RunDetail detail={detail} project={detailRepo} />
         </div>
       ) : liveRun && screen !== 'runs' ? (

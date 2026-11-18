@@ -176,9 +176,14 @@ export function NeedsYou({
                 <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
                   <span className={`caption w-36 shrink-0 max-md:w-full ${kind.broken ? 'text-destructive-text' : 'text-warning-text'}`}>{kind.caption}</span>
                   <div className="min-w-0 flex-1 max-md:basis-full">
-                    <a href={isDemoLink(item.url) ? undefined : item.url || undefined} target="_blank" rel="noreferrer" className="block break-words font-medium hover:underline">
-                      {item.title}
-                    </a>
+                    {item.url && !isDemoLink(item.url) ? (
+                      <a href={item.url} target="_blank" rel="noreferrer" className="block break-words font-medium hover:underline">
+                        {item.title}
+                      </a>
+                    ) : (
+                      // No tracker page (a hub-board card): plain text, not a link that goes nowhere.
+                      <span className="block break-words font-medium">{item.title}</span>
+                    )}
                     <div className="mt-0.5 flex flex-wrap items-center gap-x-2 text-xs text-muted-foreground">
                       {item.repoName !== undefined && <span className="font-mono">{item.repoName}</span>}
                       <span>
@@ -206,9 +211,9 @@ export function NeedsYou({
                     <ExternalLink href={item.url} label={`Open ${item.title} in GitHub`}>Open in GitHub</ExternalLink>
                   </div>
                 </div>
+                {context?.(item)}
                 {expanded && (
                   <div className="space-y-2">
-                    {context?.(item)}
                     {item.lastComment && (
                       // Untrusted GitHub text, rendered as a plain text node (React escapes it), never as HTML/Markdown.
                       <div className="rounded bg-muted/40 px-3 py-2 text-sm">
