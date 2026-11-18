@@ -1,4 +1,4 @@
-import { Fragment, useMemo, useState, type ReactElement, type ReactNode } from 'react';
+import { Fragment, useEffect, useMemo, useState, type ReactElement, type ReactNode } from 'react';
 import { Button, Chip, Empty, Input, LINK_CLASS, Timestamp, cn } from '@/ui';
 import { Inbox, RefreshCw, Search } from 'lucide-react';
 import { contrastColor } from '../../color';
@@ -9,6 +9,9 @@ import { costLabel, estTitle } from '../../cost';
 import { RunsSplit } from './RunsSplit';
 import { StationMark } from '../../components/StationMark';
 import { runStationOf, stationOf } from '../../stations';
+import { readRunEvents } from '../../ipc';
+import { liveStage } from '../board/stageLine';
+import { foldRunEvents, withPendingGateSteps } from './runStages';
 import { cardIdOf, repoInitials, runStateTone, runStateWord, titleKey } from '../../runLabels';
 import type { ActiveRun, RunSummary } from '../../taskcell-output';
 import type { RepoStamp } from '../../wire';
@@ -79,6 +82,23 @@ export function RunList({
 }) {
   const [query, setQuery] = useState('');
   const [filter, setFilter] = useState<Filter>('all');
+  // Each live run's current stage from its event log (what the detail pane reads), by `activeKey`.
+  const [liveStages, setLiveStages] = useState<Map<string, string>>(new Map());
+  useEffect(() => {
+    let alive = true;
+    for (const a of active) {
+      const key = activeKey(a.repoPath, a.taskId);
+      readRunEvents(a.repoPath ?? '', a.taskId)
+        .then((p) => {
+          const stage = liveStage(withPendingGateSteps(foldRunEvents(p.events).stages));
+          if (alive && stage !== undefined) setLiveStages((m) => (m.get(key) === stage ? m : new Map(m).set(key, stage)));
+        })
+        .catch(() => {});
+    }
+    return () => {
+      alive = false;
+    };
+  }, [active]);
 
   const offered = useMemo(
     () => (runs.length + active.length === 0 ? undefined : offeredSources(configured, inRepoScope([...runs, ...active], savedHub.repos).map((r) => runSource(r.taskId)))),
@@ -194,8 +214,8 @@ export function RunList({
       a.repoName,
       a.taskId,
       a.repoPath,
-      // A live run has no stage on its row; it is in the cell until its record says otherwise.
-      stationOf({ column: 'running' }),
+      // A live run is in the cell until its event log names a stage.
+      stationOf({ column: 'running', stage: liveStages.get(activeKey(a.repoPath, a.taskId)) }),
       // Neutral ink (live, spinning), not green, so a running row isn't mistaken for a "passed" one, and not orange,
       // which means "needs you".
       <Chip color="secondary" variant="outlined">
