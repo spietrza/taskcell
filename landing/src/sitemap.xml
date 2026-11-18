@@ -24,4 +24,12 @@
     <loc>https://taskcell.dev/pl/privacy/</loc>
     <xhtml:link rel="alternate" hreflang="en" href="https://taskcell.dev/privacy/"/>
   </url>
+  <url>
+    <loc>https://taskcell.dev/terms/</loc>
+    <xhtml:link rel="alternate" hreflang="pl" href="https://taskcell.dev/pl/terms/"/>
+  </url>
+  <url>
+    <loc>https://taskcell.dev/pl/terms/</loc>
+    <xhtml:link rel="alternate" hreflang="en" href="https://taskcell.dev/terms/"/>
+  </url>
 </urlset>
