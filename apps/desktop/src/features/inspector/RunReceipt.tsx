@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Button, cn } from '@/ui';
-import { Check, Circle, CircleDot, MessageSquare, ReceiptText } from 'lucide-react';
+import { MessageSquare, ReceiptText } from 'lucide-react';
 import { listNeedsYou, type NeedsYouItem } from '../../ipc';
 import { receiptRows } from '../board/receipt';
 import type { StageStatus, StageStep } from '../board/stageLine';
@@ -12,20 +12,36 @@ import type { RunDetail } from '../../wire';
 
 const TONE = { pass: 'text-success-text', fail: 'text-destructive-text', none: '' } as const;
 const NOT_YET_TONE = 'text-muted-foreground';
-const DOT: Record<StageStatus, string> = { done: 'text-success-text', current: 'text-foreground', waiting: 'text-muted-foreground/50', failed: 'text-destructive-text' };
 
-/** The run's six stations (runStations / liveStations), each with its note: a row on desktop, a column on a phone. */
+/** Node fill per status: done solid, the current station in the accent, a failed one red, the rest hollow. */
+const NODE: Record<StageStatus, string> = {
+  done: 'bg-foreground border-foreground',
+  current: 'bg-primary border-primary',
+  failed: 'bg-destructive border-destructive',
+  waiting: 'bg-background border-muted-foreground/50',
+};
+
+/**
+ * The run's six stations (runStations / liveStations), each with its note. Desktop: one line through square nodes,
+ * solid up to the last done station. Phone: a column, node beside the text.
+ */
 export function StationTrack({ steps, ctx }: { steps: StageStep[]; ctx: NoteContext }) {
   return (
-    <ol aria-label="Stations" className="flex shrink-0 flex-col gap-1 md:flex-row md:gap-0">
+    <ol aria-label="Stations" className="flex shrink-0 flex-col gap-2 md:flex-row md:gap-0">
       {steps.map((s, i) => {
         const note = stationNote(s, ctx);
+        // The segment to the next node is solid once the next station has been reached.
+        const next = steps[i + 1]?.status;
+        const reached = next !== undefined && next !== 'waiting';
         return (
-          <li key={s.key} data-status={s.status} aria-current={s.status === 'current' ? 'step' : undefined} className={cn('flex min-w-0 flex-1 items-start gap-2 md:flex-col md:gap-1 md:border-t-2 md:pt-2 md:pr-2', s.status === 'done' ? 'md:border-success-text/50' : s.status === 'failed' ? 'md:border-destructive' : s.status === 'current' ? 'md:border-foreground' : 'md:border-border')}>
-            {s.status === 'done' ? <Check className={cn('mt-0.5 size-4 shrink-0', DOT.done)} aria-hidden /> : s.status === 'waiting' ? <Circle className={cn('mt-0.5 size-4 shrink-0', DOT.waiting)} aria-hidden /> : <CircleDot className={cn('mt-0.5 size-4 shrink-0', DOT[s.status])} aria-hidden />}
-            <span className="min-w-0">
-              <span className="hidden font-mono text-[10px] text-muted-foreground md:block">{String(i + 1).padStart(2, '0')}</span>
-              <span className={cn('mr-2 text-sm md:mr-0 md:block', s.status === 'waiting' && 'text-muted-foreground', s.status === 'current' && 'font-semibold', s.status === 'failed' && 'font-medium text-destructive-text')}>{STATION_SHORT[s.key]}</span>
+          <li key={s.key} data-status={s.status} aria-current={s.status === 'current' ? 'step' : undefined} className="flex min-w-0 flex-1 items-start gap-2.5 md:flex-col md:gap-2">
+            <span aria-hidden className="relative mt-1 flex h-2.5 shrink-0 items-center md:mt-0 md:w-full">
+              {next !== undefined && <span className={cn('absolute inset-x-0 hidden h-px md:block', reached ? 'bg-foreground/60' : 'bg-border')} />}
+              <span className={cn('relative size-2.5 rounded-[2px] border', NODE[s.status])} />
+            </span>
+            <span className="min-w-0 md:pr-3">
+              <span className={cn('mr-2 font-mono text-[10px] tracking-wider md:mr-0 md:block', s.status === 'current' ? 'text-primary-text' : 'text-muted-foreground')}>{String(i + 1).padStart(2, '0')}</span>
+              <span className={cn('mr-2 text-sm font-semibold md:mr-0 md:block', s.status === 'waiting' && 'font-normal text-muted-foreground', s.status === 'failed' && 'text-destructive-text')}>{STATION_SHORT[s.key]}</span>
               {note !== '' && <span className="break-words text-xs text-muted-foreground md:block">{note}</span>}
             </span>
           </li>
