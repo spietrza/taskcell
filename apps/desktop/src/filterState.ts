@@ -130,6 +130,10 @@ export function configuredSources(projects: { path: string; taskSource?: TaskSou
 }
 
 /** Sources worth a chip: the configured ones plus any a loaded row actually has (a legacy run stays filterable), in chip order. */
+/** Rows of the projects in view (the Projects filter, empty = all): a source only another project has gets no chip. */
+export const inRepoScope = <T extends RepoRow>(rows: readonly T[], repos: readonly string[]): T[] =>
+  repos.length === 0 ? [...rows] : rows.filter((r) => r.repoPath === undefined || repos.includes(r.repoPath));
+
 export function offeredSources(configured: CardSource[], present: CardSource[]): CardSource[] {
   const all = new Set([...configured, ...present]);
   return SOURCES.map((s) => s.value).filter((v) => all.has(v));

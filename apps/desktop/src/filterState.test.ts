@@ -1,5 +1,5 @@
 import { beforeEach, expect, test } from 'vitest';
-import { DEFAULT_FILTER, cardKeys, configuredSources, effectiveFilter, filterCards, offeredSources, filterRuns, groupRows, loadFilter, runKeys, runSource, saveFilter, type HubFilter } from './filterState';
+import { DEFAULT_FILTER, inRepoScope, offeredSources as offered2, cardKeys, configuredSources, effectiveFilter, filterCards, offeredSources, filterRuns, groupRows, loadFilter, runKeys, runSource, saveFilter, type HubFilter } from './filterState';
 import type { BoardTask, RunSummary } from './wire';
 
 const card = (id: string, column: BoardTask['column'], extra: Partial<BoardTask> & { repoPath?: string; repoName?: string } = {}): BoardTask & { repoPath: string; repoName: string } => ({
@@ -102,4 +102,11 @@ test('card search matches the title, #issue, id and labels', () => {
   const labelled = [card('gh-o-r-904', 'queued', { source: 'github', labels: ['billing'] }), card('gh-o-r-5', 'queued', { source: 'github' })];
   expect(ids(filterCards(labelled, f({ query: 'billing' })))).toEqual(['gh-o-r-904']);
   expect(ids(filterCards(labelled, f({ query: '#904' })))).toEqual(['gh-o-r-904']);
+});
+
+test('a project tab offers only its own card sources', () => {
+  const rows = [{ id: 'gl-1', repoPath: '/gl' }, { id: 'gh-2', repoPath: '/gh' }, { id: 'hub-3', repoPath: '/hub' }];
+  const src = (r: { id: string }): ReturnType<typeof runSource> => runSource(r.id);
+  expect(offered2(['gitlab'], inRepoScope(rows, ['/gl']).map(src))).toEqual(['gitlab']);
+  expect(offered2([], inRepoScope(rows, []).map(src))).toHaveLength(3);
 });

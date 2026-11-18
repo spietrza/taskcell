@@ -20,7 +20,7 @@ import { ExternalLink } from '../../components/ExternalLink';
 import { StationMark } from '../../components/StationMark';
 import { STATION_SHORT, cardStationOf, type RunOutcome } from '../../stations';
 import { FilterBar, NoMatch } from '../../FilterBar';
-import { DEFAULT_FILTER, canClearFilters, cardKeys, cardSource, clearFilters, effectiveFilter, filterCards, filterNames, groupRows, offeredSources, saveChange, type CardSource, type HubFilter } from '../../filterState';
+import { DEFAULT_FILTER, canClearFilters, cardKeys, cardSource, clearFilters, effectiveFilter, filterCards, filterNames, groupRows, inRepoScope, offeredSources, saveChange, type CardSource, type HubFilter } from '../../filterState';
 
 // Each column owns a color identity used across its header dot, count pill and card
 // hover border. Classes are spelled out (not interpolated) so Tailwind's JIT keeps them — a
@@ -175,7 +175,7 @@ export function TaskBoard({
     const { skills: _old, ...rest } = t;
     return saved.length > 0 ? { ...rest, skills: saved } : rest;
   });
-  const offered = allTasks && offeredSources(configured, allTasks.map(cardSource));
+  const offered = allTasks && offeredSources(configured, inRepoScope(allTasks, savedFilter.repos).map(cardSource));
   const filter = effectiveFilter(savedFilter, offered);
   const tasks = allTasks && filterCards(allTasks, filter);
   const lanes = groupRows(tasks ?? [], filter.group, cardKeys);

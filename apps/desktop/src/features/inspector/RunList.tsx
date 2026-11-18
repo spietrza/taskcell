@@ -3,7 +3,7 @@ import { Button, Chip, Empty, Input, LINK_CLASS, Timestamp, cn } from '@/ui';
 import { Inbox, RefreshCw, Search } from 'lucide-react';
 import { contrastColor } from '../../color';
 import { FilterBar, NoMatch, pill } from '../../FilterBar';
-import { DEFAULT_FILTER, canClearFilters, clearFilters, effectiveFilter, filterActive, filterNames, filterRuns, groupRows, offeredSources, runKeys, runSource, runTriage, supersededRuns, saveChange, searchText, type RunMeta, type CardSource, type HubFilter } from '../../filterState';
+import { DEFAULT_FILTER, canClearFilters, clearFilters, effectiveFilter, filterActive, filterNames, filterRuns, groupRows, inRepoScope, offeredSources, runKeys, runSource, runTriage, supersededRuns, saveChange, searchText, type RunMeta, type CardSource, type HubFilter } from '../../filterState';
 import { ExternalLink, hostName } from '../../components/ExternalLink';
 import { costLabel, estTitle } from '../../cost';
 import { RunsSplit } from './RunsSplit';
@@ -81,8 +81,8 @@ export function RunList({
   const [filter, setFilter] = useState<Filter>('all');
 
   const offered = useMemo(
-    () => (runs.length + active.length === 0 ? undefined : offeredSources(configured, [...runs, ...active].map((r) => runSource(r.taskId)))),
-    [runs, active, configured],
+    () => (runs.length + active.length === 0 ? undefined : offeredSources(configured, inRepoScope([...runs, ...active], savedHub.repos).map((r) => runSource(r.taskId)))),
+    [runs, active, configured, savedHub.repos],
   );
   const hub = useMemo(() => effectiveFilter(savedHub, offered), [savedHub, offered]);
 
