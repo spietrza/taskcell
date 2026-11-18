@@ -25,7 +25,7 @@ describe('lessons record for GitLab', () => {
     const model = vi.fn(async () => `<lessons>{"lessons":[{"rule":"Do the thing","why":"w","evidence":"${URL}#note_1","paths":[],"stage":"implement"}]}</lessons>`);
     await lessonsCommand(cmd, { glab, model });
     expect(append).toHaveBeenCalledOnce();
-    expect(glab).toHaveBeenCalledWith(expect.arrayContaining(['mr', 'note', 'create', '4', '--repo', 'g/p']));
+    expect(glab).toHaveBeenCalledWith(expect.arrayContaining(['mr', 'note', '4', '--repo', 'g/p']));
   });
 
   it('a clean merge makes no model call and records nothing', async () => {

@@ -98,7 +98,7 @@ export async function lessonsCommand(cmd: LessonsCommand, deps: LessonsDeps = {}
   // A re-run (or a reopened-and-closed PR) must not post a second comment.
   if (!history.hasLessonComment) {
     const body = renderLessonComment(lessons);
-    if (cmd.gitlab === true) await glab(['mr', 'note', 'create', String(history.number), '--repo', cmd.repoSlug, '-m', neutralizeQuickActions(body)]);
+    if (cmd.gitlab === true) await glab(['mr', 'note', String(history.number), '--repo', cmd.repoSlug, '-m', neutralizeQuickActions(body)]);
     else await gh(['pr', 'comment', String(history.number), '--repo', cmd.repoSlug, '--body', body]);
   }
 }

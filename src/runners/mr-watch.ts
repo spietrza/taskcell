@@ -264,7 +264,7 @@ export function gitlabMergeRequestWatchPrimitives(
       const capMarker = capDue ? `\n<!-- taskcell-mr-review-incomplete-cap: ${item.sha} -->` : '';
       try {
         await glab([
-          'mr', 'note', 'create',
+          'mr', 'note',
           String(item.iid),
           '--repo', item.project,
           // This note is written by the glab user, so a marker quoted in the error would count for the dedupe.
