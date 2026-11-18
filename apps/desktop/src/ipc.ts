@@ -154,6 +154,21 @@ export function readAudit(login?: string): Promise<AuditEntry[]> {
   return call('read_audit', { login });
 }
 
+/** Hub-only: a repository's settings saves (app.json key names, flow files), newest first, for any member. */
+export function readSettingsHistory(repoPath: string): Promise<Commands['read_settings_history']['result']> {
+  return call('read_settings_history', { repoPath });
+}
+
+/** Hub-only: the model ids the repository's saved doc-chat endpoint or provider offers; a provider key stays on the hub. */
+export function listChatModels(repoPath: string): Promise<Commands['list_chat_models']['result']> {
+  return call('list_chat_models', { repoPath });
+}
+
+/** HUB_ONLY: Home's activity feed across the team's repositories (run records and hub actions), newest first. */
+export function listActivity(teamId?: string): Promise<Commands['list_activity']['result']> {
+  return call('list_activity', teamArgs(teamId));
+}
+
 /** Hub-only: one issue's history over the audit streams, run records and Git host events. */
 export function readIssueHistory(repoPath: string, issue: number): Promise<Commands['read_issue_history']['result']> {
   return call('read_issue_history', { repoPath, issue });
@@ -177,7 +192,7 @@ export function listNeedsYouAll(teamId?: string): Promise<Commands['list_needs_y
 /** Hub-only: post `body` as the caller's own comment on the item, then move it on (issue: `needs
  *  info` -> `ready for agent`; PR: adds `needs revision`). Throws with no label change when the item
  *  is no longer in a waiting state. */
-export function replyNeedsYou(repoPath: string, id: string, kind: 'issue' | 'pr', body: string): Promise<void> {
+export function replyNeedsYou(repoPath: string, id: string, kind: 'issue' | 'pr' | 'card', body: string): Promise<void> {
   return call('reply_needs_you', { repoPath, id, kind, body });
 }
 
@@ -564,6 +579,16 @@ export function discoverSkills(repoPath: string, source: string): Promise<Comman
   return call('discover_skills', { repoPath, source });
 }
 
+/** Hub-only, owner only: the project's open skill-add PRs (reads the forge, writes nothing). */
+export function listPendingSkillPrs(repoPath: string): Promise<Commands['list_pending_skill_prs']['result']> {
+  return call('list_pending_skill_prs', { repoPath });
+}
+
+/** Hub-only, owner only, a write: fast-forward the hub's checkout to the default branch. Throws with the reason when it refuses. */
+export function pullCheckout(repoPath: string): Promise<Commands['pull_checkout']['result']> {
+  return call('pull_checkout', { repoPath });
+}
+
 /** Hub-only, owner only, a mutation: open a PR that removes a skill. */
 export function removeSkillPr(repoPath: string, name: string): Promise<Commands['remove_skill_pr']['result']> {
   return call('remove_skill_pr', { repoPath, name });
@@ -602,6 +627,11 @@ export function apiSetTaskSkills(repoPath: string, taskId: string, skills: strin
 /** HUB_ONLY: add a task to a hub-board project; it runs as the caller. */
 export function hubTaskCreate(repoPath: string, title: string, body: string, schedule: { blockedBy?: string[]; startDate?: string } = {}): Promise<{ id: string }> {
   return call('hub_task_create', { repoPath, title, body, ...schedule });
+}
+
+/** HUB_ONLY: ask the hub scheduler to start a todo hub-board task (within ~15 s, even with auto-run off). */
+export function hubTaskStart(repoPath: string, id: string): Promise<{ id: string }> {
+  return call('hub_task_start', { repoPath, id });
 }
 
 /** HUB_ONLY: put a failed hub-board task back to todo. */

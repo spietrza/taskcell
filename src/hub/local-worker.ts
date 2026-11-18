@@ -9,10 +9,10 @@ import { keyedLock } from '../core/keyed-lock.js';
 import { hasLabel } from '../core/labels.js';
 import { DEFAULT_GITHUB_AGENT_LABEL, parseCli } from '../cli/args.js';
 import { runPreflight, type PreflightCommand } from '../cli/preflight.js';
-import { GITHUB_RATE_LIMITED_LABEL, GITHUB_WAITING_LABEL } from '../github-labels.js';
+import { GITHUB_CLAIMED_LABEL, GITHUB_RATE_LIMITED_LABEL, GITHUB_REVIEW_LABEL, GITHUB_WAITING_LABEL } from '../github-labels.js';
 import { parseGitlabProjectFromRemote } from '../runners/gitlab.js';
 import { BadRequestError, type CreateRunResult } from '../sidecar/sidecar.js';
-import { defaultGhRunner, isTrustedIssueAuthor, type GhRunner } from '../tasks/github.js';
+import { defaultGhRunner, editGithubLabels, isTrustedIssueAuthor, type GhRunner } from '../tasks/github.js';
 import type { LocalWorkerState } from '../wire.js';
 import { configuredFlow, readAppConfig } from './app-config.js';
 import { PROVIDER_NAMES, type CredentialService } from './credentials.js';
@@ -24,7 +24,7 @@ import type { ProjectAllowlist } from './allowlist.js';
 import type { RunSession } from './run-session.js';
 import { STARTED_LABELS } from './start-task.js';
 
-/** Persisted per project (keyed by the allowlisted real path). `enabled` is the switch; absent = never switched (distinct from an explicit off). */
+/** Persisted per project (keyed by the allowlisted real path). `enabled` is the switch; absent = never switched, which is off (a board's cards do not start on their own until it is on). */
 interface LocalWorkerRecord {
   enabled?: boolean;
   lastPickupAt?: string;
@@ -52,7 +52,7 @@ async function readAll(configDir: string): Promise<Record<string, LocalWorkerRec
   }
 }
 
-/** One project's record; a never-switched project reads as off (`enabled: false`) but is stored without `enabled`. */
+/** One project's record; a never-switched project reads as off (`enabled: false`), as the board sweep treats it, but is stored without `enabled`. */
 export async function readLocalWorker(configDir: string, repoPath: string): Promise<LocalWorkerRecord & { enabled: boolean }> {
   const rec = (await readAll(configDir))[repoPath];
   return typeof rec === 'object' && rec !== null ? { ...rec, enabled: rec.enabled === true } : { enabled: false };
@@ -229,12 +229,26 @@ export async function pickUpIssues(ctx: LocalWorkerContext, repoPath: string, sl
       }
       continue;
     }
+    // The issue walks the same labels as under `taskcell watch` (trigger -> running -> needs-human-review), so the board
+    // and the tracker show where it is. A failed claim starts nothing: the next tick retries it.
+    const ref = `#${issue.number}`;
+    const labels = (edit: { add?: string[]; remove?: string[] }): Promise<void> => editGithubLabels(slug, ref, edit, gh, () => undefined);
+    try {
+      await labels({ remove: [trigger], add: [GITHUB_CLAIMED_LABEL] });
+    } catch (e) {
+      await updateLocalWorker(ctx.configDir, repoPath, (r) => ({ ...r, lastError: `#${issue.number}: claim failed: ${failureMessage(e)}` }));
+      continue;
+    }
     const admission = await startIssue(ctx, repoPath, issue.number, (end) => {
       live.delete(key);
+      // A pull request goes to review; anything else releases the claim (the trigger stays off, as watch: a person re-labels).
+      const delivered = !(end instanceof Error) && end.prUrl !== undefined;
+      void labels(delivered ? { remove: [GITHUB_CLAIMED_LABEL], add: [GITHUB_REVIEW_LABEL] } : { remove: [GITHUB_CLAIMED_LABEL] }).catch(() => undefined);
       if (end instanceof Error) void updateLocalWorker(ctx.configDir, repoPath, (r) => ({ ...r, lastError: `#${issue.number}: ${failureMessage(end)}` })).catch(() => undefined);
     });
     if (typeof admission !== 'string') {
-      // Refused before the session took it (no credential, queue full): retried next tick.
+      // Refused before the session took it (no credential, queue full): hand the trigger back, retried next tick.
+      await labels({ remove: [GITHUB_CLAIMED_LABEL], add: [trigger] }).catch(() => undefined);
       await updateLocalWorker(ctx.configDir, repoPath, (r) => ({ ...r, lastError: failureMessage(admission) }));
       break;
     }
@@ -273,9 +287,9 @@ export async function sweepLocalWorkers(ctx: LocalWorkerContext): Promise<void> 
   }
 }
 
-/** The board sweep serves every hub-board project it always did, except one whose worker switch was set off explicitly. */
+/** The board sweep auto-starts cards only of a project whose worker switch is on; a never-switched one waits for a hand start (`hub_task_start`). */
 export async function boardServed(configDir: string, repoPath: string): Promise<boolean> {
-  return (await readAll(configDir))[repoPath]?.enabled !== false;
+  return (await readAll(configDir))[repoPath]?.enabled === true;
 }
 
 /** The board scheduler started tasks of a project whose switch is on: show them as the last pick-up. */

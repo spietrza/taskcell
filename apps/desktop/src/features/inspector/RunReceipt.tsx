@@ -1,0 +1,111 @@
+import { useEffect, useState } from 'react';
+import { Button, cn } from '@/ui';
+import { MessageSquare, ReceiptText } from 'lucide-react';
+import { listNeedsYou, type NeedsYouItem } from '../../ipc';
+import { receiptRows } from '../board/receipt';
+import type { StageStatus, StageStep } from '../board/stageLine';
+import { stationNote, type NoteContext } from '../board/stationNotes';
+import { STATION_SHORT } from '../../stations';
+import { matchNeedsYou } from '../board/QuickView';
+import { MergeButton, ReplyBox } from '../needs-you/NeedsYou';
+import type { RunDetail } from '../../wire';
+
+const TONE = { pass: 'text-success-text', fail: 'text-destructive-text', none: '' } as const;
+const NOT_YET_TONE = 'text-muted-foreground';
+
+/** Node fill per status: done solid, the current station in the accent, a failed one red, the rest hollow. */
+const NODE: Record<StageStatus, string> = {
+  done: 'bg-foreground border-foreground',
+  current: 'bg-primary border-primary',
+  failed: 'bg-destructive border-destructive',
+  waiting: 'bg-background border-muted-foreground/50',
+};
+
+/**
+ * The run's six stations (runStations / liveStations), each with its note. Desktop: one line through square nodes,
+ * solid up to the last done station. Phone: a column, node beside the text.
+ */
+export function StationTrack({ steps, ctx }: { steps: StageStep[]; ctx: NoteContext }) {
+  return (
+    <ol aria-label="Stations" className="flex shrink-0 flex-col gap-2 md:flex-row md:gap-0">
+      {steps.map((s, i) => {
+        const note = stationNote(s, ctx);
+        // The segment to the next node is solid once the next station has been reached.
+        const next = steps[i + 1]?.status;
+        const reached = next !== undefined && next !== 'waiting';
+        return (
+          <li key={s.key} data-status={s.status} aria-current={s.status === 'current' ? 'step' : undefined} className="flex min-w-0 flex-1 items-start gap-2.5 md:flex-col md:gap-2">
+            <span aria-hidden className="relative mt-1 flex h-2.5 shrink-0 items-center md:mt-0 md:w-full">
+              {next !== undefined && <span className={cn('absolute inset-x-0 hidden h-px md:block', reached ? 'bg-foreground/60' : 'bg-border')} />}
+              <span className={cn('relative size-2.5 rounded-[2px] border', NODE[s.status])} />
+            </span>
+            <span className="min-w-0 md:pr-3">
+              <span className={cn('mr-2 font-mono text-[10px] tracking-wider md:mr-0 md:block', s.status === 'current' ? 'text-primary-text' : 'text-muted-foreground')}>{String(i + 1).padStart(2, '0')}</span>
+              <span className={cn('mr-2 text-sm font-semibold md:mr-0 md:block', s.status === 'waiting' && 'font-normal text-muted-foreground', s.status === 'failed' && 'text-destructive-text')}>{STATION_SHORT[s.key]}</span>
+              {note !== '' && <span className="break-words text-xs text-muted-foreground md:block">{note}</span>}
+            </span>
+          </li>
+        );
+      })}
+    </ol>
+  );
+}
+
+/**
+ * The run's receipt: what the records say, "not yet" where they are silent. Merge and "Ask for changes" show
+ * when the run's pull request waits for you in the hub's needs-you list (GitHub only); "Ask for changes" is the
+ * same reply that list sends: a comment on the PR plus the `needs revision` label, which starts a revise run.
+ */
+export function RunReceipt({ detail, project, merged, cost, live = false }: { detail: RunDetail; project: string; merged: boolean; cost?: string | undefined; live?: boolean }) {
+  const [item, setItem] = useState<NeedsYouItem | null>(null);
+  const [asking, setAsking] = useState(false);
+  const [nonce, setNonce] = useState(0);
+  const prUrl = detail.prUrl;
+  useEffect(() => {
+    let alive = true;
+    setItem(null);
+    if (prUrl === undefined || merged || live) return;
+    listNeedsYou(project)
+      .then((r) => alive && setItem(matchNeedsYou(r.items, { id: detail.taskId }, prUrl)))
+      .catch(() => {});
+    return () => {
+      alive = false;
+    };
+  }, [project, prUrl, merged, live, detail.taskId, nonce]);
+  const reload = (): void => {
+    setAsking(false);
+    setNonce((n) => n + 1);
+  };
+  const delivered = prUrl !== undefined;
+  const pr = item?.kind === 'pr' ? item : null;
+
+  return (
+    <section aria-label="Receipt" className="rounded-lg border border-border">
+      <header className="flex items-center gap-2 border-b border-border/60 px-3 py-2">
+        <ReceiptText className="size-4 text-muted-foreground" aria-hidden />
+        <h3 className="text-sm font-semibold">{live ? 'Receipt so far' : delivered ? 'Delivery receipt' : 'Receipt'}</h3>
+        <span className="ml-auto text-xs uppercase tracking-wide text-muted-foreground">{live ? 'in progress' : merged ? 'merged' : delivered ? 'waiting for sign-off' : ''}</span>
+      </header>
+      <dl className="grid grid-cols-[6.5rem_minmax(0,1fr)] gap-x-2 gap-y-1.5 px-3 py-2.5 text-sm">
+        {receiptRows(detail, cost, live).map((r) => (
+          <div key={r.label} className="contents">
+            <dt className="text-xs leading-5 text-muted-foreground">{r.label}</dt>
+            <dd className={cn('min-w-0 break-words', r.value === 'not yet' || r.value === 'not recorded' ? NOT_YET_TONE : TONE[r.tone])}>{r.value}</dd>
+          </div>
+        ))}
+      </dl>
+      {pr !== null && (
+        <div className="space-y-2 border-t border-border/60 px-3 py-2.5">
+          <MergeButton project={project} item={pr} onMerged={reload} />
+          {asking ? (
+            <ReplyBox project={project} item={pr} onReplied={reload} placeholder="What should change?" action="Send back" />
+          ) : (
+            <Button variant="text" color="secondary" onClick={() => setAsking(true)} startIcon={<MessageSquare className="size-4" />}>
+              Ask for changes
+            </Button>
+          )}
+        </div>
+      )}
+    </section>
+  );
+}

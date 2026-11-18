@@ -3,10 +3,11 @@
 import { BadRequestError } from '../../sidecar/sidecar.js';
 import { listNeedsYou, mergeNeedsYou, replyNeedsYou, MAX_COMMENT_FETCHES } from '../needs-you.js';
 import { readAppConfig } from '../app-config.js';
+import { answerCard, askingCards, type GithubAnswerTarget } from '../asking.js';
 import * as projects from '../projects.js';
 import type { MigrateLabelsReport, NeedsYouItem, RepoReadFailure, RepoStamp } from '../../wire.js';
 import { migrateLabels } from '../../runners/migrate-labels.js';
-import { defineCommands, requireString, githubSlug, repoItemTarget, repoTarget } from '../command-kit.js';
+import { actorOf, defineCommands, requireString, githubSlug, repoItemTarget, repoTarget } from '../command-kit.js';
 
 export interface NeedsYouCommands {
   /** HUB_ONLY: rename the repo's old `vanguard:*` labels to `taskcell:*` (as `taskcell migrate-labels`). Dry-run unless `apply`. */
@@ -15,10 +16,18 @@ export interface NeedsYouCommands {
   list_needs_you: { args: { repoPath: string }; result: { items: NeedsYouItem[] } };
   /** HUB_ONLY: `list_needs_you` across every hub repository, each item stamped with its repository. */
   list_needs_you_all: { args: { teamId?: string } | undefined; result: { items: (NeedsYouItem & RepoStamp)[]; failures: RepoReadFailure[] } };
-  /** HUB_ONLY: post a reply with the caller's own `gh` identity and move the item on. */
-  reply_needs_you: { args: { repoPath: string; id: string; kind: 'issue' | 'pr'; body: string }; result: void };
+  /** HUB_ONLY: post a reply with the caller's own `gh` identity and move the item on. `card`: answer a card whose run stopped
+   *  to ask (src/hub/asking.ts): a hub-board card takes the answer into its body and goes back to To do. */
+  reply_needs_you: { args: { repoPath: string; id: string; kind: 'issue' | 'pr' | 'card'; body: string }; result: void };
   /** HUB_ONLY: merge a waiting PR (refused when not in "Needs you", verify failed on it, or required checks are not green). */
   merge_needs_you: { args: { repoPath: string; id: string }; result: void };
+}
+
+/** A GitHub card's answer target: the repository and its configured trigger label (app.json `label`). */
+async function answerTarget(real: string, repoSlug: string | undefined): Promise<GithubAnswerTarget | undefined> {
+  if (repoSlug === undefined) return undefined;
+  const { label } = await readAppConfig(real);
+  return { repoSlug, ...(label?.trim() ? { agentLabel: label } : {}) };
 }
 
 export const commands = defineCommands<NeedsYouCommands>({
@@ -29,11 +38,11 @@ export const commands = defineCommands<NeedsYouCommands>({
     if (repoSlug === undefined) throw new BadRequestError('migrate_labels: this project has no GitHub remote');
     return migrateLabels({ repoSlug, apply, log: () => {} });
   },
-  list_needs_you: async ({ args, allow }) => {
+  list_needs_you: async ({ ctx, args, allow }) => {
     const real = await allow(requireString(args, 'repoPath'));
     const repoSlug = await githubSlug(real);
-    // Not a GitHub remote — nothing for this read model to show.
-    return { items: repoSlug === undefined ? [] : await listNeedsYou(repoSlug) };
+    // Cards whose run stopped to ask come from run records; a repository without a GitHub remote has only those.
+    return { items: [...(repoSlug === undefined ? [] : await listNeedsYou(repoSlug)), ...(await askingCards(ctx.configDir, real, await answerTarget(real, repoSlug)))] };
   },
   list_needs_you_all: async ({ ctx, allow, scope }) => {
     // One comment-fetch budget for every repository, not MAX_COMMENT_FETCHES each.
@@ -43,19 +52,24 @@ export const commands = defineCommands<NeedsYouCommands>({
       allow,
       async (real) => {
         const repoSlug = await githubSlug(real);
-        return repoSlug === undefined ? [] : listNeedsYou(repoSlug, undefined, { commentBudget });
+        return [...(repoSlug === undefined ? [] : await listNeedsYou(repoSlug, undefined, { commentBudget })), ...(await askingCards(ctx.configDir, real, await answerTarget(real, repoSlug)))];
       },
       await scope(),
     );
     return { items, failures };
   },
-  reply_needs_you: async ({ args, allow }) => {
+  reply_needs_you: async ({ ctx, caller, args, allow }) => {
     const real = await allow(requireString(args, 'repoPath'));
     const id = requireString(args, 'id');
     const kind = requireString(args, 'kind');
-    if (kind !== 'issue' && kind !== 'pr') throw new BadRequestError("kind must be 'issue' or 'pr'");
+    if (kind !== 'issue' && kind !== 'pr' && kind !== 'card') throw new BadRequestError("kind must be 'issue', 'pr' or 'card'");
     const body = requireString(args, 'body');
     const repoSlug = await githubSlug(real);
+    if (kind === 'card') {
+      const { label } = await readAppConfig(real);
+      await answerCard({ configDir: ctx.configDir, repoPath: real, id, body, owner: { actor: actorOf(ctx), caller }, ...(repoSlug !== undefined ? { repoSlug } : {}), ...(label?.trim() ? { agentLabel: label } : {}) });
+      return null;
+    }
     if (repoSlug === undefined) throw new BadRequestError('reply_needs_you: this project has no GitHub remote');
     // The slug comes from the allowlisted repo, never from `id` — `replyNeedsYou` refuses an `id`
     // naming any other repo, so a reply can only ever touch a registered project.

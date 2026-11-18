@@ -5,7 +5,7 @@ import { execa } from 'execa';
 import { BadRequestError, classifyCoreError } from '../sidecar/sidecar.js';
 import { detectRepoSlug } from '../runners/github.js';
 import type { ErrorKind } from '../hub-wire.js';
-import { NO_REMOTE_MESSAGE } from '../wire.js';
+import { NO_REMOTE_MESSAGE, type SettingsValueChange } from '../wire.js';
 import { TOKEN_ACTOR, type Actor, type AuditAction, type AuditOutcome } from './audit.js';
 import type { RpcContext } from './rpc.js';
 import type { Caller } from './teams.js';
@@ -34,10 +34,14 @@ export type CommandHandler = (call: CommandCall) => Promise<unknown>;
 export interface AuditSpec {
   action: AuditAction;
   target: (a: Args) => string | undefined;
+  /** The target of a call that succeeded, from its result (e.g. the id a create assigned); `target` otherwise. */
+  resultTarget?: (result: unknown, a: Args) => string | undefined;
   /** When set and false for the call, no audit line is written (e.g. a read-only dry run). */
   applies?: (a: Args) => boolean;
   /** Names only — computed before the command runs. */
   detail?: (ctx: RpcContext, a: Args) => Promise<string[]>;
+  /** `settings-change` only: old → new values, which the audit log keeps for its non-secret allowlist only. Computed before the command runs. */
+  changes?: (ctx: RpcContext, a: Args) => Promise<SettingsValueChange[]>;
   /** Outcome of a call that did not throw (default `ok`). */
   okOutcome?: (ctx: RpcContext, a: Args) => AuditOutcome;
 }

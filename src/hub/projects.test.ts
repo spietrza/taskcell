@@ -2,7 +2,7 @@ import { mkdir, mkdtemp, readFile, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { beforeEach, describe, expect, it } from 'vitest';
-import { aggregate, add, list, listAcrossProjects, loadPaths, remove, savePaths } from './projects.js';
+import { aggregate, add, list, listAcrossProjects, loadPaths, remove, savePaths, type MarkDone } from './projects.js';
 
 let cfg: string;
 let repoRoot: string;
@@ -155,6 +155,26 @@ describe('aggregate', () => {
       timestamp: '2026-07-06T19:12:02.123Z', stage: 'implement',
     }));
     expect(await aggregate(repo)).toMatchObject({ runCount: 1, failedCount: 0 });
+  });
+
+  it('counts a run whose agent stopped to ask apart, never as failed', async () => {
+    const repo = join(repoRoot, 'proj-asked');
+    const dir = join(repo, '.taskcell', 'runs', 'hub-4');
+    await mkdir(dir, { recursive: true });
+    await writeFile(join(dir, '2026-07-06T19-12-02-123Z-implementer.json'), JSON.stringify({
+      taskId: 'hub-4', completed: false, exitReason: 'incomplete', turns: 3, worktreePath: '/tmp/wt',
+      worktreePreserved: true, finalText: 'Which file?', timestamp: '2026-07-06T19:12:02.123Z', stage: 'implementer',
+    }));
+    expect(await aggregate(repo)).toMatchObject({ runCount: 1, failedCount: 0, askedCount: 1 });
+    // Its card is done: nothing waits on an answer.
+    const done: MarkDone = async (_repo, runs) => runs.map((r) => ({ ...r, cardDone: true as const }));
+    expect((await aggregate(repo, new Date(), done)).askedCount).toBeUndefined();
+    // A newer run of the same card answered it.
+    await writeFile(join(dir, '2026-07-07T10-00-00-000Z-implementer.json'), JSON.stringify({
+      taskId: 'hub-4', completed: true, exitReason: 'completed', turns: 3, worktreePath: '/tmp/wt',
+      worktreePreserved: false, finalText: 'done', timestamp: '2026-07-07T10:00:00.000Z', stage: 'implementer',
+    }));
+    expect((await aggregate(repo)).askedCount).toBeUndefined();
   });
 });
 

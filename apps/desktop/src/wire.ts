@@ -102,6 +102,8 @@ export interface CreateRunResult {
   baseRed?: boolean;
   /** The result was delivered (a PR or a local branch) but its verify command failed. */
   verificationFailed?: boolean;
+  /** The implementer stopped before signalling it was done (e.g. it asked a question): any delivered result is partial. */
+  implementerIncomplete?: boolean;
 }
 
 /** Per-stage routing/budget overrides expressible in HCL (snake_case keys map to these camelCase fields). */
@@ -145,6 +147,13 @@ export interface DiscoveredSkill {
   name: string;
 }
 
+/** An open pull request that adds skills (`list_pending_skill_prs`): they appear in the list once it is merged. */
+export interface PendingSkillPr {
+  number: number;
+  url: string;
+  names: string[];
+}
+
 /** One skill of a repository's skills directory on the wire: `skills list`, `skills check` and `stats --skills` joined. */
 export interface RepoSkill {
   name: string;
@@ -158,6 +167,8 @@ export interface RepoSkill {
   check: 'local' | 'current' | 'outdated' | 'unknown';
   /** Runs recorded with the skill; absent when none used it. */
   usage?: { runs: number; passRate?: number; avgRepairRounds: number; avgCostUsd: number };
+  /** Runs that used the skill in the last 30 days (`taskcell stats --skills --since 30d`); 0 when none; absent from an older hub. */
+  runs30d?: number;
 }
 
 /** One live lesson (src/core/lessons.ts) on the wire. */
@@ -279,8 +290,11 @@ export interface CustomProviderSpec {
   name: string;
   /** Absolute http:/https: URL — becomes ANTHROPIC_BASE_URL verbatim. */
   baseUrl: string;
-  /** Host env var NAME holding the key (read at dispatch, never stored). */
-  keyEnv: string;
+  /**
+   * Host env var NAME holding the key (read at dispatch, never stored). Omit for a keyless endpoint
+   * (a proxy that holds its own auth): a non-empty placeholder token is injected instead.
+   */
+  keyEnv?: string;
   /** Forced default model (zai pattern) for endpoints that don't serve the CLI's Claude default. */
   model?: string;
 }
@@ -303,6 +317,8 @@ export interface BoardTask {
   column: 'queued' | 'claimed' | 'running' | 'verify-failed' | 'review' | 'done';
   /** The chip: first label else provider state (github/gitlab); the workflow state (Linear). */
   state: string;
+  /** Hub board: the card's newest run stopped to ask the person; it waits for their answer (Home's inbox). */
+  asked?: true;
   /** Waiting for the factory: carries a trigger label and is still `queued`. Absent when false. */
   waiting?: boolean;
   /** Current pipeline stage of a running task (from the run's stage marker). Absent ⇒ unknown. */
@@ -315,6 +331,8 @@ export interface BoardTask {
   skills?: string[];
   /** The tracker's labels, minus Taskcell's own routing labels; the Board and Runs search matches them. Absent when none. */
   labels?: string[];
+  /** Taskcell's own lifecycle labels on the card (`ready for agent`, `taskcell:running`, `needs info`...), as the tracker spells them. Absent when none. */
+  factoryLabels?: string[];
   /** The tracker the card came from; names the "Open in …" link. */
   source?: 'github' | 'gitlab' | 'linear';
   /** The issue's address in that tracker, as the tracker returned it. Absent ⇒ no link. */
@@ -427,6 +445,8 @@ export interface RunRecord {
   baseBranch?: string;
   /** Gate-config files (test/lint/type-check config) the run's delivered diff changed; absent when none. */
   configPaths?: string[];
+  /** The run delivered nothing (an empty diff); absent otherwise. */
+  noChanges?: true;
   /** The run's gate-repair cap (`--max-repair-iterations`); absent on older records (the default cap applies). */
   maxRepairIterations?: number;
   /** Agent calls folded into this stage (auto-resumes and gate repairs); absent when the stage ran once. */
@@ -443,6 +463,9 @@ export interface RunRecord {
    * reads no skills. Absent on older records.
    */
   skills?: { named: string[]; available: string[]; notes?: string[] };
+  /** Installed skills the stage's agent used, from its `run_complete` metric line (`read_run` joins it in); `[]` = none.
+   *  Absent on older runs and when the stage's transcript was withheld. */
+  skillsUsed?: string[];
 }
 
 export interface Proof {
@@ -531,6 +554,9 @@ export interface RunSummary {
   trigger?: 'watch';
   /** `'merged'` when the run's card is done (its pull request merged); set by the hub's list commands, absent when unknown or not merged. */
   prState?: 'merged';
+  /** The run's card is done without a pull request (a hub card's local branch): the run passed, or its agent stopped to ask
+   *  and the card moved on, so it waits on no answer; set by the hub's list commands. */
+  cardDone?: true;
   /** `'ci'` for a run known only from the metrics branch (no local record to open); `prUrl` links its PR/MR. */
   source?: 'ci';
   /** `'provider-limit'` when the run ended on a provider usage or rate limit: not a failure of the change. */
@@ -541,6 +567,16 @@ export interface RunSummary {
   estCostUsd?: number;
   /** Some entries without a reported cost have no estimate either (an unpriced model): the `≈` figure covers only the priced ones. On a run row it can be set with no `estCostUsd` (nothing priced). */
   estPartial?: true;
+  /** Extra agent calls the run's stages folded in (`RunRecord.attempts` − 1, summed); absent when every stage ran once. Not a repair count:
+   *  the records fold gate repairs, auto-resumes and fork variants into one `attempts` and do not tell them apart. */
+  extraAttempts?: number;
+  /** The stage of the run's first record that did not complete; absent when every stage completed. */
+  failedStage?: string;
+  /** The run's own proof says its verify command failed. */
+  verifyFailed?: true;
+  /** The implementer stopped on its own before finishing (`exitReason: 'incomplete'`): the end of its last reply, which
+   *  holds what it asks the person. Untrusted agent text, render as plain text. */
+  asked?: string;
 }
 
 /** Period a cost breakdown covers: the last 7 / 30 days, or everything on the branch. */
@@ -643,6 +679,8 @@ export interface ApproverModeChange {
 export interface StageDetail {
   record: RunRecord;
   diff?: string;
+  /** CI config paths (`workflowPaths()` in src/core/taskcell.ts) the stage's diff touches; empty when none, absent with no diff. */
+  ciConfigPaths?: string[];
   transcript?: string;
 }
 
@@ -732,6 +770,55 @@ export type AuditAction =
   | 'project-unwatch';
 export type AuditOutcome = 'ok' | 'refused' | 'failed';
 
+/** One saved change to a repository's settings, as the Line screen's history shows it: no actor, subject or chain fields. */
+export interface SettingsHistoryEntry {
+  time: string;
+  login: string;
+  outcome: AuditOutcome;
+  /** `app.json` top-level key names that changed (never values); empty for a flow file. */
+  detail: string[];
+  /** The repository path, or `<repo>:<file>.hcl` for a flow file. */
+  target: string;
+  /** Old and new values of the changed keys on the non-secret allowlist (src/hub/audit.ts `SETTINGS_VALUE_KEYS`); absent on older lines. */
+  changes?: SettingsValueChange[];
+}
+
+/** One allowlisted, non-secret `app.json` value before and after a save; an absent side was unset. */
+export interface SettingsValueChange {
+  key: string;
+  from?: string;
+  to?: string;
+}
+
+/** Models offered in Settings → Doc chat model before any fetch (Claude ids the doc chat accepts). Free text stays possible. */
+export const CHAT_MODELS: readonly string[] = ['claude-sonnet-5-5', 'claude-opus-5-5', 'claude-haiku-5-5', 'claude-sonnet-5'];
+
+/**
+ * `list_chat_models`: what the repository's saved doc-chat endpoint or provider offers. `static` is {@link CHAT_MODELS};
+ * `origin` names where the list came from. `error` is a short safe reason (never a response body or a key); `models` is then empty.
+ */
+export interface ChatModelList {
+  source: 'openrouter' | 'endpoint' | 'static';
+  origin?: string;
+  models: string[];
+  error?: string;
+}
+
+/** One line of Home's activity feed (`list_activity`): built from run records and the hub audit log, never from a tracker read. */
+export interface ActivityEvent {
+  time: string;
+  /** `run-started` and `card-created`, `pr-merged`, `settings-changed` come from the hub's audit log (actions taken in the hub); the run outcomes from run records (`run-asked`: its agent stopped to ask). */
+  kind: 'run-started' | 'run-finished' | 'run-failed' | 'run-asked' | 'card-created' | 'pr-merged' | 'settings-changed';
+  repoPath: string;
+  repoName: string;
+  /** The hub login that acted (or `token`); absent when the record names nobody. */
+  login?: string;
+  /** A run's task id, or the merged item (`#12`). */
+  subject?: string;
+  /** `settings-changed`: the app.json key names, never values. */
+  keys?: string[];
+}
+
 /** One line of `audit.jsonl`. `login` is a GitHub login, or `token` for header access. */
 export interface AuditEntry {
   time: string;
@@ -742,6 +829,8 @@ export interface AuditEntry {
   outcome: AuditOutcome;
   /** Names only, e.g. the settings keys a change touched. */
   detail?: string[];
+  /** `settings-change` of `app.json` only: values of the changed keys on the non-secret allowlist, never any other key's. */
+  changes?: SettingsValueChange[];
   /** Who acted and on what (src/core/audit.ts); with `prev`/`hash` it is one link of the tamper-evident chain. */
   actor?: { kind: 'user' | 'local' | 'token' | 'bot'; id?: string; name?: string };
   subject?: { repo?: string; issue?: number; pr?: number; runId?: string };
@@ -823,6 +912,8 @@ export interface Project {
   taskCount: number;
   totalCostUsd: number;
   failedCount: number;
+  /** Of the runs, those whose agent stopped to ask (not counted in `failedCount`). Absent when none. */
+  askedCount?: number;
   lastRun?: string | null;
   runningCount: number;
   runsLast24h: number;
@@ -874,7 +965,7 @@ export interface AppConfig {
   color?: string | null;
   provider?: string | null;
   reviewProvider?: string | null;
-  /** Flow the Hub runs this project with: a built-in or `.taskcell/flows/<name>.hcl`; unset = the source default. */
+  /** Flow the Hub runs this project with: a built-in or `.taskcell/flows/<name>.hcl`; unset = the standard flow. */
   flow?: string | null;
   verifyCmd?: string | null;
   concurrency?: number | null;
@@ -955,9 +1046,10 @@ export interface StartTaskResult {
  * review requesting changes.
  */
 export interface NeedsYouItem {
-  /** `owner/repo#number` — also the id a reply targets. */
+  /** `owner/repo#number` — also the id a reply targets. A `card`: the card id (`hub-4`, `gh-27`). */
   id: string;
-  kind: 'issue' | 'pr';
+  /** `card`: a card whose newest run's agent stopped to ask (from run records, not the tracker); `lastComment` holds its question. */
+  kind: 'issue' | 'pr' | 'card';
   number: number;
   repoSlug: string;
   title: string;
@@ -972,6 +1064,8 @@ export interface NeedsYouItem {
   baseBranch?: string;
   /** Why the hub refuses to merge this PR (set only when it would); the UI shows it instead of offering Merge. */
   mergeBlocked?: string;
+  /** An issue or a card: `'too-vague'` when the factory's last comment is triage's too-vague notice, otherwise `'question'` (also when the comment was not fetched). */
+  ask?: 'question' | 'too-vague';
 }
 
 /** A Fleet-screen spawned process (Fleet is enabled only on the desktop app's local hub). */
@@ -1187,6 +1281,8 @@ export interface Commands {
   read_app_config: { args: { repoPath: string }; result: AppConfig };
   read_app_config_strict: { args: { repoPath: string }; result: AppConfig };
   write_app_config: { args: { repoPath: string; config: AppConfig }; result: void };
+  /** HUB_ONLY, read-only: the model ids the repository's saved doc-chat endpoint or provider offers (Settings → Fetch models). A key named by `keyEnv` stays on the hub. */
+  list_chat_models: { args: { repoPath: string }; result: ChatModelList };
   /** HUB_ONLY, read-only: the approver's scorecard for a project over a period (default `90d`) — PRs judged, APPROVE/ESCALATE counts, right and wrong APPROVEs, the streak per risk class against the bar, the top escalation reasons — plus the current mode from `.taskcell/approver.json` on the base branch. Read from the metrics branch and GitHub PR state like `taskcell stats --approver`; never a model call. */
   read_approver_scorecard: { args: { repoPath: string; period?: ApproverPeriod }; result: ApproverScorecard };
   /** HUB_ONLY, read-only: what the approver decided for each PR on the metrics branch (merged, would merge, left for a human and why); no gh call. */
@@ -1195,6 +1291,11 @@ export interface Commands {
   set_approver_mode: { args: { repoPath: string; mode: 'off' | 'shadow' | 'act'; confirmBelowBar?: boolean }; result: ApproverModeChange };
   /** HUB_ONLY, admin-only (403 otherwise): the audit log newest first, optionally for one login. */
   read_audit: { args: { login?: string; limit?: number }; result: AuditEntry[] };
+  /** HUB_ONLY, read-only, same gate as read_app_config: the repository's settings saves (app.json key names, flow files), newest first. */
+  read_settings_history: { args: { repoPath: string; limit?: number }; result: SettingsHistoryEntry[] };
+  /** HUB_ONLY, read-only: Home's activity feed across the team's repositories, newest first, at most 30 (`limit` lowers it).
+   *  Run records and the audit log only (settings saves as key names): no tracker read. */
+  list_activity: { args: { teamId?: string; limit?: number } | undefined; result: ActivityEvent[] };
   /** HUB_ONLY, read-only: what the caller may do on the hub and, with `repoPath`, on that project. Every `false` carries its reason. */
   caller_capabilities: { args: { repoPath?: string } | undefined; result: CallerCapabilities };
   /** HUB_ONLY, read-only: a project's cost by model and by stage for a period (default `all`), read from the metrics branch like `taskcell stats --branch`; cached, never a model call. A repo without the branch answers `status: 'no-branch'` with a setup hint. */
@@ -1277,8 +1378,9 @@ export interface Commands {
   list_needs_you: { args: { repoPath: string }; result: { items: NeedsYouItem[] } };
   /** HUB_ONLY: `list_needs_you` across every hub repository, each item stamped with its repository. */
   list_needs_you_all: { args: { teamId?: string } | undefined; result: { items: (NeedsYouItem & RepoStamp)[]; failures: RepoReadFailure[] } };
-  /** HUB_ONLY: post a reply with the caller's own `gh` identity and move the item on. */
-  reply_needs_you: { args: { repoPath: string; id: string; kind: 'issue' | 'pr'; body: string }; result: void };
+  /** HUB_ONLY: post a reply with the caller's own `gh` identity and move the item on. `card`: answer a card whose run stopped
+   *  to ask (src/hub/asking.ts): a hub-board card takes the answer into its body and goes back to To do. */
+  reply_needs_you: { args: { repoPath: string; id: string; kind: 'issue' | 'pr' | 'card'; body: string }; result: void };
   /** HUB_ONLY: merge a waiting PR (refused when not in "Needs you", verify failed on it, or required checks are not green). */
   merge_needs_you: { args: { repoPath: string; id: string }; result: void };
   list_projects: { args: { teamId?: string } | undefined; result: Project[] };
@@ -1331,7 +1433,12 @@ export interface Commands {
    * one repository in one PR (the folders `discover_skills` found, `ref` pinned to its commit); `source` may be a GitHub or GitLab browse link to a folder. */
   add_skill_pr: { args: { repoPath: string; source: string; ref?: string; path?: string; paths?: string[]; name?: string }; result: { prUrl: string } };
   /** HUB_ONLY, owner only (it reads the network): the skills a repository holds, from its tree listing alone. `commit` is what to pin them to. */
-  discover_skills: { args: { repoPath: string; source: string }; result: { commit: string; skills: DiscoveredSkill[] } };
+  discover_skills: { args: { repoPath: string; source: string; ref?: string; path?: string }; result: { commit: string; skills: DiscoveredSkill[] } };
+  /** HUB_ONLY, owner only (it reads the forge): the project's open skill-add PRs, by branch prefix. GitHub only; others get an empty list. */
+  list_pending_skill_prs: { args: { repoPath: string }; result: { prs: PendingSkillPr[] } };
+  /** HUB_ONLY, owner only, a write: fast-forward the hub's checkout to origin's default branch, so merged skills appear. Refuses (changing nothing)
+   * on a dirty tree, a branch other than the default, or a diverged history; the reason is the error. */
+  pull_checkout: { args: { repoPath: string }; result: { updated: boolean } };
   /** HUB_ONLY, owner only: `skills remove` delivered as a PR. */
   remove_skill_pr: { args: { repoPath: string; name: string }; result: { prUrl: string } };
   /** `hubBoard`: the project's task source is the hub's own board (its cards are created and scheduled in the hub). */
@@ -1355,6 +1462,8 @@ export interface Commands {
   hub_task_schedule: { args: { repoPath: string; id: string; blockedBy?: string[]; startDate?: string | null }; result: { id: string } };
   /** HUB_ONLY: put a failed hub-board task back to `todo`, to run as the caller; its old result is cleared. */
   hub_task_retry: { args: { repoPath: string; id: string }; result: { id: string } };
+  /** Start one `todo` hub task now as the caller, even while the project's auto-run is off (the scheduler's next tick, same gates). */
+  hub_task_start: { args: { repoPath: string; id: string }; result: { id: string } };
   /** HUB_ONLY: accept the delivered result of a hub-board task that failed verification: it becomes done (its dependents may start) without a second run. */
   hub_task_accept: { args: { repoPath: string; id: string }; result: { id: string } };
   /** HUB_ONLY: move a done hub-board task to the project's archive file, freeing room on the board. */
@@ -1441,15 +1550,19 @@ export const COMMAND_NAMES = [
   'hub_task_delete',
   'hub_task_retry',
   'hub_task_schedule',
+  'hub_task_start',
   'import_remote_run',
   'instance_credentials_status',
   'kill_run',
   'list_active',
+  'list_activity',
   'list_branches',
+  'list_chat_models',
   'list_drafts',
   'list_lessons',
   'list_needs_you',
   'list_needs_you_all',
+  'list_pending_skill_prs',
   'list_projects',
   'list_remote_runs',
   'list_repo_skills',
@@ -1465,6 +1578,7 @@ export const COMMAND_NAMES = [
   'local_worker_state',
   'merge_needs_you',
   'migrate_labels',
+  'pull_checkout',
   'read_app_config',
   'read_app_config_strict',
   'read_approver_decisions',
@@ -1476,6 +1590,7 @@ export const COMMAND_NAMES = [
   'read_run',
   'read_run_events',
   'read_session',
+  'read_settings_history',
   'remove_project',
   'remove_skill_pr',
   'remove_team_member',
@@ -1533,12 +1648,14 @@ export const WRITE_COMMAND_NAMES: readonly (typeof COMMAND_NAMES)[number][] = [
   'hub_task_delete',
   'hub_task_retry',
   'hub_task_schedule',
+  'hub_task_start',
   'import_remote_run',
   'kill_run',
   'local_worker_doctor',
   'local_worker_set',
   'merge_needs_you',
   'migrate_labels',
+  'pull_checkout',
   'remove_project',
   'remove_skill_pr',
   'remove_team_member',

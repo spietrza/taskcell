@@ -3,7 +3,7 @@ import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 
 vi.mock('../../ipc', () => ({ listTasks: vi.fn(), listTasksAll: vi.fn(), retryPausedTask: vi.fn().mockResolvedValue({ label: 'ready for agent' }), callerCapabilities: vi.fn(async () => ({})) }));
 import { callerCapabilities, listTasks, retryPausedTask } from '../../ipc';
-import { HomePausedBanner, PausedPanel, TaskDetailPaused, retryWords } from './paused';
+import { PausedPanel, TaskDetailPaused, retryWords } from './paused';
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -35,17 +35,6 @@ test('a refusal shows inline', async () => {
   render(<PausedPanel repoPath="/r" task={{ id: 'gh-7', paused: { reason: 'provider-limit' } }} />);
   fireEvent.click(screen.getByRole('button', { name: 'Retry now' }));
   expect(await screen.findByRole('alert')).toHaveTextContent('#7 is closed');
-});
-
-test('Home shows the banner for paused tasks and nothing otherwise', async () => {
-  vi.mocked(listTasks).mockResolvedValueOnce({ tasks: [{ id: 'gh-1', title: 't', column: 'queued', state: '', paused: { reason: 'provider-limit' } }], capped: false });
-  const { unmount } = render(<HomePausedBanner project="/r" allRepos={false} repos={[]} />);
-  expect(await screen.findByRole('status')).toHaveTextContent('1 task is paused by a provider limit');
-  unmount();
-  vi.mocked(listTasks).mockResolvedValueOnce({ tasks: [], capped: false });
-  render(<HomePausedBanner project="/r" allRepos={false} repos={[]} />);
-  await waitFor(() => expect(listTasks).toHaveBeenCalledTimes(2));
-  expect(screen.queryByRole('status')).toBeNull();
 });
 
 test('the task detail re-reads and clears its paused panel after a retry', async () => {

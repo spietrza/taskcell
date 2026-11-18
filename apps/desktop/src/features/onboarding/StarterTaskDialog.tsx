@@ -33,16 +33,16 @@ export function StarterTaskDialog({ project, onCreated, onClose }: { project: { 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
       <div ref={ref} role="dialog" aria-modal="true" aria-labelledby="starter-task-title" tabIndex={-1} className="w-[32rem] max-w-[95vw] space-y-3 rounded-lg border border-border bg-background p-4 shadow-lg outline-none">
-        <h2 id="starter-task-title" className="text-sm font-medium">Try a first task on {project.name}?</h2>
-        <p className="text-sm text-muted-foreground">A small starter task the factory can deliver quickly. Creating it adds one task to the repository's task source.</p>
+        <h2 id="starter-task-title" className="text-sm font-medium">Try a first card on {project.name}?</h2>
+        <p className="text-sm text-muted-foreground">A small starter card the factory can deliver quickly. Creating it adds one card to the repository's card source.</p>
         <div className="space-y-1 rounded bg-muted/40 p-3 text-sm">
           <div className="font-medium">{STARTER_TASK.title}</div>
           <pre className="whitespace-pre-wrap font-sans text-xs text-muted-foreground">{STARTER_TASK.body}</pre>
         </div>
-        {error && <p role="alert" className="text-xs text-destructive-text">Task not created: {error}</p>}
+        {error && <p role="alert" className="text-xs text-destructive-text">Card not created: {error}</p>}
         <div className="flex justify-end gap-2">
           <Button variant="text" color="secondary" disabled={busy} onClick={onClose}>Not now</Button>
-          <Button {...gateProps(gate)} disabled={busy || gate?.allowed === false} onClick={() => void create()}>{busy ? 'Creating…' : 'Create this task'}</Button>
+          <Button {...gateProps(gate)} disabled={busy || gate?.allowed === false} onClick={() => void create()}>{busy ? 'Creating…' : 'Create this card'}</Button>
         </div>
       </div>
     </div>

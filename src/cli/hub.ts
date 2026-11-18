@@ -10,6 +10,7 @@ import { assertGitWorkTreeDir } from '../hub/allowlist.js';
 import { HUB_TOKEN_FRAGMENT_PARAM } from '../hub-wire.js';
 import { createHubIdentity, localOnlyIdentity, parsePublicUrl, parseSignupAllowlist, providersFromEnv } from '../hub/auth.js';
 import { ensureTeams } from '../hub/teams.js';
+import { acquireHubLock } from '../hub/instance-lock.js';
 import { defaultHubConfigDir } from '../hub/audit.js';
 import { loadPaths, add as addProject } from '../hub/projects.js';
 import { loadOrCreateToken, rotateToken } from '../hub/token-file.js';
@@ -121,6 +122,8 @@ export async function hubCommand(command: Extract<Command, { kind: 'hub' }>): Pr
 
   // Demo: a throwaway config dir, so nothing the hub stores can touch (or expose) the real one.
   const configDir = demo ? await mkdtemp(join(tmpdir(), 'taskcell-hub-demo-')) : defaultHubConfigDir();
+  // Before anything touches the store: a second hub here would mark this one's live runs as interrupted.
+  const releaseLock = await acquireHubLock(configDir);
 
   // Seed the project store with --repo, same rule add_project uses: must be a git work tree, and
   // only persisted once (a restart must not keep re-adding an already-removed project).
@@ -199,7 +202,7 @@ export async function hubCommand(command: Extract<Command, { kind: 'hub' }>): Pr
     process.off('SIGINT', shutdown);
     process.off('SIGTERM', shutdown);
     process.stdin.destroy(); // a live stdin pipe (desktop app) would keep the process up
-    void hub.close();
+    void hub.close().finally(releaseLock);
   };
   process.on('SIGINT', shutdown);
   process.on('SIGTERM', shutdown);

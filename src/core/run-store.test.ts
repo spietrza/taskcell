@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createHash } from 'node:crypto';
 import { execa } from 'execa';
-import { VERDICT_STAGES, beginRun, listRuns, readRun, runsRoot, setRunTrigger, persistBaseMerge, persistDecisionProbe, persistRunRecord, persistStageOutcomes } from './run-store.js';
+import { VERDICT_STAGES, beginRun, diffPaths, listRuns, readRun, runsRoot, setRunTrigger, persistBaseMerge, persistDecisionProbe, persistRunRecord, persistStageOutcomes } from './run-store.js';
 import { STAGE } from '../pipeline/pipeline.js';
 import { parseMetrics } from './stats.js';
 import type { RunResult } from './types.js';
@@ -198,6 +198,46 @@ describe('beginRun — writing', () => {
     const plain = await metricOf();
     expect(plain).not.toHaveProperty('skillsUsed');
     expect(plain).not.toHaveProperty('verdict');
+  });
+
+  it('readRun joins each stage its skillsUsed from the metric line; a stage whose line lacks it stays without', async () => {
+    const transcript = JSON.stringify({ type: 'assistant', message: { content: [{ type: 'tool_use', name: 'Skill', input: { skill: 'simplify' } }] } });
+    await beginRun(repo, 'TES-U1', TS).writeStages(
+      [
+        { name: 'implementer', result: { ...result, taskId: 'TES-U1', transcript } },
+        { name: 'reviewer', result: { ...result, taskId: 'TES-U1', transcript: 'no skills here' } },
+      ],
+      { skillIds: ['simplify'] },
+    );
+    await beginRun(repo, 'TES-U2', TS).writeStages([{ name: 'implementer', result: { ...result, taskId: 'TES-U2', transcript } }]);
+    const root = runsRoot(repo);
+    expect((await readRun(root, 'TES-U1', TS)).stages.map((s) => [s.record.stage, s.record.skillsUsed])).toEqual([['implementer', ['simplify']], ['reviewer', []]]);
+    expect((await readRun(root, 'TES-U2', TS)).stages[0]!.record).not.toHaveProperty('skillsUsed');
+    // A run written after the index was built is seen: the grown file rebuilds it.
+    await beginRun(repo, 'TES-U3', TS).writeStages([{ name: 'implementer', result: { ...result, taskId: 'TES-U3', transcript } }], { skillIds: ['simplify'] });
+    expect((await readRun(root, 'TES-U3', TS)).stages[0]!.record.skillsUsed).toEqual(['simplify']);
+  });
+
+  it('readRun names the CI config paths of a stage diff with workflowPaths(), renames included', async () => {
+    const diff = [
+      'diff --git a/src/a.ts b/src/a.ts', '+x',
+      'diff --git a/.github/workflows/ci.yml b/.github/workflows/ci.yml', '-y',
+      'diff --git a/ci/build.yml b/.gitlab/ci/build.yml', 'rename to .gitlab/ci/build.yml',
+    ].join('\n');
+    await beginRun(repo, 'TES-C1', TS).writeStages([{ name: 'implementer', result: { ...result, taskId: 'TES-C1', diff } }]);
+    await beginRun(repo, 'TES-C2', TS).writeStages([{ name: 'implementer', result: { ...result, taskId: 'TES-C2', diff: 'diff --git a/src/a.ts b/src/a.ts\n+x\n' } }]);
+    const root = runsRoot(repo);
+    expect((await readRun(root, 'TES-C1', TS)).stages[0]!.ciConfigPaths).toEqual(['.github/workflows/ci.yml', '.gitlab/ci/build.yml']);
+    expect((await readRun(root, 'TES-C2', TS)).stages[0]!.ciConfigPaths).toEqual([]);
+  });
+
+  it('diffPaths reads paths with spaces and quoted paths from the file headers, never from hunk lines', () => {
+    const diff = [
+      'diff --git a/.github/workflows/my ci.yml b/.github/workflows/my ci.yml', '--- a/.github/workflows/my ci.yml\t', '+++ b/.github/workflows/my ci.yml\t', '@@ -1 +1 @@', '--- a/not/a/path.yml', '+x',
+      'diff --git "a/.github/workflows/caf\\303\\251.yml" "b/.github/workflows/caf\\303\\251.yml"', 'new file mode 100644', '--- /dev/null', '+++ "b/.github/workflows/caf\\303\\251.yml"',
+      'diff --git a/old name.yml b/.gitlab/ci/new name.yml', 'rename from old name.yml', 'rename to .gitlab/ci/new name.yml',
+    ].join('\n');
+    expect(diffPaths(diff)).toEqual(['.github/workflows/my ci.yml', '.github/workflows/café.yml', 'old name.yml', '.gitlab/ci/new name.yml']);
   });
 
   it('writes lessonsLoaded and lessonIds on the metric line, 0 when none, and nothing when the caller passes no lessons', async () => {
@@ -675,6 +715,37 @@ describe('beginRun → listRuns/readRun round trip', () => {
     const byId = new Map((await listRuns(runsRoot(repo))).map((r) => [r.taskId, r]));
     expect(byId.get('TES-2')).toMatchObject({ anyFailed: true, stoppedBy: 'provider-limit' });
     expect(byId.get('TES-3')!.stoppedBy).toBeUndefined();
+  });
+
+  it('sums the extra attempts of its stages; a run whose stages ran once has none', async () => {
+    await beginRun(repo, 'TES-R', TS).writeStages([
+      { name: 'implementer', result: { ...result, taskId: 'TES-R', attempts: 3 } },
+      { name: 'reviewer', result: { ...result, taskId: 'TES-R', attempts: 2 } },
+    ]);
+    await beginRun(repo, 'TES-ONCE', TS).writeStages([{ name: 'implementer', result: { ...result, taskId: 'TES-ONCE' } }]);
+    const byId = new Map((await listRuns(runsRoot(repo))).map((r) => [r.taskId, r]));
+    expect(byId.get('TES-R')?.extraAttempts).toBe(3);
+    expect(byId.get('TES-ONCE')).not.toHaveProperty('extraAttempts');
+  });
+
+  it('summarises an agent that stopped to ask: the failed stage and its last reply; a red proof marks verify failed', async () => {
+    const asking = { ...result, taskId: 'TES-ASK', completed: false, exitReason: 'incomplete' as const, finalText: 'To finish, I still need: which config file?' };
+    const run = beginRun(repo, 'TES-ASK', TS);
+    await run.writeProof({ ...verResult, passed: false, exitCode: 1 });
+    await run.writeStages([{ name: 'implementer', result: asking }], {});
+    await beginRun(repo, 'TES-OK', TS).writeStages([{ name: 'implementer', result: { ...result, taskId: 'TES-OK' } }], {});
+    const byId = new Map((await listRuns(runsRoot(repo))).map((r) => [r.taskId, r]));
+    expect(byId.get('TES-ASK')).toMatchObject({ anyFailed: true, failedStage: 'implementer', verifyFailed: true, asked: 'To finish, I still need: which config file?' });
+    expect(byId.get('TES-OK')).not.toHaveProperty('asked');
+    expect(byId.get('TES-OK')).not.toHaveProperty('failedStage');
+    expect(byId.get('TES-OK')).not.toHaveProperty('verifyFailed');
+  });
+
+  it('a run that finished but delivered nothing waits on a person: its implementer reply is what it asked', async () => {
+    const said = { ...result, taskId: 'TES-NONE', finalText: 'I have not changed anything. To do this I need the database host.' };
+    await beginRun(repo, 'TES-NONE', TS).writeStages([{ name: 'implementer', result: said }], { noChanges: true });
+    const run = (await listRuns(runsRoot(repo))).find((r) => r.taskId === 'TES-NONE');
+    expect(run?.asked).toBe('I have not changed anything. To do this I need the database host.');
   });
 
   it('keeps a run failed when one failed stage is genuine and another stopped on a provider limit', async () => {

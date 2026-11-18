@@ -107,7 +107,14 @@ describe('resolveVerifyCommand', () => {
       JSON.stringify({ scripts: { test: 'jest' } }),
     );
     const result = await resolveVerifyCommand(tmpDir, { env: {} });
-    expect(result).toBe('npm install --frozen-lockfile && npm test');
+    // No lockfile: install without writing one, which the run would otherwise deliver as its change.
+    expect(result).toBe('npm install --no-package-lock && npm test');
+  });
+
+  it('npm with a package-lock.json installs it with npm ci', async () => {
+    await writeFile(join(tmpDir, 'package.json'), JSON.stringify({ scripts: { test: 'jest' } }));
+    await writeFile(join(tmpDir, 'package-lock.json'), '{}');
+    expect(await resolveVerifyCommand(tmpDir, { env: {} })).toBe('npm ci && npm test');
   });
 
   it('auto-detects yarn when packageManager starts with yarn', async () => {
@@ -155,7 +162,7 @@ describe('resolveVerifyCommand', () => {
       JSON.stringify({ scripts: { verify: 'npm run build' } }),
     );
     const result = await resolveVerifyCommand(tmpDir, { env: {} });
-    expect(result).toBe('npm install --frozen-lockfile && npm run verify');
+    expect(result).toBe('npm install --no-package-lock && npm run verify');
   });
 
   it('yarn project with a verify script gets the yarn command', async () => {

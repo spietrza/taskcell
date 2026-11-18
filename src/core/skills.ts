@@ -1,4 +1,5 @@
 import { execFile } from 'node:child_process';
+import { SKILL_NAME_RE, skillsMarker } from './skills-marker.js';
 import { lstat, mkdir, mkdtemp, readFile, realpath, rename, rm, writeFile } from 'node:fs/promises';
 import type { DiscoveredSkill } from '../wire.js';
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
@@ -141,7 +142,7 @@ export interface SkillsDeps {
 }
 
 type Out = (line: string) => void;
-const NAME_RE = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;
+const NAME_RE = SKILL_NAME_RE;
 const todayIso = (): string => new Date().toISOString().slice(0, 10);
 /**
  * Upstream text goes to a terminal: no escape sequences or other control characters, and no bidi
@@ -250,9 +251,11 @@ const MAX_DISCOVERED = 50;
  * directory names are skipped (they could not be installed); a name found twice keeps the shallowest path outside
  * dot-directories, so `.openclaw/skills/x` does not shadow `skills/x`.
  */
-export async function skillsDiscover(opts: { source: string; ref?: string }, deps: SkillsDeps = {}): Promise<{ commit: string; skills: DiscoveredSkill[] }> {
+export async function skillsDiscover(opts: { source: string; ref?: string; path?: string }, deps: SkillsDeps = {}): Promise<{ commit: string; skills: DiscoveredSkill[] }> {
   const src = deps.source ?? gitSkillSource;
   assertHttpsSource(opts.source);
+  // A folder scope keeps the repo-relative paths, so a pick can be added as it is.
+  const scope = opts.path === undefined ? '.' : assertRepoPath(opts.path);
   if (src.list === undefined) throw new TaskcellError('This skill source cannot list a repository.');
   try {
     const commit = await src.resolve(opts.source, opts.ref);
@@ -261,6 +264,7 @@ export async function skillsDiscover(opts: { source: string; ref?: string }, dep
     const dirs = (await src.list(opts.source, commit))
       .filter((f) => f === 'SKILL.md' || f.endsWith('/SKILL.md'))
       .map((f) => (f === 'SKILL.md' ? '.' : f.slice(0, -'/SKILL.md'.length)))
+      .filter((d) => scope === '.' || d === scope || d.startsWith(`${scope}/`))
       .filter((d) => oneLine(d) === d);
     const rank = (d: string): [number, number, string] => [d.split('/').some((seg) => seg.startsWith('.') && seg !== '.') ? 1 : 0, d.split('/').length, d];
     dirs.sort((a, b) => {
@@ -658,7 +662,7 @@ export async function skillsAddPr(opts: SkillsAddOptions & { repo: string; baseB
       names.push(await skillsAdd({ ...one, dir: w.wtDir, ...(path !== undefined ? { path } : {}) }, deps, () => {}));
     }
     const list = names.map(code).join(', ');
-    const body = `Adds the skill${names.length > 1 ? 's' : ''} ${list} from ${code(opts.source)}${opts.ref !== undefined ? ` at ${code(opts.ref)}` : ''}.\n\nOpened by \`taskcell skills add\`; review SKILL.md before merging.`;
+    const body = `Adds the skill${names.length > 1 ? 's' : ''} ${list} from ${code(opts.source)}${opts.ref !== undefined ? ` at ${code(opts.ref)}` : ''}.\n\nOpened by \`taskcell skills add\`; review SKILL.md before merging.${skillsMarker(names)}`;
     return deliverSkillsPr(w, names, `chore(skills): add ${names.join(', ')}`.slice(0, 100), () => body, deps);
   });
 }

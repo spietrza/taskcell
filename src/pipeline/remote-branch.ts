@@ -40,7 +40,10 @@ export interface PublishOptions {
    * until someone pushes. Refused (e.g. no Pull requests: write) → opens with the ambient credential.
    */
   prToken?: string;
-  /** Resolved right before the PR is opened, so a short-lived token is fresh at that use. Overrides prToken. A failure falls back to the ambient credential. */
+  /**
+   * Resolved right before the PR is opened, so a short-lived token is fresh at that use. Overrides prToken. A failure falls back to the ambient credential.
+   * glab: the token pushes the branch instead (GitLab CI's job token usually may not push).
+   */
   tokenProvider?: () => Promise<string | undefined>;
   /** Injected for tests; defaults to running git/gh via execa. */
   runner?: CommandRunner;
@@ -253,6 +256,27 @@ async function openReview(run: CommandRunner, tool: string, args: string[], ctx:
 }
 
 /**
+ * GitLab: push with the provided token (GITLAB_TOKEN) to the remote's URL stripped of its userinfo. In CI
+ * that URL embeds the job token (`gitlab-ci-token:…@`), which usually may not push, and a userinfo
+ * credential plus the token's header would send two. No token or a non-https remote → ambient push.
+ */
+async function tokenPushTarget(run: CommandRunner, ctx: RunContext, remote: string, opts: PublishOptions): Promise<{ url: string; host: string; token: string } | undefined> {
+  const token = await resolveToken(opts.tokenProvider, undefined, (m) => ctx.log.warn({ branch: ctx.branch }, `publish: ${m}`));
+  if (token === undefined || token === '') return undefined;
+  const raw = (await run('git', ['remote', 'get-url', remote], ctx.worktreePath).catch(() => '')).trim();
+  let url: URL;
+  try {
+    url = new URL(raw);
+  } catch {
+    return undefined;
+  }
+  if (url.protocol !== 'https:') return undefined;
+  url.username = '';
+  url.password = '';
+  return { url: url.toString(), host: url.host, token };
+}
+
+/**
  * Merger review output: push the worktree branch and open a GitHub PR for human/CI review.
  * Outward-facing and opt-in — call after commitStage and before disposeContext. GitHub is the
  * review surface only; the task source of truth (e.g. Linear) is separate.
@@ -281,10 +305,15 @@ export async function publishForReview(ctx: RunContext, opts: PublishOptions): P
   if (rebased && headSha === '') {
     ctx.log.warn({ branch: ctx.branch }, 'publish: rebased but could not resolve the branch head; the review marker will name the pre-rebase commit');
   }
-  const pushArgs = ['push', '--no-verify', '-u', remote, `refs/heads/${ctx.branch}:refs/heads/${ctx.branch}`];
-  // Ambient credential on purpose: the checkout's persisted extraheader plus an env extraheader sends
-  // two Authorization headers (HTTP 400). The PR itself is opened with the token below.
-  await gitPush(run, pushArgs, ctx.worktreePath, undefined);
+  const refspec = `refs/heads/${ctx.branch}:refs/heads/${ctx.branch}`;
+  const glabPush = tool === 'glab' ? await tokenPushTarget(run, ctx, remote, opts) : undefined;
+  if (glabPush !== undefined) {
+    await gitPush(run, ['push', '--no-verify', glabPush.url, refspec], ctx.worktreePath, glabPush.token, glabPush.host);
+  } else {
+    // Ambient credential on purpose: the checkout's persisted extraheader plus an env extraheader sends
+    // two Authorization headers (HTTP 400). The PR itself is opened with the token below.
+    await gitPush(run, ['push', '--no-verify', '-u', remote, refspec], ctx.worktreePath, undefined);
+  }
   const body = [opts.body, droppedCiPathsNote(ctx.droppedCiPaths), rebased ? rebasedNote(remote, base) : undefined]
     .filter((part) => part !== undefined && part !== '').join('\n\n');
   // gh reads the body from a file: one argv string is capped (128 KiB on Linux) and the branch is already pushed.

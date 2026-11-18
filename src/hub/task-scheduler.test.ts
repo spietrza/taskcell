@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, expect, test, vi } from 'vitest';
 import { createHubTask, listHubTasks, type HubTaskOwner } from './hub-tasks.js';
-import { schedulerState, scheduleTick } from './task-scheduler.js';
+import { INCOMPLETE_REASON, ended, schedulerState, scheduleTick } from './task-scheduler.js';
 
 let dir: string;
 const repo = '/srv/repo';
@@ -32,4 +32,26 @@ test('a run whose end could not be stored keeps its real result: the next tick w
   expect(await listHubTasks(dir, repo)).toMatchObject([{ status: 'done', result: 'branch chore/a' }]);
   expect(state.pending.size).toBe(0);
   expect(state.live.size).toBe(0);
+});
+
+test('a run whose agent stopped before finishing fails its task, even when it delivered a branch', async () => {
+  expect(ended({ branch: 'chore/a', implementerIncomplete: true })).toEqual({ status: 'failed', reason: INCOMPLETE_REASON, result: 'branch chore/a' });
+  expect(ended({ implementerIncomplete: true })).toEqual({ status: 'failed', reason: INCOMPLETE_REASON });
+  expect(ended({ branch: 'chore/a' })).toEqual({ status: 'done', result: 'branch chore/a' });
+});
+
+test('a finished run clears the reason an earlier end left on the task', async () => {
+  const { editHubTask } = await import('./hub-tasks.js');
+  const t = await createHubTask(dir, repo, { title: 'A', owner });
+  await editHubTask(dir, repo, t.id, (x) => { x.status = 'failed'; x.reason = 'its run ended with the hub process'; });
+  await editHubTask(dir, repo, t.id, (x) => { x.status = 'todo'; });
+  const state = schedulerState();
+  let end!: (r: { branch: string }) => void;
+  const start = (_t: unknown, admitted: (id: string) => void): Promise<{ branch: string }> => new Promise((r) => { admitted('run-1'); end = r; });
+  await scheduleTick(state, dir, repo, start as never, { limit: 1 });
+  end({ branch: 'chore/a' });
+  await vi.waitFor(() => expect(state.live.size).toBe(0));
+  const [task] = await listHubTasks(dir, repo);
+  expect(task).toMatchObject({ status: 'done', result: 'branch chore/a' });
+  expect(task!.reason).toBeUndefined();
 });

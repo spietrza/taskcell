@@ -240,7 +240,7 @@ export async function postMergeRequestNote(
   glab: GlabRunner = defaultGlabRunner,
 ): Promise<void> {
   await glab([
-    'mr', 'note', 'create',
+    'mr', 'note', // no `create`: the glab the CI template installs (Debian, 1.50) lacks it; a bare id creates a note there and in newer glab
     String(target.iid),
     '--repo', target.project,
     '-m', neutralizeQuickActions(redactForPublish(body)),

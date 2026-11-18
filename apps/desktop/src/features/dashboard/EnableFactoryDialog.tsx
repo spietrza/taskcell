@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react';
-import { Button, Chip, CodeBlock, useFocusTrap } from '@/ui';
+import { Button, Chip, CodeBlock, LINK_CLASS, useFocusTrap } from '@/ui';
 import { enableFactoryApply, enableFactoryHost, enableFactoryPlan, enableFactoryStart, enableFactoryVerify, enableFactoryWatch, factoryRefresh, factoryState, localWorkerDoctor, localWorkerSet, localWorkerState } from '../../ipc';
 import { factoryStepLabel, localWorkerLabel } from './factoryLabel';
 import { ExternalLink } from '../../components/ExternalLink';
@@ -47,7 +47,7 @@ function errorText(err: unknown): string {
  * (callers, labels, the secret command), confirm to open the PR, then dispatch the doctor workflow.
  * The secret is only ever shown as a command for the user to run — this dialog never takes a token.
  */
-export function EnableFactoryDialog({ project, onClose }: { project: { path: string; name: string }; onClose: () => void }) {
+export function EnableFactoryDialog({ project, onClose, startLocal = false }: { project: { path: string; name: string }; onClose: () => void; /** A hub-board project: open on the Local hub checklist, its only way to run by itself. */ startLocal?: boolean }) {
   const dialogRef = useRef<HTMLDivElement>(null);
   useFocusTrap(dialogRef);
   const [plan, setPlan] = useState<FactoryPlan | null>(null);
@@ -148,6 +148,11 @@ export function EnableFactoryDialog({ project, onClose }: { project: { path: str
     step('local', async () => {
       setLocal(await localWorkerDoctor(project.path));
     });
+  useEffect(() => {
+    if (startLocal) void loadLocal();
+    // Once, on open: Back still leads to the full picker.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
   const existingFiles = new Set(plan?.existingCallerFiles ?? []);
   // A caller counts as present under its legacy `vanguard-` name too (the hub adds no `taskcell-` twin).
   const existing = { has: (f: string): boolean => existingFiles.has(f) || existingFiles.has(f.replace('/taskcell-', '/vanguard-')) };
@@ -198,11 +203,11 @@ export function EnableFactoryDialog({ project, onClose }: { project: { path: str
         ref={dialogRef}
         role="dialog"
         aria-modal="true"
-        aria-label="Enable factory"
+        aria-label="Set up auto-run"
         className="max-h-[80vh] w-[34rem] overflow-y-auto rounded-lg border border-border bg-background p-4 shadow-lg"
         onClick={(e) => e.stopPropagation()}
       >
-        <h2 className="font-semibold">Enable factory on {project.name}</h2>
+        <h2 className="font-semibold">Set up auto-run on {project.name}</h2>
 
         {showChecklist ? (
           <>
@@ -216,7 +221,7 @@ export function EnableFactoryDialog({ project, onClose }: { project: { path: str
                   </div>
                   {s.id === 'pr' && checklist.prUrl && (
                     <div className="ml-6 text-xs">
-                      <a href={checklist.prUrl} target="_blank" rel="noreferrer" className="text-primary-text underline">{checklist.prUrl}</a>
+                      <a href={checklist.prUrl} target="_blank" rel="noreferrer" className={LINK_CLASS}>{checklist.prUrl}</a>
                     </div>
                   )}
                   {s.id === 'secret' && s.status !== 'done' && checklist.secret && (
@@ -238,13 +243,13 @@ export function EnableFactoryDialog({ project, onClose }: { project: { path: str
                   {s.id === 'merged' && s.status !== 'done' && checklist.prUrl && (
                     <p className="ml-6 text-xs text-muted-foreground">
                       {s.status === 'failed' ? checklist.reason : 'Waiting for the merge — this page notices on its own.'}{' '}
-                      <a href={checklist.prUrl} target="_blank" rel="noreferrer" className="text-primary-text underline">Open the {mr}</a>
+                      <a href={checklist.prUrl} target="_blank" rel="noreferrer" className={LINK_CLASS}>Open the {mr}</a>
                     </p>
                   )}
                   {s.id === 'doctor' && (
                     <div className="ml-6 text-xs">
                       {checklist.doctor ? (
-                        <a href={checklist.doctor.url} target="_blank" rel="noreferrer" className="text-primary-text underline">
+                        <a href={checklist.doctor.url} target="_blank" rel="noreferrer" className={LINK_CLASS}>
                           Doctor run: {checklist.doctor.conclusion || checklist.doctor.status}
                         </a>
                       ) : checklist.doctorPending ? (
@@ -267,7 +272,7 @@ export function EnableFactoryDialog({ project, onClose }: { project: { path: str
         ) : local !== null ? (
           <>
             <p className="mt-1 text-xs text-muted-foreground">
-              The hub itself works this project: on a schedule it picks up {local.source === 'hub' ? 'tasks from the hub board' : 'open issues with the trigger label'}, within its parallel-run limit, on this machine. Off by default.
+              The hub itself works this project: on a schedule it picks up {local.source === 'hub' ? 'cards from the Taskcell board' : 'open issues with the trigger label'}, within its parallel-run limit, on this machine. Off by default.
             </p>
             <label className="mt-3 flex items-center gap-2 text-sm font-medium">
               <input
@@ -288,11 +293,11 @@ export function EnableFactoryDialog({ project, onClose }: { project: { path: str
               <div className="mt-1 flex flex-wrap gap-1">
                 {local.credentials.names.map((c) => <Chip key={c} color="secondary" variant="outlined">{c}</Chip>)}
               </div>
-              {!local.credentials.present && <p className="mt-1 text-xs text-muted-foreground">Set one in the hub&apos;s environment or add it in Settings → Credentials. Any one of these is enough.</p>}
+              {!local.credentials.present && <p className="mt-1 text-xs text-muted-foreground">Set one in the hub&apos;s environment or add it in Settings → Team &amp; hub. Any one of these is enough.</p>}
             </Section>
             <Section title="2. Doctor passed (run on the hub's machine)">
               {local.source === 'hub' ? (
-                <p className="text-xs text-muted-foreground">Not needed: the board scheduler runs a hub-board project&apos;s tasks; there is no tracker to check.</p>
+                <p className="text-xs text-muted-foreground">Not needed: the board scheduler runs a Taskcell-board project&apos;s cards; there is no tracker to check.</p>
               ) : (<>              <p data-doctor={local.doctor === undefined ? 'unknown' : local.doctor.ok ? 'passed' : 'failed'}>
                 {local.doctor === undefined
                   ? 'Not run yet.'
@@ -307,7 +312,7 @@ export function EnableFactoryDialog({ project, onClose }: { project: { path: str
             </Section>
             <Section title="3. Worker state">
               <p data-testid="local-worker-dialog-state">{localWorkerLabel(local)}</p>
-              <p className="mt-1 text-xs text-muted-foreground">Turning it off stops new pick-ups; a task that is already running is left alone.</p>
+              <p className="mt-1 text-xs text-muted-foreground">Turning it off stops new pick-ups; a card that is already running is left alone.</p>
             </Section>
           </>
         ) : watch !== null ? (
@@ -444,7 +449,7 @@ export function EnableFactoryDialog({ project, onClose }: { project: { path: str
               </ul>
               {gitlab && plan.gitlabManualInclude && (
                 <p className="mt-1 text-xs text-muted-foreground">
-                  The hub cannot edit <code>{plan.gitlabCiPath ?? '.gitlab-ci.yml'}</code> automatically. {manualOnly ? 'The jobs file is already on the default branch, so there is no merge request to open: add' : 'Before merging the merge request, add'} this line under its top-level <code>include:</code>{manualOnly ? ', then open Enable factory again' : ''}: <code>- local: .gitlab/taskcell.yml</code>
+                  The hub cannot edit <code>{plan.gitlabCiPath ?? '.gitlab-ci.yml'}</code> automatically. {manualOnly ? 'The jobs file is already on the default branch, so there is no merge request to open: add' : 'Before merging the merge request, add'} this line under its top-level <code>include:</code>{manualOnly ? ', then open Set up auto-run again' : ''}: <code>- local: .gitlab/taskcell.yml</code>
                 </p>
               )}
               {nothingToAdd && (

@@ -28,10 +28,10 @@ describe('platform', () => {
     expect(combinationNote(undefined, undefined)).toBeNull(); // the existing GitHub flow
     expect(combinationNote('gitlab', 'gitlab-ci')).toBeNull();
     expect(combinationNote('linear', 'watch')).toMatch(/code host/);
-    expect(combinationNote('gitlab', 'github-actions')).toMatch(/GitLab Issues/);
-    expect(combinationNote('github', 'gitlab-ci')).toMatch(/GitHub Issues/);
+    expect(combinationNote('gitlab', 'github-actions')).toMatch(/GitLab cards/);
+    expect(combinationNote('github', 'gitlab-ci')).toMatch(/GitHub cards/);
     expect(combinationNote('github-project', 'github-actions')).toMatch(/GitHub Projects/);
-    expect(combinationNote('hub', 'gitlab-ci')).toMatch(/hub board/);
+    expect(combinationNote('hub', 'gitlab-ci')).toMatch(/Taskcell board/);
     expect(combinationNote('hub', 'local')).toBeNull();
   });
 });

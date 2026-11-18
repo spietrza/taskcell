@@ -36,7 +36,7 @@ test('demo data is consistent: one name, the demo repository, a spec per card, m
   expect(all).not.toMatch(/vanguard|acme/);
   expect(handleDemo('fetch_spec', { taskId: 'DEMO-101' })).not.toEqual(handleDemo('fetch_spec', { taskId: 'DEMO-102' }));
   expect(handleDemo('list_drafts', {})).toEqual([]);
-  // The rail's Runs badge counts what the Runs list shows: finished runs plus the one in flight.
+  // The project's run count is what the Runs list shows: finished runs plus the one in flight.
   expect(demoProject.runCount).toBe(demoRuns.length + demoActiveRuns.length);
   // The Board header's "Running" counts the cards the factory holds; one is shown as running.
   expect(demoBoardTasks.filter((t) => t.column === 'claimed' || t.column === 'running')).toHaveLength(demoActiveRuns.length);
@@ -73,15 +73,18 @@ test('every main screen opens in demo mode without errors', async () => {
   render(<App />);
   expect(await screen.findByRole('status')).toHaveTextContent(/Demo project/);
   fireEvent.click(await screen.findByText('storefront (demo)', { selector: '*' }));
+  // A project opens on its Board; Runs is one tab over.
+  fireEvent.click(await screen.findByRole('button', { name: 'Runs' }));
 
-  // A project opens on Runs. The run in progress opens first, as after a reload with a live run: DEMO-104 with its stages, not an empty box.
+  // On Runs, The run in progress opens first, as after a reload with a live run: DEMO-104 with its stages, not an empty box.
   expect(await screen.findByRole('button', { name: /Back to runs/ })).toBeInTheDocument();
-  expect(screen.getAllByText('DEMO-104').length).toBeGreaterThan(0);
+  // The header shows the id until the board loads, then the card title, so assert on the pane's own label.
+  expect(await screen.findByRole('region', { name: 'Run DEMO-104' })).toBeInTheDocument();
   expect(await screen.findByTestId('stage-0')).toHaveAttribute('data-phase', 'done');
   expect(screen.getByTestId('stage-1')).toHaveTextContent('Implement');
   expect(screen.getByTestId('stage-1')).toHaveAttribute('data-phase', 'running');
   expect(screen.queryByText('starting…')).not.toBeInTheDocument();
-  // A click on the rail's Runs item while it is open shows the list; and from a run detail it goes back to the list.
+  // A click on the nav's Runs item while it is open shows the list; and from a run detail it goes back to the list.
   fireEvent.click(screen.getByRole('button', { name: /^Runs/ }));
   await waitFor(() => expect(screen.queryByRole('button', { name: /Back to runs/ })).not.toBeInTheDocument());
   fireEvent.click(within(await screen.findByRole('list', { name: 'Runs' })).getByText('Fix cart total rounding'));
@@ -95,10 +98,10 @@ test('every main screen opens in demo mode without errors', async () => {
   expect(screen.getByText('Add wishlist to the account page')).toBeInTheDocument();
 
   fireEvent.click(screen.getByRole('button', { name: /^Settings/ }));
-  fireEvent.click(await screen.findByRole('tab', { name: 'Line' }));
+  fireEvent.click(await screen.findByRole('menuitem', { name: 'Line' }));
   await waitFor(() => expect(screen.getByRole('tab', { name: 'Line' })).toHaveAttribute('aria-selected', 'true'));
 
-  // Home carries both the Needs you section and the project list.
+  // Home carries both the Waiting for you section and the project list.
   fireEvent.click(screen.getByRole('button', { name: /^Home/ }));
   expect(await screen.findByText('Case-insensitive product search')).toBeInTheDocument();
   expect(await screen.findByRole('heading', { name: 'Projects' })).toBeInTheDocument();
@@ -146,6 +149,7 @@ test('demo: Stop says read-only; the New Run form closes on Cancel and on naviga
   vi.stubGlobal('matchMedia', (q: string) => ({ matches: false, media: q, addEventListener: () => {}, removeEventListener: () => {}, addListener: () => {}, removeListener: () => {} }));
   render(<App />);
   fireEvent.click(await screen.findByText('storefront (demo)', { selector: '*' }));
+  fireEvent.click(await screen.findByRole('button', { name: 'Runs' }));
   fireEvent.click(await screen.findByRole('button', { name: /^(Stop|Cancel)/ }));
   expect(await screen.findByText(/Demo project is read-only/)).toBeInTheDocument();
 
@@ -166,21 +170,22 @@ test('demo: Stop says read-only; the New Run form closes on Cancel and on naviga
 
   await openForm();
   fireEvent.click(screen.getByRole('button', { name: /^run$/i }));
-  fireEvent.click(screen.getByRole('button', { name: /^Settings/ }));
+  fireEvent.click(screen.getByRole('button', { name: /^Runs/ }));
   await waitFor(() => expect(screen.queryByRole('heading', { name: 'New run' })).toBeNull());
   expect(screen.queryByText(/Demo project is read-only/)).toBeNull();
   vi.unstubAllGlobals();
 }, 30000);
 
-test('opening a run from its row with Enter leaves focus on the run, not on the page body', async () => {
+test('opening a run from its row button leaves focus on the run, not on the page body', async () => {
   window.__TASKCELL_DEMO__ = true;
   vi.stubGlobal('matchMedia', (q: string) => ({ matches: false, media: q, addEventListener: () => {}, removeEventListener: () => {}, addListener: () => {}, removeListener: () => {} }));
   render(<App />);
   fireEvent.click(await screen.findByText('storefront (demo)', { selector: '*' }));
   fireEvent.click(await screen.findByRole('button', { name: /^Runs/ }));
-  const row = within(await screen.findByRole('list', { name: 'Runs' })).getByText('Fix cart total rounding').closest('li')!;
+  // The row is a button: Enter and Space press it natively (jsdom does not, so the press is a click).
+  const row = within(await screen.findByRole('list', { name: 'Runs' })).getByText('Fix cart total rounding').closest('button')!;
   row.focus();
-  fireEvent.keyDown(row, { key: 'Enter' });
+  fireEvent.click(row);
   expect((await screen.findAllByText('reviewer')).length).toBeGreaterThan(0);
   await waitFor(() => expect(document.activeElement).not.toBe(document.body));
   vi.unstubAllGlobals();
@@ -193,4 +198,17 @@ test('the running demo card and its live transcript tell the same story', () => 
   expect(text).toMatch(/wishlist/i);
   expect(text).toMatch(/account/i);
   expect(text).not.toMatch(/Add the new endpoint|src\/index\.ts/);
+});
+
+test('a project opened from Home narrows the Board for that visit only; the top-bar Board shows the saved filter', async () => {
+  window.__TASKCELL_DEMO__ = true;
+  vi.stubGlobal('matchMedia', (q: string) => ({ matches: false, media: q, addEventListener: () => {}, removeEventListener: () => {}, addListener: () => {}, removeListener: () => {} }));
+  render(<App />);
+  fireEvent.click(await screen.findByText('storefront (demo)', { selector: '*' }));
+  // One demo project: no project tabs to show the narrowing, so the check is that it is not saved.
+  expect((await screen.findAllByRole('search', { name: 'Filters' })).length).toBeGreaterThan(0);
+  expect(localStorage.getItem('vanguard.hubFilter.demo') ?? '').not.toContain('storefront');
+  fireEvent.click(screen.getByRole('button', { name: 'Board' }));
+  expect((await screen.findAllByRole('search', { name: 'Filters' })).length).toBeGreaterThan(0);
+  expect(localStorage.getItem('vanguard.hubFilter.demo') ?? '').not.toContain('storefront');
 });

@@ -185,6 +185,29 @@ describe('publishForReview', () => {
     await disposeContext(ctx);
   });
 
+  it('glab pushes with the token to the remote URL without the CI job token in it', async () => {
+    const wm = new WorktreeManager(repo, undefined, () => 'r1');
+    const ctx = await prepareContext({ taskId: 'gl-push', localRepoPath: repo, baseBranch: 'main', start: 'base', sandbox: makeSandbox() }, { worktrees: wm });
+    const pushes: Array<{ args: string[]; env: Record<string, string> | undefined }> = [];
+    const runner = async (file: string, args: string[], _cwd: string, env?: Record<string, string>): Promise<string> => {
+      if (file === 'git' && args[0] === 'remote') return 'https://gitlab-ci-token:job-secret@gitlab.com/owner/repo.git\n';
+      if (file === 'git' && args[0] === 'push') pushes.push({ args, env });
+      if (file === 'glab') return 'https://gitlab.com/owner/repo/-/merge_requests/1\n';
+      return '';
+    };
+    await publishForReview(ctx, { title: 'T', body: 'b', cli: 'glab', runner, tokenProvider: async () => 'glpat-x' });
+    expect(pushes).toHaveLength(1);
+    expect(pushes[0]!.args).toContain('https://gitlab.com/owner/repo.git');
+    expect(pushes[0]!.args.join(' ')).not.toContain('job-secret');
+    expect(Object.values(pushes[0]!.env ?? {})).toContain('http.https://gitlab.com/.extraheader');
+    // No token: the ambient push to the remote name, as before.
+    pushes.length = 0;
+    await publishForReview(ctx, { title: 'T', body: 'b', cli: 'glab', runner });
+    expect(pushes[0]!.args).toContain('origin');
+    expect(pushes[0]!.env).toBeUndefined();
+    await disposeContext(ctx);
+  });
+
   it('opens the PR as the prToken owner and falls back to the ambient credential when it is refused', async () => {
     const wm = new WorktreeManager(repo, undefined, () => 'r1');
     const ctx = await prepareContext({ taskId: 'pr-token', localRepoPath: repo, baseBranch: 'main', start: 'base', sandbox: makeSandbox() }, { worktrees: wm });

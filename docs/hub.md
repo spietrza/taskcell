@@ -62,8 +62,8 @@ including the container hub) has no launch URL: open its public URL and sign in 
    **Fetch records** imports a run's `vanguard-runs` artifact into `.taskcell/remote-runs/<id>`, and
    the records open like local ones. No token, no Docker, no sandbox on this machine. The Board
    header counts the factory's work from issue labels — `Running N` (claimed or running) and
-   `Waiting K` (labelled `ready for agent`/`ready for spec`, not yet picked up) — so it shows the CI
-   backlog too. A `+` (`12+`) means the board holds only its first page of issues and the count is a
+   `Queued K` (labelled `ready for agent`/`ready for spec`, not yet picked up), then `Waiting for you M`
+   (the Board's Waiting for you filter, the same name as Home's section) — so it shows the CI backlog too. A `+` (`12+`) means the board holds only its first page of issues and the count is a
    lower bound.
 3. **Self-hosted.** Build `docker/hub.Dockerfile`, run it on a VPS (Coolify, Hetzner) behind Tailscale
    or an authenticating reverse proxy, and reach it from a laptop or a phone. Agent code runs on
@@ -100,13 +100,28 @@ warning naming the provider rather than leaving the exposure silent:
   run consumes no Anthropic-family credential, so the proxy's primary sidecar has nothing to hold and
   cannot start; exporting `CLAUDE_CODE_OAUTH_TOKEN` as well does not change that, because the run never
   uses it. The key is injected into the sandbox and the run starts.
-- **Direct-mode-only providers** — Meridian ([MERIDIAN-provider.md](MERIDIAN-provider.md)) and repo
-  custom providers (`.taskcell/app.json` `customProviders`). They point the Claude CLI at their own
+- **Direct-mode-only providers** — Anthropic-compatible endpoints: repo custom providers
+  (`.taskcell/app.json` `customProviders`, e.g. a self-hosted proxy such as Meridian or CLIProxyAPI; see
+  [MERIDIAN-provider.md](MERIDIAN-provider.md) as an example) and the legacy `meridian` alias. They point the Claude CLI at their own
   endpoint and authenticate on that host, exposing no upstream a sidecar could target, so their key
   is injected into the sandbox. A custom provider's `keyEnv` must be a variable of its own: any name
   starting with `TASKCELL_` or `VANGUARD_` (reserved for Taskcell's own settings), and known credential
   names (the built-in providers', git hosts', and `AWS_SECRET_ACCESS_KEY`, `NPM_TOKEN`,
-  `OTEL_EXPORTER_OTLP_HEADERS` and the like), are refused in any letter case.
+  `OTEL_EXPORTER_OTLP_HEADERS` and the like), are refused in any letter case. `keyEnv` may be omitted for
+  a proxy that holds its own auth: a non-empty placeholder token is injected, the provider stays
+  direct-mode only, and under `--egress` its host is allowlisted (an `http://` endpoint still cannot
+  traverse the egress enclave). In the Hub, Settings lists these under "Anthropic-compatible endpoints
+  (proxy)"; a project already saved with `provider: "meridian"` keeps working and shows as "Anthropic-compatible
+  endpoint (MERIDIAN_BASE_URL)".
+
+  **Only an OpenAI-compatible endpoint?** These providers drive the Claude CLI, which speaks only the
+  Anthropic Messages API (`/v1/messages`). No provider talks to an OpenAI `/v1/chat/completions`
+  endpoint (vLLM, LM Studio, Ollama's OpenAI API, a company LLM gateway) directly: `openrouter` uses
+  OpenRouter's Anthropic-compatible API, and `codex` speaks OpenAI's Responses API. To use such an
+  endpoint, put a proxy in front of it that translates to the Anthropic Messages API (for example LiteLLM
+  or CLIProxyAPI) and add that proxy here as an Anthropic-compatible endpoint. Tool use and streaming then
+  depend on how well the proxy and the model behind it handle the Claude CLI's requests, so try one run
+  before relying on it.
 
 If the proxy's trusted sidecar itself fails to start — usually a missing or stale sandbox image, since
 it runs inside `taskcell-sandbox:latest` like the egress enclave — the run fails fast rather than
@@ -281,7 +296,7 @@ A team is a name, members (login + role `admin` or `member`) and repositories, s
 
 **Editing.** `team_add_member`, `team_set_role`, `team_remove_member`, `team_add_repository` and `team_remove_repository` need an admin and the same bind permission as `add_project`. The last admin of a team can be neither removed nor demoted.
 
-**UI.** The team switcher sits at the top of the rail (a menu with more than one team, the plain name with one) and the choice is remembered in the browser. Home, Board, Runs and Needs you list the selected team's repositories. Settings has a Members section: an admin edits, a member reads.
+**UI.** The team switcher sits in the top bar next to the brand as **name · team**: its menu lists the teams (with their people, or their projects on a local hub, which has the one **Default** team) and **Set up a new project** and the choice is remembered in the browser. Home (including Waiting for you), Board and Runs list the selected team's repositories. Settings → **Team & hub** (`?screen=settings&section=hub`) holds the hub-wide settings, apart from any project: the **Team** section (members and repositories of the selected team; an admin edits, a member reads), the per-user and instance credentials, and the setup guide. Team changes apply at once; they are not part of the project's Save.
 
 ## Wire format
 
@@ -355,7 +370,7 @@ Besides its own local hub, the desktop app can join a `taskcell hub` running on 
 
 1. Run the server hub with sign-in enabled (a bind beyond loopback, or `TASKCELL_HUB_SERVER_MODE=1` behind a
    reverse proxy) and reach it over HTTPS.
-2. In the app, open the **server switcher** at the top of the left rail (it shows **Local** by default) →
+2. In the app, open the **server switcher** in the top bar (it shows **Local** by default) →
    **Add server…**. Enter a name and the hub URL (`https://hub.example.com`; no username or password in the URL).
    Plain `http://` is accepted only for `localhost`.
 3. The window loads the server's UI. Sign in there (#617). Runs now execute **on the server**; the sign-in
@@ -363,7 +378,7 @@ Besides its own local hub, the desktop app can join a `taskcell hub` running on 
    as the hub provides them. Fleet stays Local-only.
 4. Switch between **Local** and any saved server from the same menu, with no restart. The local hub keeps
    running in the background; the trash icon removes a saved server (after a confirmation). From any page —
-   even one without the rail, such as a sign-in page or a proxy error — **Server ▸ Switch to Local Hub**
+   even one without the app's top bar, such as a sign-in page or a proxy error — **Server ▸ Switch to Local Hub**
    (Ctrl/Cmd+Shift+L) in the app menu takes you back. The app always starts on Local.
 
 The app stores no password or token. You sign in on the hub's own page and the session cookie stays in the
@@ -382,7 +397,7 @@ request is replayed, so a run is never started twice.
 | `TASKCELL_HUB_HOST` | `127.0.0.1` |
 | `TASKCELL_HUB_PORT` | `7777` |
 | `TASKCELL_HUB_UI_DIR` | `<pkg>/apps/desktop/dist` |
-| `TASKCELL_HUB_CONFIG_DIR` | `$XDG_CONFIG_HOME/vanguard-hub` else `~/.config/vanguard-hub` |
+| `TASKCELL_HUB_CONFIG_DIR` | `$XDG_CONFIG_HOME/vanguard-hub` else `~/.config/vanguard-hub` (one hub per dir: a second hub on the same dir refuses to start, since it would mark the first one's live runs as interrupted) |
 | `TASKCELL_HUB_WATCH_POLL` | — |
 | `TASKCELL_HUB_WATCH_INTERVAL_MS` | `2000` |
 | `TASKCELL_HUB_SECRET` | — (32 bytes, base64: `openssl rand -base64 32`. When set, this operator-held key protects the [credential store](#per-user-provider-credentials); keep it stable across restarts and outside the config directory. It also decrypts the retired `<config dir>/.vanguard-hub/credentials.enc` once on start so its keys can move into the unified store. If migration cannot complete, the hub reports a value-free reason, keeps the legacy file and starts) |
@@ -493,10 +508,25 @@ that runs in this container. If you only ever need read-only access to Docker en
 socket instead of mounting it directly. The [CIS Docker Benchmark](https://www.cisecurity.org/benchmark/docker)
 is the usual reference for "don't mount the docker socket without justification."
 
-## Needs you
+## Home
 
-The **Needs you** section at the top of **Home** (hub only; the old separate screen and its ⌘K entry now open Home there, and the count badges Home in the rail) lists what the factory is waiting on a human for in the current
-project, using `gh` and labels only — no model call (`src/hub/needs-you.ts`):
+Home is the landing screen, a command center built only from data the hub already serves. The main navigation (Home, Board, Runs, Settings) is in the top bar, and a tab bar at the bottom on a phone. The top bar has no project picker: Board and Runs choose repositories in their filter (entering a project from its Home tile sets it to that project; the choice is kept while you switch screens), Home always covers every project, and Settings and New card start with a **Project:** picker (not on the hub-wide Team & hub and Audit sections). **Settings** opens a menu of its sections (General, Line, Runners, Lessons, Skills, Team & hub, Audit); the address names the open one, `?screen=settings&section=line`, so a link or a reload lands on it. Until the waiting items, cards and runs first arrive, Home shows one loading skeleton in their place (no half headline, no empty floor). Top to bottom:
+
+- **State sentence.** "N cards wait for you." and, under it, "M are moving, K paused by a provider limit." N is the length of Waiting for you (the number badging Home in the top bar). M counts cards in `claimed` or `running` that are not paused; K counts cards held by a provider limit (the factory retries them itself).
+- **Waiting for you.** The list below. Review / Answer opens a row.
+- **Cards can't start.** A red banner, shown only when a project has a card waiting for the factory (carrying the trigger label, still queued) and its runner is visibly broken: the Local hub worker is off, blocked, failing (its last pick-up error) or has no model credential, or the CI factory (GitHub Actions or GitLab CI) is `broken`. One line per project (three, then "and n more") with a button to the hub worker or factory checklist. Hub-board projects and self-hosted (`watch`) runners give no signal and are never listed. Worker and factory state are read when the project list changes, so the banner can lag a change made elsewhere.
+- **Moving.** Cards that are claimed, running or paused (up to six; "See all N on the Board" opens the Board with the Running filter), plus any live local run no card explains. One sentence per row says where the card is on the six stations (Card, Spec, Cell, Gates, Review, PR) and what it does. A paused row reads "Paused · retries after 18:30". A row with a live local run opens that run; any other opens its project's Board.
+- **Cards by station.** One row per project with an open card or a run in the last 7 days, busiest first: a strip of the six stations with a dot per open card (ink = on that station, red = failed gates, orange = also waiting for you), and the week's spend; a project with no open cards shows "No open cards · n runs this week" instead of the strip. Idle projects fold into "and n idle projects". A line under the rows names the stations: Card → Spec (plan) → Cell (the agent codes in a sealed sandbox) → Gates (your tests) → Review → PR.
+- **Last 7 days** (right column): pull requests merged (distinct cards with a merged run in the window; by run time, not merge time), failed runs (a provider-limit stop is not a failure), runs that passed after extra attempts (`RunSummary.extraAttempts`: a stage needed another agent call and the run still passed; run records fold gate repairs, auto-resumes and fork variants into one count, so this is not a self-repair count) and spend (reported dollars only; runs with no cost data are left out). With nothing merged it says so and gives the run count and spend.
+- **Team and factory** (right column, under Last 7 days): the newest events across the shown repositories, six at most: runs finished or failed (from run records, placed at the run's start time), and from the hub audit log runs started, cards created (a hub-board card by its id: "You created card hub-4"), pull requests merged and settings saved (key names only, never values) in the hub. Actions taken outside the hub (a merge on GitHub, a CLI run start) appear only as run outcomes.
+- **Projects.** The project cards ("4 runs on 3 cards": the cards that have runs, not the board's open cards; open, remove, the Auto-run state that links to its setup in Settings → Line), and the first-run setup guide above them.
+
+What each block reads: the sentence, Moving, the floor and the banner read `list_tasks_all` (every 60 s while the page is visible, and when the hub reports a change); Waiting for you reads `list_needs_you_all` (every 30 s); the week and the floor's spend read `list_runs_all` (on open and on a change, no timer); Team and factory reads `list_activity` (run records and the audit log, never a tracker; at most 30, scoped to the team like the other lists; on open and on a change, no timer); live runs read `list_active` only for projects the project list says are running. A card's station is the one mapping the Board's quick view uses (`src/stations.ts`). With no project in the selected team Home shows only the setup guide and the empty Projects state.
+
+## Waiting for you
+
+Formerly **Needs you**. The **Waiting for you** section on **Home** (hub only; the old separate screen and its ⌘K entry open Home there, and the count badges Home in the top bar) lists what the factory is waiting on a human for across the shown
+repositories, using `gh` and labels only — no model call (`src/hub/needs-you.ts`). Each row has a caption naming what it is (**PR ready**, **Changes requested**, **Verify failed** in red, **Question**, or **Too vague** when the factory's last comment on the issue is triage's "too vague" notice), the title, the repository, PR or task number and target branch, a primary **Review** (or **Answer**) and **Open in GitHub**. Review / Answer opens the row to the factory's last comment, Merge and the reply box ("Ask for changes"); a card's question shows **Open the card** (its panel on the Board) and **Open the run** (the run that asked: its diff, transcript and gates) on the row itself, and the same question can be answered right there: in the run, in the card's panel and on its full page, each with a line on what the answer does next:
 
 - Tasks (GitHub issues) at `needs info`.
 - PRs at `vanguard:needs-human-review` or `vanguard:verify-failed`, or with a review requesting
@@ -516,7 +546,7 @@ configurable here: a repo that runs the factory with a custom `--needs-info-labe
 `merge_needs_you` merges a waiting PR with the repository's allowed merge method (squash, else merge
 commit, else rebase). It refuses a PR that is not in the list and one whose required checks are not
 all green, with a message the UI shows; the item leaves the list once merged. The UI's Merge button
-names the PR's base branch (`baseRef`) and asks for a second click to confirm. The merge is pinned to the checked head commit (`--match-head-commit`). A PR with no required checks passes the check gate. The button sits on the Needs you card and in the Board card's quick view (a side panel; a bottom drawer on phones). "Ask for changes" stays `reply_needs_you`.
+names the PR's base branch (`baseRef`) and asks for a second click to confirm. The merge is pinned to the checked head commit (`--match-head-commit`). A PR with no required checks passes the check gate. The button sits in the opened Waiting for you row and in the Board card's quick view (a side panel; a bottom drawer on phones). "Ask for changes" stays `reply_needs_you`.
 
 Replies and merges are a remote mutation, gated like `clone_project`: loopback only, unless
 `TASKCELL_HUB_ALLOW_ADD=1`.
@@ -527,14 +557,16 @@ Replies and merges are a remote mutation, gated like `clone_project`: loopback o
 
 **Runs** is a split view, like the Runs window on taskcell.dev: the list on the left, the open run on the right.
 
-- **List.** One row per run: the repository, the task title and issue number, a status chip (`running`, `PR open`, `merged`, `passed`, `failed`, `stopped: provider limit`) and the age; a running row spins its chip. The title comes from the board (a run record has none) and falls back to the task id when the board cannot be read. The filter bar above it is the one Board shares. Its source chips (GitHub, GitLab, Linear, Taskcell board) list only the sources the projects in view use, plus any a loaded row has; with one source there is a plain "Source: …" label instead.
+- **List.** One row per run: an avatar in the project's colour with its initials, the repository, the issue number (or card id) followed by the card title, a status chip (`running`, `PR open`, `merged`, `passed`, `failed`, `stopped: provider limit`) and the age; a running row spins its chip. The title comes from the board (a run record has none) and falls back to the task id when the board cannot be read. The filter bar above it is the one Board shares; the result pills (All results, Passed, Failed) and the count ("4 of 5 runs") sit in the same row. When the filters (the project tab included) hide the open run, a line says "<id> is hidden by your filters — Clear", as the Board does for an open card; Clear resets the filters and the project tab. Its source chips (GitHub, GitLab, Linear, Taskcell board) list only the sources the projects in view use, plus any a loaded row has; the chips sit after a "Card source" label; with one source there is a plain "Card source: …" label instead.
 - **Run pane.** Header: the repository, the target branch (`baseBranch` of the run's records), the issue number, the total time (ticking while the run is live) and the status chip. Below it the task title, who started the run, and **Cancel** for a live run (it calls `api_cancel` with the run's id from the event log) or the pull request link for a finished one.
 - **Stage line.** One card per stage the run actually has, in the order Sealed cell → Code → Tests → Review → Simplify → PR (the stage names follow the run's flow). Sealed cell is the sandbox container start; the hub logs it as its own stage, first in the run's `run-start` list. Tests and PR are shown from the start as pending ("Waiting") and fill in when the run reaches them. The tests (the verify gate) run between Code and Review and log no stage of their own: Tests is running once Code is done and has passed once Review starts (Review runs only on a green gate); its time is the gap between the two. Each card has its own duration. For a finished run the stages and durations come from its stage records; for a live run from the persisted [run event log](#run-event-log) (`read_run_events`), re-read on every hub event and on every change under `.taskcell`. The running stage is highlighted and shows a progress bar (a stage reports no percentage, so the bar is an activity indicator), stages not started yet are muted. Click a finished stage to read its log; the clicked card is outlined. The breadcrumb names an issue run by its number (`#11`), not the internal task id.
 - **Log.** Under the stage line: the tail of the live session while the run is running; for a finished run the transcript of the picked stage (the last one, or the first failed one, to begin with). The run's full record (Overview, Spec, Diff, Transcript) follows below it.
-- **Started by.** The hub's shared identity (`token` in the audit log and the run records) reads **Hub** here, the local worker reads **Local worker**; a signed-in user shows their login.
+- **Started by.** Shown only for a person: a signed-in user's login. The hub's shared identity (`token` in the audit log and the run records) and the local worker are not people, so the line is left out for them (also in a card's quick view).
 - **Wide screens** open the running run, or else the newest finished one, by themselves. **Narrow screens** (under 768 px) show the list full width; opening a run shows the pane full width with a **Back to runs** button.
 
-A run started from the Board or New Task switches to Runs by itself and opens in this split view, with the new run selected in the pane (there is no separate full-screen strip). When it ends, the pane swaps the live view for the finished record, with its test result and pull request. The run is listed from its start (run-start), before its first session file exists; while its sealed cell is still starting, the empty list reads "Starting the run…" instead of "No runs found". A run in the CI of the repository (metrics branch) has no local record: its row shows the pull request link and does not open.
+**Stations.** Board and Runs speak the line's six stations (Card, Spec, Cell, Gates, Review, PR; `apps/desktop/src/stations.ts`). The Board's columns are the stations: Card, Spec, Cell, Gates, **Review / PR** (one column for two stations, because a tracker card does not say whether its pull request exists yet; the header's tooltip says so and each card's mark shows which), then Done; a card sits in the column of its station and shows a small six-tick mark, red on a failed station (a verify failure is Gates, failed). Each Runs row has the same mark: a merged run is past the line, an open pull request is on PR, a failed run is on the station of its last stage, a live run is in the cell. Above both, project tabs set the shared Projects filter in one click; they are the only project control. With six projects or fewer each one is a tab (All projects, then every project; "All projects" so it is not read as the triage pill All). With more, the tabs are the picked projects and those with cards, and **More…** opens the searchable multi-select over all of them; several picked light no tab and the More trigger reads "N projects". On a phone the Board shows one stage at a time: pick a stage (or All stages; the chips scroll under an edge fade and the picked one stays in view) and the cards stack in the desktop's order, Card first and Done last. `?screen=board&card=<id>` opens that card's quick view, and the address follows the open card. A done card whose newest run had a failed stage reads the same in both places: the Board card's warning chip ("delivered, but a stage failed (see Runs)") also heads the quick view's Progress as "Done · …", the station where that run stopped is marked failed, and its Latest run says what the run did ("stopped to ask" for a run that asked, as its Runs row does). Such a run waits on no answer: its Runs row reads "stopped to ask" in grey, not the orange "Waiting for your answer", its run page shows no question banner, and Runs' triage pills put it (like every run whose card is done) under **Merged**, where the Board puts its card, not under Waiting for you. The quick view's status chip reads **Queued** only for a card the factory has queued (the Board header's Queued count), else **Not started**. A running or claimed card's **Open the run** opens that card's live run on Runs.
+
+A run started from the Board or New card switches to Runs by itself and opens in this split view, with the new run selected in the pane (there is no separate full-screen strip). When it ends, the pane swaps the live view for the finished record, with its test result and pull request. The run is listed from its start (run-start), before its first session file exists; while its sealed cell is still starting, the empty list reads "Starting the run…" instead of "No runs found". A run in the CI of the repository (metrics branch) has no local record: its row shows the pull request link and does not open.
 
 The tab icon is the Taskcell cell logo (`apps/desktop/public/favicon.svg`, with `favicon.ico` as the fallback), served by `taskcell hub` from the UI build.
 
@@ -543,15 +575,17 @@ The tab icon is the Taskcell cell logo (`apps/desktop/public/favicon.svg`, with 
 When a run ends on a provider usage or rate limit, the issue or pull request gets `taskcell:rate-limited` (or the older `vanguard:rate-limited`) and a comment or review carrying a hidden `taskcell-rate-limited until=<ISO time> trigger="…"` marker; the scheduled `resume-rate-limited` retries it after that time. The Board's `list_tasks` / `list_tasks_all` read this from labels and the marker only (no model call) and return `paused: { reason: 'provider-limit', until?, trigger? }` on the card. The time comes from the newest valid marker by an author the scheduled resume also trusts: the GitHub Actions identity (`github-actions`), a login ending in `[bot]`, or a repository owner, member or collaborator; a marker from an outside commenter is ignored. Paused pull requests come from `gh pr list --label`, once per spelling of the rate-limited label, only for projects whose task source is GitHub; their cards open the pull request and offer no issue actions (skills, full page, Retry now). One `list_tasks` or `list_tasks_all` call reads markers for at most 30 paused cards in total, shared across repositories; the others still show as paused without a time. Paused-PR lists and marker reads are reused for 45 seconds per repository (expired entries are dropped on the next read; the read budget is still spent on a reused read), and a successful Retry now flushes that repository's entries.
 
 - **Card and quick view / task detail:** "Paused: provider limit", with "retries automatically after HH:MM" in local time (the date is included when it is not today; "soon" once that time has passed; no time when the marker is missing).
-- **Banner:** on the Board and on Home, one banner when at least one task of the shown repositories is paused: how many, the latest retry time, and what you can do (wait, or add credit / switch the model in Settings). No banner when none is paused.
+- **Banner:** on the Board, one banner when at least one task of the shown repositories is paused: how many, the latest retry time, and what you can do (wait, or add credit / switch the model in Settings). No banner when none is paused. On Home a paused card is a row in Moving with "Paused · retries after HH:MM", the same hint line, and counts in the state sentence.
 - **Retry now:** `retry_paused_task` (`{ repoPath, number }`) ensures the recorded trigger exists, removes any stale trigger, adds the trigger, and only then removes the rate-limited label. A failed write leaves the hold in place and returns the reason; if only the final removal of the rate-limited label fails, the message says the issue was re-triggered. It has Start's rules: loopback only unless `TASKCELL_HUB_ALLOW_ADD=1`, GitHub issues only, refused for a closed or already-started issue; it also refuses an issue that is not paused, one with no marker from the factory, and a trigger that is not one of the project's. If the hold is removed meanwhile, it succeeds only when the issue was re-triggered: a run has already started (a started label is on the issue) or the recorded trigger was added since the first read; a trigger that was already there, or a hold a person removed, is refused with "no longer paused" and nothing is written. It is audited as `task-retry`.
-- **Runs:** a run that ended on a provider limit shows "stopped: provider limit" instead of "failed" (`stoppedBy` on the run summary), including local, imported and metrics-branch CI rows. The flag is written from a typed provider/usage-cap signal at the point the stage stops; final text and crash diagnostics are never matched. If any failed stage in the same run lacks that flag, the run remains failed. Provider-limit stops do not enter the Failed / Needs you filters or project failure count, are not remembered as failed runs in retrospective memory, and `taskcell history` prints them as "paused: provider limit".
+- **Runs:** a run that ended on a provider limit shows "stopped: provider limit" instead of "failed" (`stoppedBy` on the run summary), including local, imported and metrics-branch CI rows. The flag is written from a typed provider/usage-cap signal at the point the stage stops; final text and crash diagnostics are never matched. If any failed stage in the same run lacks that flag, the run remains failed. Provider-limit stops do not enter the Failed / Waiting for you filters or project failure count, are not remembered as failed runs in retrospective memory, and `taskcell history` prints them as "paused: provider limit".
 
 The views work at phone width (the quick view is a bottom drawer).
 
-## Enable factory
+## Enable factory (Auto-run)
 
-**Enable factory** on a project card (hub only) turns on the GitHub Actions factory for that repo in
+A project card on Home shows one state, **Auto-run: on** or **off**, with a short reason when the CI factory is broken or setting up. A GitHub or GitLab project is on when the Local hub worker switch is on ("Auto-run: on · this hub") or the CI factory checklist is done ("· CI"). A hub-board project is on only when its worker switch is on; a project never switched is off. Clicking the state opens **Settings → Line, station 01 Card** (`?screen=settings&section=line&station=card`), where **Set up auto-run** opens the setup below (also ⌘K **Auto-run**).
+
+**Set up auto-run** (the Enable factory flow, hub only) turns on the GitHub Actions factory for that repo in
 four steps, following [onboarding-another-repo.md](onboarding-another-repo.md)
 (`src/hub/enable-factory.ts`). GitLab CI has its own flow, below; Linear shows as planned. **Self-hosted (watch)** is a read-only checklist, described under [Self-hosted (watch)](#self-hosted-watch). **Local hub** is the hub's own worker, described under [Local hub](#local-hub).
 
@@ -584,10 +618,10 @@ The dialog offers **GitLab CI** only when `origin` is on GitLab (gitlab.com, or 
 
 **Step by step:**
 
-1. On the project card, choose **Enable factory → GitLab CI**. The plan shows the project, the default branch, the signed-in `glab` user and the CI files. That user becomes the jobs' actor gate: the factory jobs run only in pipelines that this GitLab user starts.
+1. In Settings → Line → Card, choose **Set up auto-run → GitLab CI**. The plan shows the project, the default branch, the signed-in `glab` user and the CI files. That user becomes the jobs' actor gate: the factory jobs run only in pipelines that this GitLab user starts.
    **Runner tags.** The plan has an editable **Runner tags** field (comma-separated; shown only while `.gitlab/taskcell.yml` is not yet on the default branch, since the hub never rewrites an existing jobs file). The hub pre-fills it from `default: tags` in the project's `.gitlab-ci.yml` (the top-level `default:` only; YAML aliases and `<<` merge keys are resolved, includes are not), so `default: tags: [docker, linux]` gives `docker, linux`. Edit or clear it: the value is written explicitly as a quoted list, `tags: ["docker", "linux"]`, under `.taskcell-base` in `.gitlab/taskcell.yml`, so it shows in the MR diff; an empty field writes no `tags:` key. Each tag must be non-empty, at most 255 characters, with no leading or trailing space and none of `,`, `"`, `\`, control characters or line separators (U+0085, U+2028, U+2029); at most 50 tags. Anything else is rejected. If the project's `default: tags` cannot be copied as is (a `!reference`, a scalar, a tag with a comma or quote), the field starts empty with a note to enter the tags by hand, never a shortened list that would widen the runners that take the jobs; the plan itself goes on, so a project whose jobs file is already on the default branch can still run the doctor. The jobs keep `inherit: default: false` and do not inherit the project's `default:`, so a later change to it never reroutes credential-carrying jobs to another runner; a project whose runners only take tagged jobs sets its tags here instead.
 2. Click **Open merge request**. The hub adds the factory jobs (`templates/gitlab/taskcell.yml`: doctor, implement, review) as `.gitlab/taskcell.yml`, includes them from `.gitlab-ci.yml` (created if missing; an existing `include:` in any form gets one more entry), pushes only the branch `vanguard/enable-factory`, creates the routing labels and opens the MR. It never pushes CI config to the default branch. An MR opened from a fork with the same branch name is not mistaken for it.
-   - If the plan says the CI file is **not edited automatically** (a custom CI/CD configuration file in the project settings, Auto DevOps with no `.gitlab-ci.yml`, or YAML the hub cannot parse), the MR adds only `.gitlab/taskcell.yml`. Add the line the plan shows, `- local: .gitlab/taskcell.yml`, under the top-level `include:` of the named file before merging. If the jobs file is already on the default branch, there is no MR to open: add the line, then open Enable factory again.
+   - If the plan says the CI file is **not edited automatically** (a custom CI/CD configuration file in the project settings, Auto DevOps with no `.gitlab-ci.yml`, or YAML the hub cannot parse), the MR adds only `.gitlab/taskcell.yml`. Add the line the plan shows, `- local: .gitlab/taskcell.yml`, under the top-level `include:` of the named file before merging. If the jobs file is already on the default branch, there is no MR to open: add the line, then open Set up auto-run again.
 3. Copy the **Secret** command and run it in your terminal (bash or zsh). It asks for the Claude token without echoing it and stores it as the **masked and protected** CI/CD variable `CLAUDE_CODE_OAUTH_TOKEN` on that project (`glab variable set`, or `update` when it already exists, so the same command rotates the token). Protected means only pipelines on protected branches, such as the default branch, can read it. The hub never reads, prints or stores the value: it checks that the name exists with one body-less `HEAD` request. A Developer, or a group-level variable, is not visible to that check; a passing doctor marks the step done.
 4. In **Settings → CI/CD → Variables**, add `GITLAB_TOKEN` (masked and protected): a project or personal access token that can read and comment on issues and MRs and push branches. The hub does not check it; the doctor does.
 5. Review and merge the MR. The checklist notices the merge on its own.
@@ -604,14 +638,15 @@ Apply and verify change the remote, so they are gated like `clone_project`: loop
 
 ### Local hub
 
-**Enable factory → Local hub** turns the hub's built-in worker on for one project: for a project with no CI, the hub itself picks up work on a schedule (`src/hub/local-worker.ts`). The switch is **off by default**, per project, and is stored in the hub's config dir (`local-worker.json`, never in the repo), so a hub restart keeps it.
+**Set up auto-run → Local hub** turns the hub's built-in worker on for one project: for a project with no CI, the hub itself picks up work on a schedule (`src/hub/local-worker.ts`). The switch is **off by default**, per project, and is stored in the hub's config dir (`local-worker.json`, never in the repo), so a hub restart keeps it.
 
 - **What it picks up.** Every scheduler tick (the same timer as the hub board), for a project with the switch on: a **GitHub Issues** project's open issues carrying the trigger label (`ready for agent`, or the project's configured `label`), oldest first, skipping issues the factory already claimed or parked (running, in review, waiting, rate-limited) and, as `taskcell watch` does, issues whose author is not a repo owner, member or collaborator or a GitHub App bot (a failed author lookup skips the issue and shows as the last error); or a **hub-board** project's tasks, through the board scheduler. Both start runs through the same run session as a run started by hand (same pipeline, credential policy and audit). An issue is handed over at most once per hub process, so a run that leaves the label behind is not retried in a loop.
+- **Labels.** A picked issue walks the same labels as under `taskcell watch`, so the board and GitHub show where it is: the trigger label is swapped for `taskcell:running` before the run starts (a failed swap starts nothing and shows as the last error), then for `taskcell:needs-human-review` when the run opens a pull request. Any other end removes `taskcell:running` and leaves the issue unlabelled until a person re-applies the trigger.
 - **Limit.** At most the project's parallel-run limit (its `concurrency`, capped by what the run session holds) are in flight for a project; a finished run frees a slot on the next tick.
 - **Refusals.** The switch cannot be turned on, and the dialog says why, for a project with no task source, with a task source the worker cannot read (GitLab, Linear, GitHub Projects), a GitHub Issues project whose `origin` is not a github.com repository, or when the hub has no provider credential (its environment or an instance credential in Settings → Credentials; names only are shown). Turning it off always works.
 - **Checklist and card.** The dialog shows the switch, whether a credential is present, the **doctor** result (`Run doctor` runs the same checks as `taskcell doctor --source github --github-repo <origin> --label <trigger>` against the project, on the hub's machine; a hub-board project has no doctor step) and the worker state. The project card shows it too: on or off, the last pick-up, and the last error (cleared by the next successful pick-up). Doctor is informational: it does not gate the switch.
 - **Off.** Stops new pick-ups; a task that is already running is left alone.
-- **Hub boards and the switch.** A hub-board project was always served by the board scheduler, whether or not it had a switch; that is unchanged. Only a switch explicitly turned **off** stops it, and pick-ups are shown on the card while it is on.
+- **Hub boards and the switch.** A hub-board project is auto-run only while its switch is **on**; a never-switched project is off, like every other project, and adding a card only records a task. A card then reads `auto-run is off — start it by hand` until it is started by hand (`hub_task_start`, same owner, credential and audit gates as an auto-run start) or auto-run is turned on. **Behaviour change:** hub-board projects used to be served without ever being switched; existing ones now need auto-run switched on to start cards on their own. Pick-ups are shown on the card while it is on.
 
 RPCs: `local_worker_state` (read), `local_worker_doctor` and `local_worker_set` (`{ repoPath, enabled }`); both are refused on a non-loopback bind without `TASKCELL_HUB_ALLOW_ADD=1`. `local_worker_set` is audited as `settings-change`; `local_worker_doctor` writes only the doctor result into the hub's own store and is not audited. Runs started by hand and the other run locations are unchanged.
 
@@ -621,17 +656,17 @@ Picking **Self-hosted (watch)** (`enable_factory_watch`, `src/hub/watch-worker.t
 worker *you* run with `taskcell watch`, on a server or any always-on machine with Docker. The hub starts and
 installs nothing on another machine, and the RPC writes nothing (it is read-only, so it is not in the audit list).
 
-**Which worker.** The checklist follows the project's task source (Settings → Task source; when none is set,
+**Which worker.** The checklist follows the project's task source (Settings → Card source; when none is set,
 the code host of `origin`). The code host is read the same way as for the other run locations: GitHub means
 `github.com`, GitLab means `gitlab.com` or the host in the hub's `GITLAB_HOST`.
 
-| Task source | Worker | Needs `origin` on |
+| Card source | Worker | Needs `origin` on |
 | --- | --- | --- |
-| GitHub Issues | `--source=github --github-repo=<owner/repo>` | github.com |
-| GitLab Issues | `--source=gitlab --gitlab-project=<group/project> --label=vanguard` | GitLab |
+| GitHub | `--source=github --github-repo=<owner/repo>` | github.com |
+| GitLab | `--source=gitlab --gitlab-project=<group/project> --label=vanguard` | GitLab |
 | Linear | `--source=linear --label=vanguard` (PRs go to GitLab when `origin` is on GitLab, else GitHub) | any |
 | GitHub Projects | not generated: the hub does not know the project number; run `taskcell watch --source project --project <number>` by hand | github.com |
-| Hub board | none: a watch worker cannot read the hub board; the hub runs those tasks itself | — |
+| Taskcell board | none: a watch worker cannot read the Taskcell board; the hub runs those cards itself | — |
 
 The repository slug must look like `owner/repo` (GitHub) or `group/project` (GitLab) before it is put in the
 command; a remote with anything else is refused with one sentence.
@@ -678,9 +713,26 @@ Project settings show an **Auto-merge** card (hub only; `src/hub/approver-card.t
 - The change is audited as `approver-mode`, with the requested mode in the detail.
 - Metrics-branch reads fetch the tip into a named ref (`refs/taskcell/tips/<remote>/<branch>`), not `FETCH_HEAD`, and fetches of the same branch in one hub process run one at a time, so concurrent hub requests do not blank each other's read.
 
+## Line
+
+**Settings → Line** is the factory as six stations (Card, Spec, Cell, Gates, Review, PR). Click a station to edit the `.taskcell/app.json` fields it owns:
+
+| Station | Edits |
+|---|---|
+| Card | Trigger label (`label`) |
+| Spec | nothing in the hub: it shows the tech-spec model (`--spec-model`; the flow's own `planner` stage is separate, set under Custom flows) and which flow the project runs with |
+| Cell | Engine (`provider`), Budget cap per run (`budgetUsd`) |
+| Gates | Verify command (`verifyCmd`) |
+| Review | Review engine (`reviewProvider`) |
+| PR | Default target branch (`baseBranch`), and the Auto-merge panel (Off, Shadow, Act; Act stays blocked as before) |
+
+Card source, Runs on, Linear team key, parallel runs, usage cap, doc chat model and custom providers stay in General. The doc chat model is typed, or picked from a list; **Fetch models** asks the hub for the models the saved chat endpoint offers (`list_chat_models`): OpenRouter's public list when `chatBaseUrl` is OpenRouter or the project's provider is `openrouter`, `GET <baseUrl>/v1/models` for `chatBaseUrl` or a custom provider (with the key from the matching custom provider's `keyEnv`, read on the hub and never sent to the browser, and sent to an `https://` endpoint only: a plain-http endpoint such as a LAN proxy is asked without it; no redirects; 10 s timeout), else the built-in list. A failure shows a short reason, never the response body. Only the hub owner can change `chatBaseUrl` or `customProviders`: together they decide which host receives a key named by `keyEnv`, so a team member's save that changes either is refused (403); the member's other settings save as before. Rows the hub cannot change are shown as read-only facts: repairs (`--max-repair-iterations`, 2 by default), the model of the second repair (`--escalate-model`; an implementer whose model a flow sets is never escalated), the tech-spec model (`--spec-model`) and the review model (`--review-model`; a reviewer-stage model set in Custom flows wins over it) are CLI flags. The Budget cap field is empty for no cap; its "No cap" hint is not a value. Two rows are locked and can never be turned off: the secret scan of the outgoing diff, and dropped CI config edits.
+
+**Publish** is the same save as General's Save: it writes `.taskcell/app.json` and does not commit it (the file is git-ignored). Auto-merge has its own save: a mode change opens a pull request. **What Publish writes** shows the file as it will be written, with URL credentials and unknown custom-provider keys masked. **Line history** lists the settings saves the hub recorded for the repository (who, when, which fields by their names on General and Line, such as "Gates · Verify command" for `verifyCmd`, and old → new values for the non-secret keys on the audit allowlist, from the hub audit log; saves made by hand or from the CLI are not in it). **Custom flows (advanced)** holds the flow picker and the flow editor (canvas, stages, models).
+
 ## Audit log
 
-Every state-changing action appends one JSON line to `<config dir>/audit.jsonl` (time, login or `token`, action, target, outcome `ok`/`refused`/`failed`): sign-in, project add/remove, clone, run start/queue/cancel (a hub-board task's start is logged under the task's owner), task start, paused-task retry, hub task create/schedule/retry, settings changes, team member and repository changes (`team-member-add`/`-remove`, `team-repository-add`/`-remove`; target `<team id>:<login or repository path>`), label migration with `apply: true` (`labels-migrate`), project watch/unwatch (`project-watch`, `project-unwatch`). Targets and detail are names only — never a credential value, token, cookie or URL userinfo/query. Each line is chained (sha256 of the previous record) and carries an actor and subject; the file rotates at 10 MB and rotated files are pruned after 90 days (at most 50 kept); `taskcell audit verify` checks the chain (see [audit.md](audit.md)). A line that cannot be written is reported to the caller instead of being dropped. Runs started from the hub carry `startedBy` in their records (shown on the Runs screen as "Started by", with the shared `token` identity as "Hub"). Admins read the log in the Audit view (`read_audit`); non-admins get 403. The owner (header token, or local mode) acts as the shared `token` admin identity; any other signed-in user is logged under their e-mail and is not an admin until roles land (`actorFor` in `createHubServer` overrides this).
+Every state-changing action appends one JSON line to `<config dir>/audit.jsonl` (time, login or `token`, action, target, outcome `ok`/`refused`/`failed`): sign-in, project add/remove, clone, run start/queue/cancel (a hub-board task's start is logged under the task's owner), task start, paused-task retry, hub task create (target `<repo>:<card id>`, so the Home feed names the card)/schedule/retry, settings changes, team member and repository changes (`team-member-add`/`-remove`, `team-repository-add`/`-remove`; target `<team id>:<login or repository path>`), label migration with `apply: true` (`labels-migrate`), project watch/unwatch (`project-watch`, `project-unwatch`). A successful sign-in, watch or unwatch repeats on every reconnect and screen visit, so it is logged once per actor and target every 10 minutes; their refusals and every other action are logged each time. Targets and detail are names only — never a credential value, token, cookie or URL userinfo/query. The one exception is an `app.json` save: its line also carries `changes` (old → new values) for the keys on an explicit allowlist (`SETTINGS_VALUE_KEYS` in `src/hub/audit.ts`: task source, run location, label, team, color, providers, flow, parallel runs, budget, usage cap, chat model, base branches). Commands (`verifyCmd`, `runCommand`), URLs (`chatBaseUrl`) and `customProviders` stay names only, and so does any key added later until it is reviewed onto the list. Each line is chained (sha256 of the previous record) and carries an actor and subject; the file rotates at 10 MB and rotated files are pruned after 90 days (at most 50 kept); `taskcell audit verify` checks the chain (see [audit.md](audit.md)). A line that cannot be written is reported to the caller instead of being dropped. Runs started from the hub carry `startedBy` in their records (shown on the Runs screen as "Started by" for a signed-in user; the shared `token` identity shows no "Started by" line). Admins read the log in the Audit view (`read_audit`; a table, and on a phone a stacked list with the outcome first); its Login column shows `token` as "hub token (owner)" and a refused sign-in's `unknown` as "unknown (not signed in)"; non-admins get 403. Members of a repository read its settings-change slice with `read_settings_history` (time, login, outcome, key names and the allowlisted old → new values; no actor or chain fields; live file only), which feeds the Line screen's history. The owner (header token, or local mode) acts as the shared `token` admin identity; any other signed-in user is logged under their e-mail and is not an admin until roles land (`actorFor` in `createHubServer` overrides this).
 
 ## Issue history
 
@@ -696,8 +748,8 @@ sources without a chain are marked "no chain". The desktop app has no separate q
 ## `gh` auth
 
 The hub shells out to `gh` for the Remote section (Settings → Runners) (listing GitHub Actions runs), CI-run import and
-Needs you. Reading needs a token with `actions:read`, `issues:read` and `pull_requests:read`
-(fine-grained PAT) or classic `repo` scope. Replying from Needs you also needs `issues:write` and
+Waiting for you. Reading needs a token with `actions:read`, `issues:read` and `pull_requests:read`
+(fine-grained PAT) or classic `repo` scope. Replying from Waiting for you also needs `issues:write` and
 `pull_requests:write` (comments and labels), and merging also needs `contents:write`; with a read-only token a reply fails when it posts the
 comment. Run `gh auth login` or set `GH_TOKEN`.
 
@@ -747,7 +799,7 @@ Resolution is per provider: a user who saved only `OPENAI_API_KEY` runs Codex on
 instance's `CLAUDE_CODE_OAUTH_TOKEN` (`credentialSource` records `user` / `instance` for the run's provider).
 A run never receives keys of providers it does not use.
 
-A run on the starter's own credential never reads the hub's provider keys: a provider whose key the user cannot save (a repo custom provider's `keyEnv`, meridian's `MERIDIAN_BASE_URL`) is refused for it.
+A run on the starter's own credential never reads the hub's provider keys: a provider whose key the user cannot save (a repo custom provider's `keyEnv`, the legacy `meridian` alias's `MERIDIAN_BASE_URL`) is refused for it, and so is a keyless custom provider (no `keyEnv`): it authenticates on the instance's own endpoint, which a user's own credentials must not borrow.
 
 When the switch is on, each signed-in user saves their own provider credentials in Settings. They are
 keyed by the hub (Better Auth) user id — a GitHub, GitLab or Google user alike — and stored encrypted (AES-256-GCM) in `credentials.enc.json` in the hub
@@ -797,7 +849,7 @@ the server; the UI moves it into `sessionStorage` and strips it from the address
 keeps working but a new tab on the bare URL needs the launch URL again. A `#token=…` that turns up on
 an already-open page is stored at once only when the tab has no token or the hub has refused the one it
 holds; otherwise it is kept in memory and used only if the hub then refuses the held token. So a link in
-a spec or a comment cannot replace a working token, and a launch URL pasted after a restart reconnects. The address also names the open
+a spec or a comment cannot replace a working token, and a launch URL pasted after a restart reconnects. Once the hub refuses a tab's token (it restarted), the tab stops calling it and shows the restart notice until a new launch URL arrives (pasted into its address bar, it reconnects and reloads the page), so an old tab left open does not fill the audit log with refused sign-ins. The address also names the open
 screen (`?screen=runs`), so a reload returns to it and Back/Forward move between screens. A hub bound beyond loopback
 has no launch URL: browsers sign in at `/sign-in`, also behind a reverse proxy. Reaching the port is therefore not enough to drive the hub,
 but the token is a launch secret, not per-user authentication: it does not replace authentication at
@@ -838,6 +890,10 @@ An `export` line only takes effect for a hub started after it: the hub reads its
 start. After exporting, restart the hub (or save the key in Settings → credentials, where that
 exists) and then press **Check again**.
 
+## Adding skills from a repository
+
+In Settings > Skills, **Add skill** lists the skills found in a pasted repository, grouped by parent folder (`skills/engineering`, `skills/in-progress`). **Select all** and **Clear** act on the whole list, each folder has a checkbox of its own (partly ticked shows as indeterminate), and the button counts what is ticked ("Add 12 skills"). The add opens one pull request in the project, so the skills show in the list only once it is merged and the hub's checkout is updated. The section's caption says this in plain words; **Pull checkout** does the update (`pull_checkout`, owner only, remote, audited as `settings-change`). It is fast-forward only and refuses, with the reason and no change, unless the checkout is on the project's default branch with a clean tree (untracked files count) and origin only moved ahead; it never switches branches. The button sits under **Waiting for merge** and shows when the list is empty; after a pull the list refreshes. Until then a notice keeps the pull request link and the skill names, and **Waiting for merge** lists the project's open skill-add pull requests (branch prefix `chore/taskcell-skills-add-`) from `list_pending_skill_prs`: read-only, owner only, GitHub projects only (other forges show none), one `gh pr list` per refresh. The names come from a hidden `<!-- taskcell-skills: a,b -->` marker that `skills add --pr` writes in the PR body (each name checked against the skill-name pattern, since the body is untrusted); a PR without the marker falls back to its title, which is cut at 100 characters.
+
 ## Choosing skills
 
 Skills are picked automatically for a run. To make a task use specific ones, pick them in the hub:
@@ -853,19 +909,19 @@ Calls: `list_skills` (`repoPath`; read-only, not audited) returns the installed 
 
 ## Per-project flow and model precedence
 
-**Picking a flow.** Settings → **Flow** (`flow` in `.taskcell/app.json`) lists the built-in flows and the repo's `.taskcell/flows/*.hcl`. Unset keeps the source's default flow. Every run the Hub starts for the project, board tasks and the local worker alike, runs with `--flow <name>`, so the `model`/`provider` set per stage in the Workflow editor take effect. The New Run and Fleet commands carry the same `--flow <name>`. An unknown or invalid name fails the run with the usual unknown-flow / invalid-flow message; it never falls back to the default.
+**Picking a flow.** Settings → Line → Custom flows → **Runs with flow** (`flow` in `.taskcell/app.json`) lists the built-in flows and the repo's `.taskcell/flows/*.hcl`. Unset runs the standard flow (the Line shows "standard flow (no custom flow)"). Every run the Hub starts for the project, board tasks and the local worker alike, runs with `--flow <name>`, so the `model`/`provider` set per stage in the Custom flows editor take effect. The New Run and Fleet commands carry the same `--flow <name>`. An unknown or invalid name fails the run with the usual unknown-flow / invalid-flow message; it never falls back to the default.
 
-**Starting from a built-in.** The Workflow editor lists the built-in flows in a read-only **Built-in** group (the one the project runs on is marked *in use*). Selecting one shows its stages. **Duplicate to edit** asks for a name and writes `.taskcell/flows/<name>.hcl` from it, then opens it. Only a built-in whose copy would run exactly the same pipeline can be duplicated (today `flow-b`); the others say "This built-in can't be copied yet."
+**Starting from a built-in.** The Custom flows editor lists the built-in flows in a read-only **Built-in** group (the one the project runs on is marked *in use*). Selecting one shows its stages. **Duplicate to edit** asks for a name and writes `.taskcell/flows/<name>.hcl` from it, then opens it. Only a built-in whose copy would run exactly the same pipeline can be duplicated (today `flow-b`); the others say "This built-in can't be copied yet."
 
-**Precedence.** A stage's `model`/`provider` set in the flow beats the run-level `--provider-model`, `--review-model` and `--escalate-model` (a flow-pinned implementer is also not escalated on repair). A stage that leaves a field unset inherits the run-level value, as before. A model chosen by the Workflow editor therefore wins over the factory workflow's `provider-model` / `review-model` / `escalate-model` inputs.
+**Precedence.** A stage's `model`/`provider` set in the flow beats the run-level `--provider-model`, `--review-model` and `--escalate-model` (a flow-pinned implementer is also not escalated on repair). A stage that leaves a field unset inherits the run-level value, as before. A model chosen in the Custom flows editor therefore wins over the factory workflow's `provider-model` / `review-model` / `escalate-model` inputs.
 
-**Model pool per stage.** In the Workflow editor's stage panel, set **pool** to *on* to give the stage several `provider/model` entries with integer weights (**Add entry**, provider, model id, weight) instead of one model. It is saved as the stage's `model` in the flow file, e.g. `model = "claude/sonnet:3, codex/gpt-5.6-sol:1"`, so every Hub run and every factory run with `--flow <name>` uses it. Each run picks one entry by weight from a stable hash of the task's issue number (the same issue always gets the same entry); an entry recorded as out of quota (see [cli.md](cli.md#model-pools-per-stage)) is skipped until its reset. An entry on another provider pins the stage to that provider, under the same rule as the stage's `provider` field: a provider that owns the Claude CLI transport (zai, openrouter, meridian, customs) cannot be pinned per stage, and the run needs that provider's credential. A flow stage pool beats the run-level pools (`--provider-model` etc.) like any flow-set model. The run record shows the entry with pick `flow`, and `taskcell stats` compares the entries in **BY MODEL PER STAGE**. Run-level pools, quota skipping, the fallback order (`--fallback-provider` lists) and how to read the stats are in [cli.md](cli.md#model-pools-per-stage).
+**Model pool per stage.** In the Custom flows editor's stage panel, set **pool** to *on* to give the stage several `provider/model` entries with integer weights (**Add entry**, provider, model id, weight) instead of one model. It is saved as the stage's `model` in the flow file, e.g. `model = "claude/sonnet:3, codex/gpt-5.6-sol:1"`, so every Hub run and every factory run with `--flow <name>` uses it. Each run picks one entry by weight from a stable hash of the task's issue number (the same issue always gets the same entry); an entry recorded as out of quota (see [cli.md](cli.md#model-pools-per-stage)) is skipped until its reset. An entry on another provider pins the stage to that provider, under the same rule as the stage's `provider` field: a provider that owns the Claude CLI transport (zai, openrouter, meridian, customs) cannot be pinned per stage, and the run needs that provider's credential. A flow stage pool beats the run-level pools (`--provider-model` etc.) like any flow-set model. The run record shows the entry with pick `flow`, and `taskcell stats` compares the entries in **BY MODEL PER STAGE**. Run-level pools, quota skipping, the fallback order (`--fallback-provider` lists) and how to read the stats are in [cli.md](cli.md#model-pools-per-stage).
 
 **GitHub Actions factory.** The reusable `implement.yml` takes an optional `flow` input (empty = today's behaviour) that is passed as `--flow`, e.g. `flow: my-flow` under `with:` in your caller workflow. The flow file must be on the default branch the run checks out.
 
 ## Hub board: tasks, dependencies and start dates
 
-A project whose task source is **Hub board** (Settings → Task source, `taskSource: hub` in `.taskcell/app.json`) has its tasks in the hub itself instead of a tracker. With such a project open (the project named in the top bar), the Board shows a **New hub task** form (title, what to do, blocked by and start date) in place of the tracker's **New Task**; a card's quick view has a **Schedule** section, and **Full page** shows the task's text. Projects on GitHub, GitLab or Linear are not touched by any of this: the hub-board commands refuse them and the scheduler never looks at them.
+A project whose card source is **Taskcell board** (Settings → Card source, `taskSource: hub` in `.taskcell/app.json`) has its tasks in the hub itself instead of a tracker. With such a project open (the project picked in the Board or Runs filter, or in the "Project:" picker at the top of Settings and New card), the Board's **New card** button opens a card form above the board (title, what to do, blocked by and start date, with **Add card** and **Cancel**) instead of the tracker's new-card drawer; the form is closed until you ask for it and closes after a card is added; a card's quick view has a **Schedule** section, and **Full page** shows the task's text. Projects on GitHub, GitLab or Linear are not touched by any of this: the hub-board commands refuse them and the scheduler never looks at them.
 
 ### Where tasks live
 
@@ -883,6 +939,7 @@ The Board reads `list_tasks` through the same planner the scheduler uses (`src/h
 | `waits until Tue 18.11 (Europe/Berlin)` | the start date is in the future; the hub time zone is named |
 | `waits for a free slot` | ready, but the project already has as many tasks with the run session as it can hold |
 | `starts next` | ready; the next scheduler pass hands it to the run session |
+| `auto-run is off — start it by hand` | the project's auto-run (Settings → Line → Card → Set up auto-run → Local hub) is off, so a card that would start next or wait for a slot waits for a hand start: `hub_task_start` (repoPath, id) marks the to-do task and the next scheduler pass starts it, only it, as the person who pressed Start |
 | `queued behind another run (position 1)` | handed over, waiting in the run queue; shown in **Queued**, not **Running** |
 | `not started: …` | the last start was refused (no credential under `user-only`, a missing model credential on the hub, the run queue is full, the owner no longer reaches the repository); the task stays to do and is tried again on every pass |
 | `failed: …` (red) | the run failed, was cancelled, was held back by the secret scan or a red base branch, or changed nothing, or its run ended with a hub restart; the reason is shown. **Retry** in the quick view (`hub_task_retry`) puts it back to do and clears its old result. A run whose verify failed on a delivered branch or pull request also offers **Accept result** (`hub_task_accept`), which marks it done without a second run (a Retry delivers a second branch or pull request) |

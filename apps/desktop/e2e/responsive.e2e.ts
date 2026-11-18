@@ -7,20 +7,23 @@ const noHorizontalScroll = async (page: Page): Promise<void> => {
   expect(overflow).toBeLessThanOrEqual(0);
 };
 
-test('Home, Needs you and run detail fit 390 px', async ({ page }) => {
+test('Home, Waiting for you and run detail fit 390 px', async ({ page }) => {
   await page.goto('/');
+  // Home is the landing screen: the command center, then the projects.
   await expect(page.getByRole('heading', { name: 'Projects' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Waiting for you' })).toBeVisible();
   await noHorizontalScroll(page);
-
-  await page.locator('button.proj-open').first().click();
-  const nav = page.getByRole('navigation');
+  const nav = page.getByRole('navigation', { name: 'Main' });
   await expect(nav).toBeVisible();
-  // The rail is a bottom bar: below the content, spanning the width.
+  // The main navigation is a bottom tab bar: below the content, spanning the width.
   const box = await nav.boundingBox();
   expect(box!.y).toBeGreaterThan(400);
 
+  await page.locator('button.proj-open').first().click();
   await nav.getByRole('button', { name: /^Home/ }).click();
-  await expect(page.getByRole('heading', { name: 'Needs you' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Waiting for you' })).toBeVisible();
+  // A waiting item opens to its comment and reply.
+  await page.getByRole('button', { name: /^(Review|Answer) / }).first().click();
   await expect(page.getByRole('link', { name: 'Open in GitHub' }).first()).toBeVisible();
   await expect(page.getByRole('textbox').first()).toBeVisible();
   await noHorizontalScroll(page);

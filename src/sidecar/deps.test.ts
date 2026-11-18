@@ -502,6 +502,17 @@ describe('createRun with a `user` credential: no instance key fallback (user-onl
     expect(startSandboxContext).not.toHaveBeenCalled();
   });
 
+  it('a keyless custom provider is refused: it would use the instance\'s proxy', async () => {
+    const repoPath = await repoWith([{ name: 'open-proxy', baseUrl: 'https://llm.example.com/api' }]);
+    await expect(
+      productionDeps().createRun({ issueRef: 'o/r#1', repoPath, provider: 'open-proxy' }, () => {}, {
+        source: 'user',
+        env: { ANTHROPIC_API_KEY: 'sk-ant-api03-USER-KEY' },
+      }),
+    ).rejects.toThrow(/no keyEnv/);
+    expect(startSandboxContext).not.toHaveBeenCalled();
+  });
+
   it('meridian is refused: its host MERIDIAN_BASE_URL is the instance\'s', async () => {
     const repoPath = await plainRepo();
     setEnv({ MERIDIAN_BASE_URL: 'http://meridian.host:3456' });

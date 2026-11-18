@@ -24,8 +24,8 @@ describe('config-derived tokens are validated (app.json is repo content)', () =>
   });
 
   it('rejects a source outside the allowlist', () => {
-    expect(() => watchArgv({}, { ...opts, source: 'github; id' })).toThrow(/Invalid Task Source/);
-    expect(() => runCommand({ source: 'x;id' })).toThrow(/Invalid Task Source/);
+    expect(() => watchArgv({}, { ...opts, source: 'github; id' })).toThrow(/Invalid card source/);
+    expect(() => runCommand({ source: 'x;id' })).toThrow(/Invalid card source/);
   });
 
   it('accepts built-in and custom provider names', () => {

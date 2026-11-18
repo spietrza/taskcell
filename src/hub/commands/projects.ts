@@ -7,6 +7,7 @@ import { join } from 'node:path';
 import { BadRequestError } from '../../sidecar/sidecar.js';
 import { cloneProject, repoNameFromUrl } from '../clone.js';
 import * as projects from '../projects.js';
+import { hubDoneMarker } from './runs.js';
 import * as teams from '../teams.js';
 import type { DirListing, Project } from '../../wire.js';
 import { defineCommands, requireString, optionalString } from '../command-kit.js';
@@ -35,7 +36,7 @@ export interface ProjectsCommands {
 
 export const commands = defineCommands<ProjectsCommands>({
   list_projects: async ({ ctx, scope }) => {
-    return projects.list(ctx.configDir, await scope());
+    return projects.list(ctx.configDir, await scope(), hubDoneMarker(ctx));
   },
   add_project: async ({ ctx, args }) => {
     const real = await assertWithinBrowseRoot(ctx.browseRoot, requireString(args, 'path'), ctx.browseAnywhere);
@@ -68,7 +69,7 @@ export const commands = defineCommands<ProjectsCommands>({
         throw error;
       });
     }
-    return projects.aggregate(target);
+    return projects.aggregate(target, new Date(), hubDoneMarker(ctx));
   },
   remove_project: async ({ ctx, args }) => {
     const path = requireString(args, 'path');

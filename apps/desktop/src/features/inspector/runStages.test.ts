@@ -101,7 +101,7 @@ test('the sandbox stage logged before run-start leads the stage line, and Tests 
     { name: 'implementer', phase: 'running', startedAt: Date.parse('2026-11-16T10:00:06.000Z') },
     { name: 'reviewer', phase: 'pending' },
   ]);
-  expect(stageLabel('sandbox')).toBe('Sealed cell');
+  expect(stageLabel('sandbox')).toBe('Cell');
   expect(withPendingGateSteps(t.stages).map((s) => `${s.name}:${s.phase}`)).toEqual(['sandbox:done', 'implementer:running', 'tests:pending', 'reviewer:pending', 'pr:pending']);
 });
 
@@ -111,14 +111,14 @@ test('Tests in a live run: running once Code is done, passed with its time once 
     ev('2026-11-16T10:00:05.000Z', { type: 'stage-start', name: 'implementer', index: 0, of: 3 }),
     ev('2026-11-16T10:00:35.000Z', { type: 'stage-end', name: 'implementer', index: 0, of: 3, outcome: 'completed' }),
   ]);
-  expect(withPendingGateSteps(codeDone.stages)[1]).toEqual({ name: 'tests', label: 'Tests', phase: 'running', startedAt: Date.parse('2026-11-16T10:00:35.000Z') });
+  expect(withPendingGateSteps(codeDone.stages)[1]).toEqual({ name: 'tests', label: 'Gates', phase: 'running', startedAt: Date.parse('2026-11-16T10:00:35.000Z') });
   const reviewing = foldRunEvents([...[start], ev('2026-11-16T10:00:05.000Z', { type: 'stage-start', name: 'implementer', index: 0, of: 3 }), ev('2026-11-16T10:00:35.000Z', { type: 'stage-end', name: 'implementer', index: 0, of: 3, outcome: 'completed' }), ev('2026-11-16T10:00:42.000Z', { type: 'stage-start', name: 'reviewer', index: 1, of: 3 })]);
   expect(gateMs(reviewing.stages)).toBe(7000);
-  expect(withPendingGateSteps(reviewing.stages)[1]).toEqual({ name: 'tests', label: 'Tests', phase: 'done', ms: 7000 });
+  expect(withPendingGateSteps(reviewing.stages)[1]).toEqual({ name: 'tests', label: 'Gates', phase: 'done', ms: 7000 });
   // No reviewer right after Code: the gate runs at the end, so its time is not known from the stages.
   expect(gateMs([{ name: 'implementer', phase: 'done', endedAt: 1 }, { name: 'simplifier', phase: 'running', startedAt: 5 }])).toBeUndefined();
   const proof = { command: 'pnpm test', exitCode: 0, passed: true, sha256: 'x', outputTail: '' };
   const st = [{ name: 'implementer', phase: 'done' as const, src: 0 }];
-  expect(withGateSteps(st, proof, undefined, 7000)[1]).toEqual({ name: 'tests', label: 'Tests', phase: 'done', ms: 7000 });
+  expect(withGateSteps(st, proof, undefined, 7000)[1]).toEqual({ name: 'tests', label: 'Gates', phase: 'done', ms: 7000 });
   expect(withGateSteps(st, { ...proof, passed: false }, undefined, 7000)[1]).toMatchObject({ phase: 'failed', note: 'Failed' });
 });

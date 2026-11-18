@@ -5,7 +5,7 @@ import { configuredFlow, readAppConfig } from './app-config.js';
 import { auditActorOf, reportAuditFailure, type Actor, type AuditAction, type AuditLog, type AuditOutcome } from './audit.js';
 import type { ProjectAllowlist } from './allowlist.js';
 import type { CredentialService } from './credentials.js';
-import { editHubTask, hubTimeZone, listHubBoards, resetAndListHubTasks, resetStaleRunning, type HubTask } from './hub-tasks.js';
+import { editHubTask, INCOMPLETE_REASON, hubTimeZone, listHubBoards, resetAndListHubTasks, resetStaleRunning, type HubTask } from './hub-tasks.js';
 import { parallelLimit } from './hub-board.js';
 import { failureMessage } from './projects.js';
 import type { RunSession } from './run-session.js';
@@ -33,7 +33,15 @@ export interface SchedulerState {
 export const schedulerState = (): SchedulerState => ({ ticking: new Set(), live: new Set(), pending: new Map() });
 const key = (repoPath: string, id: string): string => `${repoPath}\n${id}`;
 
-function ended(result: CreateRunResult): Pick<HubTask, 'status' | 'reason' | 'result'> {
+export { INCOMPLETE_REASON };
+
+export function ended(result: CreateRunResult): Pick<HubTask, 'status' | 'reason' | 'result'> {
+  // A partial result is not done (a turn cap, a timeout, or a question), so dependents must not start. Whether the agent
+  // asked is the run record's to say (RunSummary.asked): the board and the inbox read it there, never from this reason.
+  if (result.implementerIncomplete === true) {
+    const where = result.prUrl ?? (result.branch !== undefined ? `branch ${result.branch}` : undefined);
+    return { status: 'failed', reason: INCOMPLETE_REASON, ...(where !== undefined ? { result: where } : {}) };
+  }
   if (result.verificationFailed === true && (result.prUrl !== undefined || result.branch !== undefined)) {
     const where = result.prUrl ?? `branch ${result.branch}`;
     return { status: 'failed', reason: `verify failed on the delivered result (${where}); dependents do not start. Accept the result to mark it done, or Retry (a second run delivers a second branch or pull request)`, result: where };
@@ -46,7 +54,7 @@ function ended(result: CreateRunResult): Pick<HubTask, 'status' | 'reason' | 're
 }
 
 /** Start what may start now; resolves with the ids the run session took, once they are marked running (not when they end). */
-export async function scheduleTick({ ticking, live, pending }: SchedulerState, configDir: string, repoPath: string, start: StartTask, opts: { limit: number; now?: Date }): Promise<string[]> {
+export async function scheduleTick({ ticking, live, pending }: SchedulerState, configDir: string, repoPath: string, start: StartTask, opts: { limit: number; now?: Date; only?: (t: HubTask) => boolean }): Promise<string[]> {
   if (ticking.has(repoPath)) return [];
   ticking.add(repoPath);
   try {
@@ -54,13 +62,15 @@ export async function scheduleTick({ ticking, live, pending }: SchedulerState, c
       if (!k.startsWith(`${repoPath}\n`)) continue;
       await editHubTask(configDir, repoPath, k.slice(repoPath.length + 1), (t) => {
         delete t.runId;
+        delete t.reason;
+        delete t.result;
         Object.assign(t, end);
       });
       pending.delete(k);
       live.delete(k);
     }
     const { tasks } = await resetAndListHubTasks(configDir, repoPath, (id) => live.has(key(repoPath, id)));
-    const plan = planSchedule(tasks, { now: opts.now ?? new Date(), limit: opts.limit, timeZone: hubTimeZone() });
+    const plan = planSchedule(tasks, { now: opts.now ?? new Date(), limit: opts.limit, timeZone: hubTimeZone(), ...(opts.only !== undefined ? { only: opts.only } : {}) });
     const started: string[] = [];
     for (const id of plan.start) {
       const k = key(repoPath, id);
@@ -80,6 +90,7 @@ export async function scheduleTick({ ticking, live, pending }: SchedulerState, c
       live.add(k);
       await editHubTask(configDir, repoPath, id, (t) => {
         t.status = 'running';
+        delete t.startRequested;
         if (admission !== '') t.runId = admission;
         delete t.reason;
       });
@@ -87,6 +98,9 @@ export async function scheduleTick({ ticking, live, pending }: SchedulerState, c
       const record = (end: Pick<HubTask, 'status' | 'reason' | 'result'>): Promise<unknown> =>
         editHubTask(configDir, repoPath, id, (t) => {
           delete t.runId;
+          // The end replaces what an earlier end or a stale-run reset left: a done task never keeps an old failure reason.
+          delete t.reason;
+          delete t.result;
           Object.assign(t, end);
         });
       const finish = (end: Pick<HubTask, 'status' | 'reason' | 'result'>): Promise<void> =>
@@ -117,7 +131,7 @@ export interface SweepContext {
   audit?: AuditLog;
   /** Re-resolves the stored owner at start (current account and owner flag); undefined: no longer valid, the task does not run. */
   recheckCaller: (stored: teams.Caller) => Promise<teams.Caller | undefined>;
-  /** A project the sweep may serve (default: all). The local worker's switch, when set off, stops a board's pick-ups. */
+  /** A project the sweep auto-starts (default: all). Off (the local worker's switch): only tasks started by hand run. */
   served?: (repoPath: string) => Promise<boolean>;
   /** Called with the ids a tick started. */
   picked?: (repoPath: string, ids: string[]) => Promise<void>;
@@ -136,7 +150,8 @@ async function startHubTask(ctx: SweepContext, repoPath: string, task: HubTask, 
   const log = (action: AuditAction, target: string, outcome: AuditOutcome): void => {
     if (who === undefined || actor === undefined) return;
     logged = true;
-    void ctx.audit?.record({ login: actor.login, actor: auditActorOf(actor), action, target, outcome }).catch(reportAuditFailure);
+    // The subject names the repository: Home's activity feed places the start by it (the target is the run id and the task).
+    void ctx.audit?.record({ login: actor.login, actor: auditActorOf(actor), action, target, subject: { repo: repoPath, runId: target.split(' ')[0]! }, outcome }).catch(reportAuditFailure);
   };
   try {
     if (who === undefined) throw new BadRequestError('this task has no owner on this hub — save its schedule to run it as you');
@@ -176,8 +191,9 @@ export async function sweepHubBoards(ctx: SweepContext): Promise<void> {
     try {
       if ((await ctx.allowlist.assertAllowed(repoPath).catch(() => undefined)) !== repoPath) continue;
       if ((await readAppConfig(repoPath)).taskSource !== 'hub') continue;
-      if (ctx.served !== undefined && !(await ctx.served(repoPath))) continue;
-      const started = await scheduleTick(ctx.scheduler, ctx.configDir, repoPath, (task, admitted) => startHubTask(ctx, repoPath, task, admitted), { limit: await parallelLimit(repoPath) });
+      // A project that is not served starts only the tasks a person asked to start by hand.
+      const served = ctx.served === undefined || (await ctx.served(repoPath));
+      const started = await scheduleTick(ctx.scheduler, ctx.configDir, repoPath, (task, admitted) => startHubTask(ctx, repoPath, task, admitted), { limit: await parallelLimit(repoPath), ...(served ? {} : { only: (t: HubTask) => t.startRequested === true }) });
       await ctx.picked?.(repoPath, started);
     } catch (e) {
       console.error(`vanguard-hub: scheduler: ${repoPath}: ${failureMessage(e)}`);

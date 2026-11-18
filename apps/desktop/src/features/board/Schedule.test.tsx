@@ -1,6 +1,6 @@
 import { describe, expect, test, vi } from 'vitest';
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
-import { NewHubTask, ScheduleEditor, ScheduleLines } from './Schedule';
+import { NewHubTask, ScheduleEditor, ScheduleLines, blockedByExample } from './Schedule';
 import type { BoardTask } from '../../wire';
 
 vi.mock('../../ipc', () => ({
@@ -28,7 +28,9 @@ describe('ScheduleLines', () => {
     render(<ScheduleLines task={{ schedule: { state: 'failed', reason: 'no credential', label: 'failed: no credential' } }} />);
     expect(screen.getByText('failed: no credential')).toHaveAttribute('data-schedule', 'failed');
     render(<ScheduleLines task={{ schedule: { state: 'done', label: 'done', result: 'branch chore/x' } }} />);
-    expect(screen.getByText('branch chore/x')).toBeInTheDocument();
+    // One line, cut with an ellipsis; the full branch is in the tooltip.
+    expect(screen.getByText('Delivered: branch chore/x')).toHaveClass('truncate');
+    expect(screen.getByText('Delivered: branch chore/x')).toHaveAttribute('title', 'branch chore/x');
   });
   test('a GitHub card shows the dependencies and start the source reports', () => {
     render(<ScheduleLines task={{ blockedBy: ['#4', 'o/r#5'], startDate: '2026-11-18' }} />);
@@ -92,10 +94,11 @@ describe('NewHubTask', () => {
   test('adds a task with its title and body, then clears', async () => {
     const onCreated = vi.fn();
     render(<NewHubTask repoPath="/r" onCreated={onCreated} />);
-    expect(screen.getByRole('button', { name: 'Add task' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Add card' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Add card' })).toHaveAttribute('title', 'Type a title first');
     fireEvent.change(screen.getByLabelText('Title'), { target: { value: 'Add a health endpoint' } });
     fireEvent.change(screen.getByLabelText(/What to do/), { target: { value: 'GET /healthz answers 200' } });
-    fireEvent.click(screen.getByRole('button', { name: 'Add task' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Add card' }));
     await waitFor(() => expect(onCreated).toHaveBeenCalled());
     expect(hubTaskCreate).toHaveBeenCalledWith('/r', 'Add a health endpoint', 'GET /healthz answers 200', {});
     expect(screen.getByLabelText('Title')).toHaveValue('');
@@ -107,14 +110,20 @@ describe('NewHubTask', () => {
     fireEvent.change(screen.getByLabelText('Title'), { target: { value: 'T' } });
     fireEvent.change(screen.getByLabelText(/Blocked by/), { target: { value: 'hub-1, hub-2' } });
     fireEvent.change(screen.getByLabelText(/Start date/), { target: { value: '2026-11-18' } });
-    fireEvent.click(screen.getByRole('button', { name: 'Add task' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Add card' }));
     await waitFor(() => expect(hubTaskCreate).toHaveBeenCalledWith('/r', 'T', '', { blockedBy: ['hub-1', 'hub-2'], startDate: '2026-11-18' }));
   });
   test('a refusal is shown', async () => {
     vi.mocked(hubTaskCreate).mockRejectedValueOnce(new Error('title must be at most 300 characters'));
     render(<NewHubTask repoPath="/r" onCreated={() => {}} />);
     fireEvent.change(screen.getByLabelText('Title'), { target: { value: 'x' } });
-    fireEvent.click(screen.getByRole('button', { name: 'Add task' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Add card' }));
     expect(await screen.findByRole('alert')).toHaveTextContent('at most 300');
   });
+});
+
+test('the "Blocked by" example never suggests the card itself', () => {
+  expect(blockedByExample('hub-1')).toBe('hub-2, hub-3');
+  expect(blockedByExample('hub-7')).toBe('hub-1, hub-2');
+  expect(blockedByExample()).toBe('hub-1, hub-2');
 });

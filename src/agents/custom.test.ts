@@ -2,7 +2,7 @@ import { mkdtemp, mkdir, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
-import { CustomProvider, customProviderError, loadCustomProviders } from './custom.js';
+import { CustomProvider, KEYLESS_PLACEHOLDER_TOKEN, customProviderError, loadCustomProviders } from './custom.js';
 import {
   assertEgressCompatible,
   claudeCliKeyEnv,
@@ -41,7 +41,7 @@ describe('customProviderError (the one validity predicate)', () => {
     ['built-in collision', { ...ENTRY, name: 'zai' }, /built-in provider name/],
     ['relative baseUrl', { ...ENTRY, baseUrl: '/api' }, /absolute http/],
     ['non-http scheme', { ...ENTRY, baseUrl: 'ftp://x.example' }, /absolute http/],
-    ['missing keyEnv', { name: 'a', baseUrl: ENTRY.baseUrl }, /"keyEnv" must name/],
+    ['empty keyEnv', { name: 'a', baseUrl: ENTRY.baseUrl, keyEnv: '' }, /"keyEnv" must name/],
     ['bad keyEnv grammar', { ...ENTRY, keyEnv: '1BAD' }, /"keyEnv" must name/],
     ['keyEnv borrowing the subscription token', { ...ENTRY, keyEnv: 'CLAUDE_CODE_OAUTH_TOKEN' }, /must not name a credential/],
     ['keyEnv borrowing the push token', { ...ENTRY, keyEnv: 'GH_TOKEN' }, /must not name a credential/],
@@ -197,6 +197,36 @@ describe('registry resolution with customs', () => {
     expect(() => assertEgressCompatible({ provider: 'my-proxy', customProviders: loaded({ baseUrl: 'http://nas.local:3456' }) }))
       .toThrow(/http:\/\/ endpoint.*egress/s);
     expect(() => assertEgressCompatible({ provider: 'my-proxy', customProviders: loaded() })).not.toThrow();
+  });
+});
+
+describe('keyless custom provider (no keyEnv: a proxy that holds its own auth)', () => {
+  const { keyEnv: _k, ...keyless } = ENTRY;
+  const customs: CustomProviderEntry[] = [{ index: 0, name: 'my-proxy', spec: keyless }];
+
+  it('is a valid entry; the loader keeps it keyless', async () => {
+    expect(customProviderError(keyless, new Set())).toBeUndefined();
+    const entries = await loadCustomProviders(await repoWith({ customProviders: [keyless] }));
+    expect(entries[0]?.spec).toEqual(keyless);
+  });
+
+  it('injects the base URL and a non-empty placeholder token, with no env needed', () => {
+    const { sandboxSecrets } = providerSecrets(['my-proxy'], {}, {}, customs);
+    expect(sandboxSecrets).toEqual({ ANTHROPIC_BASE_URL: 'https://llm.example.com/api', ANTHROPIC_AUTH_TOKEN: KEYLESS_PLACEHOLDER_TOKEN });
+    expect(KEYLESS_PLACEHOLDER_TOKEN).not.toBe('');
+  });
+
+  it('resolves auth without any key and still owns the transport', () => {
+    expect(claudeCliKeyEnv('my-proxy', customs)).toEqual([]);
+    expect(needsAnthropicAuth({ provider: 'my-proxy', customProviders: customs })).toBe(false);
+    expect(agentAuthFromEnv({ provider: 'my-proxy', customProviders: customs }, {})).toEqual({ mode: 'api', apiKey: KEYLESS_PLACEHOLDER_TOKEN });
+  });
+
+  it('keeps the restrictions: no --llm-proxy, host on the egress allowlist, plain http refused under egress', () => {
+    expect(() => validateProviderChoice({ provider: 'my-proxy', customProviders: customs }, { proxyMode: true })).toThrow(/direct-mode only/);
+    expect(customEgressHosts({ provider: 'my-proxy', customProviders: customs })).toEqual(['llm.example.com']);
+    const http: CustomProviderEntry[] = [{ index: 0, name: 'my-proxy', spec: { ...keyless, baseUrl: 'http://nas.local:3456' } }];
+    expect(() => assertEgressCompatible({ provider: 'my-proxy', customProviders: http })).toThrow(/egress/);
   });
 });
 

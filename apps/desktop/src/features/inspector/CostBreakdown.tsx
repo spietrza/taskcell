@@ -49,7 +49,7 @@ export function CostBreakdown({ project }: { project: string }) {
               type="button"
               aria-pressed={period === p.id}
               onClick={() => setPeriod(p.id)}
-              className={`rounded px-2 py-1 text-xs transition-colors ${period === p.id ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:bg-muted'}`}
+              className={`rounded px-2 py-1 text-xs transition-colors ${period === p.id ? 'bg-muted font-medium text-foreground' : 'text-muted-foreground hover:bg-muted'}`}
             >
               {p.label}
             </button>

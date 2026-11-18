@@ -68,7 +68,7 @@ export interface SchedulePlan {
  * is free (`limit` minus the tasks already handed to the run session). A missing reference or a cycle is `invalid`
  * with the reason and never starts. `queued` maps a run id waiting in the run session's queue to its position.
  */
-export function planSchedule(tasks: readonly HubTask[], opts: { now: Date; limit: number; timeZone: string; queued?: ReadonlyMap<string, number> }): SchedulePlan {
+export function planSchedule(tasks: readonly HubTask[], opts: { now: Date; limit: number; timeZone: string; queued?: ReadonlyMap<string, number>; only?: (t: HubTask) => boolean }): SchedulePlan {
   const byId = new Map(tasks.map((t) => [t.id, t]));
   const cycles = cycleReasons(tasks, byId);
   const out = new Map<string, TaskSchedule>();
@@ -96,11 +96,13 @@ export function planSchedule(tasks: readonly HubTask[], opts: { now: Date; limit
     }
     candidates.push(t);
   }
-  const start = candidates.slice(0, Math.max(0, free));
+  // `only`: a candidate outside it never takes a slot; it keeps the state it would have (the caller knows why it does not start).
+  const inOnly = (t: HubTask): boolean => opts.only?.(t) ?? true;
+  const start = candidates.filter(inOnly).slice(0, Math.max(0, free));
   for (const t of candidates) {
     out.set(
       t.id,
-      !start.includes(t) ? { state: 'waits-slot', label: 'waits for a free slot' }
+      inOnly(t) && !start.includes(t) ? { state: 'waits-slot', label: 'waits for a free slot' }
       // Its last start was refused (no credential, the run queue is full): still todo, tried again on the next tick.
       : t.reason !== undefined ? { state: 'refused', reason: t.reason, label: `not started: ${t.reason}` }
       : { state: 'ready', label: 'starts next' },

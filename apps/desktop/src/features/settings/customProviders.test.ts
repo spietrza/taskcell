@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { customProviderRowError, customProviderRows, PROVIDERS } from './customProviders';
+import { customProviderRowError, customProviderRows, PROVIDERS, PROVIDER_CHOICES, providerLabel, selectableProviders } from './customProviders';
 
 const ROW = { name: 'my-proxy', baseUrl: 'https://llm.example.com/api', keyEnv: 'MY_PROXY_API_KEY' };
 
@@ -61,5 +61,21 @@ describe('customProviderRows (narrowing the opaque wire field)', () => {
     ['non-array JSON from a hand-edited file', { 'my-proxy': { baseUrl: 'https://llm.example.com' } }],
   ])('yields no rows when the field is %s', (_label, value) => {
     expect(customProviderRows({ customProviders: value })).toEqual([]);
+  });
+});
+
+describe('keyless rows and the legacy meridian value', () => {
+  it('accepts a row without keyEnv, still rejects a malformed one', () => {
+    const { keyEnv: _k, ...keyless } = ROW;
+    expect(customProviderRowError(keyless, 0, [keyless])).toBeUndefined();
+    expect(customProviderRowError({ ...ROW, keyEnv: '1BAD' }, 0, [ROW])).toMatch(/environment variable/);
+  });
+
+  it('hides meridian from the offered choices but keeps it as the saved value, labelled generically', () => {
+    expect(PROVIDER_CHOICES).not.toContain('meridian');
+    expect(selectableProviders(['claude', 'meridian'])).toEqual(['claude']);
+    expect(selectableProviders(['claude', 'meridian'], 'meridian')).toEqual(['claude', 'meridian']);
+    expect(providerLabel('meridian')).toBe('Anthropic-compatible endpoint (MERIDIAN_BASE_URL)');
+    expect(providerLabel('claude')).toBe('claude');
   });
 });

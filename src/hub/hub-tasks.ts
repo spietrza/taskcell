@@ -32,13 +32,22 @@ export interface HubTask {
   owner?: HubTaskOwner;
   /** Hand-picked skill ids (installed ones; checked when set): the task's run loads exactly these. */
   skills?: string[];
+  /** `todo`: a person pressed Start; the scheduler starts it even when its project's auto-run is off. Cleared when it starts. */
+  startRequested?: true;
   /** `running`: the run session's id for its run. */
   runId?: string;
   /** `failed`: why. `todo`: why its last start was refused. */
   reason?: string;
+  /** `done`: a person accepted a failed run's delivered result, so the task is done although its last run failed. */
+  accepted?: true;
   /** `done`: the pull request URL, or `branch <name>`. `failed` after a verify failure: the delivered result (accept it, or retry). */
   result?: string;
 }
+
+/** The reason a failed card shows when its newest run's agent stopped to ask (RunSummary.asked): Home lists it under "Waiting for you". */
+export const ASKED_REASON = 'the agent stopped before finishing and is waiting for your answer (see "Waiting for you" on Home)';
+/** The reason a task fails with when its implementer did not finish: a turn cap, a timeout, or a question (the board tells them apart by the run). */
+export const INCOMPLETE_REASON = 'the agent did not finish the task (a turn cap, a time limit, or a question; see the run)';
 
 export const HUB_TASK_ID = /^hub-[1-9]\d{0,8}$/;
 export const MAX_TITLE_LENGTH = 300;

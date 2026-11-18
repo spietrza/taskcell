@@ -7,21 +7,22 @@ import { createContext, useContext, useEffect, useRef } from 'react';
  * REMOUNTS the subtree on project switch and a Rail screen-switch unmounts the editor — component-
  * local confirms never see either.
  *
- * Pure registry (no React) so the semantics are unit-testable: last registration wins (one dirty
- * screen at a time in practice), unregister is idempotent and only removes the current guard.
+ * Pure registry (no React) so the semantics are unit-testable: guards are a set (a screen can hold two
+ * dirty editors, e.g. Line's app.json draft and its flow draft), navigation proceeds only when every
+ * guard passes, and unregister is idempotent and removes only that guard.
  *
  * Dirty-screen inventory (#339 follow-up): `WorkflowEditor` and `Settings` hold real unsaved work
  * behind an explicit Save and register a confirm guard via `useDiscardGuard`. `TaskDraftScreen`
  * persists via debounced autosave plus an unmount flush and a close-time `registerFlush` — nothing
  * to confirm, it is never lost. `StageInspector`'s text buffer and `NewRunForm`'s launch params are
  * transient/reconstructible — not "work" worth a prompt. This holds together only because
- * `Inspector` renders screens as an exclusive ternary — at most one confirm-guard registrant is
- * ever mounted, which is exactly what the single-slot registry below assumes.
+ * `Inspector` renders screens as an exclusive ternary, so guards from different screens never meet;
+ * within Line two can be live at once, which is why the registry holds a set.
  */
 export interface NavGuardRegistry {
   register: (guard: () => boolean) => void;
   unregister: (guard: () => boolean) => void;
-  /** True ⇒ proceed with the navigation. Runs the registered guard, if any. */
+  /** True ⇒ proceed with the navigation. Runs the guards in order; the first refusal aborts and skips the rest. */
   confirm: () => boolean;
   /** Whether a guard is currently registered (drives the window-close hook). */
   guarded: () => boolean;
@@ -39,17 +40,18 @@ export interface NavGuardRegistry {
 }
 
 export function createNavGuardRegistry(): NavGuardRegistry {
-  let current: (() => boolean) | null = null;
+  const guards = new Set<() => boolean>();
   let currentFlush: (() => Promise<void>) | null = null;
   return {
     register: (guard) => {
-      current = guard;
+      guards.add(guard);
     },
     unregister: (guard) => {
-      if (current === guard) current = null;
+      guards.delete(guard);
     },
-    confirm: () => current?.() !== false,
-    guarded: () => current !== null,
+    // Stops at the first refusal: no further prompts once one guard has said no.
+    confirm: () => [...guards].every((g) => g() !== false),
+    guarded: () => guards.size > 0,
     registerFlush: (flush) => {
       currentFlush = flush;
     },

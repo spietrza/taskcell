@@ -52,7 +52,7 @@ taskcell run --github o/r#42 \
 
 ## Providers
 
-The agent behind each stage is a swappable `AgentProvider`: `claude` (Claude Code CLI, default), `codex` (OpenAI Codex CLI), `cursor` (Cursor CLI; see [CURSOR-provider.md](CURSOR-provider.md)), `zai` (z.ai GLM Coding Plan), `openrouter` (OpenRouter's Anthropic skin), or `meridian` (self-hosted [Meridian](https://github.com/rynfar/meridian) proxy — share a Claude Max subscription from another host; see [MERIDIAN-provider.md](MERIDIAN-provider.md)). Selection is **by provider, not by model** — each provider runs on its own default model. Two modes:
+The agent behind each stage is a swappable `AgentProvider`: `claude` (Claude Code CLI, default), `codex` (OpenAI Codex CLI), `cursor` (Cursor CLI; see [CURSOR-provider.md](CURSOR-provider.md)), `zai` (z.ai GLM Coding Plan), `openrouter` (OpenRouter's Anthropic skin), or an Anthropic-compatible endpoint, e.g. a self-hosted proxy such as Meridian or CLIProxyAPI, configured as a custom provider under `customProviders` in `.taskcell/app.json` (`keyEnv` is optional for a proxy that holds its own auth; see [MERIDIAN-provider.md](MERIDIAN-provider.md) for Meridian as an example). `--provider meridian` still works as an alias that reads `MERIDIAN_BASE_URL`. Selection is **by provider, not by model** — each provider runs on its own default model. Two modes:
 
 **One provider does everything** (default)
 

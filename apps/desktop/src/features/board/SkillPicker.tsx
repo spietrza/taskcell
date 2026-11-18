@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
 import { apiListSkills } from '../../ipc';
 import { errorMessage } from '../../errors';
 
@@ -12,11 +12,14 @@ export function SkillPicker({
   value,
   onChange,
   disabled = false,
+  empty,
 }: {
   project: string;
   value: string[];
   onChange: (skills: string[]) => void;
   disabled?: boolean;
+  /** Shown instead of the picker when no skill is installed or chosen. */
+  empty?: ReactNode;
 }) {
   const [installed, setInstalled] = useState<string[] | { error: string } | null>(null);
   useEffect(() => {
@@ -35,6 +38,7 @@ export function SkillPicker({
   }, [project]);
   const listed = Array.isArray(installed) ? installed : [];
   const ids = [...new Set([...listed, ...value])];
+  if (empty !== undefined && Array.isArray(installed) && ids.length === 0) return <>{empty}</>;
 
   return (
     <fieldset disabled={disabled} className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">

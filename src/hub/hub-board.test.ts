@@ -2,7 +2,8 @@ import { mkdir, mkdtemp, readFile, readdir, rm, symlink, writeFile } from 'node:
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, expect, test, vi } from 'vitest';
-import { createHubTask, editHubTask, listHubBoards, listHubTasks, readHubTasks, resetStaleRunning, updateHubTask, type HubTask, type HubTaskOwner } from './hub-tasks.js';
+import { ASKED_REASON, createHubTask, INCOMPLETE_REASON, editHubTask, listHubBoards, listHubTasks, readHubTasks, resetStaleRunning, updateHubTask, type HubTask, type HubTaskOwner } from './hub-tasks.js';
+import { askingCards } from './asking.js';
 import { listHubBoard } from './hub-board.js';
 import { scheduleTick as tick, schedulerState, type StartTask } from './task-scheduler.js';
 import { OWNER } from './test-kit.js';
@@ -22,6 +23,10 @@ afterEach(async () => { await rm(cfg, { recursive: true, force: true }); });
 const add = (title: string, body?: string): Promise<HubTask> => createHubTask(cfg, repo, { title, owner, ...(body !== undefined ? { body } : {}) });
 const statuses = async (): Promise<string[]> => (await listHubTasks(cfg, repo)).map((t) => t.status);
 const storeFile = async (): Promise<string> => join(cfg, 'hub-tasks', (await readdir(join(cfg, 'hub-tasks')))[0]!);
+/** A run record of `taskId` in `dir`'s runs root (the implementer stage unless `extra` names another). */
+const record = (dir: string, taskId: string, extra: Record<string, unknown>): Promise<void> =>
+  mkdir(join(dir, '.taskcell', 'runs', taskId), { recursive: true }).then(() =>
+    writeFile(join(dir, '.taskcell', 'runs', taskId, '2026-11-17T15-53-58-120Z-implementer.json'), JSON.stringify({ taskId, timestamp: '2026-11-17T15:53:58.120Z', stage: 'implementer', turns: 1, durationMs: 1, worktreePath: '', worktreePreserved: false, ...extra })));
 /** A start the test settles by hand; the session "takes" the run at once. */
 function manualStart(): { start: StartTask; started: string[]; settle: Array<{ ok: (r?: CreateRunResult) => void; fail: (e: Error) => void }> } {
   const started: string[] = [];
@@ -186,4 +191,60 @@ test('a future start date is not started even with a free slot', async () => {
   const { start } = manualStart();
   expect(await scheduleTick(cfg, repo, start, { limit: 2 })).toEqual([]);
   expect(await scheduleTick(cfg, repo, start, { limit: 2, now: new Date('2099-01-02T00:00:00Z') })).toEqual(['hub-1']);
+});
+
+test('a project that is not auto-run shows startable cards as waiting for a hand start; blocked ones keep their reason', async () => {
+  await createHubTask(cfg, repo, { title: 'A', body: '', owner });
+  await createHubTask(cfg, repo, { title: 'B', body: '', blockedBy: ['hub-1'], owner });
+  expect((await listHubBoard(cfg, repo)).tasks.map((t) => t.state)).toEqual(['auto-run is off — start it by hand', 'blocked by hub-1']);
+  await writeFile(join(cfg, 'local-worker.json'), JSON.stringify({ [repo]: { enabled: true } }));
+  expect((await listHubBoard(cfg, repo)).tasks.map((t) => t.state)).toEqual(['starts next', 'blocked by hub-1']);
+});
+
+test('auto-run off: a card started by hand reads "starts next" even when earlier cards fill the plan', async () => {
+  await createHubTask(cfg, repo, { title: 'A', body: '', owner });
+  await createHubTask(cfg, repo, { title: 'B', body: '', owner });
+  await createHubTask(cfg, repo, { title: 'C', body: '', owner });
+  await editHubTask(cfg, repo, 'hub-3', (t) => { t.startRequested = true; });
+  expect((await listHubBoard(cfg, repo)).tasks.map((t) => t.state)).toEqual(['auto-run is off — start it by hand', 'auto-run is off — start it by hand', 'starts next']);
+});
+
+test('a failed card is asked only when its run stopped to ask, not on a turn cap or a timeout', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'hubrepo-'));
+  try {
+    for (const title of ['A', 'B', 'C']) await createHubTask(cfg, dir, { title, body: '', owner });
+    for (const id of ['hub-1', 'hub-2', 'hub-3']) await editHubTask(cfg, dir, id, (t) => { t.status = 'failed'; t.reason = INCOMPLETE_REASON; });
+    await record(dir, 'hub-1', { completed: false, exitReason: 'incomplete', finalText: 'Which config file?' });
+    await record(dir, 'hub-2', { completed: false, exitReason: 'maxTurns', finalText: 'still working' });
+    await record(dir, 'hub-3', { completed: false, exitReason: 'timeout', finalText: 'still working' });
+    const cards = (await listHubBoard(cfg, dir)).tasks;
+    expect(cards.map((t) => t.asked)).toEqual([true, undefined, undefined]);
+    expect(cards[0]!.state).toBe(`failed: ${ASKED_REASON}`);
+    expect(cards[1]!.state).toBe(`failed: ${INCOMPLETE_REASON}`);
+    expect(cards.map((t) => t.column)).toEqual(['verify-failed', 'verify-failed', 'verify-failed']);
+    // The inbox lists the same cards the board marks.
+    await writeFile(join(dir, '.taskcell', 'app.json'), JSON.stringify({ taskSource: 'hub' }));
+    expect((await askingCards(cfg, dir)).map((i) => i.id)).toEqual(['hub-1']);
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test('a done card whose delivered run had a failed stage stays done with a warning chip; Accept or a clean run clears it', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'hubrepo-'));
+  try {
+    for (const title of ['A', 'B', 'C']) await createHubTask(cfg, dir, { title, body: '', owner });
+    for (const id of ['hub-1', 'hub-2', 'hub-3']) await editHubTask(cfg, dir, id, (t) => { t.status = 'done'; t.result = 'https://github.com/o/r/pull/1'; });
+    await editHubTask(cfg, dir, 'hub-3', (t) => { t.accepted = true; });
+    // A re-review that never answered: the reviewer record is not completed, the PR went out as a draft.
+    for (const id of ['hub-1', 'hub-3']) await record(dir, id, { completed: false, exitReason: 'incomplete', stage: 'reviewer', finalText: 'Review unavailable' });
+    await record(dir, 'hub-2', { completed: true, exitReason: 'completed', finalText: 'done' });
+    const cards = (await listHubBoard(cfg, dir)).tasks;
+    expect(cards.map((t) => t.column)).toEqual(['done', 'done', 'done']);
+    expect(cards.map((t) => t.asked)).toEqual([undefined, undefined, undefined]);
+    expect(cards.map((t) => t.chips?.map((c) => c.key))).toEqual([['warning'], undefined, undefined]);
+    expect(cards.map((t) => t.schedule?.state)).toEqual(['done', 'done', 'done']);
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
 });

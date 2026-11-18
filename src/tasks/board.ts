@@ -130,6 +130,8 @@ export function toBoardTask(source: BoardSource, task: Task): BoardTask {
   const paused = source === 'github' && column !== 'done' && hasLabel(task.labels, GITHUB_RATE_LIMITED_LABEL);
   // The tracker's own labels, searchable on the board; Taskcell's routing labels are its machinery, not the team's tags.
   const labels = task.labels.filter((l) => !isTriggerLabel(l) && !isBaseLabel(l) && !/^(taskcell|vanguard)::?/i.test(l));
+  // The factory's lifecycle labels, for the card's chips: triggers, `taskcell:*` states and the hand-off labels.
+  const factoryLabels = stateLabels.filter((l) => isTriggerLabel(l) || /^(taskcell|vanguard)::?/i.test(l) || /^(needs info|needs revision|ready for (taskcell|vanguard) review)$/i.test(l));
   return {
     id: mintBoardId(source, task.ref ?? task.id),
     title: task.title,
@@ -142,6 +144,7 @@ export function toBoardTask(source: BoardSource, task: Task): BoardTask {
     ...(baseBranch !== undefined ? { baseBranch } : {}),
     ...(skills.length > 0 ? { skills } : {}),
     ...(labels.length > 0 ? { labels } : {}),
+    ...(factoryLabels.length > 0 ? { factoryLabels } : {}),
   };
 }
 

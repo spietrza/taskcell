@@ -1,5 +1,5 @@
 import { beforeEach, expect, test } from 'vitest';
-import { DEFAULT_FILTER, cardKeys, configuredSources, effectiveFilter, filterCards, offeredSources, filterRuns, groupRows, loadFilter, runKeys, runSource, saveFilter, type HubFilter } from './filterState';
+import { DEFAULT_FILTER, inRepoScope, offeredSources as offered2, cardKeys, configuredSources, effectiveFilter, filterCards, offeredSources, filterRuns, groupRows, loadFilter, runKeys, runSource, saveFilter, type HubFilter } from './filterState';
 import type { BoardTask, RunSummary } from './wire';
 
 const card = (id: string, column: BoardTask['column'], extra: Partial<BoardTask> & { repoPath?: string; repoName?: string } = {}): BoardTask & { repoPath: string; repoName: string } => ({
@@ -42,13 +42,20 @@ test('runs filter by triage (merged from prState), source and search', () => {
   expect(filterRuns(runs, f({ sources: ['taskcell'] })).map((r) => r.taskId)).toEqual(['x-3']);
   expect(filterRuns(runs, f({ query: 'gl' })).map((r) => r.taskId)).toEqual(['gl-2']);
   expect(runSource('linear-9')).toBe('linear');
+  // A run whose card is done sits under Merged, as the card does on the Board: a done card's asked run no longer needs you.
+  const done = [run('hub-1', { cardDone: true }), run('hub-4', { anyFailed: true, asked: 'Which file?', cardDone: true })];
+  expect(filterRuns(done, f({ triage: 'merged' })).map((r) => r.taskId)).toEqual(['hub-1', 'hub-4']);
+  expect(filterRuns(done, f({ triage: 'needs' }))).toEqual([]);
+  // Waiting for you = a card's newest run that asked or failed; a failed run a newer run replaced no longer waits.
+  const tries = [run('gh-7', { anyFailed: true, timestamp: '1' }), run('gh-7', { timestamp: '2' }), run('gh-8', { anyFailed: true, timestamp: '1' }), run('hub-9', { asked: 'Which file?' })];
+  expect(filterRuns(tries, f({ triage: 'needs' })).map((r) => r.taskId)).toEqual(['gh-8', 'hub-9']);
 });
 
 test('grouping by project, source and triage', () => {
   expect(groupRows(cards, 'none', cardKeys)).toHaveLength(1);
   expect(groupRows(cards, 'project', cardKeys).map((l) => [l.label, l.rows.length])).toEqual([['a', 3], ['b', 1]]);
   expect(groupRows(cards, 'source', cardKeys).map((l) => l.label)).toEqual(['GitHub', 'GitLab', 'Linear', 'Taskcell board']);
-  expect(groupRows(cards, 'triage', cardKeys).map((l) => l.label)).toEqual(['Merged', 'Needs you', 'Other', 'Running']);
+  expect(groupRows(cards, 'triage', cardKeys).map((l) => l.label)).toEqual(['Merged', 'Other', 'Running', 'Waiting for you']);
   const runs = [run('gh-1'), run('gl-2')];
   expect(groupRows(runs, 'source', runKeys).map((l) => l.label)).toEqual(['GitHub', 'GitLab']);
 });
@@ -95,4 +102,11 @@ test('card search matches the title, #issue, id and labels', () => {
   const labelled = [card('gh-o-r-904', 'queued', { source: 'github', labels: ['billing'] }), card('gh-o-r-5', 'queued', { source: 'github' })];
   expect(ids(filterCards(labelled, f({ query: 'billing' })))).toEqual(['gh-o-r-904']);
   expect(ids(filterCards(labelled, f({ query: '#904' })))).toEqual(['gh-o-r-904']);
+});
+
+test('a project tab offers only its own card sources', () => {
+  const rows = [{ id: 'gl-1', repoPath: '/gl' }, { id: 'gh-2', repoPath: '/gh' }, { id: 'hub-3', repoPath: '/hub' }];
+  const src = (r: { id: string }): ReturnType<typeof runSource> => runSource(r.id);
+  expect(offered2(['gitlab'], inRepoScope(rows, ['/gl']).map(src))).toEqual(['gitlab']);
+  expect(offered2([], inRepoScope(rows, []).map(src))).toHaveLength(3);
 });

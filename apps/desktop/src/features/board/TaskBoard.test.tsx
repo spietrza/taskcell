@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { paletteItems } from '../../paletteIndex';
 import { TaskBoard } from './TaskBoard';
 import { DEFAULT_FILTER } from '../../filterState';
 import type { BoardTask } from '../../wire';
@@ -16,6 +17,8 @@ vi.mock('../../ipc', () => ({
   apiSetTaskSkills: vi.fn(async (_repo: string, _id: string, skills: string[]) => ({ skills })),
   hubTaskCreate: vi.fn().mockResolvedValue({ id: 'hub-2' }),
   hubTaskSchedule: vi.fn().mockResolvedValue({ id: 'hub-1' }),
+  readAppConfigStrict: vi.fn(async () => ({})),
+  fetchSpec: vi.fn(async () => 'The issue body.'),
 }));
 import { listNeedsYou, listTasks, listTasksAll, retryPausedTask } from '../../ipc';
 const mockListTasks = vi.mocked(listTasks);
@@ -26,13 +29,9 @@ beforeEach(() => {
 });
 afterEach(() => vi.useRealTimers());
 
-// A lane is the column container carrying `rounded-xl`; scope queries to it so a task asserted
-// "in Running" really renders under Running, not just somewhere on the board.
-function lane(label: string): HTMLElement {
-  const el = screen.getByText(label).closest('[class*="rounded-xl"]');
-  if (!el) throw new Error(`lane "${label}" not found`);
-  return el as HTMLElement;
-}
+// A lane is a station column (a group named by its label); scope queries to it so a task asserted
+// "in Cell" really renders under Cell, not just somewhere on the board.
+const lane = (label: string): HTMLElement => screen.getByRole('group', { name: label });
 
 const TASKS: BoardTask[] = [
   { id: 't-q1', title: 'Queued one', column: 'queued', state: 'Todo' },
@@ -50,17 +49,31 @@ const COUNTS_TASKS: BoardTask[] = [
 ];
 
 describe('TaskBoard on a hub-board project', () => {
+  test('a card whose run stopped to ask shows "Waiting for your answer" as needs you', async () => {
+    mockListTasks.mockResolvedValue({ tasks: [{ id: 'hub-4', title: 'Validate', column: 'verify-failed', state: 'failed', asked: true, schedule: { state: 'failed', label: 'failed: asked', reason: 'asked' } }], capped: false, hubBoard: true });
+    render(<TaskBoard project="/repo" repos={[]} onOpenTask={() => {}} onNewTask={() => {}} />);
+    const words = await screen.findByText('Waiting for your answer');
+    expect(words.className).toContain('text-primary-text');
+    expect(screen.queryByText('failed: asked')).toBeNull();
+  });
+
   const card = (label: string): BoardTask => ({ id: 'hub-1', title: 'Hub one', column: 'queued', state: label, schedule: { state: 'ready', label } });
 
-  test('offers the hub task form instead of the tracker\'s New Task, and reloads after adding', async () => {
+  test('New card opens the hub card form on demand (closed at first), and adding reloads and closes it', async () => {
     mockListTasks.mockResolvedValue({ tasks: [], capped: false, hubBoard: true });
-    render(<TaskBoard project="/repo" repos={[]} onOpenTask={() => {}} onNewTask={() => {}} />);
-    const form = await screen.findByRole('form', { name: 'New hub task' });
-    expect(screen.queryByRole('button', { name: 'New Task' })).not.toBeInTheDocument();
+    const onNewTask = vi.fn();
+    render(<TaskBoard project="/repo" repos={[]} onOpenTask={() => {}} onNewTask={onNewTask} />);
+    const open = await screen.findByRole('button', { name: 'New card' });
+    expect(screen.queryByRole('form', { name: 'New card' })).not.toBeInTheDocument();
+    fireEvent.click(open);
+    expect(onNewTask).not.toHaveBeenCalled();
+    const form = screen.getByRole('form', { name: 'New card' });
+    expect(form).toHaveTextContent('New card in repo (Taskcell board)');
     const calls = mockListTasks.mock.calls.length;
     fireEvent.change(within(form).getByLabelText('Title'), { target: { value: 'A' } });
-    fireEvent.click(within(form).getByRole('button', { name: 'Add task' }));
+    fireEvent.click(within(form).getByRole('button', { name: 'Add card' }));
     await vi.waitFor(() => expect(mockListTasks.mock.calls.length).toBe(calls + 1));
+    expect(screen.queryByRole('form', { name: 'New card' })).not.toBeInTheDocument();
   });
 
   test('the open quick view shows the card as reloaded after a save, not the snapshot that was clicked', async () => {
@@ -112,14 +125,15 @@ describe('TaskBoard on a hub-board project', () => {
     mockListTasks.mockResolvedValue({ tasks: [{ ...card('starts next'), title: 'Back' }], capped: false, hubBoard: true });
     render(<TaskBoard project="/repo" repos={[]} onOpenTask={() => {}} onNewTask={() => {}} />);
     await act(() => vi.advanceTimersByTimeAsync(0));
-    const title = within(screen.getByRole('form', { name: 'New hub task' })).getByLabelText('Title');
+    fireEvent.click(screen.getByRole('button', { name: 'New card' }));
+    const title = within(screen.getByRole('form', { name: 'New card' })).getByLabelText('Title');
     fireEvent.change(title, { target: { value: 'my draft' } });
     await act(() => vi.advanceTimersByTimeAsync(5000));
     expect(mockListTasks).toHaveBeenCalledTimes(2);
     expect(screen.getByText('Hub one')).toBeInTheDocument();
     expect(screen.queryByText('Loading tasks…')).not.toBeInTheDocument();
     expect(screen.getByText('Not refreshed — retrying')).toBeInTheDocument();
-    expect(within(screen.getByRole('form', { name: 'New hub task' })).getByLabelText('Title')).toBe(title);
+    expect(within(screen.getByRole('form', { name: 'New card' })).getByLabelText('Title')).toBe(title);
     expect(title).toHaveValue('my draft');
     await act(() => vi.advanceTimersByTimeAsync(5000));
     expect(mockListTasks).toHaveBeenCalledTimes(3);
@@ -140,14 +154,15 @@ describe('TaskBoard on a hub-board project', () => {
     await act(() => vi.advanceTimersByTimeAsync(0));
     const reply = screen.getByLabelText('reply to o/r#7');
     fireEvent.change(reply, { target: { value: 'my reply' } });
-    const title = within(screen.getByRole('form', { name: 'New hub task' })).getByLabelText('Title');
+    fireEvent.click(screen.getByRole('button', { name: 'New card' }));
+    const title = within(screen.getByRole('form', { name: 'New card' })).getByLabelText('Title');
     fireEvent.change(title, { target: { value: 'my draft' } });
     await act(() => vi.advanceTimersByTimeAsync(20000));
     expect(vi.mocked(listTasksAll)).toHaveBeenCalledTimes(2);
     expect(screen.getByRole('complementary', { name: /Quick view: Seven/ })).toBeInTheDocument();
     expect(screen.getByLabelText('reply to o/r#7')).toBe(reply);
     expect(reply).toHaveValue('my reply');
-    expect(within(screen.getByRole('form', { name: 'New hub task' })).getByLabelText('Title')).toBe(title);
+    expect(within(screen.getByRole('form', { name: 'New card' })).getByLabelText('Title')).toBe(title);
     expect(title).toHaveValue('my draft');
     expect(screen.getByText('Not refreshed — retrying')).toBeInTheDocument();
   });
@@ -155,8 +170,8 @@ describe('TaskBoard on a hub-board project', () => {
   test('a tracker board keeps New Task and has no hub form', async () => {
     mockListTasks.mockResolvedValue({ tasks: [], capped: false });
     render(<TaskBoard project="/repo" repos={[]} onOpenTask={() => {}} onNewTask={() => {}} />);
-    expect(await screen.findByRole('button', { name: 'New Task' })).toBeInTheDocument();
-    expect(screen.queryByRole('form', { name: 'New hub task' })).not.toBeInTheDocument();
+    expect(await screen.findByRole('button', { name: 'New card' })).toBeInTheDocument();
+    expect(screen.queryByRole('form', { name: 'New card' })).not.toBeInTheDocument();
   });
 });
 
@@ -176,19 +191,78 @@ describe('TaskBoard', () => {
     expect(onOpenTask).toHaveBeenCalledWith('gh-1', undefined, ['db', 'release']);
   });
 
-  test('renders all six workflow columns', async () => {
+  test('the columns are the line\'s stations (Review and PR share one), then Done', async () => {
     mockListTasks.mockResolvedValue({ tasks: [], capped: false });
     render(<TaskBoard project="/repo" repos={[]} onOpenTask={() => {}} onNewTask={() => {}} />);
-    for (const label of ['Queued', 'Claimed', 'Running', 'Verify failed', 'Review', 'Done']) {
-      expect(await screen.findByText(label)).toBeInTheDocument();
+    await screen.findByRole('group', { name: 'Card' });
+    expect(screen.getAllByRole('group').map((g) => g.getAttribute('aria-label')).filter((l) => l !== 'Triage')).toEqual(['Card', 'Spec', 'Cell', 'Gates', 'Review / PR', 'Done']);
+  });
+
+  test('every card shows its station: a failed verify is Gates, failed; a running card follows its stage', async () => {
+    mockListTasks.mockResolvedValue({ tasks: [...TASKS, { id: 't-s', title: 'Speccing', column: 'running', state: '', stage: 'spec' }], capped: false });
+    render(<TaskBoard project="/repo" repos={[]} onOpenTask={() => {}} onNewTask={() => {}} />);
+    await screen.findByText('Queued one');
+    expect(within(lane('Gates')).getByRole('img', { name: 'Station: Gates (failed)' })).toBeInTheDocument();
+    expect(within(lane('Spec')).getByText('Speccing')).toBeInTheDocument();
+    expect(within(lane('Spec')).getByRole('img', { name: 'Station: Spec' })).toBeInTheDocument();
+    expect(within(lane('Done')).getByRole('img', { name: 'Station: Done' })).toBeInTheDocument();
+  });
+
+  test('?card=<id> opens that card\'s quick view; closing it drops the parameter', async () => {
+    window.history.replaceState(null, '', '/?screen=board&card=t-r1');
+    try {
+      mockListTasks.mockResolvedValue({ tasks: TASKS, capped: false });
+      render(<TaskBoard project="/repo" repos={[]} onOpenTask={() => {}} onNewTask={() => {}} />);
+      expect(await screen.findByRole('complementary', { name: /Quick view: Running one/ })).toBeInTheDocument();
+      fireEvent.keyDown(document, { key: 'Escape' });
+      await waitFor(() => expect(window.location.search).toBe('?screen=board'));
+      fireEvent.click(screen.getByText('Queued two').closest('button')!);
+      await waitFor(() => expect(window.location.search).toBe('?screen=board&card=t-q2'));
+    } finally {
+      window.history.replaceState(null, '', '/');
     }
+  });
+
+  test('?card=<id> hidden by a saved filter opens anyway, with a note and Clear', async () => {
+    window.history.replaceState(null, '', '/?screen=board&card=t-r1');
+    try {
+      mockListTasks.mockResolvedValue({ tasks: TASKS, capped: false });
+      const onFilter = vi.fn();
+      render(<TaskBoard project="/repo" repos={[]} onOpenTask={() => {}} onNewTask={() => {}} filter={{ ...DEFAULT_FILTER, query: 'nothing matches this', repos: ['/repo'] }} onFilter={onFilter} />);
+      expect(await screen.findByRole('complementary', { name: /Quick view: Running one/ })).toBeInTheDocument();
+      const note = screen.getByText(/t-r1 is hidden by your filters/);
+      fireEvent.click(within(note).getByRole('button', { name: 'Clear' }));
+      // Clear also resets the project tab, as on Runs.
+      expect(onFilter).toHaveBeenCalledWith(expect.objectContaining({ query: '', repos: [] }));
+    } finally {
+      window.history.replaceState(null, '', '/');
+    }
+  });
+
+  test('a card picked in ⌘K while the board is open opens its quick view; the board publishes its cards', async () => {
+    mockListTasks.mockResolvedValue({ tasks: TASKS, capped: false });
+    const props = { project: '/repo', repos: [], onOpenTask: () => {}, onNewTask: () => {} };
+    const { rerender } = render(<TaskBoard {...props} />);
+    await screen.findByText('Running one');
+    expect(paletteItems().cards).toContainEqual({ id: 't-r1', title: 'Running one', repoPath: '/repo' });
+    rerender(<TaskBoard {...props} openCard={{ id: 't-r1', title: 'Running one', repoPath: '/repo' }} />);
+    expect(await screen.findByRole('complementary', { name: /Quick view: Running one/ })).toBeInTheDocument();
+  });
+
+  test('a running card\'s Open the run opens that card\'s run', async () => {
+    mockListTasks.mockResolvedValue({ tasks: TASKS, capped: false });
+    const onOpenRun = vi.fn();
+    render(<TaskBoard project="/repo" repos={[]} onOpenTask={() => {}} onNewTask={() => {}} onOpenRun={onOpenRun} />);
+    fireEvent.click((await screen.findByText('Running one')).closest('button')!);
+    fireEvent.click(await screen.findByRole('button', { name: 'Open the run' }));
+    expect(onOpenRun).toHaveBeenCalledWith('t-r1', undefined);
   });
 
   test('from xl the columns share the row down to 11rem, so all six fit at 1440; below it they keep their width and scroll', async () => {
     mockListTasks.mockResolvedValueOnce({ tasks: TASKS, capped: false });
     render(<TaskBoard project="/repo" repos={[]} onOpenTask={() => {}} onNewTask={() => {}} />);
     await screen.findByText('Queued one');
-    const cls = lane('Review').className.split(' ');
+    const cls = lane('Review / PR').className.split(' ');
     expect(cls).toEqual(expect.arrayContaining(['w-72', 'shrink-0', 'xl:w-auto', 'xl:min-w-44', 'xl:max-w-72', 'xl:flex-1']));
   });
 
@@ -197,10 +271,10 @@ describe('TaskBoard', () => {
     render(<TaskBoard project="/repo" repos={[]} onOpenTask={() => {}} onNewTask={() => {}} />);
     await screen.findByText('Queued one'); // wait for load
 
-    expect(within(lane('Queued')).getByText('Queued one')).toBeInTheDocument();
-    expect(within(lane('Queued')).getByText('Queued two')).toBeInTheDocument();
-    expect(within(lane('Running')).getByText('Running one')).toBeInTheDocument();
-    expect(within(lane('Verify failed')).getByText('Verify one')).toBeInTheDocument();
+    expect(within(lane('Card')).getByText('Queued one')).toBeInTheDocument();
+    expect(within(lane('Card')).getByText('Queued two')).toBeInTheDocument();
+    expect(within(lane('Cell')).getByText('Running one')).toBeInTheDocument();
+    expect(within(lane('Gates')).getByText('Verify one')).toBeInTheDocument();
     expect(within(lane('Done')).getByText('Done one')).toBeInTheDocument();
   });
 
@@ -209,9 +283,9 @@ describe('TaskBoard', () => {
     render(<TaskBoard project="/repo" repos={[]} onOpenTask={() => {}} onNewTask={() => {}} />);
     await screen.findByText('Queued one');
 
-    expect(within(lane('Queued')).getByText('2')).toBeInTheDocument();
-    expect(within(lane('Claimed')).getByText('0')).toBeInTheDocument();
-    expect(within(lane('Claimed')).getByText('No tasks')).toBeInTheDocument();
+    expect(within(lane('Card')).getByText('2')).toBeInTheDocument();
+    expect(within(lane('Spec')).getByText('0')).toBeInTheDocument();
+    expect(within(lane('Spec')).getByText('No cards')).toBeInTheDocument();
   });
 
   test('shows the raw backend state only when it differs from the lane key', async () => {
@@ -220,7 +294,7 @@ describe('TaskBoard', () => {
     await screen.findByText('Running one');
 
     // running task: state "In Progress" !== column "running" → shown
-    expect(within(lane('Running')).getByText('In Progress')).toBeInTheDocument();
+    expect(within(lane('Cell')).getByText('In Progress')).toBeInTheDocument();
     // done task: state "done" === column "done" → the redundant state line is suppressed
     expect(within(lane('Done')).queryByText('done')).not.toBeInTheDocument();
   });
@@ -228,25 +302,25 @@ describe('TaskBoard', () => {
   test('renders the error branch when listTasks rejects', async () => {
     mockListTasks.mockRejectedValue('boom');
     render(<TaskBoard project="/repo" repos={[]} onOpenTask={() => {}} onNewTask={() => {}} />);
-    expect(await screen.findByText(/Couldn't load the task board/)).toBeInTheDocument();
+    expect(await screen.findByText(/Couldn't load the Board/)).toBeInTheDocument();
   });
 
   test('an uncapped list shows exact header counts, as a single text run', async () => {
     mockListTasks.mockResolvedValue({ tasks: COUNTS_TASKS, capped: false });
     render(<TaskBoard project="/repo" repos={[]} onOpenTask={() => {}} onNewTask={() => {}} />);
-    expect(await screen.findByText('Running 2 · Waiting 2')).toBeInTheDocument();
+    expect(await screen.findByText('Running 2 · Queued 2 · Waiting for you 0')).toBeInTheDocument();
   });
 
   test('a capped list makes both header counts a lower bound', async () => {
     mockListTasks.mockResolvedValue({ tasks: COUNTS_TASKS, capped: true });
     render(<TaskBoard project="/repo" repos={[]} onOpenTask={() => {}} onNewTask={() => {}} />);
-    expect(await screen.findByText('Running 2+ · Waiting 2+')).toBeInTheDocument();
+    expect(await screen.findByText('Running 2+ · Queued 2+ · Waiting for you 0+')).toBeInTheDocument();
   });
 
   test('error branch renders no Running/Waiting text', async () => {
     mockListTasks.mockRejectedValue('boom');
     render(<TaskBoard project="/repo" repos={[]} onOpenTask={() => {}} onNewTask={() => {}} />);
-    await screen.findByText(/Couldn't load the task board/);
+    await screen.findByText(/Couldn't load the Board/);
     expect(screen.queryByText(/Running/)).not.toBeInTheDocument();
     expect(screen.queryByText(/Waiting/)).not.toBeInTheDocument();
   });
@@ -255,7 +329,7 @@ describe('TaskBoard', () => {
 test('the cap banner follows the RESPONSE capped flag, not a client-side count (S9)', async () => {
   mockListTasks.mockResolvedValue({ tasks: TASKS, capped: true });
   render(<TaskBoard project="/repo" repos={[]} onOpenTask={() => {}} onNewTask={() => {}} />);
-  expect(await screen.findByText(/Showing the first 5 tasks/)).toBeInTheDocument();
+  expect(await screen.findByText(/Showing the first 5 cards/)).toBeInTheDocument();
 });
 
 test('T26/T27/T28: stage and verdict pills stay in their intended lanes, with tone classes', async () => {
@@ -273,22 +347,22 @@ test('T26/T27/T28: stage and verdict pills stay in their intended lanes, with to
   ] });
   render(<TaskBoard project="/repo" repos={[]} onOpenTask={() => {}} onNewTask={() => {}} />);
   await screen.findByText('Running stage');
-  expect(within(lane('Running')).getByText('stage: implementer')).toBeInTheDocument();
-  for (const label of ['Review', 'Done']) {
+  expect(within(lane('Cell')).getByText('stage: implementer')).toBeInTheDocument();
+  for (const label of ['Review / PR', 'Done']) {
     const scope = within(lane(label));
     expect(scope.getByText('implementer: ok').className).toContain('success');
     expect(scope.getByText('reviewer: changes (2)').className).toContain('warning');
     expect(scope.getByText('proof: fail').className).toContain('destructive');
     expect(scope.getByText('future gate').className).toContain('bg-muted');
   }
-  expect(within(lane('Queued')).queryByText('implementer: ok')).not.toBeInTheDocument();
+  expect(within(lane('Card')).queryByText('implementer: ok')).not.toBeInTheDocument();
 });
 
 test('T26: a running card without a stage has no stage line', async () => {
   mockListTasks.mockResolvedValue({ tasks: TASKS, capped: false });
   render(<TaskBoard project="/repo" repos={[]} onOpenTask={() => {}} onNewTask={() => {}} />);
   await screen.findByText('Running one');
-  expect(within(lane('Running')).queryByText(/^stage:/)).not.toBeInTheDocument();
+  expect(within(lane('Cell')).queryByText(/^stage:/)).not.toBeInTheDocument();
 });
 
 describe('TaskBoard all repositories', () => {
@@ -310,7 +384,7 @@ test('a project with no task source gets a setup hint with a way to Settings, no
   vi.mocked(listTasksAll).mockResolvedValue({ tasks: [], capped: false, failures: [{ repoPath: '/r/alpha', repoName: 'alpha', error: unset }] });
   const onOpenSettings = vi.fn();
   const all = render(<TaskBoard project="/r/alpha" allRepos repos={['/r/alpha']} onOpenTask={() => {}} onNewTask={() => {}} onOpenSettings={onOpenSettings} />);
-  expect(await screen.findByRole('note')).toHaveTextContent('alpha has no task source yet. Choose one');
+  expect(await screen.findByRole('note')).toHaveTextContent('alpha has no card source yet. Choose one');
   expect(screen.queryByRole('alert')).not.toBeInTheDocument();
   expect(screen.queryByText(/other repositories/)).not.toBeInTheDocument();
   fireEvent.click(screen.getByRole('button', { name: 'Open Settings' }));
@@ -318,7 +392,7 @@ test('a project with no task source gets a setup hint with a way to Settings, no
   all.unmount();
   mockListTasks.mockRejectedValue(unset);
   render(<TaskBoard project="/r/alpha" repos={[]} onOpenTask={() => {}} onNewTask={() => {}} />);
-  expect(await screen.findByRole('note')).toHaveTextContent('This project has no task source yet.');
+  expect(await screen.findByRole('note')).toHaveTextContent('This project has no card source yet.');
   expect(screen.queryByRole('alert')).not.toBeInTheDocument();
 });
 
@@ -356,7 +430,7 @@ describe('TaskBoard task-source hint scope', () => {
   test('the Projects filter selects unset repositories: the hint names only those, and offers Settings for the open project', async () => {
     board('/r/qa', ['/r/qa', '/r/beta']);
     const note = await screen.findByRole('note');
-    expect(note).toHaveTextContent(/^qa-repo has no task source yet\./);
+    expect(note).toHaveTextContent(/^qa-repo has no card source yet\./);
     expect(note).not.toHaveTextContent('alpha');
     expect(within(note).getByRole('button', { name: 'Open Settings' })).toBeInTheDocument();
   });
@@ -364,7 +438,7 @@ describe('TaskBoard task-source hint scope', () => {
   test('a filtered-in unset repository other than the open project is named without a Settings button', async () => {
     board('/r/beta', ['/r/alpha']);
     const note = await screen.findByRole('note');
-    expect(note).toHaveTextContent(/^alpha has no task source yet\./);
+    expect(note).toHaveTextContent(/^alpha has no card source yet\./);
     expect(within(note).queryByRole('button', { name: 'Open Settings' })).toBeNull();
   });
 });
@@ -387,14 +461,14 @@ describe('TaskBoard team scope', () => {
   test('the open project being a hub board offers the hub task form in the all-repositories view', async () => {
     vi.mocked(listTasksAll).mockResolvedValue({ tasks: [], capped: false, failures: [], hubBoards: ['/r/alpha'] });
     render(<TaskBoard project="/r/alpha" allRepos repos={['/r/alpha']} onOpenTask={() => {}} onNewTask={() => {}} />);
-    await screen.findByRole('form', { name: 'New hub task' });
-    expect(screen.queryByRole('button', { name: 'New Task' })).not.toBeInTheDocument();
+    fireEvent.click(await screen.findByRole('button', { name: 'New card' }));
+    expect(screen.getByRole('form', { name: 'New card' })).toBeInTheDocument();
   });
 
   test('the selected team is sent with the all-repositories read', async () => {
     vi.mocked(listTasksAll).mockResolvedValue({ tasks: [], capped: false, failures: [] });
     render(<TaskBoard project="/r/alpha" allRepos repos={['/r/alpha']} teamId="b" onOpenTask={() => {}} onNewTask={() => {}} />);
-    await screen.findByText('Queued');
+    await screen.findByRole('group', { name: 'Card' });
     expect(listTasksAll).toHaveBeenCalledWith('b');
   });
 });
@@ -407,9 +481,22 @@ describe('TaskBoard open-in-tracker links', () => {
   ] as const)('%s card links to its issue in a new tab', async (source, text, url) => {
     mockListTasks.mockResolvedValue({ tasks: [{ id: 't1', title: 'T', column: 'queued', state: 'Todo', source, url }], capped: false });
     render(<TaskBoard project="/repo" repos={[]} onOpenTask={() => {}} onNewTask={() => {}} />);
-    const link = await screen.findByRole('link', { name: text });
+    // The repeated link text is named for the card it belongs to.
+    const link = await screen.findByRole('link', { name: `Open t1 T in ${text.slice('Open in '.length)}` });
+    expect(link).toHaveTextContent(text);
     expect(link).toHaveAttribute('href', url);
     expect(link).toHaveAttribute('target', '_blank');
+  });
+
+  test('the link sits inside the card frame, outside its button; a bare open/closed state is not repeated', async () => {
+    mockListTasks.mockResolvedValue({ tasks: [{ id: 'gh-1', title: 'T', column: 'queued', state: 'open', source: 'github', url: 'https://github.com/o/r/issues/1' }, { id: 'gh-2', title: 'U', column: 'queued', state: 'needs design' }], capped: false });
+    render(<TaskBoard project="/repo" repos={[]} onOpenTask={() => {}} onNewTask={() => {}} />);
+    const link = await screen.findByRole('link', { name: 'Open gh-1 T in GitHub' });
+    const button = screen.getByText('T').closest('button') as HTMLElement;
+    expect(button.contains(link)).toBe(false);
+    expect(button.parentElement?.contains(link)).toBe(true);
+    expect(screen.queryByText('open')).toBeNull();
+    expect(screen.getByText('needs design')).toBeInTheDocument();
   });
 
   test('no link when the server sent no address', async () => {
@@ -455,8 +542,8 @@ describe('TaskBoard empty state', () => {
     mockListTasks.mockResolvedValue({ tasks: [], capped: false });
     const onNewTask = vi.fn();
     render(<TaskBoard project="/r/alpha" repos={['/r/alpha']} onOpenTask={() => {}} onNewTask={onNewTask} />);
-    await screen.findByText('No tasks yet');
-    fireEvent.click(screen.getByRole('button', { name: 'Create a task' }));
+    await screen.findByText('No cards yet');
+    fireEvent.click(screen.getByRole('button', { name: 'Create a card' }));
     expect(onNewTask).toHaveBeenCalled();
   });
 });
@@ -475,7 +562,7 @@ describe('TaskBoard paused by a provider limit', () => {
     expect(screen.getAllByText('Paused: provider limit')).toHaveLength(2);
     expect(screen.getByText(`retries automatically after ${clock}`)).toBeInTheDocument();
     const banner = screen.getByRole('status');
-    expect(banner).toHaveTextContent('2 tasks are paused by a provider limit');
+    expect(banner).toHaveTextContent('2 cards are paused by a provider limit');
     expect(banner).toHaveTextContent(`latest retry after ${clock}`);
     expect(banner).toHaveTextContent('add credit or switch the model in Settings');
     vi.useRealTimers();
@@ -508,5 +595,24 @@ describe('TaskBoard paused by a provider limit', () => {
     await waitFor(() => expect(mockListTasks).toHaveBeenCalledTimes(2));
     expect(screen.queryByRole('status')).toBeNull();
     expect(screen.queryByText('Paused: provider limit')).toBeNull();
+  });
+});
+
+describe('TaskBoard on a phone', () => {
+  afterEach(() => vi.unstubAllGlobals());
+  test('pick a stage: no sideways columns, the cards stack in the desktop order (Card first, Done last); a stage narrows them', async () => {
+    vi.stubGlobal('matchMedia', vi.fn(() => ({ matches: true, addEventListener: vi.fn(), removeEventListener: vi.fn() })));
+    mockListTasks.mockResolvedValue({ tasks: TASKS, capped: false });
+    render(<TaskBoard project="/repo" repos={[]} onOpenTask={() => {}} onNewTask={() => {}} />);
+    await screen.findByText('Queued one');
+    expect(screen.queryByRole('group', { name: 'Card' })).toBeNull();
+    const stages = screen.getByRole('group', { name: 'Stage' });
+    expect(within(stages).getByRole('button', { name: 'All stages 5' })).toHaveAttribute('aria-pressed', 'true');
+    const titles = (): string[] => screen.getAllByRole('button', { expanded: false }).map((b) => b.querySelector('.text-sm')?.textContent ?? '').filter(Boolean);
+    expect(titles()).toEqual(['Queued one', 'Queued two', 'Running one', 'Verify one', 'Done one']);
+    fireEvent.click(within(stages).getByRole('button', { name: 'Gates 1' }));
+    expect(titles()).toEqual(['Verify one']);
+    fireEvent.click(within(stages).getByRole('button', { name: 'Spec 0' }));
+    expect(screen.getByText('No cards')).toBeInTheDocument();
   });
 });

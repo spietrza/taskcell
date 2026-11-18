@@ -5,6 +5,6 @@ import { RunList } from './RunList';
 test('the empty Runs page links to creating a task', () => {
   const onNewTask = vi.fn();
   render(<RunList runs={[]} active={[]} onSelect={() => {}} onOpenActive={() => {}} onNewTask={onNewTask} />);
-  fireEvent.click(screen.getByRole('button', { name: 'Create a task' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Create a card' }));
   expect(onNewTask).toHaveBeenCalled();
 });

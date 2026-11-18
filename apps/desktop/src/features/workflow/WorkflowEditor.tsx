@@ -512,7 +512,7 @@ export function WorkflowEditor({ project }: { project: string }) {
                     <button
                       key={s}
                       onClick={() => dispatch({ type: 'addStage', name: s })}
-                      className="flex w-full items-center gap-2 rounded border border-border px-2 py-1.5 text-left text-sm hover:border-primary/40"
+                      className="flex w-full items-center gap-2 rounded border border-border px-2 py-1.5 text-left text-sm hover:border-foreground/40"
                     >
                       <Plus className="size-3.5 text-muted-foreground" aria-hidden />
                       {s}
@@ -522,7 +522,7 @@ export function WorkflowEditor({ project }: { project: string }) {
                       inspector's ref field is filled — an empty ref must never save as healthy */}
                   <button
                     onClick={() => dispatch({ type: 'addStage', name: 'custom' })}
-                    className="flex w-full items-center gap-2 rounded border border-dashed border-border px-2 py-1.5 text-left text-sm text-muted-foreground hover:border-primary/40"
+                    className="flex w-full items-center gap-2 rounded border border-dashed border-border px-2 py-1.5 text-left text-sm text-muted-foreground hover:border-foreground/40"
                   >
                     <Plus className="size-3.5" aria-hidden />
                     custom ref stage…

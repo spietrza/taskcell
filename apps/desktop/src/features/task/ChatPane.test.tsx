@@ -142,7 +142,8 @@ test('model selector: default option, config options, and change round-trip', ()
   );
   const select = screen.getByLabelText('chat model');
   expect(select).toHaveValue('');
-  expect(screen.getByText('default · claude-sonnet-5')).toBeInTheDocument();
+  expect(screen.getByText('project default · claude-sonnet-5')).toBeInTheDocument();
+  expect(select).toHaveAttribute('title', expect.stringContaining('Doc chat model'));
   fireEvent.change(select, { target: { value: 'glm-5.2' } });
   expect(onModelChange).toHaveBeenCalledWith('glm-5.2');
   fireEvent.change(select, { target: { value: '' } });

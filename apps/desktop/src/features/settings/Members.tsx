@@ -46,7 +46,7 @@ export function Members({ team, allProjects, onTeam, confirmRemoveRepo }: TeamSc
 
   return (
     <section aria-label="Members" className="space-y-4">
-      <h3 className="text-lg font-semibold">Members of {team.name}</h3>
+      <h3 className="text-base font-semibold">Members</h3>
       {error && (
         <div role="alert" className="rounded-md border border-destructive/40 bg-destructive/10 p-3 text-sm">
           {error}
@@ -111,7 +111,7 @@ export function Members({ team, allProjects, onTeam, confirmRemoveRepo }: TeamSc
         </form>
       )}
 
-      <h3 className="text-lg font-semibold">Repositories</h3>
+      <h3 className="text-base font-semibold">Repositories</h3>
       <ul className="divide-y divide-border rounded border border-border">
         {team.repositories.map((p) => (
           <li key={p} className="flex flex-wrap items-center gap-2 px-3 py-2">

@@ -177,6 +177,28 @@ describe('watchOnce', () => {
     expect(logs).toContain('watch A: secret blocked -> held for a human'); // logged before the edit, so the block is on record
   });
 
+  it('a run whose failure note also throws is still counted as failed and logs both errors', async () => {
+    const primitives: WatchPrimitives = {
+      listReady: async () => [{ id: 'A' }],
+      claim: async () => {},
+      runOne: async () => {
+        throw new Error('push rejected');
+      },
+      review: async () => {},
+      onNoChange: async () => {},
+      onFailure: async () => {
+        throw new Error('glab note failed');
+      },
+    };
+    const logs: string[] = [];
+
+    const tick = await watchOnce(primitives, { log: (msg) => logs.push(msg) });
+
+    expect(tick.failed).toEqual(['A']);
+    expect(logs).toContain('watch A: failure note failed -> manual label check (glab note failed)');
+    expect(logs).toContain('watch A: failed -> failure noted (push rejected)');
+  });
+
   it('does not call onNoChange when runOne reports the outcome is already parked', async () => {
     const calls: string[] = [];
     const primitives: WatchPrimitives = {
@@ -225,7 +247,7 @@ describe('watchOnce', () => {
       'watch B: claim -> running',
       'watch B: no change -> idle',
       'watch C: claim -> running',
-      'watch C: failed -> failure noted',
+      'watch C: failed -> failure noted (boom)',
       'watch D: skipped -> already claimed',
     ]);
   });
@@ -1815,7 +1837,7 @@ describe('GitLab watch dependency gate', () => {
     try {
       const { glab, calls } = makeGlab({ description: 'Depends on #2' });
       expect(await agent(glab).listReady()).toEqual([]);
-      expect(calls.some((c) => c.startsWith('issue note create 1'))).toBe(true);
+      expect(calls.some((c) => c.startsWith('issue note 1 '))).toBe(true);
       expect(calls.some((c) => c.startsWith('issue update 1') && c.includes('--label taskcell::waiting') && !c.includes('--unlabel'))).toBe(true);
       expect(log).toHaveBeenCalledWith(expect.stringContaining('g/p#1 skipped -> waiting for g/p#2'));
     } finally {
@@ -1854,7 +1876,7 @@ describe('GitLab watch dependency gate', () => {
         gl: glab,
       });
       expect(await primitives.listReady()).toEqual([]);
-      expect(calls.some((c) => c.startsWith('issue note create 1'))).toBe(true);
+      expect(calls.some((c) => c.startsWith('issue note 1 '))).toBe(true);
     } finally {
       log.mockRestore();
     }

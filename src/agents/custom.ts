@@ -6,10 +6,10 @@ import { buildClaudeArgs } from './claude-code.js';
 import type { AgentProvider, AgentRunInput } from './provider.js';
 
 /**
- * Custom providers (Subsystem 6): named, repo-configured, KEYED Anthropic-Messages-compatible
+ * Custom providers (Subsystem 6): named, repo-configured, Anthropic-Messages-compatible
  * endpoints driven by the in-sandbox `claude` CLI — a generalized zai. Configured under
  * `customProviders` in `<repoPath>/.taskcell/app.json`; the key itself is never stored, only the
- * NAME of the host env var holding it (spec §2 — the credentials invariant).
+ * NAME of the host env var holding it (omitted for a keyless proxy) (spec §2 — the credentials invariant).
  *
  * Trust model (spec §2): `.taskcell/` is trusted-as-code — flow refs already execute repo TS on the
  * host — so this loader treats the file as trusted input and validates shape, not intent.
@@ -35,6 +35,12 @@ import { stateDir } from '../core/state-path.js';
 
 const ENTRY_KEYS: ReadonlySet<string> = new Set(CUSTOM_PROVIDER_KEYS);
 
+/**
+ * ANTHROPIC_AUTH_TOKEN injected for a keyless custom provider (no `keyEnv`): the `claude` CLI requires the
+ * variable to be set and a proxy that holds its own auth ignores the value.
+ */
+export const KEYLESS_PLACEHOLDER_TOKEN = 'anthropic-compatible-endpoint';
+
 /** `AgentProvider.name` prefix for run records; the grammar forbids `:` so collision is impossible. */
 export const CUSTOM_PROVIDER_PREFIX = 'custom:';
 
@@ -58,12 +64,12 @@ export function customProviderError(entry: unknown, seen: ReadonlySet<string>): 
   if (typeof baseUrl !== 'string' || !/^https?:\/\//.test(baseUrl) || !isUrl(baseUrl)) {
     return '"baseUrl" must be an absolute http:// or https:// URL';
   }
-  if (typeof keyEnv !== 'string' || !KEY_ENV_RE.test(keyEnv)) {
-    return `"keyEnv" must name an environment variable (${KEY_ENV_RE.source})`;
+  if (keyEnv !== undefined && (typeof keyEnv !== 'string' || !KEY_ENV_RE.test(keyEnv))) {
+    return `"keyEnv" must name an environment variable (${KEY_ENV_RE.source}) or be omitted for a keyless endpoint`;
   }
   // A repo-defined provider must not borrow a credential Taskcell itself holds: its baseUrl is repo-chosen,
   // so naming e.g. CLAUDE_CODE_OAUTH_TOKEN here would send the operator's token to that host.
-  if (isReservedKeyEnv(keyEnv)) {
+  if (keyEnv !== undefined && isReservedKeyEnv(keyEnv)) {
     const what = OWN_PREFIX_RE.test(keyEnv) ? "a name reserved for Taskcell's own settings" : 'a credential Taskcell uses itself';
     return `"keyEnv" must not name ${what} (${keyEnv}); give the provider its own variable`;
   }
@@ -141,14 +147,14 @@ export async function loadCustomProviders(repoPath: string): Promise<CustomProvi
       entries.push({ index, ...(rawName !== undefined ? { name: rawName } : {}), error: `customProviders[${index}]: ${error}` });
       continue;
     }
-    const rec = entry as { name: string; baseUrl: string; keyEnv: string; model?: string };
+    const rec = entry as { name: string; baseUrl: string; keyEnv?: string; model?: string };
     entries.push({
       index,
       name: rec.name,
       spec: {
         name: rec.name,
         baseUrl: rec.baseUrl,
-        keyEnv: rec.keyEnv,
+        ...(rec.keyEnv !== undefined ? { keyEnv: rec.keyEnv } : {}),
         ...(rec.model !== undefined ? { model: rec.model } : {}),
       },
     });

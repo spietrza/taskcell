@@ -2,12 +2,14 @@
 // contract, validation and handler live here; `pnpm gen:wire` derives Commands, COMMAND_NAMES and dispatch from it (see CONTRIBUTING.md).
 import { stat } from 'node:fs/promises';
 import { join } from 'node:path';
-import { aggregateSkills } from '../../core/skill-stats.js';
+import { aggregateSkills, parseSince, withinWindow } from '../../core/skill-stats.js';
 import { parseMetrics } from '../../core/stats.js';
 import { cachedResolver, recordedMetrics, skillsAddPr, skillsDiscover, skillsChecked, skillsRemovePr, skillsUpdate, type SkillsPrResult } from '../../core/skills.js';
-import type { DiscoveredSkill, RepoSkill } from '../../wire.js';
-import { defineCommands, optionalString, requireString, repoItemTarget, repoTarget } from '../command-kit.js';
+import type { DiscoveredSkill, PendingSkillPr, RepoSkill } from '../../wire.js';
+import { assertHasRemote, defineCommands, githubSlug, optionalString, requireString, repoItemTarget, repoTarget } from '../command-kit.js';
 import { safeUrl } from '../audit.js';
+import { pullCheckout } from '../pull-checkout.js';
+import { listPendingSkillPrs } from '../skills-pending.js';
 import { BadRequestError } from '../../sidecar/sidecar.js';
 
 export interface SkillsCommands {
@@ -19,7 +21,12 @@ export interface SkillsCommands {
    * one repository in one PR (the folders `discover_skills` found, `ref` pinned to its commit); `source` may be a GitHub or GitLab browse link to a folder. */
   add_skill_pr: { args: { repoPath: string; source: string; ref?: string; path?: string; paths?: string[]; name?: string }; result: { prUrl: string } };
   /** HUB_ONLY, owner only (it reads the network): the skills a repository holds, from its tree listing alone. `commit` is what to pin them to. */
-  discover_skills: { args: { repoPath: string; source: string }; result: { commit: string; skills: DiscoveredSkill[] } };
+  discover_skills: { args: { repoPath: string; source: string; ref?: string; path?: string }; result: { commit: string; skills: DiscoveredSkill[] } };
+  /** HUB_ONLY, owner only (it reads the forge): the project's open skill-add PRs, by branch prefix. GitHub only; others get an empty list. */
+  list_pending_skill_prs: { args: { repoPath: string }; result: { prs: PendingSkillPr[] } };
+  /** HUB_ONLY, owner only, a write: fast-forward the hub's checkout to origin's default branch, so merged skills appear. Refuses (changing nothing)
+   * on a dirty tree, a branch other than the default, or a diverged history; the reason is the error. */
+  pull_checkout: { args: { repoPath: string }; result: { updated: boolean } };
   /** HUB_ONLY, owner only: `skills remove` delivered as a PR. */
   remove_skill_pr: { args: { repoPath: string; name: string }; result: { prUrl: string } };
 }
@@ -84,10 +91,14 @@ export const commands = defineCommands<SkillsCommands>({
     // A project without a skills directory has no skills: the empty state, not an error.
     const present = await stat(dir).then((st) => st.isDirectory(), () => false);
     const [rows, metrics] = await Promise.all([present ? skillsChecked(dir, upstreamHead) : Promise.resolve([]), recordedMetrics(real)]);
-    const usage = new Map(aggregateSkills(parseMetrics(metrics)).map((r) => [r.skill, r.with]));
+    const records = parseMetrics(metrics);
+    const usage = new Map(aggregateSkills(records).map((r) => [r.skill, r.with]));
+    // The same window `stats --skills --since 30d` applies.
+    const recent = new Map(aggregateSkills(withinWindow(records, parseSince('30d'))).map((r) => [r.skill, r.with.runs]));
     const skills = rows.map((r): RepoSkill => {
       const u = usage.get(r.name);
       return {
+        runs30d: recent.get(r.name) ?? 0,
         name: r.name,
         source: r.source,
         commit: r.commit.slice(0, 7),
@@ -127,8 +138,19 @@ export const commands = defineCommands<SkillsCommands>({
   },
   discover_skills: async ({ args, allow }) => {
     await allow(requireString(args, 'repoPath'));
-    const { source, ref } = splitSource(requireString(args, 'source'), optionalString(args, 'ref'));
-    return skillsDiscover({ source, ...(ref !== undefined ? { ref } : {}) });
+    const { source, ref, path: linked } = splitSource(requireString(args, 'source'), optionalString(args, 'ref'));
+    // A browse link to a folder scopes discovery to it.
+    const path = optionalString(args, 'path') ?? linked;
+    return skillsDiscover({ source, ...(ref !== undefined ? { ref } : {}), ...(path !== undefined ? { path } : {}) });
+  },
+  list_pending_skill_prs: async ({ args, allow }) => {
+    const slug = await githubSlug(await allow(requireString(args, 'repoPath')));
+    return { prs: slug === undefined ? [] : await listPendingSkillPrs(slug) };
+  },
+  pull_checkout: async ({ args, allow }) => {
+    const real = await allow(requireString(args, 'repoPath'));
+    await assertHasRemote(real, false);
+    return pullCheckout(real);
   },
   remove_skill_pr: async ({ args, allow }) => {
     const real = await allow(requireString(args, 'repoPath'));
@@ -141,10 +163,13 @@ export const commands = defineCommands<SkillsCommands>({
   add_skill_pr: { write: true, remote: true, owner: true, repo: 'repoPath' },
   // Reads the network (the upstream's tree), writes nothing: the owner's, like browse_dirs.
   discover_skills: { write: false, remote: true, owner: true, repo: 'repoPath' },
+  list_pending_skill_prs: { write: false, remote: true, owner: true, repo: 'repoPath' },
   remove_skill_pr: { write: true, remote: true, owner: true, repo: 'repoPath' },
+  pull_checkout: { write: true, remote: true, owner: true, repo: 'repoPath' },
 }, {
   update_skill_pr: { action: 'settings-change', target: repoItemTarget('name') },
   // The source may carry credentials (even a refused one is audited): log only scheme, host and path.
   add_skill_pr: { action: 'settings-change', target: (a) => `${repoTarget(a) ?? ''}:${safeUrl(optionalString(a, 'source') ?? '')}` },
   remove_skill_pr: { action: 'settings-change', target: repoItemTarget('name') },
+  pull_checkout: { action: 'settings-change', target: repoTarget },
 });

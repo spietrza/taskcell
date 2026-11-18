@@ -10,6 +10,7 @@ import {
   HUB_TOKEN_HEADER,
   HUB_EVENTS_SESSION_PATH,
   HUB_TOKEN_FRAGMENT_PARAM,
+  HUB_TOKEN_REJECTED,
   isHubTokenRejected,
   isHubSignInRequired,
 } from './hub-wire';
@@ -124,6 +125,7 @@ function adoptPendingToken(): boolean {
 }
 
 export function captureHubToken(): void {
+  restartShown = false; // a fresh launch shows no banner yet
   takeFragmentToken(true);
 }
 
@@ -194,9 +196,21 @@ function notify(handlers: Set<() => void>): void {
   for (const h of handlers) h();
 }
 
+/** This page told the person the hub refused its token (the restart banner is up). */
+let restartShown = false;
+
 function notifyHubRestarted(): void {
   heldTokenRefused = true;
+  restartShown = true;
   notify(restartHandlers);
+}
+
+/** A refused tab took a new launch URL and the hub answered: reload, so the banner goes and the event stream,
+ * closed for good by the 401, reopens with every screen's data (the new token stays in sessionStorage). */
+function reloadAfterReconnect(): void {
+  if (!restartShown) return;
+  restartShown = false;
+  window.location.reload();
 }
 
 function notifyHubConnectionIssue(): void {
@@ -262,6 +276,9 @@ async function hubPost(cmd: string, args?: Record<string, unknown>): Promise<{ r
 
 async function hubInvoke<T>(cmd: string, args?: Record<string, unknown>): Promise<T> {
   const sent = hubToken();
+  // A refused token stays refused until a new one arrives (a pasted launch URL, captured just above): asking the hub
+  // again only fills its audit log with refused sign-ins. The restart banner is already up.
+  if (heldTokenRefused) throw HUB_TOKEN_REJECTED;
   let { response, body } = await hubPost(cmd, args);
   // The hub refused the held token while a pasted one waits (the hub restarted): take it and ask once more.
   // A call that was in flight when another one took it finds the stored token changed, and asks again too.
@@ -272,6 +289,7 @@ async function hubInvoke<T>(cmd: string, args?: Record<string, unknown>): Promis
   // different problem, and telling the operator to reload would be wrong (docs/hub.md).
   if (response.status === 401 && isHubTokenRejected(body)) notifyHubRestarted();
   if (response.status === 401 && isHubSignInRequired(body)) redirectToSignIn();
+  if (response.ok) reloadAfterReconnect();
   return decodeResponse<T>(response.status, body);
 }
 
@@ -329,6 +347,8 @@ async function openEventsSession(): Promise<'ok' | 'restarted' | 'issue'> {
  * failed session request notifies instead of opening; the next subscribe retries it. */
 function ensureHubSource(): void {
   if (hubSource || hubSourceOpening) return;
+  hubToken(); // takes a pasted launch URL
+  if (heldTokenRefused) return; // as for an RPC: no session request on a refused token
   hubSourceOpening = true;
   void openEventsSession()
     // As for an RPC: a refused token with a pasted one waiting is retried once with that one.

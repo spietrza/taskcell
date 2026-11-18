@@ -11,17 +11,23 @@ export interface Crumb {
 }
 
 export function TopBar({
+  nav,
+  team,
+  switchers,
   crumbs,
-  projectSwitcher,
   onHome,
   onCommandK,
   theme,
   onToggleTheme,
   onSignOut,
 }: {
+  /** The main navigation (MainNav): inline here, a tab bar at the bottom on a phone. */
+  nav?: ReactNode;
+  /** The workspace: the team, next to the brand. */
+  team?: ReactNode;
+  /** The server switcher, before the search button. */
+  switchers?: ReactNode;
   crumbs: Crumb[];
-  /** Inline project switcher rendered as the first breadcrumb (null on the dashboard). */
-  projectSwitcher?: ReactNode;
   onHome: () => void;
   onCommandK: () => void;
   theme: Theme;
@@ -39,18 +45,19 @@ export function TopBar({
         title="Back to dashboard"
       >
         <Logo className="size-5" />
-        <span className="font-heading font-bold tracking-tight max-md:hidden">Taskcell Hub</span>
+        <span className="whitespace-nowrap font-heading font-bold tracking-tight max-lg:hidden">Taskcell Hub</span>
       </button>
-      {(projectSwitcher || crumbs.length > 0) && (
+      {team}
+      {nav}
+      {crumbs.length > 0 && (
         <>
           <span className="text-border max-md:hidden">|</span>
-          <Breadcrumb.Root>
-            <Breadcrumb.List>
-              {projectSwitcher && <Breadcrumb.Item>{projectSwitcher}</Breadcrumb.Item>}
+          <Breadcrumb.Root className="min-w-0">
+            <Breadcrumb.List className="flex-nowrap">
               {crumbs.map((c, i) => (
                 <Fragment key={i}>
-                  {(i > 0 || projectSwitcher) && <Breadcrumb.Separator />}
-                  <Breadcrumb.Item>
+                  {i > 0 && <Breadcrumb.Separator />}
+                  <Breadcrumb.Item className="min-w-0 whitespace-nowrap">
                     {c.edit ? (
                       <Breadcrumb.Page>
                         <InlineEdit
@@ -65,7 +72,7 @@ export function TopBar({
                         {c.label}
                       </Breadcrumb.Link>
                     ) : (
-                      <Breadcrumb.Page>{c.label}</Breadcrumb.Page>
+                      <Breadcrumb.Page className="block truncate">{c.label}</Breadcrumb.Page>
                     )}
                   </Breadcrumb.Item>
                 </Fragment>
@@ -75,6 +82,7 @@ export function TopBar({
         </>
       )}
       <div className="ml-auto flex items-center gap-2">
+        {switchers}
         <button
           // Not every browser focuses a clicked button; the palette returns focus to whatever had it.
           onClick={(e) => {

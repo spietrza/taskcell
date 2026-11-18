@@ -1,40 +1,56 @@
 import { useEffect, useRef, useState } from 'react';
-import { Button, Chip } from '@/ui';
+import { Button, Chip, Tabs } from '@/ui';
 import { ArrowLeft, Clock, GitBranch, RefreshCw, Square } from 'lucide-react';
 import { readRunEvents, readSession } from '../../ipc';
 import { subscribe } from '../../transport';
-import { ExternalLink, issueUrl } from '../../components/ExternalLink';
-import { repoInitials, startedByLabel } from '../../runLabels';
+import { ExternalLink, hostName, issueUrl } from '../../components/ExternalLink';
+import { AgentQuestion } from '../../components/AgentQuestion';
+import { askedOf, cardIdOf, repoInitials, runStateTone, runStateWord, startedByLabel } from '../../runLabels';
+import { detailOutcome, runStationOf } from '../../stations';
+import { costLabel, estLabel } from '../../cost';
+import { liveStage, liveStations, stepsAt } from '../board/stageLine';
+import { StreamView } from './StreamView';
 import { RunDetail } from './RunDetail';
 import { StageLine } from './StageLine';
-import { foldRunEvents, fmtDuration, gateMs, stagesFromRecords, withGateSteps, withPendingGateSteps, toLogLines, transcriptLines, type LoggedEvent, type LogLine } from './runStages';
-import type { ActiveRun, RunDetail as RunDetailT, SessionRead } from '../../taskcell-output';
+import { RunReceipt, StationTrack } from './RunReceipt';
+import { CardAnswer } from '../needs-you/CardAnswer';
+import { foldRunEvents, fmtDuration, gateMs, stagesFromRecords, withGateSteps, withPendingGateSteps, toLogLines, type LoggedEvent, type LogLine } from './runStages';
+import type { ActiveRun, RunDetail as RunDetailT, RunSummary, SessionRead } from '../../taskcell-output';
 
-/** The open run, for the Runs split view: header, stage line, log tail, and (finished) the full record below. */
+/** The open run, for the Runs split view, receipt first (v3): header, the six stations, the receipt, then what the factory did / Diff / Transcript. */
 export function RunPane({
   repo,
   repoName,
+  initials,
   taskId,
   title,
   issue,
+  issueHref: taskHref,
   startedBy,
-  merged,
+  summary,
   detail,
   active,
   tick,
   onBack,
   onCancel,
+  onAnswered,
 }: {
+  /** The card's question was answered here: the caller follows the run that answer starts. */
+  onAnswered?: (() => void) | undefined;
   /** The repository the run belongs to (its path). */
   repo: string;
   repoName?: string | undefined;
+  /** The avatar's letters as the Runs rows show them (projects sharing a name prefix read apart). */
+  initials?: string | undefined;
   taskId: string;
   /** The task's title when the board knows it; the task id otherwise. */
   title?: string | undefined;
   issue?: number | undefined;
+  /** The card's own address in its tracker (the board's task url), when known. */
+  issueHref?: string | undefined;
   startedBy?: string | undefined;
-  /** The run's pull request is merged (the hub's `prState`, as the runs list shows it). */
-  merged?: boolean | undefined;
+  /** The run's row in the runs list: its state word and cost come from there, one source with the list. */
+  summary?: RunSummary | undefined;
   /** A finished run's record. */
   detail?: RunDetailT | undefined;
   /** A running run (its session file is the live log). */
@@ -49,7 +65,6 @@ export function RunPane({
   const [events, setEvents] = useState<LoggedEvent[]>([]);
   const [session, setSession] = useState<SessionRead | null>(null);
   const [now, setNow] = useState(() => Date.now());
-  const [picked, setPicked] = useState<number | null>(null);
   const [reload, setReload] = useState(0);
   const tail = useRef<HTMLDivElement>(null);
   const live = active !== undefined;
@@ -85,6 +100,7 @@ export function RunPane({
   }, [active?.sessionFile, tick, reload]);
 
   const timeline = foldRunEvents(events);
+  const [tab, setTab] = useState('activity');
   const running = live && timeline.terminal === undefined;
   useEffect(() => {
     if (!running) return;
@@ -95,15 +111,12 @@ export function RunPane({
   // The sealed cell is no stage record: its card comes from the event log (a run logged before it existed has none), live and finished alike.
   const sealed = timeline.stages[0]?.name === 'sandbox' ? timeline.stages.slice(0, 1) : [];
   const stages = detail ? [...sealed, ...withGateSteps(stagesFromRecords(detail.stages), detail.proof, detail.prUrl, gateMs(timeline.stages))] : timeline.stages.length > 0 ? withPendingGateSteps(timeline.stages) : timeline.stages;
-  const lastSelectable = (() => {
-    // Only a stage with a record has a log to open: the first failed one, else the last.
-    const withLog = stages.flatMap((s, i) => (s.src !== undefined ? [i] : []));
-    return withLog.find((i) => stages[i]!.phase === 'failed') ?? withLog[withLog.length - 1] ?? 0;
-  })();
-  const selected = picked !== null && picked < stages.length ? picked : lastSelectable;
-  const lines: LogLine[] = detail ? transcriptLines(detail.stages[stages[selected]?.src ?? -1]?.transcript) : toLogLines(session?.entries ?? []);
+  const liveAt = liveStage(stages);
+  // A finished run shows its transcripts in the Transcript tab; the log tail is the live run's.
+  const lines: LogLine[] = detail ? [] : toLogLines(session?.entries ?? []);
   useEffect(() => {
-    tail.current?.scrollIntoView({ block: 'end' });
+    // Scroll the log box only, not the page around it.
+    if (tail.current) tail.current.scrollTop = tail.current.scrollHeight;
   }, [lines.length]);
 
   const startedAt = timeline.startedAt;
@@ -117,29 +130,33 @@ export function RunPane({
         ? stages.reduce((n, s) => n + (s.ms ?? 0), 0)
         : undefined;
 
-  const passed = detail && (detail.proof ? detail.proof.passed : !detail.stages.some((s) => !s.record.completed));
-  const status = running ? (
-    <Chip color="primary" variant="outlined">
-      <span className="inline-flex items-center gap-1">
-        <RefreshCw className="size-3 animate-spin motion-reduce:animate-none" aria-hidden />
-        running
-      </span>
+  // One state for the chip's word and its colour: the Runs row's (its summary), else the record read the same way.
+  // The Runs row carries the outcome; only the record says the gates passed (the receipt reads the same proof).
+  const outcome = summary !== undefined ? { ...summary, ...(detail?.proof?.passed === true ? { verifyPassed: true as const } : {}) } : detail !== undefined ? detailOutcome(detail) : undefined;
+  const word = running ? 'running' : timeline.terminal === 'cancelled' ? 'cancelled' : timeline.terminal === 'error' ? 'failed' : outcome !== undefined ? runStateWord(outcome) : 'passed';
+  const status = (
+    <Chip color={runStateTone(word)} variant="outlined">
+      {running ? (
+        <span className="inline-flex items-center gap-1">
+          <RefreshCw className="size-3 animate-spin motion-reduce:animate-none" aria-hidden />
+          running
+        </span>
+      ) : (
+        word
+      )}
     </Chip>
-  ) : timeline.terminal === 'cancelled' ? (
-    <Chip color="secondary" variant="outlined">cancelled</Chip>
-  ) : timeline.terminal === 'error' || passed === false ? (
-    <Chip color="destructive" variant="outlined">failed</Chip>
-  ) : (
-    <Chip color="success" variant="outlined">{merged ? 'merged' : detail?.prUrl !== undefined ? 'PR open' : 'passed'}</Chip>
   );
-  // The PR itself is linked from the stage line's PR step; the header links the issue.
+  const merged = summary?.prState === 'merged';
+  const asked = running ? undefined : askedOf(summary, detail);
+  // The header carries the run's only issue link and only PR link.
   const prUrl = running ? undefined : detail?.prUrl;
-  const issueHref = prUrl !== undefined && issue !== undefined ? issueUrl(prUrl, issue) : undefined;
+  const prNumber = prUrl === undefined ? undefined : /(\d+)\/?$/.exec(prUrl)?.[1];
+  const issueHref = taskHref ?? (prUrl !== undefined && issue !== undefined ? issueUrl(prUrl, issue) : undefined);
   const base = detail?.stages.find((s) => s.record.baseBranch !== undefined)?.record.baseBranch;
   const by = startedByLabel(startedBy ?? detail?.stages.find((s) => s.record.startedBy !== undefined)?.record.startedBy);
 
   return (
-    <section className="flex h-full min-h-0 flex-col gap-3 max-md:overflow-y-auto" aria-label={`Run ${taskId}`}>
+    <section className="flex h-full min-h-0 flex-col gap-3 overflow-y-auto" aria-label={`Run ${taskId}`}>
       <div className="flex shrink-0 flex-wrap items-center gap-x-2 gap-y-1 text-sm">
         <Button variant="text" color="secondary" className="md:hidden" onClick={onBack} startIcon={<ArrowLeft className="size-4" />}>
           Back to runs
@@ -152,12 +169,18 @@ export function RunPane({
             <code className="rounded border border-border bg-muted px-1.5 py-0.5 text-xs" title="Target branch">{base}</code>
           </>
         )}
-        {issue !== undefined &&
-          (issueHref !== undefined ? (
-            <ExternalLink href={issueHref} className="text-sm tabular-nums">{`Issue #${issue}`}</ExternalLink>
-          ) : (
-            <span className="tabular-nums text-muted-foreground">#{issue}</span>
-          ))}        <span className="ml-auto flex items-center gap-2">
+        {/* The card id, as the Board names the card (gh-27, hub-4). */}
+        {issueHref !== undefined ? (
+          <ExternalLink href={issueHref} className="font-mono text-sm">{cardIdOf(taskId)}</ExternalLink>
+        ) : (
+          <span className="font-mono text-muted-foreground">{cardIdOf(taskId)}</span>
+        )}
+        {prUrl !== undefined && (
+          <ExternalLink href={prUrl} className="rounded-full border border-border px-2 py-0.5 text-sm tabular-nums">
+            {`${hostName(prUrl) === 'GitLab' ? 'MR !' : 'PR #'}${prNumber ?? ''}`}
+          </ExternalLink>
+        )}
+        <span className="ml-auto flex items-center gap-2">
           {totalMs !== undefined && (
             <span className="flex items-center gap-1 font-mono text-xs tabular-nums" aria-label="Total time">
               <Clock className="size-3.5 text-muted-foreground" aria-hidden />
@@ -170,41 +193,83 @@ export function RunPane({
 
       <div className="flex shrink-0 flex-wrap items-center gap-3 rounded-lg border border-border bg-muted/30 px-3 py-2">
         <span className="grid size-6 shrink-0 place-items-center rounded-full bg-muted text-[10px] font-bold" aria-hidden>
-          {repoInitials(repoName)}
+          {initials ?? repoInitials(repoName)}
         </span>
-        <span className="min-w-0 flex-1 truncate text-sm font-medium max-md:basis-full" title={title ?? taskId}>{title ?? taskId}</span>
+        <span className="min-w-0 flex-1 text-sm font-medium max-md:basis-full md:truncate" title={title ?? taskId}>{title ?? taskId}</span>
         {by !== undefined && <span className="text-xs text-muted-foreground">Started by {by}</span>}
         {running && timeline.runId !== undefined && (
           <Button variant="outlined" color="secondary" onClick={() => onCancel(timeline.runId!)} startIcon={<Square className="size-3.5" />}>
-            Cancel
+            Stop run
           </Button>
-        )}      </div>
-
-      {stages.length > 0 ? (
-        <StageLine stages={stages} now={now} selected={detail && picked !== null ? selected : undefined} {...(detail ? { onSelect: setPicked } : {})} />
-      ) : (
-        <p className="text-sm text-muted-foreground">{running ? 'Waiting for the first stage…' : 'This run has no stage records.'}</p>
-      )}
-
-      <div className="max-h-56 shrink-0 overflow-y-auto rounded-lg border border-border bg-muted/40 p-3 font-mono text-xs leading-relaxed" role="log" aria-label={running ? 'Live log' : 'Stage log'}>
-        {lines.length === 0 ? (
-          <span className="text-muted-foreground">{running ? 'Waiting for output…' : 'No transcript for this stage.'}</span>
-        ) : (
-          lines.map((l, i) => (
-            <div key={i} className={l.cmd ? '' : 'text-muted-foreground'}>
-              {l.cmd && <b className="mr-2">$</b>}
-              <span className="break-words">{l.text}</span>
-            </div>
-          ))
         )}
-        <div ref={tail} />
       </div>
 
-      {detail && (
-        <div className="max-md:shrink-0 md:min-h-0 md:flex-1">
-          <RunDetail detail={detail} project={repo} prLink={false} />
+      {asked !== undefined && (
+        <div role="note" className="shrink-0 rounded-lg border border-warning/40 bg-warning/10 px-3 py-2 text-sm">
+          <div className="font-medium text-warning-text">Stopped to ask you: the agent ended before finishing and waits for your answer below.</div>
+          {/* The run's own agent question: light markdown, no images, http(s) links only. */}
+          <div className="mt-1 max-h-40 overflow-y-auto break-words text-muted-foreground"><AgentQuestion>{asked}</AgentQuestion></div>
+          <div className="mt-2"><CardAnswer project={repo} taskId={taskId} onReplied={onAnswered} /></div>
         </div>
       )}
+      <StationTrack
+        steps={detail && outcome !== undefined ? stepsAt(runStationOf(outcome)) : liveStations(liveAt, timeline.terminal === 'error')}
+        ctx={detail ? { task: { column: merged ? 'done' : 'review' }, detail, merged, ...(detail.prUrl !== undefined ? { prUrl: detail.prUrl } : {}) } : { task: { column: 'running', ...(liveAt !== undefined ? { stage: liveAt } : {}) } }}
+      />
+      {/* Two columns only when the pane itself is wide enough (a container query, not the window): beside the run list
+          a 1024 px window leaves the pane too narrow for the tabs and the receipt side by side. Stacked, it scrolls. */}
+      <div className="@container min-h-0 md:min-h-[32rem] md:flex-1 md:overflow-y-auto">
+        <div className="flex flex-col gap-3 @3xl:grid @3xl:h-full @3xl:min-h-0 @3xl:grid-cols-[minmax(0,1fr)_20rem] @3xl:items-start">
+          <div className="@3xl:order-2 @3xl:max-h-full @3xl:overflow-y-auto">
+            {detail ? (
+              <RunReceipt detail={detail} project={repo} merged={merged} cost={summary !== undefined ? costLabel(summary) : undefined} />
+            ) : (
+              <RunReceipt detail={{ taskId, timestamp: '', stages: [] }} project={repo} merged={false} cost={estLabel(session?.estCostUsd)} live />
+            )}
+          </div>
+          <div className="shrink-0 @3xl:order-1 @3xl:h-full @3xl:min-h-0">
+            {detail ? (
+              <RunDetail detail={detail} project={repo} prLink={false} steps={stages} />
+            ) : (
+              <Tabs.Root value={tab} onValueChange={(v) => setTab(String(v))} className="flex h-full min-h-0 flex-col">
+                <Tabs.List className="shrink-0 overflow-x-auto">
+                  <Tabs.Tab value="activity" className="whitespace-nowrap">What the factory did</Tabs.Tab>
+                  <Tabs.Tab value="diff" className="whitespace-nowrap">Diff</Tabs.Tab>
+                  <Tabs.Tab value="transcript" className="whitespace-nowrap">Transcript</Tabs.Tab>
+                  <Tabs.Indicator />
+                </Tabs.List>
+                <Tabs.Panel value="activity" className="min-h-0 flex-1 space-y-3 overflow-y-auto pt-4">
+                  {stages.length > 0 ? (
+                    <StageLine stages={stages} now={now} list />
+                  ) : (
+                    <p className="text-sm text-muted-foreground">{running ? 'Waiting for the first stage…' : 'This run has no stage records.'}</p>
+                  )}
+                  <div ref={tail} className="max-h-56 shrink-0 overflow-y-auto rounded-lg border border-border bg-muted/40 p-3 font-mono text-xs leading-relaxed" role="log" aria-label={running ? 'Live log' : 'Stage log'}>
+                    {lines.length === 0 ? (
+                      <span className="text-muted-foreground">{running ? 'Waiting for output…' : 'No transcript for this stage.'}</span>
+                    ) : (
+                      lines.map((l, i) => (
+                        <div key={i} className={l.cmd ? '' : 'text-muted-foreground'}>
+                          {l.cmd && <b className="mr-2">$</b>}
+                          <span className="break-words">{l.text}</span>
+                        </div>
+                      ))
+                    )}
+                  </div>
+                </Tabs.Panel>
+                <Tabs.Panel value="diff" className="min-h-0 flex-1 overflow-y-auto pt-4">
+                  <p className="text-sm text-muted-foreground">No diff yet: the cell is still working. It shows here when the run finishes.</p>
+                </Tabs.Panel>
+                <Tabs.Panel value="transcript" className="min-h-0 flex-1 overflow-y-auto pt-4">
+                  <div className="rounded border border-border bg-muted/30 p-4">
+                    <StreamView entries={session?.entries ?? []} empty="No output yet." />
+                  </div>
+                </Tabs.Panel>
+              </Tabs.Root>
+            )}
+          </div>
+        </div>
+      </div>
     </section>
   );
 }

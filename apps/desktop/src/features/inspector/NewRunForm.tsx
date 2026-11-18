@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { Button, Collapsible, Input } from '@/ui';
 import { Play } from 'lucide-react';
 import { EnumSelect } from './EnumSelect';
+import { providerLabel, selectableProviders } from '../settings/customProviders';
 import { SkillPicker } from '../board/SkillPicker';
 import { apiListFlows, apiListProviders } from '../../ipc';
 import type { Capabilities, CreateRunParams, RepoFlowInfo, RepoProviderInfo } from '../../ipc';
@@ -33,11 +34,12 @@ export function flowOptionsFrom(
 export function providerOptionsFrom(
   capabilities: Capabilities,
   repoProviders: RepoProviderInfo[] | 'error' | null,
+  current?: string,
 ): { value: string; label: string }[] {
   const seen = new Set<string>();
   const unique = (name: string): boolean => !seen.has(name) && (seen.add(name), true);
   return [
-    ...capabilities.providers.filter(unique).map((p) => ({ value: p, label: p })),
+    ...selectableProviders(capabilities.providers, current).filter(unique).map((p) => ({ value: p, label: providerLabel(p) })),
     ...(Array.isArray(repoProviders)
       ? repoProviders
           .filter((p): p is RepoProviderInfo & { name: string } => p.name !== undefined && p.error === undefined && unique(p.name))
@@ -111,7 +113,7 @@ export function NewRunForm({
     };
   }, [project]);
   const flowOptions = flowOptionsFrom(capabilities, repoFlows);
-  const providerOptions = providerOptionsFrom(capabilities, repoProviders);
+  const providerOptions = providerOptionsFrom(capabilities, repoProviders, provider);
 
   const maxTurnsNum = Number(maxTurns);
   // Mirrors validateCreateRun (sidecar): non-blank issueRef, positive-integer maxTurns, non-blank base.
@@ -138,8 +140,8 @@ export function NewRunForm({
       <div className="flex flex-wrap items-center gap-x-3 gap-y-2 text-xs text-muted-foreground">
         <Input value={issueRef} onChange={(e) => setIssueRef(e.target.value)} placeholder="issue ref (e.g. 322)" aria-label="Issue ref" aria-invalid={refError !== undefined} className="w-40" />
         <span className="flex items-center gap-1">
-          Task source
-          <EnumSelect label="Task source" value={transport} onValueChange={setTransport} options={capabilities.transports.map((t) => ({ value: t, label: t }))} />
+          Card source
+          <EnumSelect label="Card source" value={transport} onValueChange={setTransport} options={capabilities.transports.map((t) => ({ value: t, label: t }))} />
         </span>
         <span className="flex items-center gap-1">
           Provider

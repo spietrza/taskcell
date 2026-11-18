@@ -83,19 +83,27 @@ test('a list emptied by another filter names the filters, with no Clear search t
   expect(screen.queryByRole('button', { name: 'Clear search' })).toBeNull();
 });
 
-test('rows are keyboard stops: Enter opens a run, a CI-only row is not one', () => {
+test('an openable row is a button: Enter or a click opens it; a CI-only row is not one', () => {
   const run: RunSummary = { taskId: 'task-7', timestamp: '2026-07-06T19:12:02.123Z', stages: ['implement'], totalCostUsd: 0.1, anyFailed: false };
   const onSelect = vi.fn();
   const onOpenActive = vi.fn();
   const active: ActiveRun[] = [{ taskId: 'task-live', sessionFile: '/x.jsonl', lastActivityMs: Date.now() }];
   render(<RunList runs={[run, { ...run, taskId: 'task-ci', source: 'ci' }]} active={active} onSelect={onSelect} onOpenActive={onOpenActive} />);
-  const row = screen.getByText('task-7').closest('li')!;
-  expect(row).toHaveAttribute('tabindex', '0');
-  fireEvent.keyDown(row, { key: 'Enter' });
+  fireEvent.click(screen.getByText('task-7').closest('button')!);
   expect(onSelect).toHaveBeenCalledWith(run);
-  fireEvent.keyDown(screen.getByText('task-live').closest('li')!, { key: ' ' });
+  fireEvent.click(screen.getByText('task-live').closest('button')!);
   expect(onOpenActive).toHaveBeenCalledWith(active[0]);
-  expect(screen.getByText('task-ci').closest('li')).not.toHaveAttribute('tabindex');
+  expect(screen.getByText('task-ci').closest('button')).toBeNull();
+});
+
+test('the Passed and Failed pills follow the row\'s chip: a failed verify with every stage completed is failed', () => {
+  const base = { timestamp: '2026-07-06T19:12:02.123Z', stages: ['implement'], totalCostUsd: 0, anyFailed: false };
+  const runs: RunSummary[] = [{ ...base, taskId: 'task-ok' }, { ...base, taskId: 'task-red', verifyFailed: true }];
+  render(<RunList runs={runs} active={[]} onSelect={noop} onOpenActive={noop} />);
+  fireEvent.click(screen.getByRole('button', { name: 'passed' }));
+  expect(screen.getAllByTestId('run-row').map((r) => r.textContent)).toEqual([expect.stringContaining('task-ok')]);
+  fireEvent.click(screen.getByRole('button', { name: 'failed' }));
+  expect(screen.getAllByTestId('run-row').map((r) => r.textContent)).toEqual([expect.stringContaining('task-red')]);
 });
 
 test('the result pills say "All results", so Runs has one "All" (triage) beside the shared filter bar', () => {
@@ -106,17 +114,24 @@ test('the result pills say "All results", so Runs has one "All" (triage) beside 
   expect(screen.getByRole('button', { name: 'All results' })).toBeInTheDocument();
 });
 
+test('the count names its unit: "1 of 2 runs"', () => {
+  const base = { timestamp: '2026-07-06T19:12:02.123Z', stages: ['implement'], totalCostUsd: 0, anyFailed: false };
+  render(<RunList runs={[{ ...base, taskId: 'task-ok' }, { ...base, taskId: 'task-red', verifyFailed: true }]} active={[]} onSelect={noop} onOpenActive={noop} />);
+  fireEvent.click(screen.getByRole('button', { name: 'passed' }));
+  expect(screen.getByText('1 of 2 runs')).toBeInTheDocument();
+});
+
 test('a list emptied by filters names them; Clear filters resets search, source, triage and the result pill', () => {
   const runs: RunSummary[] = [{ taskId: 'task-7', timestamp: '2026-07-06T19:12:02.123Z', stages: ['implement'], totalCostUsd: 0.1, anyFailed: false }];
   const onHub = vi.fn();
   const hub = { triage: 'needs' as const, repos: ['/a'], sources: ['gitlab' as const], query: 'task', group: 'project' as const };
   render(<RunList runs={runs} active={[]} hub={hub} onHub={onHub} configured={['github', 'gitlab']} onSelect={noop} onOpenActive={noop} />);
   fireEvent.click(screen.getByRole('button', { name: 'failed' }));
-  expect(screen.getByText(/Active: Needs you, GitLab, Projects, search "task", Failed\./)).toBeInTheDocument();
+  expect(screen.getByText(/Active: Waiting for you, GitLab, Projects, search "task", Failed\./)).toBeInTheDocument();
   fireEvent.click(screen.getByRole('button', { name: 'Clear filters' }));
   // Projects and grouping are not filters this action owns.
   expect(onHub).toHaveBeenCalledWith({ ...hub, triage: 'all', sources: [], query: '' });
-  expect(screen.getByRole('button', { name: 'All results' }).className).toContain('bg-primary');
+  expect(screen.getByRole('button', { name: 'All results' })).toHaveAttribute('aria-pressed', 'true');
 });
 
 test('the search matches a run by the board title, #issue and labels, not only the task id', () => {
@@ -144,4 +159,18 @@ test('a run stopped by a provider limit is labelled as such, not as a plain fail
   expect(screen.getByText('stopped: provider limit')).toBeInTheDocument();
   fireEvent.click(screen.getByRole('button', { name: 'failed' }));
   expect(screen.queryByText('task-9')).toBeNull();
+});
+
+test('an open run the filters hide is named, with Clear', () => {
+  const base = { stages: ['implement'], totalCostUsd: 0, anyFailed: false };
+  const runs = [
+    { ...base, taskId: 'hub-2', timestamp: '2026-07-06T19:12:02.123Z', repoPath: '/b', repoName: 'b' },
+    { ...base, taskId: 'gh-7', timestamp: '2026-07-06T19:12:03.123Z', repoPath: '/a', repoName: 'a' },
+  ] as (RunSummary & { repoPath: string; repoName: string })[];
+  const onHub = vi.fn();
+  const hub = { triage: 'all' as const, repos: ['/a'], sources: [], query: '', group: 'none' as const };
+  render(<RunList runs={runs} active={[]} hub={hub} onHub={onHub} onSelect={noop} onOpenActive={noop} selected={`/b:hub-2:${runs[0]!.timestamp}`} paneOpen pane={<div />} />);
+  expect(screen.getByRole('status')).toHaveTextContent('hub-2 is hidden by your filters — Clear');
+  fireEvent.click(screen.getByRole('button', { name: 'Clear' }));
+  expect(onHub).toHaveBeenCalledWith(expect.objectContaining({ repos: [] }));
 });

@@ -73,17 +73,7 @@ exist and are load-bearing:
   latent silent-wrong-endpoint trap live for `provider = "zai"` stage pins today.
 
 **Out (deferred, each with its trigger):**
-- **Keyless custom providers (`keyEnv` optional).** Cut in round 2: the motivating case is keyed;
-  keyless-single-URL is exactly what meridian already does; and keyless was the only part of the
-  registry diff that *changed* semantics (`providerSecrets` const-secrets branch,
-  `claudeCliKeyEnv` no longer meaning "owns transport") instead of adding to them — it also
-  silently broke the generalized preflight llm-auth check (a keyless custom would demand an Anthropic
-  credential it never consumes). With `keyEnv` required, a synthesized custom is a pure zai clone and
-  the registry change is purely additive. Escape hatch needing zero code: export a dummy-valued env
-  var (the CLI only needs non-empty — the meridian placeholder property). Trigger + counterpoint
-  recorded: a keyless custom would strictly subsume meridian (named, forced model, egress-listed);
-  if meridian is ever to be deprecated, implement keyless then, with the preflight fallthrough
-  `!needsAnthropicAuth ⇒ pass`.
+- **Keyless custom providers (`keyEnv` optional).** *Shipped later* (the generic endpoint replaces meridian as the UI choice): `keyEnv` omitted ⇒ empty `hostEnv`, placeholder `ANTHROPIC_AUTH_TOKEN`, `claudeCliKeyEnv` = `[]` (preflight/auth/deps treat `[]` as satisfied), still direct-only and egress-listed. It was cut from the first round because the motivating case was keyed, keyless-single-URL was what meridian already did, and it changed registry semantics (`providerSecrets` const-secrets branch, `claudeCliKeyEnv` no longer meaning "owns transport"). Those costs were paid when it shipped, with the preflight fallthrough `!needsAnthropicAuth ⇒ pass`. A hub run on a user's own credentials refuses a keyless custom, as it does meridian.
 - **`--llm-proxy` for customs.** The proxy sidecar's `UPSTREAMS` table, secret-file protocol, and
   server (`https://<host>:443` hardcoded) are all closed; parameterizing them is real surgery. v1
   customs are **direct-only**, rejected at dispatch *before sandbox spin-up* (§6 gate 2). Security

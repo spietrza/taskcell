@@ -23,7 +23,7 @@ export function Fleet({ project, active: allActive }: { project: string; active:
   // board visit is stale the moment the factory claims a task, and Fleet is reachable without ever
   // opening the board. Null while it loads or if it fails — nothing is honest there, `0` is not.
   const board = useAsync(() => listTasks(project), [project]);
-  const waiting = boardCountLabels(board.data)?.waiting ?? null;
+  const waiting = boardCountLabels(board.data)?.queued ?? null;
 
   // Seed the editable controls from saved config once it loads.
   useEffect(() => {
@@ -136,7 +136,7 @@ export function Fleet({ project, active: allActive }: { project: string; active:
           </button>
         </div>
         <p className="text-sm text-muted-foreground">
-          list ready Tasks → Claim → Run, autonomously, until stopped
+          list ready cards → claim → run, autonomously, until stopped
         </p>
 
         <div className="flex flex-wrap items-center gap-8 border-t border-border pt-4">
@@ -202,7 +202,7 @@ export function Fleet({ project, active: allActive }: { project: string; active:
                 <Chip color="success" variant="outlined">running</Chip>
               </>
             ) : (
-              <span className="text-muted-foreground">idle — polling for ready Tasks</span>
+              <span className="text-muted-foreground">idle — polling for ready cards</span>
             )}
           </div>
         ))}

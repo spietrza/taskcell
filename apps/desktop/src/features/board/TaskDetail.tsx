@@ -8,6 +8,7 @@ import { IssueHistory } from './IssueHistory';
 import { AppliedLessons } from '../lessons/Lessons';
 import { TaskDetailPaused } from './paused';
 import { taskRefKey } from './taskref';
+import { CardAnswer } from '../needs-you/CardAnswer';
 import { useApproverDecisions } from './useApproverDecisions';
 import { decisionForTask, decisionWords } from './approverDecision';
 
@@ -36,6 +37,7 @@ export function TaskDetail({
 
   return (
     <div className="space-y-4">
+      <CardAnswer project={project} taskId={taskId} showQuestion />
       <div className="flex items-center gap-3">
         <Button variant="text" color="secondary" onClick={onBack} startIcon={<ArrowLeft className="size-4" />}>
           Board

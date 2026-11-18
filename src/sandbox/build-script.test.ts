@@ -92,7 +92,7 @@ describe('docker/build.sh pull-first', () => {
     const build = calls.find((call) => call.startsWith('build '));
     expect(build).toContain('-t taskcell-sandbox:latest -t vanguard-sandbox:latest');
     expect(calls.filter((call) => call.startsWith('tag '))).toEqual([]);
-    expect(stdout).toContain('Zbudowano taskcell-sandbox:latest');
+    expect(stdout).toContain('Built taskcell-sandbox:latest');
   });
 });
 

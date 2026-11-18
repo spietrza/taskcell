@@ -20,7 +20,7 @@ export interface AppConfig {
   color?: string;
   provider?: string;
   reviewProvider?: string;
-  /** Flow the Hub runs this project with (`--flow`); unset = the source default. */
+  /** Flow the Hub runs this project with (`--flow`); unset = the standard flow. */
   flow?: string;
   verifyCmd?: string;
   concurrency?: number;

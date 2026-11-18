@@ -119,13 +119,14 @@ export async function dispatchRpc(ctx: RpcContext, cmd: string, rawArgs: unknown
   const actor = actorOf(ctx);
   const target = spec.target(args);
   const detail = await spec.detail?.(ctx, args);
+  const changes = await spec.changes?.(ctx, args);
   const okOutcome = spec.okOutcome?.(ctx, args) ?? 'ok';
-  const line = (outcome: AuditOutcome): Promise<void> =>
-    audit.record({ login: actor.login, actor: auditActorOf(actor), action: spec.action, ...(target !== undefined ? { target } : {}), outcome, ...(detail !== undefined ? { detail } : {}) });
+  const line = (outcome: AuditOutcome, at: string | undefined = target): Promise<void> =>
+    audit.record({ login: actor.login, actor: auditActorOf(actor), action: spec.action, ...(at !== undefined ? { target: at } : {}), outcome, ...(detail !== undefined ? { detail } : {}), ...(changes !== undefined ? { changes } : {}) });
   try {
     const result = await dispatchInner(ctx, cmd, rawArgs, caller);
     // Fail closed: the change is already applied, so the caller is told it went unrecorded rather than that it failed.
-    await line(okOutcome).catch((e: unknown) => {
+    await line(okOutcome, spec.resultTarget?.(result, args) ?? target).catch((e: unknown) => {
       throw new AuditWriteError(`${cmd} was applied but its audit line could not be written: ${e instanceof Error ? e.message : String(e)}`, { cause: e });
     });
     return result;

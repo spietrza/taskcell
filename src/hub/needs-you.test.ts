@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { listNeedsYou, mergeNeedsYou, replyNeedsYou, NEEDS_REVISION_LABEL } from './needs-you.js';
 import { DEFAULT_GITHUB_AGENT_LABEL, DEFAULT_GITHUB_NEEDS_INFO_LABEL } from '../cli/args.js';
 import type { GhRunner } from '../tasks/github.js';
+import { clarifyMessage } from '../runners/watch-shared.js';
 
 interface StubComment {
   author: { login: string };
@@ -163,6 +164,21 @@ describe('listNeedsYou', () => {
     expect(await listNeedsYou('o/r', gh)).toHaveLength(35);
     expect(peak).toBeLessThanOrEqual(4);
     expect(fetches).toBe(30);
+  });
+
+  it("marks an issue too vague when the factory's last comment is triage's notice, a question otherwise", async () => {
+    const issue = (number: number): unknown => ({ number, title: 'A', url: 'u', labels: [{ name: DEFAULT_GITHUB_NEEDS_INFO_LABEL }] });
+    const gh = stubGh({
+      issueList: [issue(1), issue(2), issue(3), issue(4)],
+      prList: [],
+      comments: {
+        'issue#1': [{ author: { login: 'vanguard-bot' }, body: clarifyMessage('spec') }],
+        'issue#2': [{ author: { login: 'vanguard-bot' }, body: clarifyMessage('agent') }],
+        'issue#3': [{ author: { login: 'vanguard-bot' }, body: 'Which endpoint should this call?' }],
+        'issue#4': [{ author: { login: 'alice' }, body: clarifyMessage('spec') }], // not the factory: no record
+      },
+    });
+    expect((await listNeedsYou('o/r', gh)).map((i) => i.ask)).toEqual(['too-vague', 'too-vague', 'question', 'question']);
   });
 
   it('omits lastComment when the factory never commented', async () => {

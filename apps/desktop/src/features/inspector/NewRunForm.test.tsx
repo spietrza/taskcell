@@ -112,6 +112,12 @@ test('providerOptionsFrom merges built-ins with healthy repo customs; errored en
   expect(options.map((o) => o.value)).toEqual(['claude', 'codex', 'my-proxy']);
 });
 
+test('providerOptionsFrom keeps a saved legacy meridian value and hides it otherwise', () => {
+  const withMeridian: Capabilities = { ...caps, providers: [...caps.providers, 'meridian'] };
+  expect(providerOptionsFrom(withMeridian, null).map((o) => o.value)).not.toContain('meridian');
+  expect(providerOptionsFrom(withMeridian, null, 'meridian').map((o) => o.value)).toContain('meridian');
+});
+
 test('the form fetches repo providers fresh for its project on open (S6)', async () => {
   vi.mocked(ipc.apiListProviders).mockResolvedValueOnce({ providers: [{ index: 0, name: 'my-proxy' }] });
   render(<NewRunForm capabilities={caps} project="/repo" onRun={vi.fn()} onCancel={() => {}} />);
@@ -145,7 +151,7 @@ test('opened from a card, the form carries that card\'s ref and tracker, under a
   render(<NewRunForm capabilities={caps} project="/repo" taskId="gl-42" onRun={onRun} onCancel={() => {}} />);
   await waitFor(() => expect(ipc.apiListFlows).toHaveBeenCalled());
   expect(screen.getByRole('heading', { name: 'New run' })).toBeInTheDocument();
-  for (const label of ['Task source', 'Provider', 'Flow']) expect(screen.getByText(label)).toBeInTheDocument();
+  for (const label of ['Card source', 'Provider', 'Flow']) expect(screen.getByText(label)).toBeInTheDocument();
   expect(screen.getByLabelText('Issue ref')).toHaveValue('42');
   fireEvent.click(screen.getByRole('button', { name: /^run$/i }));
   expect(onRun).toHaveBeenCalledWith(expect.objectContaining({ issueRef: '42', transport: 'gitlab' }));
@@ -154,7 +160,7 @@ test('opened from a card, the form carries that card\'s ref and tracker, under a
 test('each select has an accessible name matching its visible label', async () => {
   render(<NewRunForm capabilities={caps} project="/repo" onRun={vi.fn()} onCancel={() => {}} />);
   await waitFor(() => expect(ipc.apiListFlows).toHaveBeenCalled());
-  for (const name of ['Task source', 'Provider', 'Flow']) expect(screen.getByRole('combobox', { name })).toBeInTheDocument();
+  for (const name of ['Card source', 'Provider', 'Flow']) expect(screen.getByRole('combobox', { name })).toBeInTheDocument();
 });
 
 test('hand-picked skills ride on the run params', async () => {

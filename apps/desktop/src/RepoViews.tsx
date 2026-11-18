@@ -22,8 +22,8 @@ export function TaskSourceHint({ repoNames, onOpenSettings }: { repoNames: strin
   return (
     <div role="note" className="mb-2 flex shrink-0 flex-wrap items-center gap-2 rounded border border-border bg-muted/30 px-3 py-2 text-sm text-muted-foreground">
       <span>
-        {repoNames.length > 0 ? `${repoNames.join(', ')} has no task source yet.` : 'This project has no task source yet.'} Choose one
-        (GitHub Issues, GitLab Issues, Linear or Hub board) in Settings and its cards show up here.
+        {repoNames.length > 0 ? `${repoNames.join(', ')} has no card source yet.` : 'This project has no card source yet.'} Choose one
+        (GitHub, GitLab, Linear or the Taskcell board) in Settings and its cards show up here.
       </span>
       {onOpenSettings && (
         <Button variant="outlined" className="ml-auto" onClick={onOpenSettings}>
@@ -37,5 +37,5 @@ export function TaskSourceHint({ repoNames, onOpenSettings }: { repoNames: strin
 /** The repository a card / run row / item belongs to; shown only under "All repositories". */
 export function RepoLabel({ name }: { name: string | undefined }) {
   if (name === undefined) return null;
-  return <span className="rounded bg-muted px-1.5 py-0.5 text-[11px] text-muted-foreground">{name}</span>;
+  return <span title={name} className="min-w-0 truncate rounded bg-muted px-1.5 py-0.5 text-[11px] text-muted-foreground">{name}</span>;
 }

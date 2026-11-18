@@ -6,7 +6,6 @@
 export type { Theme } from 'chunks-ui';
 export {
   Breadcrumb,
-  Button,
   Card,
   Chip,
   Collapsible,
@@ -14,13 +13,16 @@ export {
   cn,
   Empty,
   Input,
+  Menu,
   Select,
+  Skeleton,
   Table,
   Tabs,
   Textarea,
   ThemeToggle,
   Tooltip,
 } from 'chunks-ui';
+export { Button } from './Button';
 export { Callout } from './Callout';
 export { CodeBlock } from './CodeBlock';
 export { InlineEdit } from './InlineEdit';
@@ -30,5 +32,5 @@ export { Markdown } from './Markdown';
 export { ScrollTable } from './ScrollTable';
 export { Timestamp } from './Timestamp';
 export { useFocusTrap } from './useFocusTrap';
-export { PAGE_CLASS } from './page';
+export { LINK_CLASS, PAGE_CLASS } from './page';
 export { ErrorNote } from './ErrorNote';

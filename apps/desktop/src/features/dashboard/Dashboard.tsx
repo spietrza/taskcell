@@ -1,45 +1,13 @@
 import { useState, type CSSProperties } from 'react';
 import { Button, Card, Chip, Empty } from '@/ui';
-import { Factory, FolderPlus, LayoutGrid, X } from 'lucide-react';
+import { FolderPlus, LayoutGrid, X } from 'lucide-react';
 import { projectColor } from '../../color';
-import { combinationNote, effectiveRunLocation, runLocationLabel, taskSourceLabel } from '../../platform';
+import { combinationNote, runLocationLabel, runsOn, taskSourceLabel } from '../../platform';
 import { relTime } from '../../time';
 import type { Project } from '../../taskcell-output';
 import { gateProps } from '../../hooks';
 import type { CallerCapability, FactoryState, LocalWorkerState } from '../../wire';
-import { factoryLabel, localWorkerLabel } from './factoryLabel';
-
-function Stat({
-  label,
-  value,
-  accent,
-  dot,
-  onClick,
-}: {
-  label: string;
-  value: string | number;
-  accent?: boolean;
-  dot?: boolean;
-  /** Makes the tile a button. */
-  onClick?: (() => void) | undefined;
-}) {
-  const body = (
-    <>
-      <div className="caption">{label}</div>
-      <div className={`mt-1 flex items-center gap-1.5 text-2xl font-semibold tabular-nums ${accent ? 'text-success-text' : ''}`}>
-        {dot && <span className="size-2 rounded-full bg-success" />}
-        {value}
-      </div>
-    </>
-  );
-  return onClick ? (
-    <button type="button" onClick={onClick} className="rounded-lg border border-border p-4 text-left transition-colors hover:bg-muted/40">
-      {body}
-    </button>
-  ) : (
-    <div className="rounded-lg border border-border p-4">{body}</div>
-  );
-}
+import { autoRunLabel } from './factoryLabel';
 
 export function Dashboard({
   projects,
@@ -47,10 +15,8 @@ export function Dashboard({
   onAdd,
   addGate,
   onRemove,
-  onEnableFactory,
-  factoryGate,
+  onOpenAutoRun,
   onOpenSetup,
-  onOpenRunning,
   factory,
   localWorker,
 }: {
@@ -60,29 +26,17 @@ export function Dashboard({
   /** The hub's answer on adding a project: refused, the buttons are disabled with its reason. */
   addGate?: CallerCapability | undefined;
   onRemove: (path: string) => void;
-  /** Hub-only (the `enable_factory_*` commands are HUB_ONLY): omitted, the card has no button. */
-  onEnableFactory?: (p: { path: string; name: string }) => void;
-  /** The hub's answer on enabling a factory. */
-  factoryGate?: CallerCapability | undefined;
+  /** Opens the project's auto-run setup (Settings → Line, station Card); omitted, the state is plain text. */
+  onOpenAutoRun?: (p: { path: string; name: string }) => void;
   /** Opens the first-run guide; offered in the empty state. */
   onOpenSetup?: () => void;
-  /** Opens Runs filtered to the running ones (the Running tile). */
-  onOpenRunning?: (() => void) | undefined;
-  /** Each project's factory checklist state by path (hub-only); a project without an entry shows no factory line. */
+  /** Each project's CI factory checklist state by path; with `localWorker`, it makes the card's Auto-run line. */
   factory?: Record<string, FactoryState>;
-  /** Each project's Local hub worker state by path (hub-only); shown on cards whose switch is on or has an error. */
+  /** Each project's Local hub worker state by path. A project in neither map shows no Auto-run line (not read yet). */
   localWorker?: Record<string, LocalWorkerState>;
 }) {
   // Path of the card whose × was clicked: removal waits for a second, explicit click.
   const [confirmRemove, setConfirmRemove] = useState<string | null>(null);
-  const totals = {
-    projects: projects.length,
-    running: projects.reduce((n, p) => n + p.runningCount, 0),
-    runs: projects.reduce((n, p) => n + p.runCount, 0),
-    last24h: projects.reduce((n, p) => n + p.runsLast24h, 0),
-    spend: projects.reduce((n, p) => n + p.totalCostUsd, 0),
-  };
-
   return (
     <div className="space-y-4">
       <div className="flex items-center gap-3">
@@ -99,7 +53,7 @@ export function Dashboard({
           </Empty.Media>
           <Empty.Title>No projects yet</Empty.Title>
           <Empty.Description>
-            Add a git repository (an existing folder, or clone one) to track its factory runs, tasks and spend. The setup guide also checks your sign-ins.
+            Add a git repository (an existing folder, or clone one) to track its factory runs, cards and spend. The setup guide also checks your sign-ins.
           </Empty.Description>
           <Empty.Actions>
             <Button {...gateProps(addGate)} onClick={onAdd} startIcon={<FolderPlus className="size-4" />}>
@@ -117,19 +71,11 @@ export function Dashboard({
         </Empty.Root>
       ) : (
         <>
-          <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
-            <Stat label="Projects" value={totals.projects} />
-            <Stat label="Running" value={totals.running} accent={totals.running > 0} dot={totals.running > 0} onClick={onOpenRunning} />
-            <Stat label="Runs" value={totals.runs} />
-            <Stat label="Last 24h" value={totals.last24h} />
-            <Stat label="Spend" value={`$${totals.spend.toFixed(2)}`} />
-          </div>
-
           <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
             {projects.map((p) => {
-              const location = effectiveRunLocation(p.taskSource, p.runLocation);
-              const note = combinationNote(p.taskSource, location);
               const fs = factory?.[p.path];
+              const location = runsOn(p, fs);
+              const note = combinationNote(p.taskSource, location);
               const lw = localWorker?.[p.path];
               const last = p.lastRun ? relTime(new Date(p.lastRun).getTime()) : null;
               const color = projectColor(p);
@@ -151,7 +97,7 @@ export function Dashboard({
                       <Card.Title className="flex items-center gap-2 truncate">
                         {/* Stretched over the whole card (after:inset-0) so the card opens by click
                             and by keyboard without nesting buttons; the card's own buttons (Remove,
-                            Enable factory) sit above it with `relative z-10`. */}
+                            the Auto-run link) sit above it with `relative z-10`. */}
                         <button
                           type="button"
                           onClick={() => onOpen({ path: p.path, name: p.name })}
@@ -207,46 +153,45 @@ export function Dashboard({
                   </Card.Header>
                   <Card.Content className="pt-0">
                     <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs tabular-nums text-muted-foreground">
-                      <span>{p.runCount} runs</span>
-                      <span>{p.taskCount} tasks</span>
-                      <span>${p.totalCostUsd.toFixed(2)}</span>
+                      {/* taskCount counts the cards that have runs, not the board's open cards. */}
+                      <span>{p.runCount} {p.runCount === 1 ? 'run' : 'runs'} on {p.taskCount} {p.taskCount === 1 ? 'card' : 'cards'}</span>
+                      <span>${p.totalCostUsd.toFixed(2)} spent</span>
                       {p.ciRunCount !== undefined && <span>{p.ciRunCount} in CI</span>}
                       {p.failedCount > 0 && <span className="text-destructive-text">{p.failedCount} failed</span>}
-                      {p.runsLast24h > 0 && <Chip color="secondary" variant="outlined">{p.runsLast24h} in 24h</Chip>}
+                      {/* A count over all runs, answered ones too: neutral, the orange "waits for you" is Home's inbox. */}
+                      {p.askedCount !== undefined && p.askedCount > 0 && <span>{p.askedCount} stopped to ask</span>}
+                      {p.runsLast24h > 0 && <Chip color="secondary" variant="outlined">{p.runsLast24h} {p.runsLast24h === 1 ? 'run' : 'runs'} in 24h</Chip>}
                       {last && <span className="ml-auto">{last}</span>}
                     </div>
                     {/* Platform: where tasks come from and where work runs, so projects set up differently read side by side. */}
                     <div className="mt-2 flex flex-wrap items-center gap-1.5">
                       {/* Unset is not GitHub Issues: the board asks for an explicit source, and Settings shows it as "—". */}
-                      <Chip color="secondary" variant="outlined">{p.taskSource ? taskSourceLabel(p.taskSource) : 'No task source'}</Chip>
-                      <span className="text-xs text-muted-foreground" aria-hidden>→</span>
+                      <span className="text-xs text-muted-foreground">Cards from</span>
+                      <Chip color="secondary" variant="outlined">{p.taskSource ? taskSourceLabel(p.taskSource) : 'No card source'}</Chip>
+                      <span className="text-xs text-muted-foreground">run on</span>
                       <Chip color="secondary" variant="outlined">{runLocationLabel(location)}</Chip>
                     </div>
                     {note && <p className="mt-1 text-xs text-muted-foreground">{note}</p>}
-                    {fs && !(p.taskSource === 'hub' && fs.state === 'none') && (
-                      <p
-                        data-testid="factory-state"
-                        className={`mt-1 text-xs ${fs.state === 'broken' ? 'text-destructive-text' : fs.state === 'ready' ? 'text-success-text' : 'text-muted-foreground'}`}
-                      >
-                        {factoryLabel(fs)}
-                      </p>
-                    )}
-                    {lw && (lw.enabled || lw.lastPickupAt !== undefined || location === 'local') && <p data-testid="local-worker-state" className={`mt-1 text-xs ${lw.enabled && lw.lastError ? 'text-destructive-text' : 'text-muted-foreground'}`}>{localWorkerLabel(lw)}</p>}
-                    {onEnableFactory && (
-                      <Button
-                        className="relative z-10 mt-3 h-7 px-2 text-xs"
-                        variant="outlined"
-                        color="secondary"
-                        {...gateProps(factoryGate)}
-                        startIcon={<Factory className="size-3.5" />}
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          onEnableFactory({ path: p.path, name: p.name });
-                        }}
-                      >
-                        {fs && fs.state !== 'none' ? 'Factory checklist' : p.taskSource === 'hub' ? 'Hub worker' : 'Enable factory'}
-                      </Button>
-                    )}
+                    {(fs || lw) && (() => {
+                      const run = autoRunLabel(p.taskSource, fs, lw);
+                      const tone = run.tone === 'bad' ? 'text-destructive-text' : run.tone === 'on' ? 'text-success-text' : 'text-muted-foreground';
+                      return onOpenAutoRun ? (
+                        <button
+                          type="button"
+                          data-testid="auto-run"
+                          title="Set up auto-run in Settings → Line"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            onOpenAutoRun({ path: p.path, name: p.name });
+                          }}
+                          className={`relative z-10 mt-2 block max-w-full truncate text-left text-xs hover:underline ${tone}`}
+                        >
+                          {run.text}
+                        </button>
+                      ) : (
+                        <p data-testid="auto-run" className={`mt-2 truncate text-xs ${tone}`}>{run.text}</p>
+                      );
+                    })()}
                   </Card.Content>
                 </Card.Root>
               );

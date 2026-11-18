@@ -87,6 +87,30 @@ sonnet-implement default.
 > taskcell run --provider meridian --review-model opus --repo <path> ...
 > ```
 
+## As a custom provider (`customProviders`)
+
+The same endpoint can be declared in `.taskcell/app.json` and selected with `--provider <name>` (or
+in the hub UI). Meridian 1.83+ requires a key, and `MERIDIAN_API_KEY` is a reserved name, so use
+`keyEnv` with a variable name of your choosing:
+
+```json
+{
+  "customProviders": [
+    { "name": "my-meridian", "baseUrl": "http://<meridian-host>:3456", "keyEnv": "MY_MERIDIAN_KEY" }
+  ]
+}
+```
+
+```bash
+export MY_MERIDIAN_KEY='<the Meridian API key>'
+taskcell run --provider my-meridian --repo <path> ...
+```
+
+Omit `keyEnv` only for a proxy that holds its own auth and accepts any token. Any other
+Anthropic-compatible proxy fits the same shape: CLIProxyAPI, for example, can serve `/v1/messages`;
+point `baseUrl` at its address (an example: `http://127.0.0.1:8317`; check its own docs for the
+port and key). Not verified in this repo.
+
 ## Backwards compatibility
 
 No breaking changes. Every existing provider path is byte-identical — `meridian` is one more entry in

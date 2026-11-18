@@ -23,8 +23,10 @@ import {
   type CreateRunParams,
 } from '../../ipc';
 import { RunList, activeKey, runKey } from './RunList';
+import { projectColor } from '../../color';
 import { RunPane } from './RunPane';
-import { issueNumber, titleKey } from '../../runLabels';
+import { cardIdOf, issueNumber, repoInitials, titleKey } from '../../runLabels';
+import { setUrlParam, urlParam } from '../../screenUrl';
 import { CostBreakdown } from './CostBreakdown';
 import { ConflictStats } from './ConflictStats';
 import { RunDetail } from './RunDetail';
@@ -32,6 +34,7 @@ import { LiveRun } from './LiveRun';
 import { RemoteRuns } from './RemoteRuns';
 import { Fleet } from '../fleet/Fleet';
 import { SettingsScreen } from '../settings/SettingsScreen';
+import type { SettingsSection } from '../settings/sections';
 import { TaskBoard } from '../board/TaskBoard';
 import { TaskDetail } from '../board/TaskDetail';
 import { TaskDraftScreen } from '../task/TaskDraftScreen';
@@ -44,6 +47,8 @@ import { RepoFailures } from '../../RepoViews';
 import type { RepoReadFailure, RepoStamp } from '../../wire';
 import type { TeamScreen } from '../settings/Members';
 import type { Project } from '../../taskcell-output';
+import { publishRuns, type PaletteCard, type PaletteRun } from '../../paletteIndex';
+import { CardAnswer } from '../needs-you/CardAnswer';
 import type { RunSummary, RunDetail as RunDetailT, ActiveRun, RunRef, RunSource } from '../../taskcell-output';
 
 export function Inspector({
@@ -55,7 +60,11 @@ export function Inspector({
   filter,
   onFilter,
   screen,
+  settingsSection,
+  onSettingsSection,
   focusRunning,
+  focusRun,
+  openCard,
   clearNonce,
   newTaskNonce,
   onCrumb,
@@ -63,6 +72,7 @@ export function Inspector({
   onNewTask,
   onOpenBoard,
   onOpenRuns,
+  onOpenRunning,
   onOpenSettings,
   onOpenSetup,
 }: {
@@ -79,7 +89,14 @@ export function Inspector({
   filter: HubFilter;
   onFilter: (f: HubFilter) => void;
   screen: 'runs' | 'board' | 'task' | 'settings';
+  /** Settings only: the open section, owned by the app (the address names it). */
+  settingsSection: SettingsSection;
+  onSettingsSection: (s: SettingsSection) => void;
   focusRunning: ActiveRun | null;
+  /** A finished run to open on Runs (⌘K); a fresh object per request. */
+  focusRun?: PaletteRun | null;
+  /** A card to open on the Board (⌘K); a fresh object per request. */
+  openCard?: PaletteCard | null;
   clearNonce: number;
   newTaskNonce: number;
   onCrumb: (c: string | null) => void;
@@ -89,6 +106,8 @@ export function Inspector({
   onOpenBoard: () => void;
   /** Switches to Runs, where a run launched from the Board opens in the split pane. */
   onOpenRuns?: () => void;
+  /** Opens one live run on Runs (as Home's Moving rows do): the Board card's Open the run. */
+  onOpenRunning?: (run: ActiveRun & Partial<RepoStamp>) => void;
   /** Opens this project's Settings (the Board's "no task source yet" hint). */
   onOpenSettings?: () => void;
   /** Reopen the first-run guide (Settings). */
@@ -106,6 +125,8 @@ export function Inspector({
   // A live run under "All repositories" is held to its own repository's budget.
   const [cfg] = useAppConfig(liveRun?.repoPath ?? project);
   const [loading, setLoading] = useState(false);
+  // The first load has answered (a `?run=` link waits for it, not for a list that may stay empty).
+  const [loaded, setLoaded] = useState(false);
   const [watching, setWatching] = useState(false);
   const [tick, setTick] = useState(0);
   const [showNewRun, setShowNewRun] = useState(false);
@@ -135,6 +156,7 @@ export function Inspector({
   // Task titles from the board, for the Runs rows (a run record has none). Best effort: a failed read leaves the task ids.
   const [titles, setTitles] = useState<Map<string, string>>(new Map());
   const [labels, setLabels] = useState<Map<string, string[]>>(new Map());
+  const [taskUrls, setTaskUrls] = useState<Map<string, string>>(new Map());
   // Wide screens open a run by themselves, once per visit: the running one, else the newest finished one.
   const autoPicked = useRef(false);
 
@@ -158,19 +180,41 @@ export function Inspector({
   // The rail "Running" click opens that live run.
   useEffect(() => {
     if (!focusRunning) return;
+    // This run, not the one Runs would open by itself (it reads state from the same render, so it would win).
+    autoPicked.current = true;
     setDetail(null);
     setTaskDetailId(null);
     setLiveRun(focusRunning);
   }, [focusRunning]);
 
+  // ⌘K's run: opened here, not the one Runs would pick by itself.
+  useEffect(() => {
+    if (!focusRun) return;
+    autoPicked.current = true;
+    setTaskDetailId(null);
+    // Also as the screen's linked run: a list load that follows a screen switch clears the detail and would pick the newest.
+    linkedRun.current = `${focusRun.taskId}@${focusRun.timestamp}`;
+    void open(focusRun);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [focusRun]);
+
+  // ⌘K searches the runs this list last loaded.
+  useEffect(() => publishRuns(runs), [runs]);
+
   // Report the current drill-down up to the top-bar breadcrumb.
   useEffect(() => {
-    // An issue reads as #904 in the breadcrumb, not as the internal task id gh-owner-repo-904.
+    // The card id the Board shows (gh-904, hub-4), not the internal task id gh-owner-repo-904.
     const id = detail ? detail.taskId : liveRun ? liveRun.taskId : (taskDetailId ?? null);
-    const n = id !== null ? issueNumber(id) : undefined;
-    onCrumb(n !== undefined ? `#${n}` : id);
+    onCrumb(id !== null ? cardIdOf(id) : null);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [detail, liveRun, taskDetailId]);
+
+  // `?screen=runs&run=<taskId>@<timestamp>` opens that run once Runs has it; from then on the address follows the open run.
+  const linkedRun = useRef<string | null>(screen === 'runs' ? urlParam('run') : null);
+  useEffect(() => {
+    if (screen !== 'runs' || linkedRun.current !== null) return;
+    setUrlParam('run', detail ? `${detail.taskId}@${detail.timestamp}` : liveRun ? liveRun.taskId : null);
+  }, [screen, detail, liveRun]);
 
   // A breadcrumb crumb click, or a rail click on the screen already open, clears the open drill-down and folds
   // a run's strip to its toolbar chip: "Runs" then shows the list. Only on a click made while this screen is
@@ -216,7 +260,8 @@ export function Inspector({
     }
     const [r, a] = await Promise.all([listRuns(project), listActive(project)]);
     if (gen !== runsGen.current) return;
-    setRuns(r);
+    // Stamped with the project so ⌘K can place each run in the team.
+    setRuns(r.map((x) => ({ ...x, repoPath: project })));
     setFailures([]);
     setActive(a);
   };
@@ -233,6 +278,7 @@ export function Inspector({
       setError(String(e));
     } finally {
       setLoading(false);
+      setLoaded(true);
     }
   };
 
@@ -241,7 +287,10 @@ export function Inspector({
       await loadRuns();
       setTick((t) => t + 1);
       const o = openRef.current;
-      if (o) setDetail(await readRun(o.repo, o.ref));
+      if (!o) return;
+      const d = await readRun(o.repo, o.ref);
+      // The pane moved on while this read ran (another run opened, or it followed a live one): keep what it shows.
+      if (openRef.current === o) setDetail(d);
     } catch {
       // transient mid-write; next event resyncs
     }
@@ -261,6 +310,11 @@ export function Inspector({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [project, allRepos, teamId]);
 
+  // Why a `?run=` link did not open what it named (the run ended, or is gone); cleared by leaving Runs.
+  const [linkNote, setLinkNote] = useState<string | null>(null);
+  useEffect(() => {
+    if (screen !== 'runs') setLinkNote(null);
+  }, [screen]);
   const taskCount = runs.length + active.length;
   useEffect(() => {
     if (screen !== 'runs') return;
@@ -273,6 +327,7 @@ export function Inspector({
         if (!alive) return;
         setTitles(new Map(tasks.map((t) => [titleKey(t.repoPath, t.id), t.title])));
         setLabels(new Map(tasks.flatMap((t) => (t.labels ? [[titleKey(t.repoPath, t.id), t.labels] as const] : []))));
+        setTaskUrls(new Map(tasks.flatMap((t) => (t.url !== undefined ? [[titleKey(t.repoPath, t.id), t.url] as const] : []))));
       })
       .catch(() => {});
     return () => {
@@ -281,6 +336,24 @@ export function Inspector({
   }, [screen, project, allRepos, teamId, taskCount]);
 
   useEffect(() => {
+    if (screen === 'runs' && linkedRun.current !== null) {
+      const [taskId, timestamp] = linkedRun.current.split('@');
+      // Wait for the first load; a live run that has ended since the link was made is not waited for (it never returns).
+      if (loading || !loaded) return;
+      linkedRun.current = null;
+      const r = timestamp !== undefined ? runs.find((x) => x.source !== 'ci' && x.taskId === taskId && x.timestamp === timestamp) : undefined;
+      const a = timestamp === undefined ? active.find((x) => x.taskId === taskId) : undefined;
+      // The live run has ended: its newest finished run (runs come newest first) stands in for it.
+      const ended = timestamp === undefined && a === undefined ? runs.find((x) => x.source !== 'ci' && x.taskId === taskId) : undefined;
+      if (r || a || ended) {
+        autoPicked.current = true;
+        if (a) setLiveRun(a);
+        else void open((r ?? ended)!);
+        if (ended) setLinkNote(`The live run of ${cardIdOf(taskId)} has ended; showing its finished run.`);
+        return;
+      }
+      setLinkNote(`${cardIdOf(taskId)}: the linked run is not in this list (it may have ended or been removed).`);
+    }
     if (screen !== 'runs' || loading || autoPicked.current || detail || liveRun || typedRun !== null) return;
     // Narrow screens show the list first: a run opens only when the user picks it.
     if (window.matchMedia?.('(max-width: 767px)').matches) return;
@@ -336,6 +409,20 @@ export function Inspector({
     if (done) void open(done);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [liveRun, runs, shownActive]);
+
+  // A question answered in the pane starts a new run of that card: the pane follows it once the list shows it live.
+  const answered = useRef<{ repo: string; taskId: string } | null>(null);
+  useEffect(() => {
+    const w = answered.current;
+    if (w === null) return;
+    const a = shownActive.find((x) => x.taskId === w.taskId && (x.repoPath ?? project) === w.repo);
+    if (!a) return;
+    answered.current = null;
+    openRef.current = null; // a refresh still in flight would re-open the asked run over the live one
+    setDetail(null);
+    setLiveRun(a);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [shownActive]);
 
   // The listener is registered once, so it reaches the latest render's `refresh` through a ref.
   const refreshRef = useRef(refresh);
@@ -569,6 +656,8 @@ export function Inspector({
         PAGE_CLASS,
         // The board's columns scroll sideways, so it (and the task screen) drop the width cap only.
         (screen === 'board' || screen === 'task' || screen === 'runs') && 'max-w-none',
+        // One width for every Settings section, so switching tabs does not jump; wide enough for the Runners table.
+        screen === 'settings' && 'max-w-6xl',
       )}
     >
       {screen === 'runs' && (
@@ -583,13 +672,9 @@ export function Inspector({
         <div className="ml-auto flex flex-wrap items-center justify-end gap-3">
           {/* S10 (D3): the toolbar path to the provider form is gone — runs start from the board
               (TaskDetail keeps the only setShowNewRun entry). Authoring starts here instead. */}
-          <Button
-            variant="outlined"
-            color="secondary"
-            onClick={onNewTask}
-            startIcon={<FilePlus className="size-4" />}
-          >
-            New Task
+          {/* Filled, as on the Board: New card is the one way to start work on both screens. */}
+          <Button onClick={onNewTask} startIcon={<FilePlus className="size-4" />}>
+            New card
           </Button>
           <Button variant="text" color="secondary" onClick={load} loading={loading} startIcon={<RefreshCw className="size-4" />}>
             Reload
@@ -618,7 +703,8 @@ export function Inspector({
       )}
       {detail && screen !== 'runs' ? (
         // A CI run imported from Settings opens as the plain detail; on Runs the record is the split view's right pane.
-        <div ref={detailRef} tabIndex={-1} className="flex min-h-0 flex-1 flex-col outline-none">
+        <div ref={detailRef} tabIndex={-1} className="flex min-h-0 flex-1 flex-col gap-3 outline-none">
+          <CardAnswer project={detailRepo} taskId={detail.taskId} showQuestion />
           <RunDetail detail={detail} project={detailRepo} />
         </div>
       ) : liveRun && screen !== 'runs' ? (
@@ -646,6 +732,12 @@ export function Inspector({
         // In-flight runs render as running rows at the top of the RunList table.
         <div className="flex min-h-0 flex-1 flex-col">
           <RepoFailures failures={failures} total={projects.length} />
+          {linkNote !== null && (
+            <p role="status" className="mb-2 flex items-center gap-2 rounded-md bg-muted px-3 py-2 text-sm text-muted-foreground">
+              <span className="min-w-0 flex-1">{linkNote}</span>
+              <Button variant="text" onClick={() => setLinkNote(null)}>Dismiss</Button>
+            </p>
+          )}
           {!allRepos && <CostBreakdown project={project} />}
           {!allRepos && <ConflictStats repoPath={project} refreshKey={tick} />}
           <RunList
@@ -664,11 +756,15 @@ export function Inspector({
             titles={titles}
             labels={labels}
             paneOpen={detail !== null || liveRun !== null}
+            identity={(path) => {
+              const p = projects.find((x) => x.path === (path ?? project));
+              return p && { name: p.name, color: projectColor(p), initials: repoInitials(p.name, projects.map((x) => x.name)) };
+            }}
             pane={
               detail ? (
-                <RunPane key={selectedKey} repo={detailRepo} repoName={repoNameOf(detailRepo)} taskId={detail.taskId} title={titleOf(detailRepo, detail.taskId)} issue={issueNumber(detail.taskId)} merged={runs.some((r) => r.taskId === detail.taskId && r.timestamp === detail.timestamp && r.prState === 'merged')} detail={detail} tick={tick} onBack={closeRun} onCancel={cancelRun} />
+                <RunPane key={selectedKey} repo={detailRepo} repoName={repoNameOf(detailRepo)} initials={repoInitials(repoNameOf(detailRepo), projects.map((p) => p.name))} taskId={detail.taskId} title={titleOf(detailRepo, detail.taskId)} issue={issueNumber(detail.taskId)} issueHref={taskUrls.get(titleKey(detailRepo, detail.taskId))} summary={runs.find((r) => r.taskId === detail.taskId && r.timestamp === detail.timestamp && (r.repoPath === undefined || r.repoPath === detailRepo))} detail={detail} tick={tick} onBack={closeRun} onCancel={cancelRun} onAnswered={() => { answered.current = { repo: detailRepo, taskId: detail.taskId }; void refresh(); }} />
               ) : liveRun ? (
-                <RunPane key={selectedKey} repo={liveRun.repoPath ?? project} repoName={liveRun.repoName ?? repoNameOf(liveRun.repoPath ?? project)} taskId={liveRun.taskId} title={titleOf(liveRun.repoPath ?? project, liveRun.taskId)} issue={issueNumber(liveRun.taskId)} active={shownActive.find((a) => a.taskId === liveRun.taskId && (a.repoPath ?? project) === (liveRun.repoPath ?? project)) ?? liveRun} tick={tick} onBack={closeRun} onCancel={cancelRun} />
+                <RunPane key={selectedKey} repo={liveRun.repoPath ?? project} repoName={liveRun.repoName ?? repoNameOf(liveRun.repoPath ?? project)} initials={repoInitials(liveRun.repoName ?? repoNameOf(liveRun.repoPath ?? project), projects.map((p) => p.name))} taskId={liveRun.taskId} title={titleOf(liveRun.repoPath ?? project, liveRun.taskId)} issue={issueNumber(liveRun.taskId)} issueHref={taskUrls.get(titleKey(liveRun.repoPath ?? project, liveRun.taskId))} active={shownActive.find((a) => a.taskId === liveRun.taskId && (a.repoPath ?? project) === (liveRun.repoPath ?? project)) ?? liveRun} tick={tick} onBack={closeRun} onCancel={cancelRun} />
               ) : (
                 <div className="grid h-full place-items-center text-sm text-muted-foreground">Select a run to see its stages and log.</div>
               )
@@ -691,13 +787,29 @@ export function Inspector({
             setTaskDetailId(id);
           }}
           onNewTask={onNewTask}
+          {...(openCard ? { openCard } : {})}
           {...(onOpenSettings ? { onOpenSettings } : {})}
+          onStartRun={(id, skills) => {
+            setNewRunTask(id);
+            setTaskDetailSkills(skills);
+            setShowNewRun(true);
+          }}
+          // The card's own live run when the hub lists one (a claimed card may have none yet): else the Runs list.
+          onOpenRun={(id, repo) => {
+            const path = repo ?? project;
+            void listActive(path)
+              .then((rows) => rows.find((a) => a.taskId === id), () => undefined)
+              .then((a) => (a && onOpenRunning ? onOpenRunning({ ...a, repoPath: path, repoName: projects.find((p) => p.path === path)?.name ?? path }) : onOpenRuns?.()));
+          }}
+          {...(onOpenSettings ? { onOpenSkills: () => { onSettingsSection('skills'); onOpenSettings(); } } : {})}
         />
       ) : screen === 'settings' ? (
         <SettingsScreen
           project={project}
           {...(teamScreen ? { teamScreen } : {})}
           {...(onOpenSetup ? { onOpenSetup } : {})}
+          section={settingsSection}
+          onSection={onSettingsSection}
           fleet={canUseFleet() ? <Fleet project={project} active={active} /> : null}
           remote={<RemoteRuns project={project} onOpenRun={open} />}
         />

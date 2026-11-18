@@ -91,3 +91,10 @@ test('the overview says which credential funded the run; nothing without one', (
   expect(screen.queryByText(/billed to/)).not.toBeInTheDocument();
   unmount2();
 });
+
+test('a changed gate config says why it matters', () => {
+  const changed: StageDetail = { record: { ...stage().record, configPaths: ['package.json'] } };
+  render(<RunDetail detail={{ taskId: 'task-1', timestamp: stage().record.timestamp, stages: [changed] }} project="/repo" />);
+  expect(screen.getByRole('note')).toHaveAttribute('title', 'This run changed a file your test commands come from. Check it before merging.');
+  expect(screen.getByRole('note')).toHaveTextContent('Gate config changed: package.json');
+});

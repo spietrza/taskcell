@@ -1,29 +1,24 @@
-import { Fragment, useMemo, useState, type KeyboardEvent, type ReactElement, type ReactNode } from 'react';
-import { Button, Chip, Empty, Input, Timestamp, cn } from '@/ui';
+import { Fragment, useMemo, useState, type ReactElement, type ReactNode } from 'react';
+import { Button, Chip, Empty, Input, LINK_CLASS, Timestamp, cn } from '@/ui';
 import { Inbox, RefreshCw, Search } from 'lucide-react';
-import { verdictColor } from '../../status';
-import { FilterBar, NoMatch } from '../../FilterBar';
-import { DEFAULT_FILTER, canClearFilters, clearFilters, effectiveFilter, filterActive, filterNames, filterRuns, groupRows, offeredSources, runKeys, runSource, saveChange, searchText, type RunMeta, type CardSource, type HubFilter } from '../../filterState';
+import { contrastColor } from '../../color';
+import { FilterBar, NoMatch, pill } from '../../FilterBar';
+import { DEFAULT_FILTER, canClearFilters, clearFilters, effectiveFilter, filterActive, filterNames, filterRuns, groupRows, inRepoScope, offeredSources, runKeys, runSource, runTriage, supersededRuns, saveChange, searchText, type RunMeta, type CardSource, type HubFilter } from '../../filterState';
 import { ExternalLink, hostName } from '../../components/ExternalLink';
 import { costLabel, estTitle } from '../../cost';
 import { RunsSplit } from './RunsSplit';
-import { issueNumber, repoInitials, titleKey } from '../../runLabels';
+import { StationMark } from '../../components/StationMark';
+import { runStationOf, stationOf } from '../../stations';
+import { cardIdOf, repoInitials, runStateTone, runStateWord, titleKey } from '../../runLabels';
 import type { ActiveRun, RunSummary } from '../../taskcell-output';
 import type { RepoStamp } from '../../wire';
 
 type Filter = 'all' | 'passed' | 'failed';
 type Run = RunSummary & Partial<RepoStamp>;
 type Active = ActiveRun & Partial<RepoStamp>;
-const isFailed = (r: Pick<RunSummary, 'anyFailed' | 'stoppedBy'>): boolean => r.anyFailed && r.stoppedBy === undefined;
-/** A clickable row is also a keyboard stop: Tab reaches it, Enter or Space opens it (keys on a link inside it stay the link's). */
-const rowKeys = (open: () => void): { tabIndex: number; onKeyDown: (e: KeyboardEvent<HTMLElement>) => void } => ({
-  tabIndex: 0,
-  onKeyDown: (e) => {
-    if (e.target !== e.currentTarget || (e.key !== 'Enter' && e.key !== ' ')) return;
-    e.preventDefault();
-    open();
-  },
-});
+/** The Passed / Failed pills read the row's own chip word: a failed verify is failed even when every stage completed. */
+const isFailed = (r: RunSummary): boolean => runStateWord(r) === 'failed';
+const isPassed = (r: RunSummary): boolean => runStateTone(runStateWord(r)) === 'success';
 
 /** Row keys: what `selected` is compared with. */
 export const runKey = (repoPath: string | undefined, taskId: string, timestamp: string): string => `${repoPath ?? ''}:${taskId}:${timestamp}`;
@@ -50,6 +45,7 @@ export function RunList({
   pane,
   paneOpen = false,
   starting = false,
+  identity,
 }: {
   runs: Run[];
   /** In-flight runs discovered from `.taskcell` state, rendered as running rows at the top. */
@@ -78,13 +74,15 @@ export function RunList({
   /** The open run, shown beside the rows (the Runs split view); `paneOpen` says a run is open (narrow screens then show the pane alone). */
   pane?: ReactNode;
   paneOpen?: boolean;
+  /** A row's project, for its avatar: the project's name and colour (`projectColor`). Undefined: initials on a plain well. */
+  identity?: ((repoPath: string | undefined) => { name: string; color: string; initials?: string } | undefined) | undefined;
 }) {
   const [query, setQuery] = useState('');
   const [filter, setFilter] = useState<Filter>('all');
 
   const offered = useMemo(
-    () => (runs.length + active.length === 0 ? undefined : offeredSources(configured, [...runs, ...active].map((r) => runSource(r.taskId)))),
-    [runs, active, configured],
+    () => (runs.length + active.length === 0 ? undefined : offeredSources(configured, inRepoScope([...runs, ...active], savedHub.repos).map((r) => runSource(r.taskId)))),
+    [runs, active, configured, savedHub.repos],
   );
   const hub = useMemo(() => effectiveFilter(savedHub, offered), [savedHub, offered]);
 
@@ -102,7 +100,7 @@ export function RunList({
     const q = query.trim().toLowerCase();
     return filterRuns(runs, hub, meta).filter((r) => {
       if (!matches(q, r.repoPath, r.taskId)) return false;
-      if (filter === 'passed' && r.anyFailed) return false;
+      if (filter === 'passed' && !isPassed(r)) return false;
       if (filter === 'failed' && !isFailed(r)) return false;
       return true;
     });
@@ -115,12 +113,25 @@ export function RunList({
     return filterActive(active, hub, meta).filter((a) => matches(q, a.repoPath, a.taskId));
   }, [active, query, filter, hub, meta]);
 
+  // The open run, when the filters hide its row: named, as the Board names a hidden open card.
+  const hiddenOpen = useMemo(() => {
+    if (!paneOpen || selected === undefined) return undefined;
+    if (shown.some((r) => runKey(r.repoPath, r.taskId, r.timestamp) === selected) || shownActive.some((a) => activeKey(a.repoPath, a.taskId) === selected)) return undefined;
+    return runs.find((r) => runKey(r.repoPath, r.taskId, r.timestamp) === selected)?.taskId ?? active.find((a) => activeKey(a.repoPath, a.taskId) === selected)?.taskId;
+  }, [paneOpen, selected, shown, shownActive, runs, active]);
+  const clearAll = (): void => {
+    setFilter('all');
+    setQuery('');
+    onHub?.(clearFilters(hub));
+  };
+
   // Would clearing the search bring rows back, or is it the pill / hub filter that empties the list?
   const searchHides = useMemo(() => {
     const h = { ...hub, query: '' };
-    return filterRuns(runs, h, meta).some((r) => filter === 'all' || (filter === 'failed' ? isFailed(r) : !r.anyFailed)) || (filter === 'all' && filterActive(active, h, meta).length > 0);
+    return filterRuns(runs, h, meta).some((r) => filter === 'all' || (filter === 'failed' ? isFailed(r) : isPassed(r))) || (filter === 'all' && filterActive(active, h, meta).length > 0);
   }, [runs, active, filter, hub, meta]);
 
+  const superseded = useMemo(() => supersededRuns(runs), [runs]);
   // Rows of both kinds share the lanes; a running row sorts first within its lane.
   const lanes = useMemo(
     () =>
@@ -130,42 +141,50 @@ export function RunList({
           ...shown.map((r): Item => ({ kind: 'run', r, taskId: r.taskId, repoPath: r.repoPath, repoName: r.repoName })),
         ],
         hub.group,
-        { triage: (i) => (i.kind === 'active' ? 'running' : runKeys.triage(i.r)), source: runKeys.source },
+        { triage: (i) => (i.kind === 'active' ? 'running' : runTriage(i.r, superseded.has(i.r))), source: runKeys.source },
       ),
-    [shownActive, shown, hub.group],
+    [shownActive, shown, hub.group, superseded],
   );
 
-  const row = (key: string, repoName: string | undefined, taskId: string, repoPath: string | undefined, chip: ReactElement, age: ReactElement, open?: () => void, extra?: ReactElement): ReactElement => {
-    const issue = issueNumber(taskId);
+  const row = (key: string, repoName: string | undefined, taskId: string, repoPath: string | undefined, station: { at: number; failed: boolean }, chip: ReactElement, age: ReactElement, open?: () => void, extra?: ReactElement): ReactElement => {
     const title = titles?.get(titleKey(repoPath, taskId));
-    return (
-      <li
-        key={key}
-        data-testid="run-row"
-        aria-current={selected === key ? 'true' : undefined}
-        onClick={open}
-        {...(open ? rowKeys(open) : {})}
-        className={cn(
-          'flex items-center gap-3 border-b border-border/60 px-3 py-2.5',
-          open && 'cursor-pointer hover:bg-muted/50 focus-visible:outline focus-visible:outline-2 focus-visible:-outline-offset-2',
-          selected === key && 'bg-muted',
-        )}
-      >
-        <span className="grid size-8 shrink-0 place-items-center rounded-full bg-muted text-[11px] font-bold" aria-hidden>
-          {repoInitials(repoName ?? taskId)}
+    const who = identity?.(repoPath);
+    const body = (
+      <>
+        <span
+          className={cn('grid size-8 shrink-0 place-items-center rounded-full text-[11px] font-bold', who === undefined && 'bg-muted')}
+          style={who && { backgroundColor: who.color, color: contrastColor(who.color) }}
+          aria-hidden
+        >
+          {who?.initials ?? repoInitials(who?.name ?? repoName ?? taskId)}
         </span>
         <span className="min-w-0 flex-1">
           {showRepo && repoName !== undefined && <span className="block truncate text-sm font-medium">{repoName}</span>}
-          <span className={cn('block truncate text-sm', showRepo ? 'text-muted-foreground' : 'font-medium')}>
-            {title ?? taskId}
-            {issue !== undefined ? <span className="tabular-nums text-muted-foreground"> · #{issue}</span> : title !== undefined && <span className="text-muted-foreground"> · {taskId}</span>}
+          {/* The card's id first (as the Board and the breadcrumb show it: gh-27, hub-4), so a long title truncates without hiding it. */}
+          <span className={cn('flex min-w-0 gap-1.5 text-sm', showRepo ? 'text-muted-foreground' : 'font-medium')}>
+            {title !== undefined && <span className="shrink-0 font-mono text-xs leading-5 text-muted-foreground">{cardIdOf(taskId)}</span>}
+            <span className="min-w-0 truncate">{title ?? cardIdOf(taskId)}</span>
           </span>
+          <StationMark {...station} className="mt-0.5" />
           {extra}
         </span>
         <span className="flex shrink-0 flex-col items-end gap-1">
           {chip}
           <span className="text-xs tabular-nums text-muted-foreground">{age}</span>
         </span>
+      </>
+    );
+    const rowClass = 'flex w-full items-center gap-3 px-3 py-2.5 text-left';
+    return (
+      <li key={key} data-testid="run-row" aria-current={selected === key ? 'true' : undefined} className={cn('border-b border-border/60', selected === key && 'bg-muted')}>
+        {/* An openable row is a button (Tab, Enter, Space); a CI row holds its own link instead. */}
+        {open ? (
+          <button type="button" onClick={open} className={cn(rowClass, 'cursor-pointer hover:bg-muted/50 focus-visible:outline focus-visible:outline-2 focus-visible:-outline-offset-2')}>
+            {body}
+          </button>
+        ) : (
+          <div className={rowClass}>{body}</div>
+        )}
       </li>
     );
   };
@@ -175,8 +194,11 @@ export function RunList({
       a.repoName,
       a.taskId,
       a.repoPath,
-      // Amber (live), not green, so a running row isn't mistaken for a green "passed" one.
-      <Chip color="primary" variant="outlined">
+      // A live run has no stage on its row; it is in the cell until its record says otherwise.
+      stationOf({ column: 'running' }),
+      // Neutral ink (live, spinning), not green, so a running row isn't mistaken for a "passed" one, and not orange,
+      // which means "needs you".
+      <Chip color="secondary" variant="outlined">
         <span className="inline-flex items-center gap-1">
           <RefreshCw className="size-3 animate-spin motion-reduce:animate-none" aria-hidden />
           running
@@ -192,8 +214,9 @@ export function RunList({
       r.repoName,
       r.taskId,
       r.repoPath,
-      <Chip color={r.stoppedBy ? 'secondary' : verdictColor(!r.anyFailed)} variant="outlined">
-        {r.stoppedBy ? 'stopped: provider limit' : r.anyFailed ? 'failed' : r.prState === 'merged' ? 'merged' : r.prUrl !== undefined ? 'PR open' : 'passed'}
+      runStationOf(r),
+      <Chip color={runStateTone(runStateWord(r))} variant="outlined">
+        {runStateWord(r)}
       </Chip>,
       <>
         {!ci && <span {...estTitle(costLabel(r))}>{costLabel(r)}</span>}
@@ -231,11 +254,11 @@ export function RunList({
         </Empty.Media>
         <Empty.Title>No runs found</Empty.Title>
         <Empty.Description>
-          No runs to show here. Create a task and the factory's runs show up on this page.
+          No runs to show here. Create a card and the factory's runs show up on this page.
         </Empty.Description>
         {onNewTask && (
           <Empty.Actions>
-            <Button onClick={onNewTask}>Create a task</Button>
+            <Button onClick={onNewTask}>Create a card</Button>
           </Empty.Actions>
         )}
       </Empty.Root>
@@ -246,36 +269,48 @@ export function RunList({
     <div className="flex min-h-0 flex-1 flex-col gap-3">
       {/* Narrow screens: with a run open the pane has the whole screen, so the filters step aside. */}
       <div className={cn('flex shrink-0 flex-col gap-3', paneOpen && 'max-md:hidden')}>
-      {onHub && (
-        <FilterBar filter={hub} onChange={(f) => onHub(saveChange(f, hub, savedHub))} sources={offered ?? configured} searchHint="Matches the row's title, #issue, task id and labels. Board shares this search." repos={projects} withCards={[...new Set([...runs, ...active].flatMap((r) => (r.repoPath ? [r.repoPath] : [])))]} />
+      {(() => {
+        // The verdict pills and the count sit in the filter bar's row, so Runs has one row of filters.
+        const results = (
+          <>
+            <div role="group" aria-label="Result" className="flex gap-1">
+              {(['all', 'passed', 'failed'] as Filter[]).map((f) => (
+                <button key={f} type="button" aria-pressed={filter === f} onClick={() => setFilter(f)} className={cn(pill(filter === f), 'first-letter:uppercase')}>
+                  {f === 'all' ? 'All results' : f}
+                </button>
+              ))}
+            </div>
+            <span className="ml-auto text-xs tabular-nums text-muted-foreground">
+              {shown.length + shownActive.length} of {runs.length + (filter === 'all' ? active.length : 0)}{' '}
+              {runs.length + (filter === 'all' ? active.length : 0) === 1 ? 'run' : 'runs'}
+            </span>
+          </>
+        );
+        return onHub ? (
+          <FilterBar filter={hub} onChange={(f) => onHub(saveChange(f, hub, savedHub))} sources={offered ?? configured} searchHint="Matches the row's title, #issue, card id and labels. Board shares this search." repos={projects} withCards={[...new Set([...runs, ...active].flatMap((r) => (r.repoPath ? [r.repoPath] : [])))]}>
+            {results}
+          </FilterBar>
+        ) : (
+          <div className="flex shrink-0 flex-wrap items-center gap-2">
+            <Input
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              startAdornment={<Search className="size-4" />}
+              placeholder="Search title, #issue or id…"
+              className="w-56"
+            />
+            {results}
+          </div>
+        );
+      })()}
+      {hiddenOpen !== undefined && (
+        <p role="status" className="text-xs text-muted-foreground">
+          {hiddenOpen} is hidden by your filters
+          {' — '}
+          {/* Also the project tab: it is what usually hides a run opened from Home or a link. */}
+          <button type="button" className={LINK_CLASS} onClick={() => { setFilter('all'); setQuery(''); onHub?.({ ...clearFilters(hub), repos: [] }); }}>Clear</button>
+        </p>
       )}
-      <div className="flex shrink-0 flex-wrap items-center gap-2">
-        {!onHub && <Input
-          value={query}
-          onChange={(e) => setQuery(e.target.value)}
-          startAdornment={<Search className="size-4" />}
-          placeholder="Search title, #issue or id…"
-          className="w-56"
-        />}
-        <div className="flex gap-1">
-          {(['all', 'passed', 'failed'] as Filter[]).map((f) => (
-            <button
-              key={f}
-              onClick={() => setFilter(f)}
-              className={`rounded px-2 py-1 text-xs first-letter:uppercase transition-colors ${
-                filter === f ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:bg-muted'
-              }`}
-            >
-              {f === 'all' ? 'All results' : f}
-            </button>
-          ))}
-        </div>
-        <span className="ml-auto text-xs tabular-nums text-muted-foreground">
-          {shown.length + shownActive.length} /{' '}
-          {runs.length + (filter === 'all' ? active.length : 0)}
-        </span>
-      </div>
-
       </div>
       {(() => {
         const rows = (
@@ -287,11 +322,7 @@ export function RunList({
             names={[...filterNames(hub), ...(!onHub && query.trim() !== '' ? [`search "${query.trim()}"`] : []), ...(filter !== 'all' ? [filter === 'passed' ? 'Passed' : 'Failed'] : [])]}
             onClearFilters={
               filter !== 'all' || query.trim() !== '' || (onHub && canClearFilters(hub))
-                ? () => {
-                    setFilter('all');
-                    setQuery('');
-                    onHub?.(clearFilters(hub));
-                  }
+                ? clearAll
                 : undefined
             }
           />

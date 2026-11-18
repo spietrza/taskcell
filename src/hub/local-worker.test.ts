@@ -23,7 +23,7 @@ async function githubRepo(extra: Record<string, unknown> = {}): Promise<string> 
 }
 
 /** A session that takes every run and settles it by hand. */
-function fakeSession(): { session: RunSession; refs: string[]; end: (i: number) => void } {
+function fakeSession(): { session: RunSession; refs: string[]; end: (i: number, r?: CreateRunResult) => void } {
   const refs: string[] = [];
   const settle: Array<(r: CreateRunResult) => void> = [];
   const session = {
@@ -33,7 +33,7 @@ function fakeSession(): { session: RunSession; refs: string[]; end: (i: number) 
       return new Promise<CreateRunResult>((ok) => settle.push(ok));
     },
   } as unknown as RunSession;
-  return { session, refs, end: (i) => settle[i]!({}) };
+  return { session, refs, end: (i, r = {}) => settle[i]!(r) };
 }
 
 const issues = (...n: number[]): string => JSON.stringify(n.map((number) => ({ number, labels: [{ name: 'ready for agent' }] })));
@@ -98,6 +98,23 @@ test('a tick picks up labelled issues once, records the pick-up, and skips start
   expect(await readLocalWorker(cfg, repo)).toMatchObject({ lastPickup: '#2', enabled: true });
 });
 
+test('a picked issue walks the watch labels: trigger -> running, then needs-human-review on a PR or released without one', async () => {
+  const repo = await githubRepo({ concurrency: 2 });
+  await setLocalWorker(cfg, repo, true, undefined, deps());
+  const { session, end } = fakeSession();
+  const gh = vi.fn(async (a: string[]) => (a[0] === 'issue' && a[1] === 'list' ? issues(1, 2) : a[0] === 'label' ? JSON.stringify([{ name: 'ready for agent' }, { name: 'taskcell:running' }, { name: 'taskcell:needs-human-review' }]) : JSON.stringify({ labels: [{ name: 'ready for agent' }, { name: 'taskcell:running' }] })));
+  await sweepLocalWorkers(ctxOf(repo, session, gh));
+  const edits = (): string[][] => gh.mock.calls.map((c) => c[0]).filter((a) => a[0] === 'issue' && a[1] === 'edit');
+  expect(edits()[0]).toEqual(expect.arrayContaining(['1', '--add-label', 'taskcell:running', '--remove-label', 'ready for agent']));
+  end(0, { prUrl: 'https://github.com/acme/widgets/pull/9' } as CreateRunResult);
+  end(1);
+  await new Promise((r) => setTimeout(r, 10));
+  const after = edits().slice(2);
+  expect(after.find((a) => a[2] === '1')).toEqual(expect.arrayContaining(['--add-label', 'taskcell:needs-human-review', '--remove-label', 'taskcell:running']));
+  expect(after.find((a) => a[2] === '2')).toEqual(expect.arrayContaining(['--remove-label', 'taskcell:running']));
+  expect(after.find((a) => a[2] === '2')).not.toContain('--add-label');
+});
+
 test('the parallel-run limit caps pick-ups per project; a finished run frees a slot', async () => {
   const repo = await githubRepo({ concurrency: 1 });
   await setLocalWorker(cfg, repo, true, undefined, deps());
@@ -136,13 +153,14 @@ test('a failing read is recorded as the last error and cleared by the next pick-
   expect((await readLocalWorker(cfg, repo)).lastError).toBeUndefined();
 });
 
-test('hub boards: served unless explicitly off; pick-ups are shown only while on', async () => {
+test('hub boards: served only while switched on; pick-ups are shown only while on', async () => {
   const repo = await tmpGitRepo();
   await writeAppConfig(repo, { taskSource: 'hub' });
-  expect(await boardServed(cfg, repo)).toBe(true);
+  expect(await boardServed(cfg, repo)).toBe(false); // never switched
   await recordBoardPickup(cfg, repo, ['hub-1']);
   expect((await readLocalWorker(cfg, repo)).lastPickup).toBeUndefined();
   await setLocalWorker(cfg, repo, true, undefined, deps());
+  expect(await boardServed(cfg, repo)).toBe(true);
   await recordBoardPickup(cfg, repo, ['hub-1']);
   expect((await readLocalWorker(cfg, repo)).lastPickup).toBe('hub-1');
   await setLocalWorker(cfg, repo, false, undefined, deps());
@@ -168,12 +186,12 @@ test('a failed author lookup is recorded and nothing starts', async () => {
   expect((await readLocalWorker(cfg, repo)).lastError).toMatch(/#7: author lookup failed: HTTP 502/);
 });
 
-test('hub boards: Run doctor is refused (no tracker to check) and the board stays served', async () => {
+test('hub boards: Run doctor is refused (no tracker to check) and the board stays unserved', async () => {
   const repo = await tmpGitRepo();
   await writeAppConfig(repo, { taskSource: 'hub' });
   await expect(runLocalDoctor(cfg, repo, undefined, deps())).rejects.toThrow(/hub-board project/);
   expect((await readLocalWorker(cfg, repo)).doctor).toBeUndefined();
-  expect(await boardServed(cfg, repo)).toBe(true);
+  expect(await boardServed(cfg, repo)).toBe(false);
 });
 
 test('the doctor command targets the project: its repo, the GitHub source, the trigger label and provider', () => {

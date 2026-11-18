@@ -937,13 +937,13 @@ export function TaskDraftScreen({
 
   const validation =
     source === undefined
-      ? "Can't read the task source from app.json — set it in Settings."
+      ? "Can't read the card source from app.json — set it in Settings."
       : titleTooLong
         ? `Heading is too long to use as a title (max ${MAX_TITLE_BYTES} bytes).`
         : tooBig
           ? `Too long to file (${bodyBytes} / ${MAX_BODY_BYTES} bytes).`
           : docTitle === undefined
-            ? 'Add a `# heading` to name the task.'
+            ? 'Add a `# heading` to name the card.'
             : null;
 
   return (
@@ -953,8 +953,8 @@ export function TaskDraftScreen({
             name (breadcrumb/tab). Editing rewrites the heading line in the body. */}
         <InlineEdit
           value={docTitle ?? ''}
-          placeholder="Name the task…"
-          ariaLabel="task title"
+          placeholder="Name the card…"
+          ariaLabel="card title"
           disabled={archived || confirming || creating}
           onCommit={(t) => {
             if (t !== '') onBodyChange(retitleDoc(body, t));
@@ -966,7 +966,7 @@ export function TaskDraftScreen({
             href={created.url}
             target="_blank"
             rel="noreferrer"
-            className="shrink-0 rounded border border-border px-2 py-0.5 font-mono text-xs text-primary-text"
+            className="shrink-0 rounded border border-border px-2 py-0.5 font-mono text-xs text-foreground hover:bg-muted"
           >
             filed as #{created.id}
           </a>
@@ -1001,7 +1001,7 @@ export function TaskDraftScreen({
                 archived
               }
             >
-              Create task
+              Create card
             </Button>
           )}
           <Button
@@ -1015,7 +1015,7 @@ export function TaskDraftScreen({
             <MessageSquare size={14} className="mr-1" />
             Chat
             {!drawerOpen && activity && (
-              <span aria-label="chat activity" className="absolute -right-1 -top-1 h-2 w-2 rounded-full bg-primary" />
+              <span aria-label="chat activity" className="absolute -right-1 -top-1 h-2 w-2 rounded-full bg-foreground" />
             )}
           </Button>
         </div>
@@ -1031,6 +1031,7 @@ export function TaskDraftScreen({
             <DocEditor
               value={body}
               onChange={onBodyChange}
+              placeholder="# Card title, then what should change and how you will know it works"
               // confirming/creating too (review #349 r4): a keystroke while the create is in
               // flight would arm an archived:false debounce that lands AFTER the archive write.
               readOnly={chat.pending !== undefined || archived || confirming || creating}

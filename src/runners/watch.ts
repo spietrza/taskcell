@@ -63,6 +63,24 @@ function secretBlockedNote(tick: { secretBlocked: string[] }): string {
   return tick.secretBlocked.length > 0 ? `, ${tick.secretBlocked.length} secret-blocked` : '';
 }
 
+/**
+ * Report a failed run on its ticket. A throwing write-back must not reject the item: fanOut would
+ * settle it as rejected, which no bucket counts, and the run's own error would never be printed.
+ */
+async function noteFailure(
+  onFailure: (id: string, error: unknown) => Promise<void>,
+  id: string,
+  error: unknown,
+  opts: WatchLogOptions,
+  phase: string,
+): Promise<void> {
+  try {
+    await onFailure(id, error);
+  } catch (noteError) {
+    operatorLog(opts, `${phase} ${id}: failure note failed -> manual label check (${failureReason(noteError)})`);
+  }
+}
+
 function logPoll(ready: number, opts: WatchOnceOptions, phase: string): void {
   const cappedNote = opts.maxTasks !== undefined && opts.maxTasks < ready ? ` (capped to ${opts.maxTasks} by --max-tasks)` : '';
   operatorLog(opts, `${phase}: poll -> ${ready} ready${cappedNote}`);
@@ -139,8 +157,8 @@ export async function watchOnce(primitives: WatchPrimitives, opts: WatchOnceOpti
         operatorLog(opts, `${phase} ${item.id}: pr opened -> review`);
         return { id: item.id, kind: 'opened' };
       } catch (error) {
-        await primitives.onFailure(item.id, error);
-        operatorLog(opts, `${phase} ${item.id}: failed -> failure noted`);
+        await noteFailure(primitives.onFailure, item.id, error, opts, phase);
+        operatorLog(opts, `${phase} ${item.id}: failed -> failure noted (${failureReason(error)})`);
         return { id: item.id, kind: 'failed' };
       }
     },
@@ -204,7 +222,7 @@ export async function specOnce(primitives: SpecWatchPrimitives, opts: SpecOnceOp
         );
         return { id: item.id, kind: outcome === 'advanced' ? 'advanced' : 'needsInfo' };
       } catch (error) {
-        await primitives.onFailure(item.id, error);
+        await noteFailure(primitives.onFailure, item.id, error, opts, phase);
         operatorLog(opts, `${phase} ${item.id}: failed -> retry later (${failureReason(error)})`);
         return { id: item.id, kind: 'failed' };
       }

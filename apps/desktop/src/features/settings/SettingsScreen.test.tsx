@@ -1,11 +1,20 @@
 import { test, expect, vi, afterEach } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
-import { SettingsScreen } from './SettingsScreen';
+import { useState, type ComponentProps } from 'react';
+import { SettingsScreen as Screen } from './SettingsScreen';
+import type { SettingsSection } from './sections';
 import { NavGuardContext, createNavGuardRegistry } from '../../navGuard';
 
 vi.mock('./Settings', () => ({ Settings: () => <div>general content</div> }));
-vi.mock('../workflow/WorkflowEditor', () => ({ WorkflowEditor: () => <div>line content</div> }));
+vi.mock('./CredentialsPanel', () => ({ CredentialsPanel: () => <div>credentials content</div> }));
+vi.mock('../line/LineEditor', () => ({ LineEditor: () => <div>line content</div> }));
 afterEach(() => vi.restoreAllMocks());
+
+// The app owns the open section; a test host stands in for it.
+function SettingsScreen(props: Omit<ComponentProps<typeof Screen>, 'section' | 'onSection'> & { start?: SettingsSection }) {
+  const [section, setSection] = useState<SettingsSection>(props.start ?? 'general');
+  return <Screen {...props} section={section} onSection={setSection} />;
+}
 
 test('General, Line and Runners are one click away; Runners hosts Fleet (when given) and Remote', () => {
   render(<SettingsScreen project="/r" fleet={<div>fleet content</div>} remote={<div>remote content</div>} />);
@@ -36,11 +45,27 @@ test('switching sections goes through the unsaved-changes guard', () => {
   expect(screen.getByText('general content')).toBeInTheDocument();
 });
 
-test('General offers to reopen the setup guide only when given a handler', () => {
+test('Team & hub offers to reopen the setup guide only when given a handler; General does not hold it', () => {
   const onOpenSetup = vi.fn();
-  const { rerender } = render(<SettingsScreen project="/r" fleet={null} remote={null} />);
+  const { rerender } = render(<SettingsScreen project="/r" fleet={null} remote={null} start="hub" />);
   expect(screen.queryByRole('button', { name: 'Reopen setup guide' })).toBeNull();
   rerender(<SettingsScreen project="/r" fleet={null} remote={null} onOpenSetup={onOpenSetup} />);
   fireEvent.click(screen.getByRole('button', { name: 'Reopen setup guide' }));
+  fireEvent.click(screen.getByRole('tab', { name: 'General' }));
+  expect(screen.queryByRole('button', { name: 'Reopen setup guide' })).toBeNull();
   expect(onOpenSetup).toHaveBeenCalled();
+});
+
+test('opens on the section the app names', () => {
+  render(<SettingsScreen project="/r" fleet={null} remote={null} start="line" />);
+  expect(screen.getByText('line content')).toBeInTheDocument();
+  expect(screen.getByRole('tab', { name: 'Line' })).toHaveAttribute('aria-selected', 'true');
+});
+
+test('the open section\'s tab is scrolled into view (a phone link to Team & hub)', () => {
+  const spy = vi.fn();
+  Element.prototype.scrollIntoView = spy;
+  render(<SettingsScreen project="/r" fleet={null} remote={null} start="audit" />);
+  expect(spy).toHaveBeenCalled();
+  expect(spy.mock.contexts[0]).toHaveAttribute('aria-selected', 'true');
 });

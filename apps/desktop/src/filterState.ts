@@ -2,6 +2,7 @@
 import type { BoardTask, RunSummary, TaskSourceId } from './wire';
 import { isDemoMode } from './transport';
 import { issueNumber } from './runLabels';
+import { taskSourceLabel } from './platform';
 
 export type Triage = 'all' | 'running' | 'needs' | 'merged';
 export type CardSource = 'github' | 'gitlab' | 'linear' | 'taskcell';
@@ -22,14 +23,15 @@ export const DEFAULT_FILTER: HubFilter = { triage: 'all', repos: [], sources: []
 export const TRIAGES: { value: Triage; label: string }[] = [
   { value: 'all', label: 'All' },
   { value: 'running', label: 'Running' },
-  { value: 'needs', label: 'Needs you' },
+  { value: 'needs', label: 'Waiting for you' },
   { value: 'merged', label: 'Merged' },
 ];
+/** Card sources by the names Settings gives them (`TASK_SOURCES`): one name per source on every screen. */
 export const SOURCES: { value: CardSource; label: string }[] = [
-  { value: 'github', label: 'GitHub' },
-  { value: 'gitlab', label: 'GitLab' },
-  { value: 'linear', label: 'Linear' },
-  { value: 'taskcell', label: 'Taskcell board' },
+  { value: 'github', label: taskSourceLabel('github') },
+  { value: 'gitlab', label: taskSourceLabel('gitlab') },
+  { value: 'linear', label: taskSourceLabel('linear') },
+  { value: 'taskcell', label: taskSourceLabel('hub') },
 ];
 export const GROUPINGS: { value: Grouping; label: string }[] = [
   { value: 'none', label: 'No grouping' },
@@ -84,10 +86,27 @@ export function cardTriage(t: Pick<BoardTask, 'column'>): Exclude<Triage, 'all'>
   return 'other';
 }
 
-/** The same bucket for a finished run: failed needs you; merged needs the hub's `prState`. `running` is for active runs only. */
-export function runTriage(r: Pick<RunSummary, 'anyFailed' | 'prState' | 'stoppedBy'>): Exclude<Triage, 'all'> | 'other' {
-  if (r.prState === 'merged') return 'merged';
-  return r.anyFailed && r.stoppedBy === undefined ? 'needs' : 'other';
+/**
+ * The same bucket for a finished run: merged needs the hub's `prState`, or `cardDone` (its card sits in Done, as the
+ * Board's Merged pill reads it). It waits for you only as its card's newest run (`superseded` = a newer run of the same
+ * card exists) that stopped to ask or failed, as Home's inbox reads it. `running` is for active runs only.
+ */
+export function runTriage(r: Pick<RunSummary, 'anyFailed' | 'prState' | 'stoppedBy' | 'cardDone' | 'asked'>, superseded = false): Exclude<Triage, 'all'> | 'other' {
+  if (r.prState === 'merged' || r.cardDone === true) return 'merged';
+  if (superseded) return 'other';
+  return r.asked !== undefined || (r.anyFailed && r.stoppedBy === undefined) ? 'needs' : 'other';
+}
+
+/** The runs a newer run of the same card (project + task id) has replaced. */
+export function supersededRuns<T extends Pick<RunSummary, 'taskId' | 'timestamp'> & RepoRow>(runs: readonly T[]): Set<T> {
+  const newest = new Map<string, T>();
+  for (const r of runs) {
+    const k = `${r.repoPath ?? ''}\0${r.taskId}`;
+    const cur = newest.get(k);
+    if (cur === undefined || cur.timestamp < r.timestamp) newest.set(k, r);
+  }
+  const latest = new Set(newest.values());
+  return new Set(runs.filter((r) => !latest.has(r)));
 }
 
 /** A card's source; a card without a tracker belongs to the Taskcell board. */
@@ -105,12 +124,16 @@ export function runSource(taskId: string): CardSource {
 
 const SOURCE_OF: Record<TaskSourceId, CardSource> = { github: 'github', 'github-project': 'github', gitlab: 'gitlab', linear: 'linear', hub: 'taskcell' };
 
-/** The card sources the projects in scope are configured for (unset = GitHub Issues). */
+/** The card sources the projects in scope are configured for (unset = GitHub). */
 export function configuredSources(projects: { path: string; taskSource?: TaskSourceId | null }[], scope: string[]): CardSource[] {
   return [...new Set(projects.filter((p) => scope.includes(p.path)).map((p) => SOURCE_OF[p.taskSource ?? 'github']))];
 }
 
 /** Sources worth a chip: the configured ones plus any a loaded row actually has (a legacy run stays filterable), in chip order. */
+/** Rows of the projects in view (the Projects filter, empty = all): a source only another project has gets no chip. */
+export const inRepoScope = <T extends RepoRow>(rows: readonly T[], repos: readonly string[]): T[] =>
+  repos.length === 0 ? [...rows] : rows.filter((r) => r.repoPath === undefined || repos.includes(r.repoPath));
+
 export function offeredSources(configured: CardSource[], present: CardSource[]): CardSource[] {
   const all = new Set([...configured, ...present]);
   return SOURCES.map((s) => s.value).filter((v) => all.has(v));
@@ -165,7 +188,8 @@ export function filterCards<T extends BoardTask & RepoRow>(cards: T[], f: HubFil
 }
 
 export function filterRuns<T extends RunSummary & RepoRow>(runs: T[], f: HubFilter, meta?: RunMeta): T[] {
-  return runs.filter((r) => keep(f, { triage: runTriage(r), source: runSource(r.taskId), repoPath: r.repoPath, text: searchText(r.taskId, meta?.(r.repoPath, r.taskId)) }));
+  const old = supersededRuns(runs);
+  return runs.filter((r) => keep(f, { triage: runTriage(r, old.has(r)), source: runSource(r.taskId), repoPath: r.repoPath, text: searchText(r.taskId, meta?.(r.repoPath, r.taskId)) }));
 }
 
 /** In-flight runs are "running"; they match no other triage. */
@@ -173,7 +197,7 @@ export function filterActive<T extends { taskId: string } & RepoRow>(active: T[]
   return active.filter((a) => keep(f, { triage: 'running', source: runSource(a.taskId), repoPath: a.repoPath, text: searchText(a.taskId, meta?.(a.repoPath, a.taskId)) }));
 }
 
-const TRIAGE_LABEL: Record<string, string> = { running: 'Running', needs: 'Needs you', merged: 'Merged', other: 'Other' };
+const TRIAGE_LABEL: Record<string, string> = { running: 'Running', needs: 'Waiting for you', merged: 'Merged', other: 'Other' };
 const SOURCE_LABEL = Object.fromEntries(SOURCES.map((s) => [s.value, s.label]));
 
 /** The filters narrowing a list, by name, for a "nothing matches" message. */
@@ -221,4 +245,4 @@ export function groupRows<T extends RepoRow & { repoName?: string }>(
 }
 
 export const cardKeys = { triage: cardTriage, source: cardSource };
-export const runKeys = { triage: runTriage, source: (r: { taskId: string }): CardSource => runSource(r.taskId) };
+export const runKeys = { triage: (r: Parameters<typeof runTriage>[0]) => runTriage(r), source: (r: { taskId: string }): CardSource => runSource(r.taskId) };

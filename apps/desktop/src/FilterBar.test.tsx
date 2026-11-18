@@ -22,14 +22,16 @@ vi.mock('./ipc', () => ({
 }));
 
 const repos = [{ path: '/a', name: 'alpha-repo' }, { path: '/b', name: 'beta-repo' }, { path: '/c', name: 'gamma' }];
+// Past six projects the tabs keep the busy ones and "More…" holds the picker.
+const many = [...repos, ...['d', 'e', 'f', 'g', 'h'].map((x) => ({ path: `/${x}`, name: `repo-${x}` }))];
 
 const ALL: CardSource[] = ['github', 'gitlab', 'linear', 'taskcell'];
 
-function Harness({ withCards = ['/a'], sources = ALL }: { withCards?: string[]; sources?: CardSource[] }) {
+function Harness({ withCards = ['/a'], sources = ALL, projects = many }: { withCards?: string[]; sources?: CardSource[]; projects?: { path: string; name: string }[] }) {
   const [f, setF] = useState<HubFilter>(DEFAULT_FILTER);
   return (
     <>
-      <FilterBar filter={f} onChange={setF} repos={repos} withCards={withCards} sources={sources} />
+      <FilterBar filter={f} onChange={setF} repos={projects} withCards={withCards} sources={sources} />
       <output data-testid="state">{JSON.stringify(f)}</output>
     </>
   );
@@ -38,7 +40,7 @@ const state = (): HubFilter => JSON.parse(screen.getByTestId('state').textConten
 
 test('triage, source, search and grouping update the state; no runner control', () => {
   render(<Harness />);
-  fireEvent.click(screen.getByRole('button', { name: 'Needs you' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Waiting for you' }));
   expect(state().triage).toBe('needs');
   fireEvent.click(screen.getAllByRole('button', { name: 'GitLab' })[0]);
   expect(state().sources).toEqual(['gitlab']);
@@ -53,20 +55,29 @@ test('the project picker is searchable, multi-select, with a has-cards shortcut'
   render(<Harness />);
   fireEvent.click(screen.getByRole('button', { name: /Projects:/ }));
   const picker = screen.getByRole('group', { name: 'Projects' });
-  fireEvent.click(within(picker).getByLabelText('alpha-repo'));
+  // Every box starts checked (all projects); unchecking one keeps the rest.
+  expect(within(picker).getByLabelText('alpha-repo')).toBeChecked();
+  fireEvent.click(within(picker).getByLabelText('gamma'));
+  expect(state().repos).toEqual(many.map((r) => r.path).filter((p) => p !== '/c'));
+  // "Only" narrows to one project; checking the rest back returns to all.
+  fireEvent.click(within(picker).getByRole('button', { name: 'Only beta-repo' }));
+  expect(state().repos).toEqual(['/b']);
   fireEvent.click(within(picker).getByLabelText('beta-repo'));
-  expect(state().repos).toEqual(['/a', '/b']);
+  expect(state().repos).toEqual([]);
+  fireEvent.click(within(picker).getByRole('button', { name: 'Only alpha-repo' }));
+  fireEvent.click(within(picker).getByLabelText('All projects'));
+  expect(state().repos).toEqual([]);
   fireEvent.change(within(picker).getByLabelText('Search projects'), { target: { value: 'gam' } });
   expect(within(picker).queryByLabelText('alpha-repo')).toBeNull();
   fireEvent.click(within(picker).getByRole('button', { name: 'Has cards' }));
   expect(state().repos).toEqual(['/a']);
 });
 
-test('the Filters drawer holds projects, source and grouping; triage and search stay outside it', () => {
+test('the Filters drawer holds source and grouping; triage, search and the project tabs stay outside it', () => {
   render(<Harness />);
   fireEvent.click(screen.getByRole('button', { name: /^Filters/ }));
   const drawer = screen.getByRole('dialog', { name: 'Filters' });
-  expect(within(drawer).getByRole('button', { name: /Projects:/ })).toBeInTheDocument();
+  expect(within(drawer).queryByRole('button', { name: /Projects:/ })).toBeNull();
   expect(within(drawer).getByRole('group', { name: 'Card source' })).toBeInTheDocument();
   expect(within(drawer).getByLabelText('Group by')).toBeInTheDocument();
   expect(within(drawer).queryByRole('group', { name: 'Triage' })).toBeNull();
@@ -106,6 +117,15 @@ test('a grouped Board with no matching card says so, and a grouped Runs table ha
   expect(screen.getByText('GitLab', { selector: 'li' })).toBeInTheDocument();
 });
 
+test('a press outside closes the Projects popup; a press inside keeps it', () => {
+  render(<Harness />);
+  fireEvent.click(screen.getAllByRole('button', { name: /^Projects:/ })[0]!);
+  fireEvent.pointerDown(screen.getByLabelText('Search projects'));
+  expect(screen.getByRole('group', { name: 'Projects' })).toBeInTheDocument();
+  fireEvent.pointerDown(document.body);
+  expect(screen.queryByRole('group', { name: 'Projects' })).toBeNull();
+});
+
 test('Escape closes the Projects popup and returns focus to its button', () => {
   render(<Harness />);
   const trigger = screen.getAllByRole('button', { name: /^Projects:/ })[0]!;
@@ -136,15 +156,10 @@ test('one Escape closes one layer: the popup stops it for an enclosing layer, an
   }
 });
 
-test('Escape closes the Filters sheet, one layer per press: an open Projects popup inside closes first', () => {
+test('Escape closes the Filters sheet', () => {
   render(<Harness />);
   fireEvent.click(screen.getByRole('button', { name: /^Filters/ }));
   const drawer = screen.getByRole('dialog', { name: 'Filters' });
-  fireEvent.click(within(drawer).getByRole('button', { name: /^Projects:/ }));
-  const search = within(drawer).getByLabelText('Search projects');
-  fireEvent.keyDown(search, { key: 'Escape' });
-  expect(within(drawer).queryByRole('group', { name: 'Projects' })).toBeNull();
-  expect(screen.getByRole('dialog', { name: 'Filters' })).toBeInTheDocument();
   fireEvent.keyDown(drawer, { key: 'Escape' });
   expect(screen.queryByRole('dialog', { name: 'Filters' })).toBeNull();
 });
@@ -165,7 +180,7 @@ test('the Board search box says Runs shares it', () => {
 
 test('one source on offer: a muted label, no chips and no Card source grouping', () => {
   render(<Harness sources={['github']} />);
-  expect(screen.getAllByText('Source: GitHub').length).toBeGreaterThan(0);
+  expect(screen.getAllByText('Card source: GitHub').length).toBeGreaterThan(0);
   expect(screen.queryByRole('group', { name: 'Card source' })).toBeNull();
   expect(screen.queryByRole('option', { name: 'Card source' })).toBeNull();
 });
@@ -189,4 +204,40 @@ test('typing a search on a single-source screen keeps the saved sources and grou
   await screen.findByText('Alpha');
   fireEvent.change(screen.getAllByLabelText('Search title, #issue or id')[0]!, { target: { value: 'x' } });
   expect(onFilter).toHaveBeenLastCalledWith({ ...saved, query: 'x' });
+});
+
+test('up to six projects: a tab each and no second control', () => {
+  render(<Harness projects={repos} />);
+  const tabs = screen.getByRole('tablist', { name: 'Project tabs' });
+  expect(within(tabs).getAllByRole('tab').map((t) => t.textContent)).toEqual(['All projects', 'alpha-repo', 'beta-repo', 'gamma']);
+  expect(screen.queryByRole('button', { name: /Projects:/ })).toBeNull();
+  fireEvent.click(within(tabs).getByRole('tab', { name: 'gamma' }));
+  expect(state().repos).toEqual(['/c']);
+});
+
+test('past six projects: tabs for the busy ones, the rest behind More…; several picked light no tab', () => {
+  render(<Harness withCards={['/a', '/b']} />);
+  const tabs = screen.getByRole('tablist', { name: 'Project tabs' });
+  expect(within(tabs).getAllByRole('tab').map((t) => t.textContent)).toEqual(['All projects', 'alpha-repo', 'beta-repo']);
+  expect(screen.getByRole('button', { name: /Projects:/ })).toHaveTextContent('More…');
+  expect(within(tabs).getByRole('tab', { name: 'All projects' })).toHaveAttribute('aria-selected', 'true');
+  fireEvent.click(within(tabs).getByRole('tab', { name: 'beta-repo' }));
+  expect(state().repos).toEqual(['/b']);
+  expect(within(tabs).getByRole('tab', { name: 'beta-repo' })).toHaveAttribute('aria-selected', 'true');
+  // The picker and the tabs share one state: two picked there, no tab is the selection.
+  fireEvent.click(screen.getByRole('button', { name: /Projects:/ }));
+  fireEvent.click(within(screen.getByRole('group', { name: 'Projects' })).getByLabelText('gamma'));
+  expect(state().repos).toEqual(['/b', '/c']);
+  expect(within(tabs).getAllByRole('tab').filter((t) => t.getAttribute('aria-selected') === 'true')).toEqual([]);
+  expect(screen.getByRole('button', { name: /Projects:/ })).toHaveTextContent('2 projects');
+  fireEvent.click(within(tabs).getByRole('tab', { name: 'All projects' }));
+  expect(state().repos).toEqual([]);
+  expect(screen.getByRole('button', { name: /Projects:/ })).toHaveTextContent('More…');
+});
+
+test('the source chips carry a visible "Card source" label, and the project tab says "All projects"', () => {
+  render(<Harness />);
+  const group = screen.getAllByRole('group', { name: 'Card source' })[0]!;
+  expect(group).toHaveTextContent(/^Card source/);
+  expect(screen.getByRole('tab', { name: 'All projects' })).toBeInTheDocument();
 });

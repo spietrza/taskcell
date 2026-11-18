@@ -176,10 +176,13 @@ export function DocEditor({
   value,
   onChange,
   readOnly = false,
+  placeholder,
 }: {
   value: string;
   onChange: (v: string) => void;
   readOnly?: boolean;
+  /** Shown while the document is empty. */
+  placeholder?: string;
 }) {
   const dark = useAppDark();
   const [cursor, setCursor] = useState({ line: 1, col: 1 });
@@ -209,6 +212,7 @@ export function DocEditor({
           value={value}
           onChange={onChange}
           readOnly={readOnly}
+          placeholder={placeholder}
           theme={dark ? vscodeDark : vscodeLight}
           extensions={extensions}
           height="100%"

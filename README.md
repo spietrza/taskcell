@@ -97,7 +97,7 @@ To run the factory from GitHub Actions instead, with no host of your own, follow
 | Cursor CLI | `cursor` | `CURSOR_API_KEY` |
 | z.ai GLM Coding Plan | `zai` | `ZAI_API_KEY` |
 | OpenRouter | `openrouter` | `OPENROUTER_API_KEY` |
-| Meridian proxy | `meridian` | see [docs/MERIDIAN-provider.md](docs/MERIDIAN-provider.md) |
+| Anthropic-compatible endpoint (proxy) | a `customProviders` entry in `.taskcell/app.json` (`--provider <name>`); `meridian` stays as a CLI alias for `MERIDIAN_BASE_URL` | `keyEnv` names the key variable, or omit it for a proxy that holds its own auth. E.g. a self-hosted proxy such as Meridian or CLIProxyAPI; see [docs/MERIDIAN-provider.md](docs/MERIDIAN-provider.md) as an example |
 
 Any stage can run on a different provider or model: `--review-provider codex` for cross-provider review, `--provider-model`, `--review-model`, `--escalate-model` for a stronger model after a failed repair, and `--fallback-provider` for outages. See [docs/task-sources.md](docs/task-sources.md) and [docs/cli.md](docs/cli.md).
 

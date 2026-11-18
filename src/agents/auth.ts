@@ -1,4 +1,5 @@
 import { CliUsageError } from '../core/errors.js';
+import { KEYLESS_PLACEHOLDER_TOKEN } from './custom.js';
 import { claudeCliKeyEnv, fallbackProviderNames, llmProxyNeedsNoPrimarySidecar, needsAnthropicAuth, requiresApiKey } from './registry.js';
 import type { ProviderChoice } from './registry.js';
 
@@ -45,6 +46,7 @@ export function agentAuthFromEnv(
 ): AgentAuth | undefined {
   const hostEnv =
     choice.provider !== undefined ? claudeCliKeyEnv(choice.provider, choice.customProviders) : undefined;
+  if (hostEnv?.length === 0) return { mode: 'api', apiKey: KEYLESS_PLACEHOLDER_TOKEN }; // keyless custom
   if (hostEnv !== undefined) {
     const key = hostEnv.map((k) => env[k]).find((v) => v !== undefined && v !== '');
     if (key === undefined) {

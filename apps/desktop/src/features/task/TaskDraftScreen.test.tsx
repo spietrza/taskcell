@@ -107,8 +107,8 @@ const settle = async (): Promise<void> => {
 };
 
 const confirmCreate = async (): Promise<void> => {
-  await screen.findByText(/create a task on github\?/i);
-  const buttons = screen.getAllByRole('button', { name: /^create task$/i });
+  await screen.findByText(/create a card on github\?/i);
+  const buttons = screen.getAllByRole('button', { name: /^create card$/i });
   fireEvent.click(buttons.at(-1)!);
 };
 
@@ -324,7 +324,7 @@ test('create task archives the draft ON DISK even when the user switches drafts 
   type('# File me\n');
   await settle();
   const filedId = [...files.keys()].find((k) => k !== 'draft-other')!;
-  fireEvent.click(screen.getByRole('button', { name: /create task/i }));
+  fireEvent.click(screen.getByRole('button', { name: /create card/i }));
   await confirmCreate();
   // Switch away while the create is in flight.
   openRow(/open Other/);
@@ -341,7 +341,7 @@ test('Create task is closed, with the reason, when the hub refuses remote writes
   await drawerReady();
   type('# File me\n');
   await settle();
-  const button = screen.getByRole('button', { name: /create task/i });
+  const button = screen.getByRole('button', { name: /create card/i });
   expect(button).toBeDisabled();
   expect(button).toHaveAttribute('title', 'the hub refuses remote writes');
 });
@@ -351,7 +351,7 @@ test('after filing, a stale debounced save cannot un-archive the draft (G14)', a
   await drawerReady();
   type('# Ship it\n');
   await settle();
-  fireEvent.click(screen.getByRole('button', { name: /create task/i }));
+  fireEvent.click(screen.getByRole('button', { name: /create card/i }));
   await confirmCreate();
   await waitFor(() => expect(screen.getByText(/filed as/i)).toBeInTheDocument());
   await settle(); // anything still armed fires now
@@ -369,7 +369,7 @@ test('archived drafts are read-only: chat disabled, header shows chip + Open boa
   // The composer is a read-only CodeMirror: it shows the read-only placeholder and is not editable.
   expect(screen.getByText('This draft is read-only.')).toBeInTheDocument();
   expect(composerView().contentDOM.getAttribute('contenteditable')).toBe('false');
-  expect(screen.queryByRole('button', { name: /create task/i })).toBeNull();
+  expect(screen.queryByRole('button', { name: /create card/i })).toBeNull();
   expect(screen.getByRole('link', { name: /filed as #gh-3/i })).toHaveAttribute('href', 'https://g/3');
   // Duplicate yields a fresh, filable copy with no `created`.
   fireEvent.click(screen.getByRole('button', { name: /duplicate/i }));
@@ -379,7 +379,7 @@ test('archived drafts are read-only: chat disabled, header shows chip + Open boa
   expect(copy.body).toBe('# Done thing\n');
   expect(copy.archived).toBe(false);
   expect(copy.created).toBeUndefined();
-  expect(screen.getByRole('button', { name: /create task/i })).toBeInTheDocument();
+  expect(screen.getByRole('button', { name: /create card/i })).toBeInTheDocument();
 });
 
 test('an unreadable draft file is listed delete-only — never openable, never hidden (AC6)', async () => {
@@ -669,10 +669,10 @@ test('the editor is read-only while a create is confirming/in flight — a keyst
   await drawerReady();
   type('# Lock me\n');
   await settle();
-  fireEvent.click(screen.getByRole('button', { name: /create task/i }));
-  await screen.findByText(/create a task on github\?/i);
+  fireEvent.click(screen.getByRole('button', { name: /create card/i }));
+  await screen.findByText(/create a card on github\?/i);
   expect(screen.getByTestId('editor')).toHaveAttribute('data-readonly', 'true'); // dialog open
-  const buttons = screen.getAllByRole('button', { name: /^create task$/i });
+  const buttons = screen.getAllByRole('button', { name: /^create card$/i });
   fireEvent.click(buttons.at(-1)!);
   expect(screen.getByTestId('editor')).toHaveAttribute('data-readonly', 'true'); // create in flight
   resolveCreate({ id: 'gh-7', url: 'https://g/7' });
@@ -707,7 +707,7 @@ test('a transient failure of the archive write shows the do-not-re-file warning 
   await settle();
   // The archive step is a read-modify-write; fail its read once (transient IO — NOT a delete).
   vi.mocked(ipc.readDraft).mockRejectedValueOnce(new Error('EIO'));
-  fireEvent.click(screen.getByRole('button', { name: /create task/i }));
+  fireEvent.click(screen.getByRole('button', { name: /create card/i }));
   await confirmCreate();
   await settle();
   // The issue exists but the file was never archived — the user MUST be warned off re-filing.
@@ -721,7 +721,7 @@ test('a draft deliberately deleted mid-create does NOT get the scary warning (re
   await drawerReady();
   type('# Doomed but filed\n');
   await settle();
-  fireEvent.click(screen.getByRole('button', { name: /create task/i }));
+  fireEvent.click(screen.getByRole('button', { name: /create card/i }));
   await confirmCreate();
   // Delete the draft while the create is in flight.
   toHistory();
@@ -739,7 +739,7 @@ test('Open board is offered after filing and navigates', async () => {
   await drawerReady();
   type('# Go\n');
   await settle();
-  fireEvent.click(screen.getByRole('button', { name: /create task/i }));
+  fireEvent.click(screen.getByRole('button', { name: /create card/i }));
   await confirmCreate();
   fireEvent.click(await screen.findByRole('button', { name: /open board/i }));
   expect(onOpenBoard).toHaveBeenCalled();
@@ -885,14 +885,14 @@ test('the header task-title InlineEdit rewrites the doc heading — and enables 
   await drawerReady();
   type('some body without a heading');
   await settle();
-  expect(screen.getByRole('button', { name: /create task/i })).toBeDisabled();
-  fireEvent.click(screen.getByLabelText('task title'));
-  const input = screen.getByLabelText('task title input');
+  expect(screen.getByRole('button', { name: /create card/i })).toBeDisabled();
+  fireEvent.click(screen.getByLabelText('card title'));
+  const input = screen.getByLabelText('card title input');
   fireEvent.change(input, { target: { value: 'Fix the flicker' } });
   fireEvent.keyDown(input, { key: 'Enter' });
   await settle();
   expect(screen.getByTestId('editor')).toHaveValue('# Fix the flicker\n\nsome body without a heading');
-  expect(screen.getByRole('button', { name: /create task/i })).toBeEnabled();
+  expect(screen.getByRole('button', { name: /create card/i })).toBeEnabled();
   const data = JSON.parse([...files.values()][0]!) as DraftData;
   expect(data.body.startsWith('# Fix the flicker')).toBe(true);
   // The doc title is NOT the conversation name — renaming the doc must not name the conversation.

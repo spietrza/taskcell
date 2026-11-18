@@ -483,6 +483,15 @@ describe('hardening', () => {
     });
     await expect(skillsDiscover({ source: SRC }, { source: stub({ [SRC]: C1 }, {}) })).rejects.toThrow(/cannot list/);
   });
+  it('discover scoped to a folder lists the skills under it, or the folder itself when it has a SKILL.md', async () => {
+    const files = ['skills/eng/a/SKILL.md', 'skills/eng/b/SKILL.md', 'skills/other/c/SKILL.md', 'skills/one/SKILL.md', 'skills/one/sub/SKILL.md'];
+    const src = { ...stub({ [SRC]: C1 }, {}), list: async () => files };
+    expect((await skillsDiscover({ source: SRC, path: 'skills/eng' }, { source: src })).skills).toEqual([
+      { path: 'skills/eng/a', name: 'a' },
+      { path: 'skills/eng/b', name: 'b' },
+    ]);
+    expect((await skillsDiscover({ source: SRC, path: 'skills/one' }, { source: src })).skills.map((x) => x.path)).toEqual(['skills/one', 'skills/one/sub']);
+  });
   it('add --path ./ names the skill after the repo; enforces the file limit', async () => {
     const url = 'https://github.com/o/myskill.git';
     await skillsAdd({ dir, source: url, path: './' }, { source: stub({ [url]: C1 }, { [C1]: async (t) => writeFile(join(t, 'SKILL.md'), 'x') }) }, () => {});

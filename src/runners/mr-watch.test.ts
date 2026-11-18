@@ -51,6 +51,8 @@ describe('gitlabMergeRequestWatchPrimitives', () => {
       const primitives = gitlabMergeRequestWatchPrimitives({ project: 'g/p', label, reviewingLabel: 'taskcell::reviewing', reviewedLabel: 'taskcell::reviewed', glab, reviewOne: async () => {} });
       expect((await primitives.listReady()).map((item) => item.iid).sort()).toEqual([1, 2, 3]);
       expect(calls.filter((c) => c[1] === 'list').map((c) => c[c.indexOf('--label') + 1])).toEqual(['ready for taskcell review', 'ready for vanguard review']);
+      // `glab mr list` has no `--state` flag (opened is its default): passing one fails the review job.
+      expect(calls.filter((c) => c[1] === 'list').some((c) => c.includes('--state'))).toBe(false);
     }
   });
 

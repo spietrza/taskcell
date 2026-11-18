@@ -165,6 +165,14 @@ const commandHandlers = {
   read_audit: () => [
     { time: minsAgo(30), login: 'token', action: 'run-start', target: 'run-0', outcome: 'ok' },
   ],
+  read_settings_history: () => [
+    { time: minsAgo(60), login: 'you', outcome: 'ok', detail: ['budgetUsd', 'verifyCmd'], target: '/mock/repo', changes: [{ key: 'budgetUsd', from: '5', to: '8' }] },
+  ],
+  list_chat_models: () => ({ source: 'static', models: ['claude-sonnet-5-5', 'claude-opus-5-5'] }),
+  list_activity: () => [
+    { time: minsAgo(15), kind: 'pr-merged', repoPath: '/mock/repo', repoName: 'repo', login: 'you', subject: '#12' },
+    { time: minsAgo(60), kind: 'settings-changed', repoPath: '/mock/repo', repoName: 'repo', login: 'you', keys: ['budgetUsd', 'verifyCmd'] },
+  ],
   read_issue_history: () => ({ repo: 'acme/app', issue: 1, prs: [], entries: [], chains: [], unavailable: [] }),
   list_needs_you: () => ({ items: waitingNeedsYou }),
   list_lessons: () => ({ lessons: mockLessons, branchFound: true }),
@@ -172,6 +180,8 @@ const commandHandlers = {
   update_skill_pr: () => ({ prUrl: 'https://github.com/acme/app/pull/1' }),
   add_skill_pr: () => ({ prUrl: 'https://github.com/acme/app/pull/1' }),
   discover_skills: () => ({ commit: 'c'.repeat(40), skills: [{ path: 'skills/demo', name: 'demo' }] }),
+  list_pending_skill_prs: () => ({ prs: [] }),
+  pull_checkout: () => ({ updated: false }),
   remove_skill_pr: () => ({ prUrl: 'https://github.com/acme/app/pull/1' }),
   dismiss_lesson: (args: { id?: string } | undefined) => {
     mockLessons = mockLessons.filter((l) => l.id !== args?.id);
@@ -191,6 +201,7 @@ const commandHandlers = {
   hub_task_accept: (args: { id?: string } | undefined) => ({ id: args?.id ?? 'hub-1' }),
   hub_task_archive: (args: { id?: string } | undefined) => ({ id: args?.id ?? 'hub-1' }),
   hub_task_delete: (args: { id?: string } | undefined) => ({ id: args?.id ?? 'hub-1' }),
+  hub_task_start: (args: { id?: string } | undefined) => ({ id: args?.id ?? 'hub-1' }),
   hub_task_retry: (args: { id?: string } | undefined) => ({ id: args?.id ?? 'hub-1' }),
   start_task: (args: { label?: string } | undefined) => ({ status: 'labelled', label: args?.label ?? 'ready for agent', waitingOn: [] }),
   // Hub-only Enable factory flow (EnableFactoryDialog).

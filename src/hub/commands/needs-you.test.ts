@@ -10,7 +10,7 @@ test('reply_needs_you takes the repo from the allowlisted path, never from the i
   await expect(dispatchRpc(ctx, 'reply_needs_you', { repoPath: repo, id: 'other/repo#1', kind: 'issue', body: 'hi' }))
     .rejects.toThrow('other/repo#1 is not an item of allowed/repo');
   await expect(dispatchRpc(ctx, 'reply_needs_you', { repoPath: repo, id: 'other/repo#1', kind: 'nope', body: 'hi' }))
-    .rejects.toThrow("kind must be 'issue' or 'pr'");
+    .rejects.toThrow("kind must be 'issue', 'pr' or 'card'");
 });
 
 test('reply_needs_you enforces mutation permissions before touching GitHub', async () => {

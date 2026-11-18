@@ -20,6 +20,8 @@ import type { VisualProofResult } from '../pipeline/visual-proof.js';
 import { ciRunUrl, diffUrlFor, httpsUrl } from './links.js';
 import { reviewVerdictOf } from '../pipeline/review-verdict.js';
 import { parseSkillsUsed, sanitizeSkillIds } from './skills-used.js';
+import { parseMetrics } from './stats.js';
+import { workflowPaths } from './taskcell.js';
 import type { DecisionProbeResult } from './decision-probe.js';
 import type { BaseMergeEvent } from './conflict-stats.js';
 import type { Finding, Proof, RunDetail, RunRecord, RunSummary, StageDetail, VisualProof } from '../wire.js';
@@ -187,6 +189,23 @@ function recordEst(r: RunRecord): number | undefined {
   return r.costUsd === undefined && typeof est === 'number' && Number.isFinite(est) && est >= 0 ? est : undefined;
 }
 
+/** Longest `RunSummary.asked` text: the end of the agent's last reply, where its questions are. */
+const ASKED_MAX = 2000;
+const askedText = (text: unknown): string => {
+  const t = typeof text === 'string' ? text.trim() : '';
+  return t.length > ASKED_MAX ? `…${t.slice(-ASKED_MAX)}` : t;
+};
+
+/** A proof file's `passed`, or undefined when it cannot be read. */
+async function tryReadProofPassed(path: string): Promise<boolean | undefined> {
+  try {
+    const passed: unknown = (JSON.parse(await readTextNoSymlink(path)) as { passed?: unknown }).passed;
+    return typeof passed === 'boolean' ? passed : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
 async function parseRunSummaries(root: string): Promise<RunSummary[]> {
   const summaries: RunSummary[] = [];
 
@@ -233,6 +252,15 @@ async function parseRunSummaries(root: string): Promise<RunSummary[]> {
       const ciUrl = httpsUrl(records.find((r) => r.ciUrl !== undefined)?.ciUrl);
       const startedBy = records.find((r) => r.startedBy !== undefined)?.startedBy;
       const trigger = records.some((r) => r.trigger === 'watch') ? 'watch' : undefined;
+      const extraAttempts = records.reduce((n, r) => n + (typeof r.attempts === 'number' && r.attempts > 1 ? Math.floor(r.attempts) - 1 : 0), 0);
+      const failedStage = failed.find((r) => r.stage !== undefined)?.stage;
+      // `incomplete`: the agent stopped on its own without its done signal (no turn cap, no timeout): it waits on a person.
+      // Or it finished but delivered nothing: what it ended on (a question, a "nothing to do") waits on a person too.
+      const stoppedEarly = records.find((r) => r.stage === 'implementer' && ((r.exitReason === 'incomplete' && r.stoppedBy === undefined) || (r.completed && r.noChanges === true)));
+      const asked = stoppedEarly === undefined ? undefined : askedText(stoppedEarly.finalText);
+      // shortcut: only a proof stamped with the run's own timestamp counts (not readRunDetail's fallback for older runs).
+      const proofName = `${sanitizeTimestamp(timestamp)}.proof.json`;
+      const verifyFailed = files.some((f) => f.name === proofName) && (await tryReadProofPassed(join(taskPath, proofName))) === false;
       summaries.push({
         taskId: first.taskId,
         timestamp,
@@ -247,6 +275,10 @@ async function parseRunSummaries(root: string): Promise<RunSummary[]> {
         ...(ciUrl !== undefined ? { ciUrl } : {}),
         ...(startedBy !== undefined ? { startedBy } : {}),
         ...(trigger !== undefined ? { trigger } : {}),
+        ...(extraAttempts > 0 ? { extraAttempts } : {}),
+        ...(failedStage !== undefined ? { failedStage } : {}),
+        ...(verifyFailed ? { verifyFailed: true as const } : {}),
+        ...(asked !== undefined ? { asked } : {}),
       });
     }
   }
@@ -330,7 +362,96 @@ export async function recentWatchTimestamps(root: string, sinceMs: number): Prom
  * against path traversal before any filesystem access.
  */
 export async function readRun(root: string, taskId: string, timestamp: string): Promise<RunDetail> {
-  return readRunRecords(root, taskId, timestamp, true);
+  const detail = await readRunRecords(root, taskId, timestamp, true);
+  return withSkillsUsed(root, detail);
+}
+
+type SkillsIndex = Map<string, Map<string, string[]>>;
+/** Per metrics.jsonl: its size+mtime and the `taskId|ts` -> stage -> skillsUsed index built from it. The file only grows, so a changed stamp rebuilds. */
+const skillsIndexCache = new Map<string, { stamp: string; index: SkillsIndex }>();
+
+/** The skillsUsed index of a runs root's metrics.jsonl, parsed once per file change; undefined when there is no file. */
+async function skillsIndex(file: string): Promise<SkillsIndex | undefined> {
+  const st = await lstat(file).catch(() => undefined);
+  if (st === undefined || !st.isFile()) return undefined;
+  const stamp = `${st.size}:${st.mtimeMs}`;
+  const hit = skillsIndexCache.get(file);
+  if (hit?.stamp === stamp) return hit.index;
+  const index: SkillsIndex = new Map();
+  for (const m of parseMetrics(await readTextNoSymlink(file).catch(() => ''))) {
+    if (m.ts === undefined || m.stage === undefined || m.skillsUsed === undefined) continue;
+    const key = `${m.taskId}|${m.ts}`;
+    const run = index.get(key) ?? new Map<string, string[]>();
+    run.set(m.stage, m.skillsUsed);
+    index.set(key, run);
+  }
+  skillsIndexCache.set(file, { stamp, index });
+  return index;
+}
+
+/**
+ * Attach each stage's `skillsUsed` from the run's `run_complete` metric lines (the record JSON does not
+ * carry it). A stage whose line lacks the field (older runs, a withheld transcript) stays without it.
+ */
+async function withSkillsUsed(root: string, detail: RunDetail): Promise<RunDetail> {
+  const used = (await skillsIndex(join(root, 'metrics.jsonl')))?.get(`${detail.taskId}|${detail.timestamp}`);
+  if (used === undefined) return detail;
+  return {
+    ...detail,
+    stages: detail.stages.map((s) => {
+      const skills = s.record.stage === undefined ? undefined : used.get(s.record.stage);
+      return skills === undefined ? s : { ...s, record: { ...s.record, skillsUsed: skills } };
+    }),
+  };
+}
+
+const C_ESCAPES: Record<string, number> = { n: 10, t: 9, '"': 34, '\\': 92, a: 7, b: 8, f: 12, r: 13, v: 11 };
+
+/** A path as git prints it in a diff header: C-quoted (`"a/caf\303\251.yml"`) when it holds special bytes, else bare. */
+function unquoteGitPath(p: string): string {
+  if (!p.startsWith('"') || !p.endsWith('"') || p.length < 2) return p;
+  const s = p.slice(1, -1);
+  const bytes: number[] = [];
+  for (let i = 0; i < s.length; i++) {
+    const c = s[i]!;
+    if (c !== '\\') { bytes.push(...Buffer.from(c)); continue; }
+    const n = s[++i] ?? '';
+    if (/[0-7]/.test(n)) { bytes.push(parseInt(s.slice(i, i + 3), 8)); i += 2; } else bytes.push(C_ESCAPES[n] ?? n.charCodeAt(0));
+  }
+  return Buffer.from(bytes).toString('utf8');
+}
+
+/**
+ * Every path a diff touches, both sides of a rename (a rename into or out of a CI directory counts), read from the
+ * file headers only (never hunk lines): `diff --git`, `---`/`+++`, `rename`/`copy from|to`. Handles paths with spaces
+ * (git ends those `---`/`+++` names with a tab) and C-quoted paths.
+ */
+export function diffPaths(diff: string): string[] {
+  const out = new Set<string>();
+  const add = (raw: string, prefix?: string): void => {
+    const p = unquoteGitPath(raw.replace(/\t$/, ''));
+    if (p === '/dev/null') return;
+    out.add(prefix !== undefined && p.startsWith(prefix) ? p.slice(prefix.length) : p);
+  };
+  let inHeader = false;
+  for (const line of diff.split('\n')) {
+    if (line.startsWith('diff --git ')) {
+      inHeader = true;
+      const rest = line.slice('diff --git '.length);
+      const quoted = /^("(?:[^"\\]|\\.)*"|\S+) ("(?:[^"\\]|\\.)*"|\S+)$/.exec(rest);
+      const mid = (rest.length - 1) / 2;
+      if (quoted !== null) { add(quoted[1]!, 'a/'); add(quoted[2]!, 'b/'); }
+      // Unquoted with spaces: the two halves of a non-rename header are the same path (a rename names both below).
+      else if (rest.startsWith('a/') && rest.slice(mid, mid + 3) === ' b/' && rest.slice(2, mid) === rest.slice(mid + 3)) add(rest.slice(2, mid));
+      continue;
+    }
+    if (!inHeader) continue;
+    if (line.startsWith('@@')) { inHeader = false; continue; }
+    const m = /^(---|\+\+\+|rename from|rename to|copy from|copy to) (.+)$/.exec(line);
+    if (m === null) continue;
+    add(m[2]!, m[1] === '---' ? 'a/' : m[1] === '+++' ? 'b/' : undefined);
+  }
+  return [...out];
 }
 
 /** Record/proof-only read for the board; never opens diff/transcript files. */
@@ -356,7 +477,7 @@ export async function readRunRecords(root: string, taskId: string, timestamp: st
     const transcript = includeArtifacts ? await readTextNoSymlink(`${base}.transcript.log`).catch(() => undefined) : undefined;
     stages.push({
       record,
-      ...(diff !== undefined ? { diff } : {}),
+      ...(diff !== undefined ? { diff, ciConfigPaths: workflowPaths(diffPaths(diff)) } : {}),
       ...(transcript !== undefined ? { transcript } : {}),
     });
   }
@@ -433,6 +554,8 @@ export interface WriteStagesOptions {
   baseBranch?: string;
   /** Gate-config files the delivered diff changed; recorded on every stage (any delivery kind). */
   configPaths?: readonly string[];
+  /** The run delivered nothing (an empty diff): its implementer's last words are what it waits on. */
+  noChanges?: true;
   /** The run's gate-repair cap (`--max-repair-iterations`), recorded on every stage. */
   maxRepairIterations?: number;
   /** The sandbox image's content digest (IsolatedSandboxProvider.imageDigest), recorded on every
@@ -494,6 +617,7 @@ interface WriteRecordOptions {
   imageDigest?: string;
   baseBranch?: string;
   configPaths?: readonly string[];
+  noChanges?: true;
   maxRepairIterations?: number;
   credentialSource?: 'instance' | 'user';
   startedBy?: string;
@@ -564,6 +688,7 @@ async function writeRecord(repoPath: string, taskId: string, timestamp: string, 
     ...(opts.imageDigest !== undefined ? { imageDigest: opts.imageDigest } : {}),
     ...(opts.baseBranch !== undefined ? { baseBranch: opts.baseBranch } : {}),
     ...(opts.configPaths !== undefined && opts.configPaths.length > 0 ? { configPaths: [...opts.configPaths] } : {}),
+    ...(opts.noChanges === true ? { noChanges: true } : {}),
     ...(opts.maxRepairIterations !== undefined ? { maxRepairIterations: opts.maxRepairIterations } : {}),
     ...(opts.credentialSource !== undefined ? { credentialSource: opts.credentialSource } : {}),
     ...(diffOmitted !== undefined ? { diffOmitted } : {}),
@@ -667,6 +792,7 @@ export function beginRun(
           ...(opts.imageDigest !== undefined ? { imageDigest: opts.imageDigest } : {}),
           ...(opts.baseBranch !== undefined ? { baseBranch: opts.baseBranch } : {}),
           ...(opts.configPaths !== undefined ? { configPaths: opts.configPaths } : {}),
+          ...(opts.noChanges === true ? { noChanges: true } : {}),
           ...(opts.maxRepairIterations !== undefined ? { maxRepairIterations: opts.maxRepairIterations } : {}),
           ...(opts.credentialSource !== undefined ? { credentialSource: opts.credentialSource } : {}),
           ...(runOpts.startedBy !== undefined ? { startedBy: runOpts.startedBy } : {}),
@@ -678,7 +804,7 @@ export function beginRun(
       }
       const first = outcomes[0];
       if (first === undefined) return;
-      const { omitDiff: _omitDiff, baseBranch: _baseBranch, configPaths: _configPaths, maxRepairIterations: _maxRepairIterations, lessonIds: _lessonIds, skills: _skills, skillIds: _skillIds, modelPicks: _modelPicks, ...trace } = opts;
+      const { omitDiff: _omitDiff, baseBranch: _baseBranch, configPaths: _configPaths, noChanges: _noChanges, maxRepairIterations: _maxRepairIterations, lessonIds: _lessonIds, skills: _skills, skillIds: _skillIds, modelPicks: _modelPicks, ...trace } = opts;
       await exportRunTrace({
         taskId,
         timestamp,

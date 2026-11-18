@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import { readFile } from 'node:fs/promises';
+import { access, readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { redactForPublish } from '../core/secret-scan.js';
 import { gateExec, type GateExec } from '../sandbox/gate-exec.js';
@@ -58,9 +58,12 @@ export function packageManagerOf(field: string | undefined): 'pnpm' | 'yarn' | '
  * <pm> run verify" so the gate matches whatever a repo declares (e.g. the CI build job) instead of
  * our guess. Otherwise, if it has a `test` script, build "<pm> install --frozen-lockfile && <pm>
  * run typecheck && <pm> test", including the first of typecheck/check-types/type-check that exists;
- * pm from the `packageManager` field (pnpm/yarn/npm), default npm. Python auto-detect:
+ * pm from the `packageManager` field (pnpm/yarn/npm), default npm; npm installs with `npm ci` (a lockfile) or
+ * `npm install --no-package-lock` (none), never writing a lockfile the run would deliver. Python auto-detect:
  * pyproject.toml/pytest.ini/setup.cfg present -> "pytest".
  */
+const exists = (path: string): Promise<boolean> => access(path).then(() => true, () => false);
+
 export async function resolveVerifyCommand(
   worktreePath: string,
   opts: { cmd?: string; env?: NodeJS.ProcessEnv } = {},
@@ -80,7 +83,9 @@ export async function resolveVerifyCommand(
       const pkg = JSON.parse(pkgRaw) as { scripts?: Record<string, string>; packageManager?: string };
       const scripts = pkg.scripts ?? {};
       const pm = packageManagerOf(pkg.packageManager);
-      const install = `${pm} install --frozen-lockfile`;
+      // npm has no --frozen-lockfile: it warns, installs anyway and writes a package-lock.json that the run then
+      // delivers as its change. `npm ci` keeps an existing lockfile; without one, install without writing it.
+      const install = pm !== 'npm' ? `${pm} install --frozen-lockfile` : (await exists(join(worktreePath, 'package-lock.json'))) ? 'npm ci' : 'npm install --no-package-lock';
       if (scripts.verify !== undefined) return `${install} && ${pm} run verify`;
       if (scripts.test === undefined) return undefined;
       const parts = [install];
