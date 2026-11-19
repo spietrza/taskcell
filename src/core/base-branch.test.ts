@@ -1,9 +1,9 @@
-import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { mkdir, symlink, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { execa } from 'execa';
 import { afterEach, describe, it, expect } from 'vitest';
-import { assertSafeBaseBranch, baseFromLabels, redactGitError, resolveRemoteBaseRef, resolveTargetBase } from './base-branch.js';
+import { readAllowedBases, readRepoBaseBranch, assertSafeBaseBranch, baseFromLabels, redactGitError, resolveRemoteBaseRef, resolveTargetBase } from './base-branch.js';
 
 describe('assertSafeBaseBranch', () => {
   it.each(['', '   ', '-dev', '--upload-pack=false', '+main', 'feature:main', '+refs/heads/x:refs/heads/main'])('rejects %s', (base) => {
@@ -221,5 +221,26 @@ describe('target branch per card', () => {
     await expect(resolveTargetBase(await repoWith(), ['taskcell:base=-x'])).rejects.toThrow('Invalid base branch');
     await expect(resolveTargetBase(await repoWith({ baseBranch: 'a b' }), [])).rejects.toThrow('Invalid base branch');
     await expect(resolveTargetBase(await repoWith({ baseBranches: ['-x'] }), ['taskcell:base=main'])).rejects.toThrow('Invalid base branch');
+  });
+});
+
+describe.each(['leaf', 'dir'])('app.json %s symlink', (kind) => {
+  it('is not followed by the lenient reader', async () => {
+    const repo = await mkdtemp(join(tmpdir(), 'base-symlink-'));
+    try {
+      const outside = join(repo, 'outside');
+      await mkdir(outside);
+      await writeFile(join(outside, 'app.json'), '{"baseBranch":"leaked","baseBranches":["x"]}');
+      if (kind === 'leaf') {
+        await mkdir(join(repo, '.taskcell'));
+        await symlink(join(outside, 'app.json'), join(repo, '.taskcell', 'app.json'));
+      } else {
+        await symlink(outside, join(repo, '.taskcell'));
+      }
+      expect(await readRepoBaseBranch(repo)).toBeUndefined();
+      expect(await readAllowedBases(repo)).toEqual(['main']);
+    } finally {
+      await rm(repo, { recursive: true, force: true });
+    }
   });
 });

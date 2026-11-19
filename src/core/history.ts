@@ -3,6 +3,7 @@
 // (a human applying a label). It copies nothing: every call reads the sources and builds the list.
 // `buildIssueHistory` is pure; `readIssueHistory` does the reading.
 import { basename } from 'node:path';
+import { httpsUrl } from './links.js';
 import { branchAdapter, hubAuditFile, localAdapter, runEventFiles, verifyFiles, type AuditActor, type AuditFile } from './audit.js';
 import { DECISIONS_FILE } from '../approver/ledger.js';
 import { readRunRecords, listRuns, runsRoot } from './run-store.js';
@@ -175,7 +176,7 @@ export function buildIssueHistory(input: HistoryInput): IssueHistory {
         else if (type === 'stage-start') add({ ...base, time, kind: 'stage', what: `stage ${str(data.name) ?? '?'} started`, source });
         else if (type === 'stage-end') add({ ...base, time, kind: 'stage', what: `stage ${str(data.name) ?? '?'} ended: ${str(data.outcome) ?? '?'}`, source });
         else if (type !== undefined && RUN_END.has(type)) {
-          const pr = str(data.prUrl);
+          const pr = httpsUrl(str(data.prUrl));
           const what = type === 'run-end' ? `run finished${pr !== undefined ? `, opened ${pr}` : ''}` : type === 'run-cancelled' ? 'run cancelled' : `run failed: ${str(data.message) ?? 'error'}`;
           add({ ...base, time, kind: 'run-end', what, source: { ...source, ...(pr !== undefined ? { url: pr } : {}) } });
         }
@@ -235,7 +236,10 @@ const BOT_LOGIN = /\[bot\]$/;
 const hostActor = (login: string | undefined): AuditActor | undefined =>
   login === undefined ? undefined : BOT_LOGIN.test(login) ? { kind: 'bot', name: login } : { kind: 'user', name: login };
 
-const urlOf = (v: unknown): { url?: string } => (str(v) !== undefined ? { url: str(v)! } : {});
+const urlOf = (v: unknown): { url?: string } => {
+  const url = httpsUrl(str(v));
+  return url !== undefined ? { url } : {};
+};
 
 /** The factory's spec comment opens with its title; a passing mention of "tech spec" in any comment is not one. */
 const SPEC_COMMENT = /^\W*(?:vanguard|taskcell)\s+tech spec/i;

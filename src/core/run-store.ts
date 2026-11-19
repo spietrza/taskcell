@@ -2,8 +2,7 @@
 // The reader that used to re-derive this format now forwards here: src/hub/runs.ts (thin re-export
 // shim). The desktop app has no reader of its own; its window is a client of the local hub.
 import { createHash } from 'node:crypto';
-import { constants } from 'node:fs';
-import { writeFile, unlink, readdir, lstat, open, stat } from 'node:fs/promises';
+import { writeFile, unlink, readdir, lstat, stat } from 'node:fs/promises';
 import { join } from 'node:path';
 import { execa } from 'execa';
 import { hostGitArgs } from '../worktree/host-git.js';
@@ -12,7 +11,7 @@ import type { RunResult } from './types.js';
 import { estimatedCostUsd, stageMetric } from './run-metric.js';
 import { exportRunTrace } from './otlp-sink.js';
 import { appendAudit, defaultActor, localAdapter, STREAMS } from './audit.js';
-import { assertStatePath, ensureStateDir, isSafeTaskId, stateDir } from './state-path.js';
+import { assertStatePath, ensureStateDir, isSafeTaskId, readTextNoSymlink, stateDir } from './state-path.js';
 import { injectedSecretValues, redactForPublish, scanForInjectedSecrets, scanForSecrets, withRegisteredSecretValues } from './secret-scan.js';
 import { redactVerificationOutput } from '../pipeline/verify.js';
 import type { VerificationResult } from '../pipeline/verify.js';
@@ -25,6 +24,8 @@ import { workflowPaths } from './taskcell.js';
 import type { DecisionProbeResult } from './decision-probe.js';
 import type { BaseMergeEvent } from './conflict-stats.js';
 import type { Finding, Proof, RunDetail, RunRecord, RunSummary, StageDetail, VisualProof } from '../wire.js';
+
+export { readTextNoSymlink };
 
 /**
  * Stages whose reply carries a review verdict + `<findings>` block. Hard-coded string literals, not
@@ -57,29 +58,6 @@ export function sanitizeTimestamp(ts: string): string {
 
 export function isRunRecordFile(name: string): boolean {
   return name.endsWith('.json') && !name.endsWith('.proof.json') && !name.endsWith('.visual-proof.json');
-}
-
-/**
- * Read a file's text but refuse a symlinked leaf or anything that is not a regular file: a repo
- * under inspection could plant a `.diff`/`.transcript.log`/`.proof.json` pointing at an arbitrary
- * file and have its contents shown in the UI. The lstat gives the clear error; opening with
- * O_NOFOLLOW (where the platform has it) and checking the opened handle closes the swap-in race.
- * Guards the leaf symlink only (mirrors the Rust implementation's caveat).
- */
-export async function readTextNoSymlink(path: string): Promise<string> {
-  const info = await lstat(path);
-  if (info.isSymbolicLink()) {
-    throw new Error('refusing to read a symlinked file');
-  }
-  if (!info.isFile()) throw new Error('refusing to read a non-regular file');
-  // O_NONBLOCK: a FIFO swapped in after the lstat would otherwise block a threadpool thread on open.
-  const handle = await open(path, constants.O_RDONLY | (constants.O_NOFOLLOW ?? 0) | (constants.O_NONBLOCK ?? 0));
-  try {
-    if (!(await handle.stat()).isFile()) throw new Error('refusing to read a non-regular file');
-    return await handle.readFile('utf8');
-  } finally {
-    await handle.close();
-  }
 }
 
 /** 32-bit FNV-1a over a string; used only to fold file name+mtime into a stable fingerprint. */
