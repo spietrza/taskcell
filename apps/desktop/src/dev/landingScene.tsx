@@ -50,7 +50,7 @@ async function stageFrames(base: BoardTask): Promise<HubScene['stages']> {
     const { container, unmount } = render(<QuickView task={task} project={REPO} onClose={() => {}} onFullPage={() => {}} />);
     const ol = await waitFor(() => {
       // The pull request address arrives with the run list: wait for the receipt that comes with it.
-      if (column === 'review' && !container.querySelector('section[aria-label="Receipt"]')) throw new Error('no receipt yet');
+      if (column === 'review' && !container.querySelector('[aria-label="Receipt"]')) throw new Error('no receipt yet');
       const el = container.querySelector('ol[aria-label="Stage line"]');
       if (!el) throw new Error('no stage line');
       return el;
@@ -97,7 +97,7 @@ export async function renderHubScene(): Promise<HubScene> {
 
   // Hooks for the animator: where the columns, cards, counts, the Home badge and the drawer are.
   const main = app.querySelector('main')!;
-  const columns = [...main.querySelectorAll('section > div > div')];
+  const columns = [...main.querySelectorAll('section [role="group"][aria-label]')];
   const names = columns.map((col) => {
     const head = col.firstElementChild!;
     hook(col, 'col', head.children[1]!.textContent ?? '');
@@ -113,14 +113,14 @@ export async function renderHubScene(): Promise<HubScene> {
     if (id === card.id) {
       hook(wrap, 'open');
       // The card's own lines that follow its column: the running stage and the tracker state.
-      const lines = [...btn.firstElementChild!.firstElementChild!.children];
+      const lines = [...btn.firstElementChild!.children];
       hook(lines.find((l) => (l.textContent ?? '').startsWith('stage: ')), 'stage');
       hook(lines.at(-1), 'state');
     }
   }
   hook(columns[0]?.closest('section')?.parentElement, 'lanes');
   hook(columns.flatMap((c) => [...c.querySelectorAll('div.border-dashed')])[0], 'empty');
-  hook([...main.querySelectorAll('span')].find((s) => /^Running \d+ · Waiting \d+$/.test(s.textContent ?? '')), 'counts');
+  hook([...main.querySelectorAll('span')].find((s) => /^Running \d+ · Queued \d+ · Waiting for you \d+$/.test(s.textContent ?? '')), 'counts');
   const home = [...app.querySelectorAll('nav[aria-label="Main"] button')].find((b) => /^Home/.test(b.textContent ?? ''));
   hook(home?.querySelector('span.rounded-sm'), 'badge', 'Home');
   const drawer = main.querySelector('aside[aria-label^="Quick view"]')!;
