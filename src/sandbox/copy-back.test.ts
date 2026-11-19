@@ -36,7 +36,7 @@ describe('assertWorkspaceWithinCeiling', () => {
   it('measures inside the sandbox with the pruned names quoted, and passes under the ceiling', async () => {
     const sb = sandbox('3 30\n');
     await expect(assertWorkspaceWithinCeiling(sb, '/workspace', 100, 10)).resolves.toBeUndefined();
-    expect(sb.commands[0]).toContain(`-name '.git' -o -name 'node_modules' -o -name '.pnpm-store'`);
+    expect(sb.commands[0]).toContain(`-name '.[gG][iI][tT]' -o -name 'node_modules' -o -name '.pnpm-store'`);
   });
 
   it('refuses before anything is copied when bytes or files pass the ceiling', async () => {
@@ -157,6 +157,42 @@ function fakeSandbox(files: Tree, excludeArgs: (readonly string[])[] = []): Pick
 }
 
 describe('exportWorkspace', () => {
+  it('drops .GIT (file) and .Git/ (dir) at any depth and leaves the worktree .git pointer byte-identical', async () => {
+    const worktree = await mkdtemp(join(tmpdir(), 'vg-copyback-wt-'));
+    const staging = await mkdtemp(join(tmpdir(), 'vg-copyback-staging-'));
+    try {
+      const pointer = 'gitdir: /somewhere/real\n';
+      await writeFile(join(worktree, '.git'), pointer);
+      const sandbox = fakeSandbox({ 'README.md': '# r\n', '.GIT': 'gitdir: ./evilgit\n', 'evilgit/config': 'x\n', '.Git/config': 'x\n', 'sub/.gIt/HEAD': 'x\n' });
+      await exportWorkspace(sandbox, '/workspace', staging, worktree);
+      expect(await readFile(join(worktree, '.git'), 'utf8')).toEqual(pointer);
+      await expect(stat(join(worktree, 'sub', '.gIt'))).rejects.toThrow();
+      expect(await readFile(join(worktree, 'README.md'), 'utf8')).toEqual('# r\n');
+      expect(await classifyPath(staging, '.GIT')).toBeDefined();
+      expect(await classifyPath(staging, 'a/.Git/x')).toBeDefined();
+    } finally {
+      for (const root of [worktree, staging]) await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it('fails the copy-back when the worktree .git entry is replaced during the copy', async () => {
+    const worktree = await mkdtemp(join(tmpdir(), 'vg-copyback-wt-'));
+    const staging = await mkdtemp(join(tmpdir(), 'vg-copyback-staging-'));
+    try {
+      await writeFile(join(worktree, '.git'), 'gitdir: /somewhere/real\n');
+      const sandbox = fakeSandbox({ 'README.md': '# r\n' });
+      const copyFileOut = sandbox.copyFileOut.bind(sandbox);
+      sandbox.copyFileOut = async (...args): Promise<void> => {
+        await copyFileOut(...args);
+        await rm(join(worktree, '.git'));
+        await writeFile(join(worktree, '.git'), 'gitdir: ./evilgit\n');
+      };
+      await expect(exportWorkspace(sandbox, '/workspace', staging, worktree)).rejects.toThrow(/\.git entry changed/);
+    } finally {
+      for (const root of [worktree, staging]) await rm(root, { recursive: true, force: true });
+    }
+  });
+
   it('runs a real workspace through copy-back: .git, node_modules and .pnpm-store never reach the worktree, CI config is dropped and reported, everything else lands in the diff (#748 regression)', async () => {
     const worktree = await mkdtemp(join(tmpdir(), 'vg-copyback-wt-'));
     const staging = await mkdtemp(join(tmpdir(), 'vg-copyback-staging-'));
@@ -181,7 +217,7 @@ describe('exportWorkspace', () => {
 
       // copyFileOut was still asked to exclude the pruned names (the ceiling/source-exclude layer);
       // this fake proves the host filter catches them even when that layer is bypassed.
-      expect(excludeArgs[0]).toEqual(['.git', 'node_modules', '.pnpm-store']);
+      expect(excludeArgs[0]).toEqual(['.[gG][iI][tT]', 'node_modules', '.pnpm-store']);
       expect(report.dropped).toEqual(['.gitlab-ci.yml']);
 
       await expect(stat(join(worktree, 'node_modules'))).rejects.toThrow();

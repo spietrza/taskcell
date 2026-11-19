@@ -20,6 +20,8 @@ import type { IsolatedSandboxProvider } from './provider.js';
  */
 export interface PathSkipRule {
   readonly name?: string;
+  /** Match `name` case-insensitively at the source (glob classes), for names a case-insensitive host would alias. */
+  readonly ignoreCase?: boolean;
   readonly match: { test(path: string): boolean };
 }
 
@@ -48,7 +50,8 @@ export const CI_CONFIG_RULE: PathSkipRule = {
 
 export const PATH_POLICY: readonly PathSkipRule[] = [
   // A linked worktree's .git is a file pointer; copying it corrupts the worktree.
-  { name: '.git', match: /(^|[\\/])\.git([\\/]|$)/ },
+  // Case-insensitive: `.GIT` would replace the pointer on a case-insensitive host filesystem.
+  { name: '.git', ignoreCase: true, match: /(^|[\\/])\.git([\\/]|$)/i },
   // Gitignored, huge, and its .bin symlinks make fs.cp throw EINVAL.
   { name: 'node_modules', match: /(^|[\\/])node_modules([\\/]|$)/ },
   // Under a read-only rootfs /workspace is its own tmpfs, so pnpm puts its content store at the
@@ -89,9 +92,15 @@ export function prunedNames(): string[] {
   return PATH_POLICY.flatMap((rule) => (rule.name !== undefined ? [rule.name] : []));
 }
 
+/** `prunedNames()` as globs for `find -name` / `tar --exclude`: `ignoreCase` names become `.[gG][iI][tT]`. */
+export function prunedPatterns(): string[] {
+  const caseFold = (name: string): string => name.replace(/[a-z]/gi, (c) => `[${c.toLowerCase()}${c.toUpperCase()}]`);
+  return PATH_POLICY.flatMap(({ name, ignoreCase }) => (name === undefined ? [] : [ignoreCase === true ? caseFold(name) : name]));
+}
+
 /** The `find`+`awk` ceiling measurement, with every `name` rule pruned — same names copyFileOut excludes. */
 export function ceilingFindCommand(workdir: string): string {
-  const prune = prunedNames()
+  const prune = prunedPatterns()
     .map((name) => `-name '${name}'`)
     .join(' -o ');
   return `find ${workdir} \\( ${prune} \\) -prune -o -type f -printf '%s\\n' | awk '{n++; s+=$1} END {printf "%d %d\\n", n, s}'`;
@@ -276,6 +285,14 @@ async function syncDeletions(
   return { ignoredDeletions };
 }
 
+/** Identity of the worktree's own `.git` entry (type, size, inode, mtime, link target); the copy must leave it as is. */
+async function gitEntrySnapshot(path: string): Promise<string> {
+  const info = await lstat(path).catch(() => undefined);
+  if (info === undefined) return 'missing';
+  const target = info.isSymbolicLink() ? await readlink(path) : '';
+  return [info.mode, info.size, info.ino, info.dev, info.mtimeMs, target].join(':');
+}
+
 /**
  * The one interface for what leaves the sandbox: export the workspace at `workdir` into `worktreePath`
  * via `stagingDir`, then report the CI config that was dropped. The ceiling, copyFileOut's source
@@ -289,9 +306,11 @@ export async function exportWorkspace(
   { maxBytes = COPY_BACK_MAX_BYTES, maxFiles = COPY_BACK_MAX_FILES }: ExportWorkspaceOptions = {},
 ): Promise<CopyBackReport> {
   await assertWorkspaceWithinCeiling(sandbox, workdir, maxBytes, maxFiles);
+  const gitEntry = join(worktreePath, '.git');
+  const gitBefore = await gitEntrySnapshot(gitEntry);
   // Skipped at the source too: pruned names never sync back and can dwarf the workspace.
   await sandbox.copyFileOut(workdir, stagingDir, {
-    exclude: prunedNames(),
+    exclude: prunedPatterns(),
     maxBytes: maxBytes + maxFiles * STREAM_OVERHEAD_PER_FILE_BYTES,
   });
 
@@ -314,6 +333,10 @@ export async function exportWorkspace(
       return true;
     },
   });
+
+  if ((await gitEntrySnapshot(gitEntry)) !== gitBefore) {
+    throw new SandboxError("copy-back: the worktree's .git entry changed during the copy; refusing the copy-back, nothing is committed");
+  }
 
   // A comparison that fails reports the whole dropped path, so an edit is never hidden.
   const changed: string[] = [];
