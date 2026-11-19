@@ -95,7 +95,7 @@ describe('dependencyHolds', () => {
   it('never reads a repo named in the issue body unless the policy lists it', async () => {
     const calls: string[][] = [];
     const hold = await dependencyHolds(R, { headRefName: HEAD }, fakeGh(calls, { issues: { 7: issue('Depends on evil/other#3') } }));
-    expect(hold.code).toBe('dependency-check-failed');
+    expect(hold.code).toBe('dependency-invalid');
     expect(calls.some((a) => a.join(' ').includes('evil/other'))).toBe(false);
     const allowed: string[][] = [];
     await dependencyHolds(R, { headRefName: HEAD }, async (a) => (allowed.push(a), a[1]?.includes('blocked_by') === true ? '[]' : a[1]?.includes('evil') === true ? issue('', 'closed') : issue('Depends on evil/other#3')), { dependencyRepos: ['evil/other'] });
