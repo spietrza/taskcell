@@ -1,6 +1,7 @@
 // The hub RPC client shared by the desktop UI and the mobile app: `POST /rpc/<cmd>` and the `/events`
 // SSE stream over `fetch`, against a configurable base URL and hub token. Runs in React Native, so it
 // imports nothing from the DOM, Tauri or Node and touches no `window`/`document`.
+import type { Commands } from './wire.js';
 import { decodeEvent, decodeResponse, HUB_TOKEN_HEADER, STREAM_RESET_EVENT } from './hub-wire.js';
 
 export interface HubClientOptions {
@@ -30,10 +31,18 @@ export interface HubClient {
   /** POST `/rpc/<cmd>`; resolves the raw status and parsed body. Rejects with a string on a network failure. */
   request(cmd: string, args?: Record<string, unknown>): Promise<HubResponse>;
   /** `request` + `decodeResponse`: resolves the result, rejects with the hub's error message string. */
-  call<T>(cmd: string, args?: Record<string, unknown>): Promise<T>;
-  /** Stream `/events` (token sent as a header). Returns a function that closes it. */
-  subscribe(handlers: HubStreamHandlers): () => void;
+  call<K extends keyof Commands>(cmd: K, ...args: CallArgs<K>): Promise<Commands[K]['result']>;
+  /** Stream `/events` (token sent as a header). Returns a function that closes it; its `lastEventId` is the
+   *  last `id:` seen, for reconnecting with `Last-Event-ID`. */
+  subscribe(handlers: HubStreamHandlers): HubSubscription;
 }
+
+/** The rest-args of `call`: optional when the command accepts `undefined`. */
+export type CallArgs<K extends keyof Commands> = undefined extends Commands[K]['args']
+  ? [args?: Commands[K]['args']]
+  : [args: Commands[K]['args']];
+
+export type HubSubscription = (() => void) & { readonly lastEventId: string | undefined };
 
 const message = (err: unknown): string => (err instanceof Error ? err.message : String(err));
 
@@ -61,18 +70,20 @@ export function createHubClient(options: HubClientOptions): HubClient {
     }
   }
 
-  async function call<T>(cmd: string, args?: Record<string, unknown>): Promise<T> {
-    const { status, body } = await request(cmd, args);
-    return decodeResponse<T>(status, body);
+  async function call<K extends keyof Commands>(cmd: K, ...args: CallArgs<K>): Promise<Commands[K]['result']> {
+    const { status, body } = await request(cmd, args[0] as Record<string, unknown> | undefined);
+    return decodeResponse<Commands[K]['result']>(status, body);
   }
 
-  function subscribe(handlers: HubStreamHandlers): () => void {
+  function subscribe(handlers: HubStreamHandlers): HubSubscription {
+    let lastEventId: string | undefined;
     const abort = new AbortController();
     const dispatch = (frame: string): void => {
       let name = 'message';
       const data: string[] = [];
       for (const line of frame.split('\n')) {
         if (line.startsWith('event:')) name = line.slice(6).trim();
+        else if (line.startsWith('id:')) lastEventId = line.slice(3).replace(/^ /, '');
         else if (line.startsWith('data:')) data.push(line.slice(5).replace(/^ /, ''));
       }
       if (data.length === 0 && name !== STREAM_RESET_EVENT) return; // a comment / keep-alive frame
@@ -83,27 +94,37 @@ export function createHubClient(options: HubClientOptions): HubClient {
     void (async () => {
       try {
         const response = await doFetch(`${baseUrl}/events`, { method: 'GET', headers: { [HUB_TOKEN_HEADER]: token(), accept: 'text/event-stream' }, signal: abort.signal });
-        if (!response.ok || !response.body) return handlers.onError?.(`request failed with status ${response.status}`);
+        if (!response.ok || !response.body) {
+          await response.body?.cancel().catch(() => undefined);
+          return handlers.onError?.(`request failed with status ${response.status}`);
+        }
         const reader = response.body.getReader();
         const decoder = new TextDecoder();
         let buffer = '';
-        for (;;) {
-          const { done, value } = await reader.read();
-          if (done) break;
-          buffer += decoder.decode(value, { stream: true }).replace(/\r\n?/g, '\n');
+        let carry = ''; // a trailing '\r' held back: the next chunk may start with its '\n'
+        const feed = (text: string): void => {
+          const all = carry + text;
+          carry = all.endsWith('\r') ? '\r' : '';
+          buffer += all.slice(0, all.length - carry.length).replace(/\r\n?/g, '\n');
           let end = buffer.indexOf('\n\n');
           while (end !== -1) {
             dispatch(buffer.slice(0, end));
             buffer = buffer.slice(end + 2);
             end = buffer.indexOf('\n\n');
           }
+        };
+        for (;;) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          feed(decoder.decode(value, { stream: true }));
         }
+        feed(decoder.decode());
         handlers.onError?.('event stream closed');
       } catch (err) {
         if (!abort.signal.aborted) handlers.onError?.(message(err));
       }
     })();
-    return () => abort.abort();
+    return Object.defineProperty(() => abort.abort(), 'lastEventId', { get: () => lastEventId }) as HubSubscription;
   }
 
   return { request, call, subscribe };
