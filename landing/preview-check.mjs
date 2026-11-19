@@ -14,26 +14,29 @@ const { JSDOM } = createRequire(fileURLToPath(new URL('../apps/desktop/package.j
 const app = (html) => html.slice(html.indexOf('id="hub-app"'), html.indexOf('<ul class="hub-screens">'));
 
 // The app's names, from its own source.
-const stageLabels = [...desktop('features/board/stageLine.ts').matchAll(/^\s+(?:card|spec|cell|gates|review|pr): '([^']+)',$/gm)].map((m) => m[1]);
-const columnLabels = [...desktop('features/board/TaskBoard.tsx').matchAll(/key: '[a-z-]+', label: '([^']+)'/g)].map((m) => m[1]);
-assert.equal(stageLabels.length, 6, 'six stages in stageLine.ts');
-assert.equal(columnLabels.length, 6, 'six columns in TaskBoard.tsx');
+const stations = [...desktop('stations.ts').matchAll(/^\s+(card|spec|cell|gates|review|pr): '([^']+)',$/gm)];
+const stageLabels = stations.map((m) => m[2]);
+// The Board's columns: the stations by their short names (STATION_SHORT), Review and PR sharing one, then Done.
+const shortOverrides = Object.fromEntries([...desktop('stations.ts').matchAll(/STATION_SHORT[^=]*= \{ \.\.\.STATION_LABEL, ([^}]+)\}/g)].flatMap((m) => [...m[1].matchAll(/(\w+): '([^']+)'/g)].map((o) => [o[1], o[2]])));
+const short = stations.map(([, key, label]) => shortOverrides[key] ?? label);
+const columnLabels = [...short.slice(0, 4), `${short[4]} / ${short[5]}`, 'Done'];
+assert.equal(stageLabels.length, 6, 'six stages in stations.ts');
+assert.equal(columnLabels.length, 6, 'six columns');
 
 for (const [lang, html] of Object.entries(pages)) {
   const hub = app(html);
-  // The shell: top bar, rail with team and navigation, six-column Board, the card drawer.
+  // The shell: top bar with team switcher and navigation, six-column Board, the card drawer.
   assert.match(hub, /aria-label="Taskcell Hub — home"/, `${lang}: top bar`);
   assert.match(hub, /aria-label="Search \/ command palette"/, `${lang}: ⌘K`);
-  assert.match(hub, /aria-label="Breadcrumb"/, `${lang}: breadcrumb`);
-  assert.match(hub, /role="combobox"[^>]*title="[^"]+"/, `${lang}: project combobox`);
-  for (const nav of ['Home', 'Board', 'Runs', 'Settings']) assert.match(hub, new RegExp(`<span class="truncate">${nav}</span>`), `${lang}: rail ${nav}`);
-  assert.match(hub, /<div class="truncate px-2 py-1 text-sm font-semibold" title="[^"]+">/, `${lang}: team name`);
+  assert.match(hub, /<nav aria-label="Main"/, `${lang}: main navigation`);
+  for (const nav of ['Home', 'Board', 'Runs', 'Settings']) assert.match(hub, new RegExp(`<span>${nav}</span>`), `${lang}: nav ${nav}`);
+  assert.match(hub, /aria-label="Team: [^"]+"/, `${lang}: team switcher`);
   const cols = [...hub.matchAll(/data-hub-col="([^"]+)"/g)].map((m) => m[1]);
   assert.deepEqual(cols, columnLabels, `${lang}: board columns are the app's`);
   assert.match(hub, /aria-label="Quick view: /, `${lang}: card drawer`);
   const frames = [...hub.matchAll(/<template data-hub-step="(\d)">(.*?)<\/template>/g)];
   assert.equal(frames.length, 7, `${lang}: a stage line per step`);
-  for (const [, , frame] of frames) assert.deepEqual([...frame.matchAll(/<span class="[^"]*">([^<]+)<\/span><span class="sr-only">/g)].map((m) => m[1]), stageLabels);
+  for (const [, , frame] of frames) assert.deepEqual([...frame.matchAll(/<span class="text-sm[^"]*">([^<]+)<\/span><span class="ml-auto/g)].map((m) => m[1]), short);
   assert.deepEqual([...hub.matchAll(/data-status="([a-z]+)"/g)].slice(0, 6).length, 6);
   // Nothing the app does not show.
   assert.doesNotMatch(hub, /cache\s*\d|cache %|Repositories|repair 1:|\bsealed in\b/i, `${lang}: only what the app shows`);
@@ -110,7 +113,7 @@ for (let step = 0; step < STEPS; step++) {
   assert.equal(sizes().reduce((a, b) => a + b, 0), 10, 'cards move, none appear or vanish');
   const counts = [...root.querySelectorAll('[data-hub-count]')].map((c) => Number(c.textContent));
   assert.deepEqual(counts, sizes(), `step ${step}: the column counts follow the cards`);
-  assert.match(root.querySelector('[data-hub-counts]').textContent, /^Running \d+ · Waiting \d+$/);
+  assert.match(root.querySelector('[data-hub-counts]').textContent, /^Running \d+ · Queued \d+ · Waiting for you \d+$/);
 }
 hub.paint(2);
 assert.deepEqual(sizes(), before, 'the app’s own frame is step 2');

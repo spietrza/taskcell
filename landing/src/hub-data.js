@@ -31,7 +31,7 @@ export function hubAnimator(root) {
   const badges = Object.fromEntries([...root.querySelectorAll('[data-hub-badge]')].map((b) => [b.dataset.hubBadge, b]));
   const needBase = Number(badges.Home?.textContent ?? 0);
   const from = Number(drawer.dataset.hubStep);
-  const waiting = header ? Number(/Waiting (\d+)/.exec(header.textContent)?.[1] ?? 0) : 0;
+  const tail = / · Queued .*$/.exec(header?.textContent ?? '')?.[0] ?? '';
 
   const paint = (step) => {
     list.innerHTML = frames[step];
@@ -51,7 +51,7 @@ export function hubAnimator(root) {
     }
     if (header) {
       const taken = [1, 2].reduce((sum, i) => sum + q('body', cols[i]).querySelectorAll('[data-hub-card]').length, 0);
-      header.textContent = `Running ${taken} · Waiting ${waiting}`;
+      header.textContent = `Running ${taken}${tail}`;
     }
     for (const f of feed) gone(f, Number(f.dataset.hubAt) > step);
     gone(q('feed'), !feed.some((f) => Number(f.dataset.hubAt) <= step));
