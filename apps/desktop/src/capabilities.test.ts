@@ -1,7 +1,7 @@
 // Guards the Tauri capability files (src-tauri/capabilities): a capability whose remote URLs match any
 // host would hand the server switcher's commands (and through `servers_add`, a runtime grant to an
-// origin of the caller's choosing) to every page the window lands on. Only loopback (hub.json) and each
-// saved server's own origin (servers::grant, at runtime) may carry command permissions.
+// origin of the caller's choosing) to every page the window lands on. The local hub (servers::grant_local) and each
+// saved server (servers::grant) are granted at runtime to their exact origin; static files carry none.
 // @vitest-environment node
 import { expect, test } from 'vitest';
 import { readFileSync, readdirSync } from 'node:fs';
@@ -43,4 +43,9 @@ test('no capability grants a command permission to a wildcard remote host', () =
     (c) => (c.remote?.urls ?? []).some(wildcardHost) && c.permissions.some(isCommandPermission),
   );
   expect(offending.map((c) => c.identifier)).toEqual([]);
+});
+
+test('no static capability names a loopback origin', () => {
+  const urls = capabilities.flatMap((c) => c.remote?.urls ?? []);
+  expect(urls.filter((u) => /127\.0\.0\.1|localhost/.test(u))).toEqual([]);
 });

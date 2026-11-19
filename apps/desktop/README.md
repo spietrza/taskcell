@@ -120,8 +120,8 @@ without a hub it answers from `dev/mockBackend.ts` instead.
 `splash/index.html`), start the hub, navigate to its launch URL, restart it with backoff if it dies (a status
 overlay says so; one supervisor, so nothing starts twice), and stop it on quit. The hub also exits on its own
 if the app dies (its stdin, a pipe from the app, closes). Projects stay in the app config dir, so existing
-installs keep their list. Capabilities: `capabilities/hub.json` grants the loopback-served UI only window
-chrome (drag, close flush) — no commands.
+installs keep their list. Capabilities: `servers::grant_local` grants the local hub's exact launch origin window
+chrome (drag, close flush) and the server-switcher commands at runtime; there is no loopback wildcard.
 
 **Fleet** works here because this hub is loopback-only and started with `TASKCELL_HUB_ALLOW_FLEET=1`; any
 other hub rejects `spawn_run`/`kill_run`/`list_spawns`.
@@ -141,9 +141,10 @@ The top bar's server switcher (`src/ServerSwitcher.tsx`) swaps the window betwee
 hubs; the app menu's **Server ▸ Switch to Local Hub** is the way back from pages without the app's top bar.
 `src-tauri/src/servers.rs` keeps the list (`servers.json`, names and URLs; no credentials — the hub's session
 cookie lives in the webview). `Hub::switch` (`hub.rs`) navigates the window and runs one reconnect loop per
-selected server. The only Tauri commands are `servers_*`: `capabilities/hub.json` grants them to the loopback
-UI, and `servers::grant` adds a capability at runtime for each saved server's own origin (list and switch only, never every http(s)
-page). Users: [../../docs/hub.md](../../docs/hub.md#connect-the-desktop-app-to-a-server).
+selected server. The only Tauri commands are `servers_*`: `servers::grant_local` grants them to the local hub's exact
+launch origin, and `servers::grant` adds a capability at runtime for each saved server's own origin (never every http(s) page).
+A remote hub page may call only `servers_list` (ids and names; URLs are blanked for non-local callers) and `servers_switch`, plus
+window drag and event listen/unlisten. It cannot call `servers_add`/`servers_remove` or destroy the window itself; closing the window while a remote hub shows is done natively (`on_window_event` in `lib.rs`). Users: [../../docs/hub.md](../../docs/hub.md#connect-the-desktop-app-to-a-server).
 
 ## Hub mode (browser)
 

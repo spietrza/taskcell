@@ -213,6 +213,9 @@ impl Hub {
                     *self.child.lock().unwrap() = Some(child);
                     match url {
                         Some(url) if !self.stopping.load(Ordering::SeqCst) => {
+                            if let Err(e) = servers::grant_local(app, &url) {
+                                eprintln!("taskcell: cannot grant the local hub's UI: {e}");
+                            }
                             *self.local_url.lock().unwrap() = Some(url.clone());
                             if self.active().is_none() {
                                 open_hub(app, &url);
@@ -236,6 +239,11 @@ impl Hub {
             thread::sleep(backoff);
             backoff = (backoff * 2).min(MAX_BACKOFF);
         }
+    }
+
+    /// Origin of the local hub's launch URL while it runs.
+    pub fn local_origin(&self) -> Option<String> {
+        servers::origin_of(self.local_url.lock().unwrap().as_deref()?)
     }
 
     /// The saved server the window shows, or `None` for the local hub.

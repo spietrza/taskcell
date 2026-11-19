@@ -7,7 +7,7 @@ mod servers;
 
 use std::sync::Arc;
 use tauri::menu::{Menu, MenuItem, SubmenuBuilder};
-use tauri::RunEvent;
+use tauri::{RunEvent, WindowEvent};
 
 /// An update downloaded on consent, installed only after the hub has stopped (see `run`).
 #[cfg(desktop)]
@@ -81,6 +81,16 @@ pub fn run() {
     let builder = builder.plugin(tauri_plugin_updater::Builder::new().build());
     builder
         .manage(Arc::clone(&hub))
+        // A remote hub page may not call `destroy` (servers::grant), so the page's own close handler
+        // cannot finish the close: while a saved server shows, close the window natively.
+        .on_window_event({
+            let hub = Arc::clone(&hub);
+            move |window, event| {
+                if matches!(event, WindowEvent::CloseRequested { .. }) && hub.active().is_some() {
+                    let _ = window.destroy();
+                }
+            }
+        })
         .invoke_handler(tauri::generate_handler![
             servers::servers_list,
             servers::servers_add,

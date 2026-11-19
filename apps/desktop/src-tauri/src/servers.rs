@@ -92,24 +92,54 @@ pub fn reachable(url: &str) -> bool {
         .unwrap_or(false)
 }
 
-/// Let a saved server's own pages list and switch servers (the way back to Local) and use the window
-/// chrome the local hub's UI has — and only that origin (never every http(s) page; capabilities/hub.json
-/// covers loopback). Adding and removing servers stays with the local UI: a remote hub is untrusted.
+/// Origin (`scheme://host:port`) of a URL, or `None` if it does not parse.
+pub fn origin_of(url: &str) -> Option<String> {
+    Some(Url::parse(url).ok()?.origin().ascii_serialization())
+}
+
+fn add_origin_capability(app: &AppHandle, identifier: String, origin: &str, permissions: &[&str]) -> Result<(), String> {
+    let capability = serde_json::json!({
+        "identifier": identifier,
+        "windows": ["main"],
+        "remote": { "urls": [format!("{origin}/*")] },
+        "permissions": permissions
+    });
+    app.add_capability(capability.to_string()).map_err(|e| e.to_string())
+}
+
+/// The local hub's UI: window chrome plus the whole server switcher — and only its exact launch origin
+/// (never a loopback wildcard: any other local web server in the webview would get `servers_add`).
+pub fn grant_local(app: &AppHandle, launch_url: &str) -> Result<(), String> {
+    let origin = origin_of(launch_url).ok_or("Unparseable hub URL")?;
+    add_origin_capability(
+        app,
+        "local-hub".into(),
+        &origin,
+        &[
+            "allow-servers-list", "allow-servers-add", "allow-servers-remove", "allow-servers-switch",
+            "core:window:allow-start-dragging", "core:window:allow-destroy",
+            "core:event:allow-listen", "core:event:allow-unlisten",
+        ],
+    )
+}
+
+/// Let a saved server's own pages switch servers (the way back to Local), list them (names only, see
+/// `servers_list`) and drag the window — and only that origin (never every http(s) page). Adding and
+/// removing servers and closing the window stay with the local UI: a remote hub is untrusted.
 pub fn grant(app: &AppHandle, server: &Server) -> Result<(), String> {
     // Re-checked: servers.json may be hand-edited or predate the host check in `normalize_url`.
     let url = normalize_url(&server.url)?;
-    let origin = Url::parse(&url).map_err(|e| e.to_string())?.origin().ascii_serialization();
-    let capability = serde_json::json!({
-        "identifier": format!("server-{}", server.id),
-        "windows": ["main"],
-        "remote": { "urls": [format!("{origin}/*")] },
-        "permissions": [
+    let origin = origin_of(&url).ok_or("Unparseable server URL")?;
+    add_origin_capability(
+        app,
+        format!("server-{}", server.id),
+        &origin,
+        &[
             "allow-servers-list", "allow-servers-switch",
-            "core:window:allow-start-dragging", "core:window:allow-destroy",
-            "core:event:allow-listen", "core:event:allow-unlisten"
-        ]
-    });
-    app.add_capability(capability.to_string()).map_err(|e| e.to_string())
+            "core:window:allow-start-dragging",
+            "core:event:allow-listen", "core:event:allow-unlisten",
+        ],
+    )
 }
 
 pub fn config_dir(app: &AppHandle) -> Result<PathBuf, String> {
@@ -129,8 +159,15 @@ fn new_id() -> String {
 }
 
 #[tauri::command]
-pub fn servers_list(app: AppHandle, hub: State<'_, Arc<Hub>>) -> Result<ServerState, String> {
-    Ok(ServerState { servers: load(&config_dir(&app)?)?, active: hub.active() })
+pub fn servers_list(app: AppHandle, webview: tauri::Webview, hub: State<'_, Arc<Hub>>) -> Result<ServerState, String> {
+    let mut servers = load(&config_dir(&app)?)?;
+    // A remote hub is untrusted: it gets ids and names (enough to switch), never the other hubs' URLs.
+    let local = hub.local_origin();
+    let from_local = local.is_some() && webview.url().ok().and_then(|u| origin_of(u.as_str())) == local;
+    if !from_local {
+        servers.iter_mut().for_each(|s| s.url.clear());
+    }
+    Ok(ServerState { servers, active: hub.active() })
 }
 
 #[tauri::command]
