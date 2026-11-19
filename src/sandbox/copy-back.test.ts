@@ -71,6 +71,15 @@ describe('classifyPath', () => {
     }
   });
 
+  it('refuses NTFS 8.3 and HFS+ ignorable-code-point aliases of .git', async () => {
+    for (const p of ['GIT~1', 'sub/git~2/x', 'Git~12', '.g\u200cit', 'a/.G\ufeffIT/HEAD', '\u200e.git']) {
+      expect(await classifyPath('/nonexistent', p), p).toBeDefined();
+    }
+    for (const p of ['git~', 'git~a', 'gitx', '.gitignore', 'a/.github-x']) {
+      expect(await classifyPath('/nonexistent', p), p).toBeUndefined();
+    }
+  });
+
   it('classifies CI config, including nested .gitlab YAML and a case-variant .GITHUB directory', async () => {
     // Only the non-executed files need to exist: a path the rule matches is classified without an lstat.
     const root = await stage({ '.github/CODEOWNERS': '* @me\n', '.gitlab/merge_request_templates/default.md': 'tpl\n' });

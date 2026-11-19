@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { DockerSandboxProvider, isBenignTarExit } from './docker.js';
 import { resolveSandboxProfile } from './limits.js';
-import { prunedNames } from './copy-back.js';
+import { prunedPatterns } from './copy-back.js';
 import { WorktreeManager } from '../worktree/manager.js';
 import { readEnv } from '../core/env.js';
 
@@ -218,12 +218,19 @@ suite('smoke: pnpm install -> copy-back -> diff', () => {
       expect(install.exitCode, install.stderr).toBe(0);
       expect(await sb.exists('/workspace/pnpm-lock.yaml')).toBe(true);
       expect(await sb.exists('/workspace/node_modules')).toBe(true);
+      const planted = await sb.exec('mkdir -p /workspace/sub/.Git && echo x > /workspace/.GIT && echo x > /workspace/sub/.Git/x');
+      expect(planted.exitCode, planted.stderr).toBe(0);
 
-      await sb.copyFileOut('/workspace', staging, { exclude: prunedNames() });
+      await sb.copyFileOut('/workspace', staging, { exclude: prunedPatterns() });
       await cp(staging, worktree, { recursive: true, force: true });
 
       // Copy-back drops node_modules at the source, same as production (see copy-back.ts's PATH_POLICY).
       await expect(stat(join(worktree, 'node_modules'))).rejects.toThrow();
+      // Case-folded .git excludes are dropped at the source by the real tar.
+      await expect(stat(join(staging, '.GIT'))).rejects.toThrow();
+      await expect(stat(join(staging, 'sub', '.Git'))).rejects.toThrow();
+      await expect(stat(join(worktree, '.GIT'))).rejects.toThrow();
+      await expect(stat(join(worktree, 'sub', '.Git', 'x'))).rejects.toThrow();
 
       const wm = new WorktreeManager(worktree);
       const diff = await wm.diff(worktree);
