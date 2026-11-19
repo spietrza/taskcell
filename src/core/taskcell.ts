@@ -307,7 +307,13 @@ const DROPPED_CI_LOGGED = 20;
 async function syncSandboxToWorktree(ctx: RunContext): Promise<string> {
   const staging = await ensureStateDir(ctx.localRepoPath, join(stateDir(ctx.localRepoPath), 'staging', ctx.taskId));
   try {
-    const { dropped, ignoredDeletions, deletionsSkipped } = await exportWorkspace(ctx.sandbox, WORKDIR, staging, ctx.worktreePath);
+    const { dropped, ignoredDeletions, deletionsSkipped, gitCaseVariants } = await exportWorkspace(ctx.sandbox, WORKDIR, staging, ctx.worktreePath);
+    if (gitCaseVariants.length > 0) {
+      ctx.log.warn(
+        { taskId: ctx.taskId, count: gitCaseVariants.length, paths: gitCaseVariants.slice(0, DROPPED_CI_LOGGED) },
+        'copy-back: dropped .git case variant (.GIT, .Git/ are never synced back: they would replace the worktree .git on a case-insensitive host)',
+      );
+    }
     if (deletionsSkipped !== undefined) {
       ctx.log.warn({ taskId: ctx.taskId, reason: deletionsSkipped }, 'copy-back: file deletions were not synced to the worktree');
     }
