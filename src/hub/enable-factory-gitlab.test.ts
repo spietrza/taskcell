@@ -360,6 +360,13 @@ describe('applyGitlabFactory', () => {
     expect(out).toMatch(/^ {2}stage: test\n {2}tags: \["\$\$CI_TAG", "\$&", "\$'", "\$1"\]$/m);
     expect(parse(out)['.taskcell-base'].tags).toEqual(['$$CI_TAG', '$&', "$'", '$1']);
   });
+  it('passes the login as --feedback-authors on every command that reads notes', async () => {
+    const dir = await repo();
+    await applyGitlabFactory(dir, plan, { exec: fake().exec });
+    const out = await readFile(join(dir, '.gitlab/taskcell.yml'), 'utf8');
+    for (const cmd of ['doctor', 'watch']) expect(out).toMatch(new RegExp(`index\\.js ${cmd} .*--feedback-authors "tanuki"`));
+    expect(out).not.toContain('YOUR_GITLAB_LOGIN');
+  });
   it('turns an empty include: into a one-entry list', async () => {
     const dir = await repo();
     await applyGitlabFactory(dir, plan, { exec: fake({ show: { '.gitlab-ci.yml': 'include:\nstages: [a]\n' } }).exec });
