@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { beginRun } from '../core/run-store.js';
 import { STAGE_MARKER_TTL_MS, writeStageMarker } from '../core/run-stage-marker.js';
-import { BOARD_FETCH_CAP, listBoardTasks } from './board-list.js';
+import { BOARD_FETCH_CAP, listBoardTasks, readBoardConfig } from './board-list.js';
 import { toBoardTask } from './board.js';
 import type { TaskFetcher, Task } from './fetcher.js';
 let repo: string;
@@ -54,4 +54,18 @@ it('refuses a symlinked marker directory and malformed marker payloads', async (
   await writeFile(join(repo, 'outside', 'gh-1.json'), JSON.stringify({ taskId: 'gh-1', stage: 'forged', index: 0, of: 1, updatedAt: new Date().toISOString() }));
   await symlink(join(repo, 'outside'), join(repo, '.vanguard', 'stage'));
   expect((await listBoardTasks(repo, fetcherFor)).tasks[0]).not.toHaveProperty('stage');
+});
+
+it.each(['leaf', 'dir'])('readBoardConfig ignores a %s symlinked app.json', async (kind) => {
+  const outside = join(repo, 'outside');
+  await mkdir(outside);
+  await writeFile(join(outside, 'app.json'), JSON.stringify({ label: 'leaked' }));
+  if (kind === 'leaf') {
+    await rm(join(repo, '.vanguard', 'app.json'));
+    await symlink(join(outside, 'app.json'), join(repo, '.vanguard', 'app.json'));
+  } else {
+    await rm(join(repo, '.vanguard'), { recursive: true });
+    await symlink(outside, join(repo, '.vanguard'));
+  }
+  expect(await readBoardConfig(repo)).toEqual({});
 });
