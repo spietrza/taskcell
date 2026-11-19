@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { mkdir, symlink, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
@@ -73,5 +73,28 @@ describe('app-config', () => {
     expect(entry.name).toBe('my-proxy');
     expect(entry.keyEnv).toBe('MY_KEY');
     expect((entry.futureKey as Record<string, unknown>).nested).toBe(true);
+  });
+
+  describe.each(['leaf', 'dir'])('%s symlink', (kind) => {
+    beforeEach(async () => {
+      const outside = join(repoPath, 'outside');
+      await mkdir(outside);
+      await writeFile(join(outside, 'secret.json'), '{"label":"leaked"}');
+      if (kind === 'leaf') {
+        await mkdir(join(repoPath, '.taskcell'));
+        await symlink(join(outside, 'secret.json'), join(repoPath, '.taskcell', 'app.json'));
+      } else {
+        await writeFile(join(outside, 'app.json'), '{"label":"leaked"}');
+        await symlink(outside, join(repoPath, '.taskcell'));
+      }
+    });
+
+    it('passive reader returns {}', async () => {
+      expect(await readAppConfig(repoPath)).toEqual({});
+    });
+
+    it('strict reader throws unreadable', async () => {
+      await expect(readAppConfigStrict(repoPath)).rejects.toThrow('.taskcell/app.json is unreadable:');
+    });
   });
 });

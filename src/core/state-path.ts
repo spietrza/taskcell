@@ -1,6 +1,6 @@
 import type { Stats } from 'node:fs';
-import { lstatSync } from 'node:fs';
-import { lstat, mkdir } from 'node:fs/promises';
+import { constants, lstatSync } from 'node:fs';
+import { lstat, mkdir, open } from 'node:fs/promises';
 import { isAbsolute, join, relative, resolve, sep } from 'node:path';
 import { execa } from 'execa';
 import { StatePathError } from './errors.js';
@@ -154,4 +154,27 @@ async function hintIfNotIgnored(repoPath: string): Promise<void> {
 /** Guard against path traversal: a task id must name a single direct child of a state subdirectory. */
 export function isSafeTaskId(taskId: string): boolean {
   return taskId !== '' && !taskId.includes('/') && !taskId.includes('\\') && !taskId.includes('..') && !isAbsolute(taskId);
+}
+
+/**
+ * Read a file's text but refuse a symlinked leaf or anything that is not a regular file: a repo
+ * under inspection could plant a `.diff`/`.transcript.log`/`.proof.json` pointing at an arbitrary
+ * file and have its contents shown in the UI. The lstat gives the clear error; opening with
+ * O_NOFOLLOW (where the platform has it) and checking the opened handle closes the swap-in race.
+ * Guards the leaf symlink only (mirrors the Rust implementation's caveat).
+ */
+export async function readTextNoSymlink(path: string): Promise<string> {
+  const info = await lstat(path);
+  if (info.isSymbolicLink()) {
+    throw new Error('refusing to read a symlinked file');
+  }
+  if (!info.isFile()) throw new Error('refusing to read a non-regular file');
+  // O_NONBLOCK: a FIFO swapped in after the lstat would otherwise block a threadpool thread on open.
+  const handle = await open(path, constants.O_RDONLY | (constants.O_NOFOLLOW ?? 0) | (constants.O_NONBLOCK ?? 0));
+  try {
+    if (!(await handle.stat()).isFile()) throw new Error('refusing to read a non-regular file');
+    return await handle.readFile('utf8');
+  } finally {
+    await handle.close();
+  }
 }

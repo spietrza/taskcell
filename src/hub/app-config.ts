@@ -1,7 +1,7 @@
 // Hub-side project/config logic (ported from the removed desktop Rust module).
-import { readFile, writeFile } from 'node:fs/promises';
+import { writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
-import { assertStatePath, ensureStateDir, stateDir } from '../core/state-path.js';
+import { assertStatePath, readTextNoSymlink, ensureStateDir, stateDir } from '../core/state-path.js';
 
 /** The app's per-project config (`.taskcell/app.json`, spec §6). All optional; the CLI reads only `baseBranch`/`baseBranches`
  * (core/base-branch.ts) — the app translates the rest into flags / a launch command. `.taskcell/*` is
@@ -50,11 +50,17 @@ function configPath(repoPath: string): string {
   return join(stateDir(repoPath), 'app.json');
 }
 
+/** Read `.taskcell/app.json`, refusing a symlink on any segment: the file is repo content, so a committed link must not expose a file outside the checkout. */
+async function readConfigText(repoPath: string): Promise<string> {
+  await assertStatePath(repoPath, configPath(repoPath));
+  return readTextNoSymlink(configPath(repoPath));
+}
+
 /** Passive read: ANY failure (missing file, unparseable, directory, permission) collapses to `{}`
  * (all-defaults). Used by board/chat/projects consumers that must never block on a bad file. */
 export async function readAppConfig(repoPath: string): Promise<AppConfig> {
   try {
-    const raw = await readFile(configPath(repoPath), 'utf8');
+    const raw = await readConfigText(repoPath);
     return JSON.parse(raw) as AppConfig;
   } catch {
     return {};
@@ -68,7 +74,7 @@ export async function readAppConfig(repoPath: string): Promise<AppConfig> {
 export async function readAppConfigStrict(repoPath: string): Promise<AppConfig> {
   let raw: string;
   try {
-    raw = await readFile(configPath(repoPath), 'utf8');
+    raw = await readConfigText(repoPath);
   } catch (e) {
     if (e instanceof Error && 'code' in e && e.code === 'ENOENT') {
       return {};
