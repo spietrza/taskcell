@@ -157,17 +157,18 @@ function fakeSandbox(files: Tree, excludeArgs: (readonly string[])[] = []): Pick
 }
 
 describe('exportWorkspace', () => {
-  it('drops .GIT (file) and .Git/ (dir) at any depth and leaves the worktree .git pointer byte-identical', async () => {
+  it('drops .GIT (file) and .Git/ (dir) at any depth, reports them, and leaves the worktree .git pointer byte-identical', async () => {
     const worktree = await mkdtemp(join(tmpdir(), 'vg-copyback-wt-'));
     const staging = await mkdtemp(join(tmpdir(), 'vg-copyback-staging-'));
     try {
       const pointer = 'gitdir: /somewhere/real\n';
       await writeFile(join(worktree, '.git'), pointer);
       const sandbox = fakeSandbox({ 'README.md': '# r\n', '.GIT': 'gitdir: ./evilgit\n', 'evilgit/config': 'x\n', '.Git/config': 'x\n', 'sub/.gIt/HEAD': 'x\n' });
-      await exportWorkspace(sandbox, '/workspace', staging, worktree);
+      const report = await exportWorkspace(sandbox, '/workspace', staging, worktree);
       expect(await readFile(join(worktree, '.git'), 'utf8')).toEqual(pointer);
       await expect(stat(join(worktree, 'sub', '.gIt'))).rejects.toThrow();
       expect(await readFile(join(worktree, 'README.md'), 'utf8')).toEqual('# r\n');
+      expect([...report.gitCaseVariants].sort()).toEqual(['.GIT', '.Git', join('sub', '.gIt')].sort());
       expect(await classifyPath(staging, '.GIT')).toBeDefined();
       expect(await classifyPath(staging, 'a/.Git/x')).toBeDefined();
     } finally {
@@ -175,19 +176,40 @@ describe('exportWorkspace', () => {
     }
   });
 
-  it('fails the copy-back when the worktree .git entry is replaced during the copy', async () => {
+  it('reports the .git case variants the sandbox lists, which the source excludes keep out of staging', async () => {
     const worktree = await mkdtemp(join(tmpdir(), 'vg-copyback-wt-'));
     const staging = await mkdtemp(join(tmpdir(), 'vg-copyback-staging-'));
     try {
-      await writeFile(join(worktree, '.git'), 'gitdir: /somewhere/real\n');
+      const commands: string[] = [];
+      const sandbox = fakeSandbox({ 'README.md': '# r\n' });
+      sandbox.exec = async (cmd) => {
+        commands.push(cmd);
+        return cmd.includes("-iname '.git'") ? { exitCode: 0, stdout: './.GIT\0./sub/.Git\0', stderr: '' } : { exitCode: 1, stdout: '', stderr: '' };
+      };
+      const report = await exportWorkspace(sandbox, '/workspace', staging, worktree);
+      expect(report.gitCaseVariants).toEqual(['.GIT', 'sub/.Git']);
+      expect(commands.some((c) => c.startsWith('cd /workspace && find . '))).toBe(true);
+    } finally {
+      for (const root of [worktree, staging]) await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it('fails the copy-back and restores the pointer bytes when the worktree .git entry is replaced during the copy', async () => {
+    const worktree = await mkdtemp(join(tmpdir(), 'vg-copyback-wt-'));
+    const staging = await mkdtemp(join(tmpdir(), 'vg-copyback-staging-'));
+    try {
+      const pointer = 'gitdir: /somewhere/real\n';
+      await writeFile(join(worktree, '.git'), pointer);
       const sandbox = fakeSandbox({ 'README.md': '# r\n' });
       const copyFileOut = sandbox.copyFileOut.bind(sandbox);
       sandbox.copyFileOut = async (...args): Promise<void> => {
         await copyFileOut(...args);
         await rm(join(worktree, '.git'));
-        await writeFile(join(worktree, '.git'), 'gitdir: ./evilgit\n');
+        // Same length, so only a content comparison (not size) can tell them apart.
+        await writeFile(join(worktree, '.git'), 'gitdir: /somewhere/evil\n');
       };
       await expect(exportWorkspace(sandbox, '/workspace', staging, worktree)).rejects.toThrow(/\.git entry changed/);
+      expect(await readFile(join(worktree, '.git'), 'utf8')).toEqual(pointer);
     } finally {
       for (const root of [worktree, staging]) await rm(root, { recursive: true, force: true });
     }

@@ -1,6 +1,6 @@
 import { constants } from 'node:fs';
-import { cp, lstat, open, readdir, readlink, realpath, rm, rmdir } from 'node:fs/promises';
-import { dirname, isAbsolute, join, relative, sep } from 'node:path';
+import { cp, lstat, open, readdir, readFile, readlink, realpath, rm, rmdir, symlink, writeFile } from 'node:fs/promises';
+import { basename, dirname, isAbsolute, join, relative, sep } from 'node:path';
 import { SandboxError } from '../core/errors.js';
 import type { IsolatedSandboxProvider } from './provider.js';
 
@@ -11,12 +11,14 @@ import type { IsolatedSandboxProvider } from './provider.js';
  * single line; a skip that needs adding goes here and nowhere else.
  *
  * `name`: a bare directory/file name, matched at any depth by GNU/busybox `find -prune` and `tar
- * --exclude` alike, so the entry is pruned at the *source* — it never reaches staging. Omit it for a
+ * --exclude` alike (as a case-folding glob when `ignoreCase` is set — see `prunedPatterns`), so the
+ * entry is pruned at the *source* — it never reaches staging. Omit it for a
  * skip that can only be recognised by path shape (e.g. nested CI YAML under `.gitlab/`), which can
  * only be filtered host-side, after it has already been staged.
  *
  * Every rule drops silently except CI_CONFIG_RULE, whose matches are tracked and diffed against the
- * worktree — see `exportWorkspace`'s `dropped` result.
+ * worktree — see `exportWorkspace`'s `dropped` result — and the `.git` rule's case variants (`.GIT`,
+ * `.Git/`), which are reported in `gitCaseVariants`.
  */
 export interface PathSkipRule {
   readonly name?: string;
@@ -87,7 +89,8 @@ export async function classifyPath(stagingRoot: string, rel: string): Promise<Pa
   return PATH_POLICY.find((rule) => rule.match.test(rel));
 }
 
-/** Bare names pruned at the source (never archived out of the sandbox at all) — see PathSkipRule.name. */
+/** The rules' bare names as written (`.git`, not its case variants), for messages. What is actually
+ * pruned at the source, case variants included, is `prunedPatterns()`. */
 export function prunedNames(): string[] {
   return PATH_POLICY.flatMap((rule) => (rule.name !== undefined ? [rule.name] : []));
 }
@@ -98,7 +101,7 @@ export function prunedPatterns(): string[] {
   return PATH_POLICY.flatMap(({ name, ignoreCase }) => (name === undefined ? [] : [ignoreCase === true ? caseFold(name) : name]));
 }
 
-/** The `find`+`awk` ceiling measurement, with every `name` rule pruned — same names copyFileOut excludes. */
+/** The `find`+`awk` ceiling measurement, with every `prunedPatterns()` glob pruned — the same globs copyFileOut excludes. */
 export function ceilingFindCommand(workdir: string): string {
   const prune = prunedPatterns()
     .map((name) => `-name '${name}'`)
@@ -211,6 +214,9 @@ export interface CopyBackReport {
   ignoredDeletions: string[];
   /** Why the deletion sync did not run (no baseline commit, or the listing failed); absent when it ran. */
   deletionsSkipped?: string;
+  /** Case variants of `.git` (`.GIT`, `sub/.Git`) in the sandbox workspace — never synced back: on a
+   * case-insensitive host they would replace the worktree's own `.git`. */
+  gitCaseVariants: string[];
 }
 
 export interface ExportWorkspaceOptions {
@@ -285,18 +291,58 @@ async function syncDeletions(
   return { ignoredDeletions };
 }
 
-/** Identity of the worktree's own `.git` entry (type, size, inode, mtime, link target); the copy must leave it as is. */
-async function gitEntrySnapshot(path: string): Promise<string> {
+/** True for a case variant of `.git` other than `.git` itself. */
+const isGitCaseVariant = (name: string): boolean => name !== '.git' && name.toLowerCase() === '.git';
+
+/** Lists, NUL-separated, every `.git` case variant in the workspace other than `.git` itself, without
+ * descending into `.git` or a variant. */
+const GIT_CASE_VARIANTS_COMMAND = `find . \\( -name '.git' -prune \\) -o \\( -iname '.git' -prune -print0 \\)`;
+
+/** The `.git` case variants in the sandbox workspace. They are pruned at the source, so only the
+ * sandbox can list them; a listing that fails lists none (the host-side filter still drops them). */
+async function listGitCaseVariants(sandbox: Pick<IsolatedSandboxProvider, 'exec'>, workdir: string): Promise<string[]> {
+  const res = await sandbox.exec(`cd ${workdir} && ${GIT_CASE_VARIANTS_COMMAND}`).catch(() => undefined);
+  if (res === undefined || res.exitCode !== 0) return [];
+  return res.stdout
+    .split('\0')
+    .map((p) => p.replace(/^\.\//, ''))
+    .filter((p) => isGitCaseVariant(basename(p)));
+}
+
+/** The worktree's own `.git` entry by content: a linked worktree's pointer file by its bytes, a symlink
+ * by its target, a directory (too large to snapshot) by identity. */
+type GitEntry = { kind: 'missing' } | { kind: 'file'; bytes: Buffer } | { kind: 'symlink'; target: string } | { kind: 'other'; id: string };
+
+async function snapshotGitEntry(path: string): Promise<GitEntry> {
   const info = await lstat(path).catch(() => undefined);
-  if (info === undefined) return 'missing';
-  const target = info.isSymbolicLink() ? await readlink(path) : '';
-  return [info.mode, info.size, info.ino, info.dev, info.mtimeMs, target].join(':');
+  if (info === undefined) return { kind: 'missing' };
+  if (info.isFile()) return { kind: 'file', bytes: await readFile(path) };
+  if (info.isSymbolicLink()) return { kind: 'symlink', target: await readlink(path) };
+  return { kind: 'other', id: `${info.mode}:${info.dev}:${info.ino}` };
+}
+
+function sameGitEntry(a: GitEntry, b: GitEntry): boolean {
+  if (a.kind === 'file' && b.kind === 'file') return a.bytes.equals(b.bytes);
+  if (a.kind === 'symlink' && b.kind === 'symlink') return a.target === b.target;
+  if (a.kind === 'other' && b.kind === 'other') return a.id === b.id;
+  return a.kind === b.kind;
+}
+
+/** Put the snapshot `.git` back before refusing, so host git run afterwards (disposeContext's worktree
+ * cleanup) acts on the real repository, not one the sandbox planted. A directory cannot be restored. */
+async function restoreGitEntry(path: string, entry: GitEntry): Promise<void> {
+  if (entry.kind === 'other') return;
+  await rm(path, { recursive: true, force: true });
+  if (entry.kind === 'file') await writeFile(path, entry.bytes);
+  if (entry.kind === 'symlink') await symlink(entry.target, path);
 }
 
 /**
  * The one interface for what leaves the sandbox: export the workspace at `workdir` into `worktreePath`
- * via `stagingDir`, then report the CI config that was dropped. The ceiling, copyFileOut's source
- * excludes and the host-side filter all come from the same PATH_POLICY, so they can never disagree.
+ * via `stagingDir`, then report the CI config and `.git` case variants that were dropped. The worktree's
+ * own `.git` must come out of the copy byte-identical; if it does not, it is restored and the copy-back
+ * refused. The ceiling, copyFileOut's source excludes and the host-side filter all come from the same
+ * PATH_POLICY, so they can never disagree.
  */
 export async function exportWorkspace(
   sandbox: Pick<IsolatedSandboxProvider, 'exec' | 'copyFileOut'>,
@@ -307,35 +353,43 @@ export async function exportWorkspace(
 ): Promise<CopyBackReport> {
   await assertWorkspaceWithinCeiling(sandbox, workdir, maxBytes, maxFiles);
   const gitEntry = join(worktreePath, '.git');
-  const gitBefore = await gitEntrySnapshot(gitEntry);
-  // Skipped at the source too: pruned names never sync back and can dwarf the workspace.
-  await sandbox.copyFileOut(workdir, stagingDir, {
-    exclude: prunedPatterns(),
-    maxBytes: maxBytes + maxFiles * STREAM_OVERHEAD_PER_FILE_BYTES,
-  });
-
-  const charge = copyBackBudget(maxBytes, maxFiles);
+  const gitBefore = await snapshotGitEntry(gitEntry);
+  const gitCaseVariants = new Set(await listGitCaseVariants(sandbox, workdir));
   const dropped: string[] = [];
-  const deletions = await syncDeletions(sandbox, workdir, stagingDir, worktreePath, dropped);
-  await cp(stagingDir, worktreePath, {
-    recursive: true,
-    force: true,
-    verbatimSymlinks: true,
-    filter: async (src) => {
-      const rel = relative(stagingDir, src);
-      if (rel === '') return true;
-      const rule = await classifyPath(stagingDir, rel);
-      if (rule !== undefined) {
-        if (rule === CI_CONFIG_RULE) dropped.push(rel);
-        return false;
-      }
-      charge(await lstat(src));
-      return true;
-    },
-  });
+  let deletions: Awaited<ReturnType<typeof syncDeletions>>;
+  try {
+    // Skipped at the source too: pruned names never sync back and can dwarf the workspace.
+    await sandbox.copyFileOut(workdir, stagingDir, {
+      exclude: prunedPatterns(),
+      maxBytes: maxBytes + maxFiles * STREAM_OVERHEAD_PER_FILE_BYTES,
+    });
 
-  if ((await gitEntrySnapshot(gitEntry)) !== gitBefore) {
-    throw new SandboxError("copy-back: the worktree's .git entry changed during the copy; refusing the copy-back, nothing is committed");
+    const charge = copyBackBudget(maxBytes, maxFiles);
+    deletions = await syncDeletions(sandbox, workdir, stagingDir, worktreePath, dropped);
+    await cp(stagingDir, worktreePath, {
+      recursive: true,
+      force: true,
+      verbatimSymlinks: true,
+      filter: async (src) => {
+        const rel = relative(stagingDir, src);
+        if (rel === '') return true;
+        const rule = await classifyPath(stagingDir, rel);
+        if (rule !== undefined) {
+          if (rule === CI_CONFIG_RULE) dropped.push(rel);
+          else if (isGitCaseVariant(basename(rel))) gitCaseVariants.add(rel);
+          return false;
+        }
+        charge(await lstat(src));
+        return true;
+      },
+    });
+  } finally {
+    // Also on a failed copy, since the run's cleanup still runs host git in the worktree; this refusal
+    // outranks any copy error.
+    if (!sameGitEntry(await snapshotGitEntry(gitEntry), gitBefore)) {
+      await restoreGitEntry(gitEntry, gitBefore);
+      throw new SandboxError("copy-back: the worktree's .git entry changed during the copy; it was restored and the copy-back refused, nothing is committed");
+    }
   }
 
   // A comparison that fails reports the whole dropped path, so an edit is never hidden.
@@ -343,7 +397,7 @@ export async function exportWorkspace(
   for (const rel of dropped) {
     await collectChangedFiles(stagingDir, worktreePath, rel, changed).catch(() => changed.push(rel));
   }
-  return { dropped: changed, ...deletions };
+  return { dropped: changed, ...deletions, gitCaseVariants: [...gitCaseVariants] };
 }
 
 /** True when `path` is CI config by CI_CONFIG_RULE (`.github/workflows`, `.github/actions`,
