@@ -141,10 +141,10 @@ The top bar's server switcher (`src/ServerSwitcher.tsx`) swaps the window betwee
 hubs; the app menu's **Server ▸ Switch to Local Hub** is the way back from pages without the app's top bar.
 `src-tauri/src/servers.rs` keeps the list (`servers.json`, names and URLs; no credentials — the hub's session
 cookie lives in the webview). `Hub::switch` (`hub.rs`) navigates the window and runs one reconnect loop per
-selected server. The only Tauri commands are `servers_*` and `close_window`: `servers::grant_local` grants them to the local hub's exact
+selected server. The only Tauri commands are `servers_*`: `servers::grant_local` grants them to the local hub's exact
 launch origin, and `servers::grant` adds a capability at runtime for each saved server's own origin (never every http(s) page).
 A remote hub page may call only `servers_list` (ids and names; URLs are blanked for non-local callers) and `servers_switch`, plus
-window drag and event listen/unlisten. It cannot call `servers_add`/`servers_remove` (also refused at call time unless the caller is the running local hub's origin) or destroy the window; after its discard prompt and write flush it finishes a user-requested close with `close_window`, which works only while that close is pending and the page's origin is the one it was requested on (`lib.rs`). A page that neither takes the close over (`hold_close`), cancels nor finishes it within 5 s (an older hub UI) is closed by the app itself. Users: [../../docs/hub.md](../../docs/hub.md#connect-the-desktop-app-to-a-server).
+window chrome (drag, close) and event listen/unlisten. It cannot call `servers_add`/`servers_remove` (also refused at call time unless the caller is the running local hub's origin). Users: [../../docs/hub.md](../../docs/hub.md#connect-the-desktop-app-to-a-server).
 
 ## Hub mode (browser)
 

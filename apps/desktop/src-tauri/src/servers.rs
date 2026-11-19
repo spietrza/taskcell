@@ -98,7 +98,7 @@ pub fn origin_of(url: &str) -> Option<String> {
 }
 
 /// Origin of the page a webview shows (its `url()`), or `None` if that is unavailable.
-pub fn page_origin(url: tauri::Result<Url>) -> Option<String> {
+fn page_origin(url: tauri::Result<Url>) -> Option<String> {
     Some(url.ok()?.origin().ascii_serialization())
 }
 
@@ -122,7 +122,6 @@ pub fn grant_local(app: &AppHandle, launch_url: &str) -> Result<(), String> {
         &origin,
         &[
             "allow-servers-list", "allow-servers-add", "allow-servers-remove", "allow-servers-switch",
-            "allow-hold-close",
             "core:window:allow-start-dragging", "core:window:allow-destroy",
             "core:event:allow-listen", "core:event:allow-unlisten",
         ],
@@ -130,9 +129,8 @@ pub fn grant_local(app: &AppHandle, launch_url: &str) -> Result<(), String> {
 }
 
 /// Let a saved server's own pages switch servers (the way back to Local), list them (names only, see
-/// `servers_list`) and drag the window — and only that origin (never every http(s) page). Adding and
-/// removing servers stay with the local UI: a remote hub is untrusted. It may not `destroy` the window
-/// either, only finish a user-initiated close (`close_window` in lib.rs).
+/// `servers_list`) and use the window chrome the local hub's UI has — and only that origin (never every
+/// http(s) page). Adding and removing servers stay with the local UI: a remote hub is untrusted.
 pub fn grant(app: &AppHandle, server: &Server) -> Result<(), String> {
     // Re-checked: servers.json may be hand-edited or predate the host check in `normalize_url`.
     let url = normalize_url(&server.url)?;
@@ -142,8 +140,8 @@ pub fn grant(app: &AppHandle, server: &Server) -> Result<(), String> {
         format!("server-{}", server.id),
         &origin,
         &[
-            "allow-servers-list", "allow-servers-switch", "allow-close-window", "allow-hold-close",
-            "core:window:allow-start-dragging",
+            "allow-servers-list", "allow-servers-switch",
+            "core:window:allow-start-dragging", "core:window:allow-destroy",
             "core:event:allow-listen", "core:event:allow-unlisten",
         ],
     )
