@@ -1,5 +1,3 @@
-import { readFile } from 'node:fs/promises';
-import { join } from 'node:path';
 import { PROVIDER_NAMES } from './registry.js';
 import { runClaudeCli } from './claude-stream.js';
 import { buildClaudeArgs } from './claude-code.js';
@@ -31,7 +29,7 @@ export interface CustomProviderEntry {
 import { FLOW_NAME_RE as NAME_RE, KEY_ENV_RE, CUSTOM_PROVIDER_KEYS } from '../wire.js';
 import type { CustomProviderSpec } from '../wire.js';
 import { INJECTED_SECRET_ENV_VARS } from '../core/secret-scan.js';
-import { stateDir } from '../core/state-path.js';
+import { readStateFileNoSymlink } from '../core/state-path.js';
 
 const ENTRY_KEYS: ReadonlySet<string> = new Set(CUSTOM_PROVIDER_KEYS);
 
@@ -117,16 +115,16 @@ function isUrl(value: string): boolean {
 export async function loadCustomProviders(repoPath: string): Promise<CustomProviderEntry[]> {
   let raw: string;
   try {
-    raw = await readFile(join(stateDir(repoPath), 'app.json'), 'utf8');
+    raw = await readStateFileNoSymlink(repoPath, 'app.json');
   } catch {
     return []; // no config file — every repo without customs pays nothing
   }
   let parsed: unknown;
   try {
     parsed = JSON.parse(raw);
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    return [{ index: -1, error: `.taskcell/app.json is not valid JSON: ${message}` }];
+  } catch {
+    // Fixed text: the parser's message can quote a fragment of the file (a committed symlink target).
+    return [{ index: -1, error: '.taskcell/app.json is not valid JSON' }];
   }
   const value = typeof parsed === 'object' && parsed !== null && !Array.isArray(parsed)
     ? (parsed as Record<string, unknown>).customProviders
