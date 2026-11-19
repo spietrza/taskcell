@@ -46,6 +46,8 @@ export function contentSecurityPolicy(html?: string): string {
  * response (both headers — `X-Frame-Options` for anything that predates `frame-ancestors`). */
 const frameDenyHeaders = (html?: string): Record<string, string> => ({
   'x-frame-options': 'DENY',
+  // Links out of the page (agent/issue text) must not carry the hub's loopback origin along.
+  'referrer-policy': 'no-referrer',
   'content-security-policy': contentSecurityPolicy(html),
 });
 

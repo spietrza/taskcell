@@ -1,3 +1,4 @@
+import type { ReactNode } from 'react';
 import { ExternalLink as Icon } from 'lucide-react';
 import { LINK_CLASS } from '@/ui';
 import { isDemoLink } from '../transport';
@@ -20,8 +21,10 @@ export function issueUrl(prUrl: string, issue: number): string | undefined {
  * server; with none, nothing is rendered. `label` names the link for assistive tech where the same text repeats
  * (every Board card has an "Open in GitHub").
  */
-export function ExternalLink({ href, children, className, label }: { href?: string; children: string; className?: string; label?: string }) {
+export function ExternalLink({ href, children, className, label }: { href?: string; children: ReactNode; className?: string; label?: string }) {
   if (href === undefined || href === '') return null;
+  // Not http(s) (javascript:, data:, relative…): never a link, just its text.
+  if (!/^https?:\/\//i.test(href)) return <span className={className}>{children}</span>;
   // The demo's repository does not exist: its links show as plain text that says so.
   if (isDemoLink(href)) {
     return (
@@ -34,7 +37,7 @@ export function ExternalLink({ href, children, className, label }: { href?: stri
     <a
       href={href}
       target="_blank"
-      rel="noreferrer"
+      rel="noopener noreferrer"
       aria-label={label}
       onClick={(e) => e.stopPropagation()}
       className={`inline-flex items-center gap-1 text-xs ${LINK_CLASS} ${className ?? ''}`}
