@@ -260,8 +260,12 @@ export default function App() {
   useEffect(() => {
     if (!isTauri()) return;
     const un = getCurrentWindow().onCloseRequested(async (event) => {
+      // This page finishes or cancels the close itself: disarm the native fallback meant for older
+      // UIs (lib.rs CLOSE_FALLBACK) so a slow discard prompt or flush is not cut short.
+      await invoke('hold_close', { cancel: false }).catch(() => {});
       if (!navGuard.current.confirm()) {
         event.preventDefault();
+        void invoke('hold_close', { cancel: true }).catch(() => {});
         return;
       }
       // S10: a screen with debounced writes registered a flush — a fire-and-forget invoke would

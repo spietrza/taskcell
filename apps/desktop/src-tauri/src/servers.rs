@@ -122,6 +122,7 @@ pub fn grant_local(app: &AppHandle, launch_url: &str) -> Result<(), String> {
         &origin,
         &[
             "allow-servers-list", "allow-servers-add", "allow-servers-remove", "allow-servers-switch",
+            "allow-hold-close",
             "core:window:allow-start-dragging", "core:window:allow-destroy",
             "core:event:allow-listen", "core:event:allow-unlisten",
         ],
@@ -141,7 +142,7 @@ pub fn grant(app: &AppHandle, server: &Server) -> Result<(), String> {
         format!("server-{}", server.id),
         &origin,
         &[
-            "allow-servers-list", "allow-servers-switch", "allow-close-window",
+            "allow-servers-list", "allow-servers-switch", "allow-close-window", "allow-hold-close",
             "core:window:allow-start-dragging",
             "core:event:allow-listen", "core:event:allow-unlisten",
         ],
