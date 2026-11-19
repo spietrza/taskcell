@@ -14,6 +14,7 @@ import {
   isHubTokenRejected,
   isHubSignInRequired,
 } from './hub-wire';
+import { createHubClient } from '../../../packages/hub-client/src/client';
 
 /** Stops a `subscribe()` listener. */
 export type UnlistenFn = () => void;
@@ -255,42 +256,25 @@ async function probeHubRestart(): Promise<boolean> {
   }
 }
 
-async function hubPost(cmd: string, args?: Record<string, unknown>): Promise<{ response: Response; body: unknown }> {
-  let response: Response;
-  try {
-    response = await fetch(`/rpc/${cmd}`, {
-      method: 'POST',
-      headers: { 'content-type': 'application/json', [HUB_TOKEN_HEADER]: hubToken() },
-      body: JSON.stringify(args ?? {}),
-    });
-  } catch (err) {
-    // Network failure (server unreachable, CORS, etc.) — reject with a string, as a hub error does.
-    throw err instanceof Error ? err.message : String(err);
-  }
-  try {
-    return { response, body: await response.json() };
-  } catch (err) {
-    throw err instanceof Error ? err.message : String(err);
-  }
-}
+const hubClient = createHubClient({ token: hubToken });
 
 async function hubInvoke<T>(cmd: string, args?: Record<string, unknown>): Promise<T> {
   const sent = hubToken();
   // A refused token stays refused until a new one arrives (a pasted launch URL, captured just above): asking the hub
   // again only fills its audit log with refused sign-ins. The restart banner is already up.
   if (heldTokenRefused) throw HUB_TOKEN_REJECTED;
-  let { response, body } = await hubPost(cmd, args);
+  let { status, body } = await hubClient.request(cmd, args);
   // The hub refused the held token while a pasted one waits (the hub restarted): take it and ask once more.
   // A call that was in flight when another one took it finds the stored token changed, and asks again too.
-  if (response.status === 401 && isHubTokenRejected(body) && (adoptPendingToken() || hubToken() !== sent)) {
-    ({ response, body } = await hubPost(cmd, args));
+  if (status === 401 && isHubTokenRejected(body) && (adoptPendingToken() || hubToken() !== sent)) {
+    ({ status, body } = await hubClient.request(cmd, args));
   }
   // Only the hub's own 401 envelope means "this page's token is dead"; a reverse proxy's 401 is a
   // different problem, and telling the operator to reload would be wrong (docs/hub.md).
-  if (response.status === 401 && isHubTokenRejected(body)) notifyHubRestarted();
-  if (response.status === 401 && isHubSignInRequired(body)) redirectToSignIn();
-  if (response.ok) reloadAfterReconnect();
-  return decodeResponse<T>(response.status, body);
+  if (status === 401 && isHubTokenRejected(body)) notifyHubRestarted();
+  if (status === 401 && isHubSignInRequired(body)) redirectToSignIn();
+  if (status >= 200 && status < 300) reloadAfterReconnect();
+  return decodeResponse<T>(status, body);
 }
 
 export async function invoke<T>(cmd: string, args?: Record<string, unknown>): Promise<T> {

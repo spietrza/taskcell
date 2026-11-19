@@ -5,7 +5,7 @@
  *
  * RULES (enforced by src/wire.test.ts):
  * - ZERO imports, static or dynamic — must be safe in both plain Node and the browser.
- * - `pnpm gen:wire` copies this file verbatim (plus a header) to apps/desktop/src/hub-wire.ts; the
+ * - `pnpm gen:wire` copies this file verbatim (plus a header) to packages/hub-client/src/hub-wire.ts; the
  *   drift test byte-compares them. Change here ⇒ regenerate, or root CI fails naming the fix.
  */
 

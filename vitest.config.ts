@@ -1,7 +1,7 @@
 import { defineConfig } from 'vitest/config';
 export default defineConfig({
   test: {
-    include: ['src/**/*.test.ts'],
+    include: ['src/**/*.test.ts', 'packages/*/src/**/*.test.ts'],
     environment: 'node',
     passWithNoTests: true,
     // Several suites (llm-proxy-server, egress-network, gc) spawn real child processes / docker probes;

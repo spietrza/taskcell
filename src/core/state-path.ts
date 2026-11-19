@@ -178,3 +178,10 @@ export async function readTextNoSymlink(path: string): Promise<string> {
     await handle.close();
   }
 }
+
+/** Read `<stateDir>/<name>` (repo content) refusing a symlink on any segment; rejects when refused or unreadable. */
+export async function readStateFileNoSymlink(repoPath: string, name: string): Promise<string> {
+  const file = join(stateDir(repoPath), name);
+  await assertStatePath(repoPath, file);
+  return readTextNoSymlink(file);
+}

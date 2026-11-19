@@ -1,4 +1,4 @@
-import { mkdtemp, mkdir, writeFile } from 'node:fs/promises';
+import { mkdtemp, mkdir, writeFile, symlink, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
@@ -256,5 +256,29 @@ describe('CustomProvider model forcing (zai pattern via the mocked stream seam)'
     expect(calls[2]?.args.join(' ')).not.toContain('glm-5.2');
     vi.doUnmock('./claude-stream.js');
     vi.resetModules();
+  });
+});
+
+describe('loadCustomProviders (symlink + parse error)', () => {
+  const customs = JSON.stringify({ customProviders: [{ name: 'leaked', baseUrl: 'https://x.example.com', keyEnv: 'K' }] });
+  it.each(['leaf', 'dir'])('treats a %s symlinked app.json as missing', async (kind) => {
+    const repo = await repoWith('{}');
+    const outside = join(repo, 'outside');
+    await mkdir(outside);
+    await writeFile(join(outside, 'app.json'), customs);
+    if (kind === 'leaf') {
+      await rm(join(repo, '.vanguard', 'app.json'));
+      await symlink(join(outside, 'app.json'), join(repo, '.vanguard', 'app.json'));
+    } else {
+      await rm(join(repo, '.vanguard'), { recursive: true });
+      await symlink(outside, join(repo, '.vanguard'));
+    }
+    expect(await loadCustomProviders(repo)).toEqual([]);
+  });
+
+  it('does not echo file content on a parse error', async () => {
+    const repo = await repoWith('SECRET-TOKEN-xyz not json');
+    const entries = await loadCustomProviders(repo);
+    expect(entries).toEqual([{ index: -1, error: '.taskcell/app.json is not valid JSON' }]);
   });
 });
