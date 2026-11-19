@@ -8,7 +8,7 @@ const config = getDefaultConfig(__dirname);
 config.watchFolders = [...(config.watchFolders ?? []), hubClient];
 const resolveRequest = config.resolver.resolveRequest;
 config.resolver.resolveRequest = (context, name, platform) => {
-  const target = context.originModulePath.startsWith(hubClient) && name.startsWith('.') && name.endsWith('.js') ? name.slice(0, -3) : name;
+  const target = context.originModulePath.startsWith(hubClient + path.sep) && name.startsWith('.') && name.endsWith('.js') ? name.slice(0, -3) : name;
   return (resolveRequest ?? context.resolveRequest)(context, target, platform);
 };
 module.exports = config;
