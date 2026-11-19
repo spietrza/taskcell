@@ -5,9 +5,33 @@
 mod hub;
 mod servers;
 
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
+use std::time::{Duration, Instant};
 use tauri::menu::{Menu, MenuItem, SubmenuBuilder};
-use tauri::{RunEvent, WindowEvent};
+use tauri::{Manager, RunEvent, State, WindowEvent};
+
+/// A user-initiated window close the page has not finished yet: the origin the window showed when it
+/// was requested, and when. Lets a saved server's page, which may not call `destroy` (servers::grant),
+/// finish the close after its discard prompt and write flush (`close_window`) — and only then.
+#[derive(Default)]
+struct PendingClose(Mutex<Option<(String, Instant)>>);
+
+/// Long enough for the discard prompt and the bounded flush; a stale request cannot close later.
+const CLOSE_GRACE: Duration = Duration::from_secs(60);
+
+/// Finishes a pending user-initiated close for the page that showed when it was requested. One-shot:
+/// without a pending close (or from another origin) it refuses, so a remote hub cannot close at will.
+#[tauri::command]
+fn close_window(webview: tauri::Webview, pending: State<'_, PendingClose>) -> Result<(), String> {
+    let origin = servers::page_origin(webview.url());
+    let request = pending.0.lock().unwrap().take();
+    match request {
+        Some((o, at)) if Some(&o) == origin.as_ref() && at.elapsed() < CLOSE_GRACE => {
+            webview.window().destroy().map_err(|e| e.to_string())
+        }
+        _ => Err("No close request pending for this page".into()),
+    }
+}
 
 /// An update downloaded on consent, installed only after the hub has stopped (see `run`).
 #[cfg(desktop)]
@@ -81,17 +105,17 @@ pub fn run() {
     let builder = builder.plugin(tauri_plugin_updater::Builder::new().build());
     builder
         .manage(Arc::clone(&hub))
-        // A remote hub page may not call `destroy` (servers::grant), so the page's own close handler
-        // cannot finish the close: while a saved server shows, close the window natively.
-        .on_window_event({
-            let hub = Arc::clone(&hub);
-            move |window, event| {
-                if matches!(event, WindowEvent::CloseRequested { .. }) && hub.active().is_some() {
-                    let _ = window.destroy();
-                }
+        .manage(PendingClose::default())
+        // The page's close handler still runs (discard prompt, write flush) and finishes the close;
+        // record the request so a saved server's page can finish it through `close_window`.
+        .on_window_event(|window, event| {
+            if let WindowEvent::CloseRequested { .. } = event {
+                let origin = window.get_webview_window(window.label()).and_then(|w| servers::page_origin(w.url()));
+                *window.state::<PendingClose>().0.lock().unwrap() = origin.map(|o| (o, Instant::now()));
             }
         })
         .invoke_handler(tauri::generate_handler![
+            close_window,
             servers::servers_list,
             servers::servers_add,
             servers::servers_remove,

@@ -97,6 +97,11 @@ pub fn origin_of(url: &str) -> Option<String> {
     Some(Url::parse(url).ok()?.origin().ascii_serialization())
 }
 
+/// Origin of the page a webview shows (its `url()`), or `None` if that is unavailable.
+pub fn page_origin(url: tauri::Result<Url>) -> Option<String> {
+    Some(url.ok()?.origin().ascii_serialization())
+}
+
 fn add_origin_capability(app: &AppHandle, identifier: String, origin: &str, permissions: &[&str]) -> Result<(), String> {
     let capability = serde_json::json!({
         "identifier": identifier,
@@ -125,7 +130,8 @@ pub fn grant_local(app: &AppHandle, launch_url: &str) -> Result<(), String> {
 
 /// Let a saved server's own pages switch servers (the way back to Local), list them (names only, see
 /// `servers_list`) and drag the window — and only that origin (never every http(s) page). Adding and
-/// removing servers and closing the window stay with the local UI: a remote hub is untrusted.
+/// removing servers stay with the local UI: a remote hub is untrusted. It may not `destroy` the window
+/// either, only finish a user-initiated close (`close_window` in lib.rs).
 pub fn grant(app: &AppHandle, server: &Server) -> Result<(), String> {
     // Re-checked: servers.json may be hand-edited or predate the host check in `normalize_url`.
     let url = normalize_url(&server.url)?;
@@ -135,7 +141,7 @@ pub fn grant(app: &AppHandle, server: &Server) -> Result<(), String> {
         format!("server-{}", server.id),
         &origin,
         &[
-            "allow-servers-list", "allow-servers-switch",
+            "allow-servers-list", "allow-servers-switch", "allow-close-window",
             "core:window:allow-start-dragging",
             "core:event:allow-listen", "core:event:allow-unlisten",
         ],
@@ -158,20 +164,34 @@ fn new_id() -> String {
     format!("srv-{}", std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_micros()))
 }
 
+/// True if the caller is the running local hub's UI. Checked at call time, so a grant left over from an
+/// earlier launch's port gives nothing once the hub restarts on another one.
+fn from_local(webview: &tauri::Webview, hub: &Hub) -> bool {
+    let local = hub.local_origin();
+    local.is_some() && page_origin(webview.url()) == local
+}
+
+fn require_local(webview: &tauri::Webview, hub: &Hub) -> Result<(), String> {
+    if from_local(webview, hub) {
+        Ok(())
+    } else {
+        Err("Only the local hub's UI can change saved servers".into())
+    }
+}
+
 #[tauri::command]
 pub fn servers_list(app: AppHandle, webview: tauri::Webview, hub: State<'_, Arc<Hub>>) -> Result<ServerState, String> {
     let mut servers = load(&config_dir(&app)?)?;
     // A remote hub is untrusted: it gets ids and names (enough to switch), never the other hubs' URLs.
-    let local = hub.local_origin();
-    let from_local = local.is_some() && webview.url().ok().and_then(|u| origin_of(u.as_str())) == local;
-    if !from_local {
+    if !from_local(&webview, &hub) {
         servers.iter_mut().for_each(|s| s.url.clear());
     }
     Ok(ServerState { servers, active: hub.active() })
 }
 
 #[tauri::command]
-pub fn servers_add(app: AppHandle, name: String, url: String) -> Result<Server, String> {
+pub fn servers_add(app: AppHandle, webview: tauri::Webview, hub: State<'_, Arc<Hub>>, name: String, url: String) -> Result<Server, String> {
+    require_local(&webview, &hub)?;
     let dir = config_dir(&app)?;
     let url = normalize_url(&url)?;
     let mut servers = load(&dir)?;
@@ -191,7 +211,8 @@ pub fn servers_add(app: AppHandle, name: String, url: String) -> Result<Server, 
 }
 
 #[tauri::command]
-pub fn servers_remove(app: AppHandle, hub: State<'_, Arc<Hub>>, id: String) -> Result<(), String> {
+pub fn servers_remove(app: AppHandle, webview: tauri::Webview, hub: State<'_, Arc<Hub>>, id: String) -> Result<(), String> {
+    require_local(&webview, &hub)?;
     let dir = config_dir(&app)?;
     let mut servers = load(&dir)?;
     if hub.active().as_deref() == Some(id.as_str()) {

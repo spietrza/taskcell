@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { isTauri } from '@tauri-apps/api/core';
+import { invoke, isTauri } from '@tauri-apps/api/core';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import { PAGE_CLASS, cn, type Theme } from '@/ui';
 import { TopBar, type Crumb } from './TopBar';
@@ -266,12 +266,13 @@ export default function App() {
       }
       // S10: a screen with debounced writes registered a flush — a fire-and-forget invoke would
       // race webview teardown, so hold the close, await the flush (bounded), then close for real.
-      // destroy() skips this handler, so there is no re-entry loop.
-      if (navGuard.current.hasFlush()) {
-        event.preventDefault();
-        await navGuard.current.flush(2000);
-        void getCurrentWindow().destroy();
-      }
+      // destroy() skips this handler, so there is no re-entry loop. A saved server's page may not
+      // destroy the window; it finishes this user-requested close through close_window (lib.rs).
+      event.preventDefault();
+      if (navGuard.current.hasFlush()) await navGuard.current.flush(2000);
+      await getCurrentWindow()
+        .destroy()
+        .catch(() => invoke('close_window'));
     });
     return () => void un.then((f) => f());
   }, []);
