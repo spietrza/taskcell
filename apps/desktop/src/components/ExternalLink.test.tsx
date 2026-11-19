@@ -43,3 +43,17 @@ test('issueUrl reads GitHub and GitLab PR/MR addresses, nothing else', () => {
   expect(issueUrl('https://gitlab.com/g/r/-/merge_requests/9/', 4)).toBe('https://gitlab.com/g/r/-/issues/4');
   expect(issueUrl('https://linear.app/x/issue/ABC-1', 1)).toBeUndefined();
 });
+
+test('opens with noopener noreferrer', () => {
+  render(<ExternalLink href="https://github.com/o/r/pull/1">Open</ExternalLink>);
+  expect(screen.getByRole('link')).toHaveAttribute('rel', 'noopener noreferrer');
+});
+
+test('renders a non-http(s) address as plain text', () => {
+  for (const href of ['javascript:alert(1)', 'data:text/html,x', 'vbscript:x', '/relative']) {
+    const { container, unmount } = render(<ExternalLink href={href}>text</ExternalLink>);
+    expect(container.querySelector('a')).toBeNull();
+    expect(container).toHaveTextContent('text');
+    unmount();
+  }
+});

@@ -117,6 +117,7 @@ describe('serveStatic', () => {
       await serveStatic({ uiDir }, fakeReq(path), res as unknown as ServerResponse);
       expect(res.statusCode, path).toBe(200);
       expect(res.headers['x-frame-options'], path).toBe('DENY');
+      expect(res.headers['referrer-policy'], path).toBe('no-referrer');
       const csp = String(res.headers['content-security-policy']);
       expect(csp, path).toContain("frame-ancestors 'none'");
       expect(csp, path).toContain("script-src 'self'");
