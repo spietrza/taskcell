@@ -34,8 +34,8 @@ export interface OverlapHold {
 
 const SHARED_PATHS: ReadonlySet<string> = new Set([
   // Output of scripts/gen-desktop-wire.ts (src/wire.ts and src/hub-wire.ts are the hand-written sources).
-  'apps/desktop/src/wire.ts',
-  'apps/desktop/src/hub-wire.ts',
+  'packages/hub-client/src/wire.ts',
+  'packages/hub-client/src/hub-wire.ts',
   'src/hub/commands/index.ts',
 ]);
 
