@@ -49,6 +49,7 @@ describe('listChatModels', () => {
     expect(await listChatModels(await repoWith(or), or, f)).toMatchObject({ source: 'openrouter', models: ['anthropic/claude-sonnet-5'] });
     expect(f.mock.calls[0]![0]).toBe('https://openrouter.ai/api/v1/models');
     expect((f.mock.calls[0]![1] as RequestInit).headers).not.toHaveProperty('anthropic-version'); // it would answer its short Anthropic list
+    vi.stubEnv('TASKCELL_CHAT_LOCAL_ORIGINS', 'http://127.0.0.1:3000');
     const custom: AppConfig = { provider: 'zz', customProviders: [{ name: 'zz', baseUrl: 'http://127.0.0.1:3000' }] };
     const g = okFetch({ data: [{ id: 'm1' }] });
     expect(await listChatModels(await repoWith(custom), custom, g)).toMatchObject({ source: 'endpoint', models: ['m1'] });
@@ -74,6 +75,7 @@ describe('listChatModels', () => {
 
   test('a plain-http endpoint is asked without the key (a keyless LAN proxy still lists)', async () => {
     vi.stubEnv('MY_PROXY_KEY', KEY);
+    vi.stubEnv('TASKCELL_CHAT_LOCAL_ORIGINS', 'http://192.168.1.20:3000');
     const cfg: AppConfig = { chatBaseUrl: 'http://192.168.1.20:3000', customProviders: [{ name: 'lan', baseUrl: 'http://192.168.1.20:3000', keyEnv: 'MY_PROXY_KEY' }] };
     const repo = await repoWith(cfg);
     const f = okFetch({ data: [{ id: 'm1' }] });
@@ -93,10 +95,30 @@ describe('listChatModels', () => {
     expect(f).not.toHaveBeenCalled();
   });
 
-  test('a keyless endpoint needs no allowed origin', async () => {
-    const cfg: AppConfig = { chatBaseUrl: 'https://keyless.example/', customProviders: [{ name: 'p', baseUrl: 'https://keyless.example' }] };
+  test('a keyless endpoint must be allowed or owner-marked local: unlisted LAN and metadata are refused, no request', async () => {
+    for (const u of ['https://keyless.example', 'http://192.168.1.20:3000', 'http://169.254.169.254']) {
+      const cfg: AppConfig = { chatBaseUrl: u, customProviders: [{ name: 'p', baseUrl: u }] };
+      const f = okFetch({ data: [{ id: 'm1' }] });
+      const out = await listChatModels(await repoWith(cfg), cfg, f);
+      expect(out.models).toEqual([]);
+      expect(out.error).toContain('not allowed');
+      expect(f).not.toHaveBeenCalled();
+    }
+  });
+
+  test('a metadata address is refused even when listed as local', async () => {
+    vi.stubEnv('TASKCELL_CHAT_LOCAL_ORIGINS', 'http://169.254.169.254');
+    const cfg: AppConfig = { chatBaseUrl: 'http://169.254.169.254', customProviders: [{ name: 'p', baseUrl: 'http://169.254.169.254' }] };
+    const f = okFetch({ data: [] });
+    expect((await listChatModels(await repoWith(cfg), cfg, f)).error).toContain('not allowed');
+    expect(f).not.toHaveBeenCalled();
+  });
+
+  test('an owner-marked LAN proxy is fetched without a key', async () => {
+    vi.stubEnv('TASKCELL_CHAT_LOCAL_ORIGINS', 'http://192.168.1.20:3000');
+    const cfg: AppConfig = { chatBaseUrl: 'http://192.168.1.20:3000', customProviders: [{ name: 'p', baseUrl: 'http://192.168.1.20:3000' }] };
     const f = okFetch({ data: [{ id: 'm1' }] });
-    expect(await listChatModels(await repoWith(cfg), cfg, f)).toMatchObject({ source: 'endpoint', models: ['m1'] });
+    expect(await listChatModels(await repoWith(cfg), cfg, f)).toMatchObject({ models: ['m1'] });
     expect(f).toHaveBeenCalledOnce();
   });
 

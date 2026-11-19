@@ -9,6 +9,8 @@ import type { AppConfig } from './app-config.js';
 const FETCH_TIMEOUT_MS = 10_000;
 const MAX_MODELS = 1000;
 const MODEL_ID = /^[\w.:/@+-]{1,200}$/;
+/** Operator-local list (comma-separated origins) of keyless proxies the hub may fetch from, e.g. a LAN proxy. */
+export const CHAT_LOCAL_ORIGINS_ENV = 'TASKCELL_CHAT_LOCAL_ORIGINS';
 const OPENROUTER_MODELS = 'https://openrouter.ai/api/v1/models';
 
 type Source = { kind: 'openrouter' } | { kind: 'endpoint'; baseUrl: string; keyEnv?: string } | { kind: 'static' };
@@ -21,6 +23,14 @@ const originOf = (u: string): string | undefined => {
     return undefined;
   }
 };
+
+const originList = (list: string | undefined): string[] => (list ?? '').split(',').flatMap((e) => originOf(e.trim()) ?? []);
+
+/** Link-local and cloud-metadata hosts: never fetched, even when listed. */
+function isMetadataHost(url: string): boolean {
+  const h = new URL(url).hostname.toLowerCase().replace(/^\[|\]$/g, '').replace(/\.$/, '');
+  return /^169\.254\./.test(h) || /^fe[89ab][0-9a-f]:/.test(h) || /^::ffff:a9fe:/.test(h) || h === 'fd00:ec2::254' || h === 'metadata.google.internal' || h === 'metadata';
+}
 
 /**
  * Where the list comes from, from the saved config only (the caller never names a URL or a key): the doc chat's own
@@ -63,9 +73,12 @@ export async function listChatModels(repoPath: string, cfg: AppConfig, fetchImpl
   const withKey = opts.withKey !== false;
   const key = keyEnv !== undefined && !plain && withKey ? process.env[keyEnv] || undefined : undefined;
   // The endpoint comes from repo content: a hub key goes only to an origin the operator allowed for chat, else no request is made.
-  if (key !== undefined) {
-    const refused = baseUrlRefusal(url, readEnv(CHAT_ALLOWED_ORIGINS_ENV));
-    if (refused !== undefined) return { source: source.kind, models: [], error: refused.replace('doc chat refused: ', '').replace('your Anthropic credential', `the ${keyEnv} key`) };
+  const refused = baseUrlRefusal(url, readEnv(CHAT_ALLOWED_ORIGINS_ENV));
+  if (key !== undefined && refused !== undefined) return { source: source.kind, models: [], error: refused.replace('doc chat refused: ', '').replace('your Anthropic credential', `the ${keyEnv} key`) };
+  // Even keyless, only a chat-allowed or owner-marked local origin is fetched (no blind SSRF).
+  if (source.kind === 'endpoint') {
+    const permitted = !isMetadataHost(url) && (refused === undefined || originList(readEnv(CHAT_LOCAL_ORIGINS_ENV)).includes(origin));
+    if (!permitted) return { source: source.kind, models: [], error: `chatBaseUrl origin ${origin} is not allowed; add it to ${CHAT_ALLOWED_ORIGINS_ENV} or, for a local keyless proxy, ${CHAT_LOCAL_ORIGINS_ENV} (comma-separated origins) in the hub's environment` };
   }
   // OpenRouter answers an `anthropic-version` request with its small Anthropic-compatible list: ask it plainly.
   const headers: Record<string, string> = {
