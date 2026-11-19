@@ -1,11 +1,5 @@
 # Changelog
 
-## Unreleased
-
-### Notes
-
-* GitLab factory: existing installs keep their `.gitlab/taskcell.yml`, which runs `watch` and `doctor` without a comment-author allowlist. Add `--feedback-authors "<login>"` to both lines by hand (not `watch-mrs`). The signed-in GitLab username is now validated before it is written into the jobs file.
-
 ## [1.16.8](https://github.com/spietrza/taskcell/compare/v1.16.7...v1.16.8) (2026-11-18)
 
 
