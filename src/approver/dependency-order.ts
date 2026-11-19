@@ -49,7 +49,7 @@ export async function dependencyHolds(repo: string, pr: { headRefName: string },
   try {
     const issue = await readIssue(repo, number, scoped);
     const task = { id: `${repo}#${number}`, title: issue.title ?? '', description: issue.body ?? '', labels: [], children: [], comments: [], ref: String(number) };
-    const verdict = await checkDependencies(repo, task, scoped);
+    const verdict = await checkDependencies(repo, task, scoped, undefined, policy.dependencyRepos);
     if (verdict.status === 'waiting' && verdict.blockers.length > 0) {
       return { reasons: [`its task #${number} depends on ${verdict.blockers.map(refText).join(', ')}, which ${verdict.blockers.length === 1 ? 'is' : 'are'} not merged yet (merge those first)`], code: 'dependency-unmerged' };
     }
@@ -138,7 +138,7 @@ export async function rebaseDependents(input: RebaseDependentsInput): Promise<Re
   for (const candidate of candidates.slice(0, MAX_CANDIDATES)) {
     let headSha = '';
     try {
-      const deps = await directDependencies(repo, candidate.issue, (await readIssue(repo, candidate.issue, scoped)).body ?? '', scoped);
+      const deps = await directDependencies(repo, candidate.issue, (await readIssue(repo, candidate.issue, scoped)).body ?? '', scoped, policy.dependencyRepos);
       if (!deps.some((d) => d.repo.toLowerCase() === repo.toLowerCase() && d.number === merged)) continue;
       if (++handled > MAX_DEPENDENTS) {
         limit(`more than ${MAX_DEPENDENTS} dependents; the rest were left as they are`);
