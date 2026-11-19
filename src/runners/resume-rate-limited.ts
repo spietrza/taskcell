@@ -25,6 +25,8 @@ export interface ResumeRateLimitedOptions {
    * watch's --claimed-state / --review-state / --spec-claimed-label. Default: the built-in labels.
    */
   startedLabels?: readonly string[];
+  /** Other repos a dependency may be read from; must match the watch's --dependency-repos. */
+  dependencyRepos?: readonly string[];
   /** Report what would be re-triggered and edit nothing. */
   dryRun?: boolean;
   /** Clock for the `until` comparison (injected by tests). */
@@ -181,7 +183,7 @@ async function resumeWaiting(ctx: { opts: ResumeRateLimitedOptions; gh: GhRunner
         continue;
       }
       const task = { id, title: view.title ?? '', description: view.body ?? '', labels, children: [], comments: [], ref: String(number) };
-      const verdict = await checkDependencies(opts.repoSlug, task, gh, now);
+      const verdict = await checkDependencies(opts.repoSlug, task, gh, now, opts.dependencyRepos);
       const overlapWait = verdict.status === 'ready' ? await overlapStillHolds(opts.repoSlug, trusted, gh, now) : undefined;
       if (verdict.status === 'error') {
         record('failed', `failed -> ${verdict.reason}`);
