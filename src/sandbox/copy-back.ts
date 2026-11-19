@@ -50,10 +50,21 @@ export const CI_CONFIG_RULE: PathSkipRule = {
   match: { test: (path: string): boolean => CI_CONFIG_RE.test(path) || isGitlabYaml(path) },
 };
 
+const NTFS_SHORT_GIT_RE = /^git~\d+$/i;
+// Code points HFS+ ignores when comparing names (git's next_hfs_char): U+200C-200F, U+202A-202E, U+206A-206F, U+FEFF.
+const HFS_IGNORABLE_RE = /[‌-‏‪-‮⁪-⁯﻿]/g;
+
+function isDotGitAlias(name: string): boolean {
+  return NTFS_SHORT_GIT_RE.test(name) || name.replace(HFS_IGNORABLE_RE, '').toLowerCase() === '.git';
+}
+
 export const PATH_POLICY: readonly PathSkipRule[] = [
   // A linked worktree's .git is a file pointer; copying it corrupts the worktree.
   // Case-insensitive: `.GIT` would replace the pointer on a case-insensitive host filesystem.
   { name: '.git', ignoreCase: true, match: /(^|[\\/])\.git([\\/]|$)/i },
+  // Host-filesystem aliases of `.git`, as git's is_ntfs_dotgit / is_hfs_dotgit: NTFS 8.3 short name
+  // `GIT~1`, and HFS+ names with ignorable code points (`.g<ZWNJ>it`). Host-side only: no glob can express them.
+  { match: { test: (path: string): boolean => path.split(/[\\/]/).some(isDotGitAlias) } },
   // Gitignored, huge, and its .bin symlinks make fs.cp throw EINVAL.
   { name: 'node_modules', match: /(^|[\\/])node_modules([\\/]|$)/ },
   // Under a read-only rootfs /workspace is its own tmpfs, so pnpm puts its content store at the
