@@ -1,0 +1,14 @@
+{
+  "expo": {
+    "name": "Taskcell",
+    "slug": "taskcell-mobile",
+    "scheme": "taskcell",
+    "version": "0.0.0",
+    "orientation": "portrait",
+    "userInterfaceStyle": "automatic",
+    "platforms": ["ios"],
+    "ios": { "supportsTablet": false, "bundleIdentifier": "dev.taskcell.mobile" },
+    "plugins": ["expo-router", "expo-secure-store"],
+    "experiments": { "typedRoutes": true }
+  }
+}
