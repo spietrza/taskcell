@@ -7,7 +7,7 @@
  *   desktop's OLDER TypeScript cannot parse (the drift guard proves byte-equality, not
  *   compilability; the ceiling is what keeps this compiling on both sides).
  * - `pnpm gen:wire` copies this file (plus a header, and the `Commands`/`COMMAND_NAMES` derived from the
- *   hub command modules in src/hub/commands/) to apps/desktop/src/wire.ts; the drift test compares them. Change here ⇒ regenerate, or root CI fails naming the fix.
+ *   hub command modules in src/hub/commands/) to packages/hub-client/src/wire.ts; the drift test compares them. Change here ⇒ regenerate, or root CI fails naming the fix.
  *
  * Rust never inspects these payloads (sidecar traffic passes through as opaque JSON), so this file
  * IS the contract for everything TS↔TS. The TS↔Rust shapes (serde structs in src-tauri) are a

@@ -308,7 +308,7 @@ commands, `false` stays `false`); an error answers `400`/`404`/`500 {"error": {"
 
 **`src/hub-wire.ts` is the single source of truth for this envelope, the SSE frame shape, the hub
 marker, the token's header name and the events-session path** — a zero-import module copied verbatim into
-`apps/desktop/src/hub-wire.ts` by `pnpm gen:wire`
+`packages/hub-client/src/hub-wire.ts` by `pnpm gen:wire`
 (drift caught by `src/wire.test.ts`). The server (`src/hub/server.ts`, `events.ts`, `static.ts`) and the
 browser (`apps/desktop/src/transport.ts`) both call its `encodeResult`/`encodeError`/`decodeResponse`/
 `encodeEvent`/`decodeEvent`/`HUB_MARKER`/`HUB_TOKEN_HEADER`/`HUB_EVENTS_SESSION_PATH` instead of

@@ -18,7 +18,7 @@ function readSource(relPath: string): string {
 function assertByteIdenticalCopy(file: string, tail = ''): void {
   const header = `// GENERATED from src/${file} — do not edit; run pnpm gen:wire\n`;
   const core = join(__dirname, file);
-  const desktop = join(__dirname, '..', 'apps', 'desktop', 'src', file);
+  const desktop = join(__dirname, '..', 'packages', 'hub-client', 'src', file);
   expect(readFileSync(desktop, 'utf8')).toBe(header + readFileSync(core, 'utf8') + tail);
 }
 
@@ -53,7 +53,7 @@ describe('wire contract (S7)', () => {
   it('BoardTask.waiting is an optional boolean, present in both core and the regenerated desktop copy (T11)', () => {
     expectTypeOf<BoardTask['waiting']>().toEqualTypeOf<boolean | undefined>();
     expectTypeOf<{ id: string; title: string; column: 'queued'; state: string }>().toExtend<BoardTask>();
-    const desktop = readSource('../apps/desktop/src/wire.ts');
+    const desktop = readSource('../packages/hub-client/src/wire.ts');
     expect(desktop).toMatch(/^\s*waiting\?: boolean;$/m);
   });
 
@@ -63,7 +63,7 @@ describe('wire contract (S7)', () => {
     expectTypeOf<BoardTask['stage']>().toEqualTypeOf<string | undefined>();
     expectTypeOf<BoardTask['chips']>().toEqualTypeOf<BoardChip[] | undefined>();
     expectTypeOf<{ id: string; title: string; column: 'queued'; state: string }>().toExtend<BoardTask>();
-    const desktop = readFileSync(join(__dirname, '..', 'apps', 'desktop', 'src', 'wire.ts'), 'utf8');
+    const desktop = readFileSync(join(__dirname, '..', 'packages', 'hub-client', 'src', 'wire.ts'), 'utf8');
     expect(desktop).toMatch(/^\s*stage\?: string;$/m);
     expect(desktop).toMatch(/^\s*chips\?: BoardChip\[\];$/m);
     expect(desktop).toMatch(/^\s*verdict\?: ReviewVerdict;$/m);
