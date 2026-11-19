@@ -274,6 +274,7 @@ const scene = [
 ];
 
 const index = [
+  ['Taskcell is on Product Hunt today. <span>Tell us what you think &rarr;</span>', 'Taskcell jest dziś na Product Hunt. <span>Powiedz nam, co o nim myślisz &rarr;</span>'],
   // head
   ['<title>Taskcell: a self-hosted software factory</title>', '<title>Taskcell: fabryka oprogramowania, którą uruchamiasz u siebie</title>'],
   ['content="Taskcell turns issues into pull requests on your own machine. Every card is built in a sealed Docker cell, has to pass your gates and a review, and lands as a PR. You merge. Open source, MIT."',

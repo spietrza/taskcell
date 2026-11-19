@@ -52,6 +52,8 @@ pnpm run deploy
 
 `wrangler.jsonc` serves `dist/` behind `worker.js`, which redirects `www` to the apex, answers Markdown requests with `llms.txt`, and writes the visitor's country on `<html data-country>`.
 
+The Worker also shows the Product Hunt bar (`#launch` in `src/index.html`, hidden in the HTML) between `LAUNCH_START` and `LAUNCH_END`; add `?launch=preview` to see it any time. Every page view writes one `page_view` line to Workers Logs (Observability in the Cloudflare dashboard) with the path, the source (the `ref` or `utm_source` parameter, else the referring host) and the country. No cookies, no client script, no IP; the Free plan keeps logs for 3 days.
+
 ### Currency and checkout
 
 The Worker writes the visitor's currency on `<html data-currency>`: złoty in Poland, euro in the rest of Europe and when the country is unknown, dollars elsewhere (`currencyFor` in `checkout.js`). `src/prices.js` holds the amounts for all three (`AMOUNTS`, the same as the Stripe prices, VAT included) and repaints the euro prices typed into the pages; without the Worker or without JavaScript the page shows euro.
