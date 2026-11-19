@@ -65,6 +65,11 @@ code, pre { font-family: var(--font-mono); }
 .sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
 .skip { position: absolute; left: var(--m); top: -100px; z-index: 20; padding: 10px 16px; background: var(--accent); color: var(--accent-ink); font-weight: 700; text-decoration: none; }
 .skip:focus { top: 12px; }
+/* The Product Hunt bar: hidden in the HTML, shown by the Worker during the launch window (worker.js). */
+.launch { margin: 0; background: var(--accent); color: var(--accent-ink); text-align: center; font-size: 15px; font-weight: 700; }
+.launch a { display: block; padding: 12px var(--edge); color: inherit; text-decoration: none; }
+.launch a:hover span { text-decoration: underline; }
+.launch a:focus-visible { outline-color: var(--accent-ink); outline-offset: -4px; }
 
 .wrap { display: grid; grid-template-columns: repeat(12, minmax(0, 1fr)); column-gap: 20px; padding: 0 var(--edge); }
 /* Gutter grows past --page so content stays centred and capped; backgrounds stay full-bleed. */

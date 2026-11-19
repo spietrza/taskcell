@@ -3,10 +3,26 @@
 // writes the visitor's country on <html data-country> for the language detection in theme.js,
 // writes the visitor's currency on <html data-currency> and, when a checkout is open, data-checkout (checkout.js),
 // writes the live security scores into <span data-score> (badges.js), opens a Stripe checkout on /checkout, takes Stripe's payment events on /stripe/webhook (stripe-webhook.js),
+// shows the Product Hunt bar during the launch window, logs each page view with its source (no cookies),
 // and serves everything else from dist/, where _headers sets the security and cache headers.
 import { checkoutMode, currencyFor, handleCheckout } from './checkout.js';
 import { handleStripeWebhook } from './stripe-webhook.js';
 import { scoreValue } from './badges.js';
+
+// Product Hunt launch: Tue 2026-11-24 00:01 PT (08:01 UTC), the bar stays up for 48 hours. ?launch=preview shows it any time.
+const LAUNCH_START = Date.UTC(2026, 10, 24, 8, 1);
+const LAUNCH_END = LAUNCH_START + 48 * 3600 * 1000;
+
+// Where a page view came from: the ref/utm_source parameter, else the referring host. Only the host, never the URL or the IP.
+const sourceOf = (request, url) => {
+  const tagged = url.searchParams.get('ref') ?? url.searchParams.get('utm_source');
+  if (tagged) return tagged.slice(0, 40);
+  try {
+    return new URL(request.headers.get('referer') ?? '').hostname || 'direct';
+  } catch {
+    return 'direct';
+  }
+};
 
 export default {
   async fetch(request, env, ctx) {
@@ -31,7 +47,16 @@ export default {
     const country = request.cf?.country;
     // A page opened with ?checkout=test asks for the sandbox checkout; checkoutMode says whether that is allowed.
     const checkout = checkoutMode(env, new URLSearchParams(url.searchParams.get('checkout') === 'test' ? 'test=1' : ''));
-    return new HTMLRewriter().on('html', {
+    // One line per page view for Workers Logs (Observability): which page and from where. No cookies, no client script.
+    // shortcut: Workers Logs keep 3 days on the Free plan; move to Analytics Engine if we need history.
+    console.log(JSON.stringify({ event: 'page_view', path: url.pathname, source: sourceOf(request, url), country: country ?? null }));
+    const now = Date.now();
+    const launchLive = url.searchParams.get('launch') === 'preview' || (now >= LAUNCH_START && now < LAUNCH_END);
+    return new HTMLRewriter().on('#launch', {
+      element: (el) => {
+        if (launchLive) el.removeAttribute('hidden');
+      },
+    }).on('html', {
       element: (el) => {
         if (country) el.setAttribute('data-country', country);
         el.setAttribute('data-currency', currencyFor(country));
