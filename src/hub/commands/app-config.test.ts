@@ -53,3 +53,25 @@ describe('write_app_config key routing', () => {
     read.mockRestore();
   });
 });
+
+describe('list_chat_models', () => {
+  test('the hub key goes out on the owner\'s call only', async () => {
+    vi.stubEnv('MY_KEY', 'CANARY-key');
+    vi.stubEnv('TASKCELL_CHAT_ALLOWED_ORIGINS', 'https://llm.example.com');
+    const f = vi.fn(async (..._a: Parameters<typeof fetch>) => new Response(JSON.stringify({ data: [{ id: 'm1' }] }), { status: 200 }));
+    vi.stubGlobal('fetch', f);
+    try {
+      const repo = await repoWithSaved();
+      const { ctx } = await makeCtx(repo);
+      const list = (caller: Caller): Promise<unknown> =>
+        commands.handlers.list_chat_models({ ctx, args: { repoPath: repo }, caller, allow: async (p: string) => p } as unknown as CommandCall);
+      await list(MEMBER);
+      expect(JSON.stringify(f.mock.calls[0]![1])).not.toContain('CANARY-key');
+      await list(OWNER);
+      expect(JSON.stringify(f.mock.calls[1]![1])).toContain('CANARY-key');
+    } finally {
+      vi.unstubAllGlobals();
+      vi.unstubAllEnvs();
+    }
+  });
+});

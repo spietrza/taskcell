@@ -49,7 +49,6 @@ describe('listChatModels', () => {
     expect(await listChatModels(await repoWith(or), or, f)).toMatchObject({ source: 'openrouter', models: ['anthropic/claude-sonnet-5'] });
     expect(f.mock.calls[0]![0]).toBe('https://openrouter.ai/api/v1/models');
     expect((f.mock.calls[0]![1] as RequestInit).headers).not.toHaveProperty('anthropic-version'); // it would answer its short Anthropic list
-    vi.stubEnv('TASKCELL_CHAT_ALLOWED_ORIGINS', 'http://127.0.0.1:3000');
     const custom: AppConfig = { provider: 'zz', customProviders: [{ name: 'zz', baseUrl: 'http://127.0.0.1:3000' }] };
     const g = okFetch({ data: [{ id: 'm1' }] });
     expect(await listChatModels(await repoWith(custom), custom, g)).toMatchObject({ source: 'endpoint', models: ['m1'] });
@@ -75,7 +74,6 @@ describe('listChatModels', () => {
 
   test('a plain-http endpoint is asked without the key (a keyless LAN proxy still lists)', async () => {
     vi.stubEnv('MY_PROXY_KEY', KEY);
-    vi.stubEnv('TASKCELL_CHAT_ALLOWED_ORIGINS', 'http://192.168.1.20:3000');
     const cfg: AppConfig = { chatBaseUrl: 'http://192.168.1.20:3000', customProviders: [{ name: 'lan', baseUrl: 'http://192.168.1.20:3000', keyEnv: 'MY_PROXY_KEY' }] };
     const repo = await repoWith(cfg);
     const f = okFetch({ data: [{ id: 'm1' }] });
@@ -93,6 +91,25 @@ describe('listChatModels', () => {
     expect(out.models).toEqual([]);
     expect(out.error).toContain('not allowed');
     expect(f).not.toHaveBeenCalled();
+  });
+
+  test('a keyless endpoint needs no allowed origin', async () => {
+    const cfg: AppConfig = { chatBaseUrl: 'https://keyless.example/', customProviders: [{ name: 'p', baseUrl: 'https://keyless.example' }] };
+    const f = okFetch({ data: [{ id: 'm1' }] });
+    expect(await listChatModels(await repoWith(cfg), cfg, f)).toMatchObject({ source: 'endpoint', models: ['m1'] });
+    expect(f).toHaveBeenCalledOnce();
+  });
+
+  test('a caller other than the hub owner is asked without the key, even at an allowed origin', async () => {
+    vi.stubEnv('SOME_OTHER_SECRET', KEY);
+    vi.stubEnv('TASKCELL_CHAT_ALLOWED_ORIGINS', 'https://ok.example');
+    const cfg: AppConfig = { chatBaseUrl: 'https://ok.example/', customProviders: [{ name: 'p', baseUrl: 'https://ok.example', keyEnv: 'SOME_OTHER_SECRET' }] };
+    const repo = await repoWith(cfg);
+    const f = okFetch({ data: [{ id: 'm1' }] });
+    expect(await listChatModels(repo, cfg, f, { withKey: false })).toMatchObject({ models: ['m1'] });
+    expect(JSON.stringify(f.mock.calls[0]![1])).not.toContain(KEY);
+    const denied = vi.fn(async () => new Response('no', { status: 401 }));
+    expect((await listChatModels(repo, cfg, denied, { withKey: false })).error).toContain("SOME_OTHER_SECRET is sent on the hub owner's fetch only");
   });
 
   test('an allowed origin is fetched with the key header', async () => {
