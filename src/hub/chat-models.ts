@@ -1,5 +1,7 @@
 // Settings → Doc chat model → "Fetch models": the model ids the saved endpoint or provider offers, read on the hub so
 // a provider key (named by `keyEnv`) never reaches the browser.
+import { baseUrlRefusal, CHAT_ALLOWED_ORIGINS_ENV } from '../api/complete.js';
+import { readEnv } from '../core/env.js';
 import { loadCustomProviders } from '../agents/custom.js';
 import { CHAT_MODELS, type ChatModelList } from '../wire.js';
 import type { AppConfig } from './app-config.js';
@@ -54,6 +56,11 @@ export async function listChatModels(repoPath: string, cfg: AppConfig, fetchImpl
   const url = source.kind === 'openrouter' ? OPENROUTER_MODELS : `${trimSlash(source.baseUrl)}/v1/models`;
   const origin = originOf(url);
   if (origin === undefined || !/^https?:$/.test(new URL(url).protocol)) return { source: source.kind, models: [], error: 'the endpoint URL is not an absolute http(s) URL' };
+  // The endpoint comes from repo content: only an origin the operator allowed for chat is contacted at all.
+  if (source.kind === 'endpoint') {
+    const refused = baseUrlRefusal(url, readEnv(CHAT_ALLOWED_ORIGINS_ENV));
+    if (refused !== undefined) return { source: source.kind, models: [], error: refused.replace('doc chat refused: ', '').replace('your Anthropic credential', 'a request from the hub') };
+  }
   // A key travels over TLS only: a plain-http endpoint (a keyless LAN proxy such as Meridian) is asked without one.
   const keyEnv = source.kind === 'endpoint' ? source.keyEnv : undefined;
   const plain = new URL(url).protocol !== 'https:';
