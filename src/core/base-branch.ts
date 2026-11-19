@@ -1,11 +1,10 @@
-import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { execa } from 'execa';
 import { labelValue } from './labels.js';
 import { TaskcellError } from './errors.js';
 import { createLogger } from './logger.js';
 import { redactTokens } from './secret-scan.js';
-import { stateDir } from './state-path.js';
+import { assertStatePath, readTextNoSymlink, stateDir } from './state-path.js';
 import type { TaskcellLogger } from './logger.js';
 
 /**
@@ -69,7 +68,9 @@ export function shownBaseFromLabels(labels: ReadonlyArray<string>): string | und
 /** `.taskcell/app.json`, read leniently like the board config: anything unreadable or not an object is `{}`. */
 async function readAppJson(repoPath: string): Promise<Record<string, unknown>> {
   try {
-    const parsed: unknown = JSON.parse(await readFile(join(stateDir(repoPath), 'app.json'), 'utf8'));
+    const file = join(stateDir(repoPath), 'app.json');
+    await assertStatePath(repoPath, file); // a committed symlink must not expose a file outside the checkout
+    const parsed: unknown = JSON.parse(await readTextNoSymlink(file));
     return typeof parsed === 'object' && parsed !== null ? (parsed as Record<string, unknown>) : {};
   } catch {
     return {};
