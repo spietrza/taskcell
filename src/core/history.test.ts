@@ -175,3 +175,13 @@ describe('readIssueHistory', () => {
     expect(h.unavailable[0]).toMatch(/this checkout is x\/y/);
   });
 });
+
+describe('run-end prUrl', () => {
+  it('drops a non-http(s) prUrl from the entry source and text', () => {
+    const { input } = fixture();
+    const bad = seal([ev('2026-01-04T10:00:00Z', { type: 'run-end', prUrl: 'javascript:alert(1)' }, 'run-3')], { actor: BOT_ACTOR, subject: { repo: '/p', runId: 'run-3' } });
+    input.units.push({ stream: 'run-events', name: 'gh-o-r-7/c', files: [bad] });
+    const h = buildIssueHistory(input);
+    expect(JSON.stringify(h.entries)).not.toContain('javascript:');
+  });
+});
