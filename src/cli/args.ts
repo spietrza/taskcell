@@ -23,7 +23,7 @@ export type Command = CommandKind & { usageCapPct?: string };
 type CommandKind =
   | { kind: 'gc'; repoPath: string; maxAgeMs: number; remoteRepo?: string; dryRun: boolean; abandoned: boolean }
   | { kind: 'migrate-labels'; repoSlug: string; apply: boolean }
-  | { kind: 'resume-rate-limited'; repoSlug: string; dryRun: boolean; triggerLabels?: string[]; startedLabels?: string[] }
+  | { kind: 'resume-rate-limited'; repoSlug: string; dryRun: boolean; triggerLabels?: string[]; dependencyRepos?: string[]; startedLabels?: string[] }
   | {
       kind: 'review-pr';
       prRef: string;
@@ -211,6 +211,8 @@ type CommandKind =
       triggerStateName?: string;
       claimedState?: string;
       reviewState?: string;
+      /** Other repos (owner/repo) a dependency may be read from, besides the watched repo. */
+      dependencyRepos?: string[];
       repoSlug?: string;
       repoPath: string;
       concurrency: number;
@@ -434,6 +436,12 @@ type CheckedRunFlags = Exhaustive<
 function parseNamedSkills(value: string | boolean | (string | boolean)[] | undefined): string[] | undefined {
   const names = normalizeSkillNames((Array.isArray(value) ? value : [value]).filter((v): v is string => typeof v === 'string'));
   return names.length > 0 ? names : undefined;
+}
+
+/** `--dependency-repos a/b, c/d` -> { dependencyRepos: ['a/b','c/d'] }; absent or empty -> {}. */
+function parseDependencyRepos(value: string | boolean | undefined): { dependencyRepos?: string[] } {
+  const repos = typeof value === 'string' ? value.split(',').map((r) => r.trim()).filter((r) => r !== '') : [];
+  return repos.length > 0 ? { dependencyRepos: repos } : {};
 }
 
 /** `--feedback-authors a, b ,A` -> ['a','b']; an empty or separator-only value -> undefined, not []. */
@@ -930,6 +938,7 @@ function parseCommand(argv: string[], cwd: string, cap: { pct?: string }): Comma
       repoSlug,
       dryRun: values['dry-run'] === true,
       ...(triggerLabels.length > 0 ? { triggerLabels } : {}),
+      ...parseDependencyRepos(values['dependency-repos']),
       ...(startedLabels !== undefined ? { startedLabels } : {}),
     };
   }
@@ -1421,6 +1430,7 @@ function parseCommand(argv: string[], cwd: string, cap: { pct?: string }): Comma
       ...(typeof values['claimed-state'] === 'string' ? { claimedState: values['claimed-state'] } : {}),
       ...(typeof values['review-state'] === 'string' ? { reviewState: values['review-state'] } : {}),
       ...(typeof values['github-repo'] === 'string' ? { repoSlug: values['github-repo'] } : {}),
+      ...parseDependencyRepos(values['dependency-repos']),
       ...runOptions,
       ...(proxyMode ? { llmProxy: true } : {}),
       // Loop v1 fields (omitted when not supplied, preserving existing behaviour when absent).

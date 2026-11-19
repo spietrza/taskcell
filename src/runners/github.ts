@@ -155,6 +155,8 @@ export interface WatchGithubOptions {
   ownerLabel?: string;
   /** Label added on claim (and the trigger label removed) so re-polls skip it, e.g. 'taskcell:running'. */
   claimedLabel: string;
+  /** Other repos (`owner/repo`) a dependency may be read from, besides the watched repo. */
+  dependencyRepos?: readonly string[];
   /** Label added after a PR opens, e.g. 'taskcell:needs-human-review'. */
   reviewLabel: string;
   /**
@@ -283,6 +285,7 @@ export function githubIssueWatchPrimitives(opts: WatchGithubOptions, log?: (msg:
       const tasks = await applyDependencyGate(trusted, {
         repo,
         trigger: opts.label,
+        ...(opts.dependencyRepos !== undefined ? { dependencyRepos: opts.dependencyRepos } : {}),
         ...(needsInfoLabel !== undefined ? { needsInfoLabel } : {}),
         ...(opts.gh !== undefined ? { gh: opts.gh } : {}),
         overlap: {
@@ -365,6 +368,8 @@ export function githubIssueWatchPrimitives(opts: WatchGithubOptions, log?: (msg:
 }
 
 export interface WatchGithubSpecOptions {
+  /** Other repos (`owner/repo`) a dependency may be read from, besides the watched repo. */
+  dependencyRepos?: readonly string[];
   /** Deps for the spec generator (no PR is opened in the spec pass). */
   deps: RunSpecGeneratorDeps;
   /** owner/repo the issues live in (the spec deps' fetcher is used to read them). */
@@ -419,6 +424,7 @@ export function githubSpecPrimitives(opts: WatchGithubSpecOptions, log?: (msg: s
         repo,
         trigger: opts.specLabel,
         needsInfoLabel: opts.needsInfoLabel,
+        ...(opts.dependencyRepos !== undefined ? { dependencyRepos: opts.dependencyRepos } : {}),
         ...(opts.gh !== undefined ? { gh: opts.gh } : {}),
       });
       return tasks.map((task) => ({ id: task.id }));

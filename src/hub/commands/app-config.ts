@@ -76,9 +76,10 @@ export const commands = defineCommands<AppConfigCommands>({
     await writeAppConfig(real, config as HubAppConfig);
     return null;
   },
-  list_chat_models: async ({ args, allow }) => {
+  list_chat_models: async ({ args, allow, caller }) => {
     const real = await allow(requireString(args, 'repoPath'));
-    return listChatModels(real, await readAppConfig(real));
+    // The hub key named by `keyEnv` leaves the hub on the owner's call only; a team member gets the keyless listing.
+    return listChatModels(real, await readAppConfig(real), fetch, { withKey: caller.owner });
   },
 }, {
   read_app_config: { write: false, repo: 'repoPath' },

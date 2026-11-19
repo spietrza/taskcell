@@ -52,6 +52,7 @@ const OPT = {
   skills: str('<dir>', 'Skills directory, merged with the repo\'s .github/vanguard-skills/'),
   'pnpm-store': bool('Mount a persistent pnpm store, one per repo (see docs/cli.md)'),
   'feedback-authors': str('<a,b>', 'Logins trusted beyond OWNER/MEMBER/COLLABORATOR'),
+  'dependency-repos': str('<o/r,o/r>', 'Other repos a `Depends on` reference may be read from (default: only the watched repo)'),
   egress: bool('Run the sandbox with allow-listed network egress'),
   'llm-proxy': bool('Hold model credentials in a host sidecar instead of the sandbox'),
   'github-repo': str('<o/r>', 'GitHub repo slug (owner/repo)'),
@@ -120,7 +121,7 @@ const WATCH_OWN: Own = {
   'spec-only': bool('Run only the spec pass (needs loop-v1 and a review --agent-label/--agent-state other than the build trigger)'),
 };
 
-const WATCH_SHARED = [...RUN_OPTS, 'spec-model', 'repo', 'github-repo', 'gitlab-project', 'label', 'trigger-state', 'trigger-state-name', 'claimed-state', 'review-state', 'spec-claimed-label', 'concurrency', 'interval', 'once', 'egress', 'llm-proxy'] as const satisfies readonly (keyof typeof OPT)[];
+const WATCH_SHARED = [...RUN_OPTS, 'spec-model', 'repo', 'github-repo', 'gitlab-project', 'label', 'trigger-state', 'trigger-state-name', 'claimed-state', 'review-state', 'spec-claimed-label', 'dependency-repos', 'concurrency', 'interval', 'once', 'egress', 'llm-proxy'] as const satisfies readonly (keyof typeof OPT)[];
 
 const REVIEW_SHARED = ['repo', 'provider', 'review-model', 'max-turns', 'usage-cap', 'egress', 'llm-proxy', 'skills'] as const satisfies readonly (keyof typeof OPT)[];
 
@@ -216,7 +217,7 @@ export const COMMANDS: readonly CommandDecl[] = [
     'save-baseline': bool('Publish this result as the new baseline'),
   }),
   command('migrate-labels', 'Rename a repo\'s old vanguard:* labels to taskcell:* (dry-run by default).', ['github-repo'], { apply: bool('Rename the labels') }),
-  command('resume-rate-limited', 'Re-apply the trigger label on issues/PRs a provider limit or an unmet dependency parked, once clear.', ['github-repo', 'dry-run', 'trigger-labels', 'claimed-state', 'review-state', 'spec-claimed-label'], {}, {
+  command('resume-rate-limited', 'Re-apply the trigger label on issues/PRs a provider limit or an unmet dependency parked, once clear.', ['github-repo', 'dry-run', 'trigger-labels', 'dependency-repos', 'claimed-state', 'review-state', 'spec-claimed-label'], {}, {
     'claimed-state': { help: 'As given to watch' },
     'review-state': { help: 'As given to watch' },
     'spec-claimed-label': { help: 'As given to watch' },

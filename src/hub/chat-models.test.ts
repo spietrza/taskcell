@@ -31,6 +31,7 @@ describe('listChatModels', () => {
 
   test('a custom endpoint: GET <baseUrl>/v1/models with the keyEnv key, no redirects, ids only', async () => {
     vi.stubEnv('MY_PROXY_KEY', KEY);
+    vi.stubEnv('TASKCELL_CHAT_ALLOWED_ORIGINS', 'https://llm.example.com');
     const cfg: AppConfig = { chatBaseUrl: 'https://llm.example.com/api/', customProviders: [{ name: 'proxy', baseUrl: 'https://llm.example.com/api', keyEnv: 'MY_PROXY_KEY' }] };
     const f = okFetch({ data: [{ id: 'glm-5.2' }, { id: 'glm-5.2' }, { id: 'bad id;rm' }, { id: 7 }, { id: 'claude-sonnet-5' }] });
     const out = await listChatModels(await repoWith(cfg), cfg, f);
@@ -57,6 +58,7 @@ describe('listChatModels', () => {
 
   test('a failure is a short safe error, never the body or the key', async () => {
     vi.stubEnv('MY_PROXY_KEY', KEY);
+    vi.stubEnv('TASKCELL_CHAT_ALLOWED_ORIGINS', 'https://llm.example.com');
     const cfg: AppConfig = { chatBaseUrl: 'https://llm.example.com', customProviders: [{ name: 'p', baseUrl: 'https://llm.example.com', keyEnv: 'MY_PROXY_KEY' }] };
     const repo = await repoWith(cfg);
     const denied = vi.fn(async () => new Response(`invalid key ${KEY}`, { status: 401 }));
@@ -79,6 +81,44 @@ describe('listChatModels', () => {
     expect(JSON.stringify(f.mock.calls[0]![1])).not.toContain(KEY);
     const denied = vi.fn(async () => new Response('no', { status: 401 }));
     expect((await listChatModels(repo, cfg, denied)).error).toContain('MY_PROXY_KEY is sent to https:// endpoints only');
+  });
+
+  test('a foreign origin gets no request and no key', async () => {
+    vi.stubEnv('SOME_OTHER_SECRET', KEY);
+    const cfg: AppConfig = { chatBaseUrl: 'https://attacker.example/', customProviders: [{ name: 'p', baseUrl: 'https://attacker.example', keyEnv: 'SOME_OTHER_SECRET' }] };
+    const f = okFetch({ data: [{ id: 'm1' }] });
+    const out = await listChatModels(await repoWith(cfg), cfg, f);
+    expect(out.models).toEqual([]);
+    expect(out.error).toContain('not allowed');
+    expect(f).not.toHaveBeenCalled();
+  });
+
+  test('a keyless endpoint needs no allowed origin', async () => {
+    const cfg: AppConfig = { chatBaseUrl: 'https://keyless.example/', customProviders: [{ name: 'p', baseUrl: 'https://keyless.example' }] };
+    const f = okFetch({ data: [{ id: 'm1' }] });
+    expect(await listChatModels(await repoWith(cfg), cfg, f)).toMatchObject({ source: 'endpoint', models: ['m1'] });
+    expect(f).toHaveBeenCalledOnce();
+  });
+
+  test('a caller other than the hub owner is asked without the key, even at an allowed origin', async () => {
+    vi.stubEnv('SOME_OTHER_SECRET', KEY);
+    vi.stubEnv('TASKCELL_CHAT_ALLOWED_ORIGINS', 'https://ok.example');
+    const cfg: AppConfig = { chatBaseUrl: 'https://ok.example/', customProviders: [{ name: 'p', baseUrl: 'https://ok.example', keyEnv: 'SOME_OTHER_SECRET' }] };
+    const repo = await repoWith(cfg);
+    const f = okFetch({ data: [{ id: 'm1' }] });
+    expect(await listChatModels(repo, cfg, f, { withKey: false })).toMatchObject({ models: ['m1'] });
+    expect(JSON.stringify(f.mock.calls[0]![1])).not.toContain(KEY);
+    const denied = vi.fn(async () => new Response('no', { status: 401 }));
+    expect((await listChatModels(repo, cfg, denied, { withKey: false })).error).toContain("SOME_OTHER_SECRET is sent on the hub owner's fetch only");
+  });
+
+  test('an allowed origin is fetched with the key header', async () => {
+    vi.stubEnv('SOME_OTHER_SECRET', KEY);
+    vi.stubEnv('TASKCELL_CHAT_ALLOWED_ORIGINS', 'https://ok.example');
+    const cfg: AppConfig = { chatBaseUrl: 'https://ok.example/', customProviders: [{ name: 'p', baseUrl: 'https://ok.example', keyEnv: 'SOME_OTHER_SECRET' }] };
+    const f = okFetch({ data: [{ id: 'm1' }] });
+    expect(await listChatModels(await repoWith(cfg), cfg, f)).toMatchObject({ models: ['m1'] });
+    expect((f.mock.calls[0]![1] as RequestInit).headers).toMatchObject({ Authorization: `Bearer ${KEY}` });
   });
 
   test('a provider whose keyEnv names a credential Taskcell holds is not trusted with it', async () => {
