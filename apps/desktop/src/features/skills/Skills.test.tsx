@@ -1,5 +1,5 @@
 import { test, expect, afterEach, vi } from 'vitest';
-import { render, screen, fireEvent } from '@testing-library/react';
+import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import type { RepoSkill } from '../../wire';
 import { Skills } from './Skills';
 
@@ -177,7 +177,7 @@ test('Pull checkout calls pull_checkout, refreshes the lists and says it updated
   fireEvent.click(screen.getByRole('button', { name: 'Pull checkout' }));
   expect(await screen.findByText('Checkout updated.')).toBeInTheDocument();
   expect(calls.find((c) => c.cmd === 'pull_checkout')?.body).toEqual({ repoPath: '/repo' });
-  expect(calls.filter((c) => c.cmd === 'list_repo_skills')).toHaveLength(2);
+  await waitFor(() => expect(calls.filter((c) => c.cmd === 'list_repo_skills')).toHaveLength(2));
 });
 
 test('a refused pull shows the reason', async () => {
