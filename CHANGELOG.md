@@ -1,5 +1,32 @@
 # Changelog
 
+## [1.16.9](https://github.com/spietrza/taskcell/compare/v1.16.8...v1.16.9) (2026-11-19)
+
+
+### Features
+
+* Copy-back: a sandbox `.GIT` entry replaces the worktree's `.git` pointer on case-insensitive hosts (host code execution, push redirect) (spietrza/taskcell[#1235](https://github.com/spietrza/taskcell/issues/1235)) ([#1257](https://github.com/spietrza/taskcell/issues/1257)) ([043a9b4](https://github.com/spietrza/taskcell/commit/043a9b4963419b806b8e4c78dc8e6a1a94a13a8a))
+* Copy-back: reject NTFS 8.3 and HFS+ aliases of `.git`; run the case-folded excludes through real tar/find (spietrza/taskcell[#1261](https://github.com/spietrza/taskcell/issues/1261)) ([#1272](https://github.com/spietrza/taskcell/issues/1272)) ([e742de9](https://github.com/spietrza/taskcell/commit/e742de9461bc768961d86292e5eb409fb7dd5898))
+* Desktop: Markdown links navigate in place and leak the hub origin; history `prUrl` is rendered unvalidated (spietrza/taskcell[#1240](https://github.com/spietrza/taskcell/issues/1240)) ([#1256](https://github.com/spietrza/taskcell/issues/1256)) ([24984eb](https://github.com/spietrza/taskcell/commit/24984eb5e4969bd3c471ab26f34dd00948d8cfb3))
+* Desktop: server-switcher IPC granted only to the local hub's launch origin; remote hubs no longer list other hubs (spietrza/taskcell[#1241](https://github.com/spietrza/taskcell/issues/1241)) ([#1262](https://github.com/spietrza/taskcell/issues/1262)) ([2e2eb9c](https://github.com/spietrza/taskcell/commit/2e2eb9c185e4f095867f041d2549be6048d8db12))
+* Flaky desktop test: Skills "Pull checkout calls pull_checkout, refreshes the lists" fails on CI (1 call instead of 2) (spietrza/taskcell[#1269](https://github.com/spietrza/taskcell/issues/1269)) ([#1270](https://github.com/spietrza/taskcell/issues/1270)) ([ae845fb](https://github.com/spietrza/taskcell/commit/ae845fb54681fa6cdc8b3017e5dbb3ffb1c3adcc))
+* GitLab factory: validate the glab login before it enters the job script; tell existing installs to add --feedback-authors (spietrza/taskcell[#1252](https://github.com/spietrza/taskcell/issues/1252)) ([#1264](https://github.com/spietrza/taskcell/issues/1264)) ([8e8fed6](https://github.com/spietrza/taskcell/commit/8e8fed6d7e3c210ae1249838f210f9c46a370623))
+* GitLab template and hub writer ship without `--feedback-authors`, so every GitLab commenter is trusted (spietrza/taskcell[#1237](https://github.com/spietrza/taskcell/issues/1237)) ([#1249](https://github.com/spietrza/taskcell/issues/1249)) ([caba12e](https://github.com/spietrza/taskcell/commit/caba12e7373d26f7702a6176bae71c8a4dfe2a21))
+* Hub: `list_chat_models` sends a repo-chosen hub env var to a repo-chosen host (credential exfiltration / SSRF) (spietrza/taskcell[#1239](https://github.com/spietrza/taskcell/issues/1239)) ([#1255](https://github.com/spietrza/taskcell/issues/1255)) ([4a8f2a0](https://github.com/spietrza/taskcell/commit/4a8f2a0a2ae423eada66455cd8cf13368d7c6701))
+* Hub: `read_app_config` follows a committed `.taskcell/app.json` symlink and returns any JSON file on the hub host (spietrza/taskcell[#1236](https://github.com/spietrza/taskcell/issues/1236)) ([#1253](https://github.com/spietrza/taskcell/issues/1253)) ([54e7ab4](https://github.com/spietrza/taskcell/commit/54e7ab4f08f9475cbbf8cfc2858288f42333a66d))
+* Hub: keyless `list_chat_models` still fetches any URL saved in app.json (blind SSRF from the hub host) (spietrza/taskcell[#1265](https://github.com/spietrza/taskcell/issues/1265)) ([#1268](https://github.com/spietrza/taskcell/issues/1268)) ([c881b73](https://github.com/spietrza/taskcell/commit/c881b7313779b5f7e5cf007db2983912ba76fdc9))
+* Hub: two more `.taskcell/app.json` readers follow a committed symlink (custom providers, board config) (spietrza/taskcell[#1254](https://github.com/spietrza/taskcell/issues/1254)) ([#1266](https://github.com/spietrza/taskcell/issues/1266)) ([9bd717e](https://github.com/spietrza/taskcell/commit/9bd717eabdde1c1ec3c50107582cc171a8d126fc))
+* Landing build fails: Hub scene no longer matches the app markup after [#1223](https://github.com/spietrza/taskcell/issues/1223) (spietrza/taskcell[#1232](https://github.com/spietrza/taskcell/issues/1232)) ([#1234](https://github.com/spietrza/taskcell/issues/1234)) ([9d47201](https://github.com/spietrza/taskcell/commit/9d47201c4e9c3cf25bd6ef619e3108948289027f))
+* landing Product Hunt launch bar and page-view sources ([#1233](https://github.com/spietrza/taskcell/issues/1233)) ([ed6e5ae](https://github.com/spietrza/taskcell/commit/ed6e5ae2bbfd0e2f6693b7f058061493f4a2cec5))
+* Mobile: move the hub's wire types and RPC client into one shared module (spietrza/taskcell[#1258](https://github.com/spietrza/taskcell/issues/1258)) ([#1267](https://github.com/spietrza/taskcell/issues/1267)) ([b9c6b4f](https://github.com/spietrza/taskcell/commit/b9c6b4fe925a50185d89099f21269d7f84670adc))
+* Runs list: a live run's row always says Cell, not its current station (spietrza/taskcell[#1229](https://github.com/spietrza/taskcell/issues/1229)) ([#1230](https://github.com/spietrza/taskcell/issues/1230)) ([b704855](https://github.com/spietrza/taskcell/commit/b7048554d3b0c9ce40187b0820c9c5288148c3d5))
+* Watch dependency gate reads any repository the reporter names with the factory token (private-issue state oracle) (spietrza/taskcell[#1238](https://github.com/spietrza/taskcell/issues/1238)) ([#1263](https://github.com/spietrza/taskcell/issues/1263)) ([ad995d9](https://github.com/spietrza/taskcell/commit/ad995d9447b843d042e7da6c7a1500dbaff8a211))
+
+
+### Miscellaneous
+
+* release 1.16.9 ([eccb4ef](https://github.com/spietrza/taskcell/commit/eccb4ef1700b3263d8536336504a484202b0f42b))
+
 ## [1.16.8](https://github.com/spietrza/taskcell/compare/v1.16.7...v1.16.8) (2026-11-18)
 
 
