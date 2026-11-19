@@ -35,6 +35,7 @@ const GITLAB_CI_FILE = '.gitlab-ci.yml';
 const INCLUDE_LINES = `include:\n  - local: ${GITLAB_INCLUDE_FILE}\n`;
 const TEMPLATE = new URL('../../templates/gitlab/taskcell.yml', import.meta.url);
 const SECRET_NAME = 'CLAUDE_CODE_OAUTH_TOKEN';
+const GITLAB_USERNAME = /^[A-Za-z0-9_.-]+$/;
 const LOGIN_PLACEHOLDER = 'YOUR_GITLAB_LOGIN';
 
 /** Like `factoryPlanTargets()`: what `apply` touches, derived from this process's constants, never from a client's plan. */
@@ -274,6 +275,7 @@ export async function planGitlabFactory(repoPath: string, deps: GitlabFactoryDep
   const configuredCiPath = str(project.ci_config_path) || GITLAB_CI_FILE;
   const gitlabCiPath = configuredCiPath.startsWith('/') || configuredCiPath.split('/').includes('..') ? '' : configuredCiPath;
   if (login === '') throw new BadRequestError('glab is not signed in to GitLab; run `glab auth login`, then try again.');
+  if (!GITLAB_USERNAME.test(login)) throw new BadRequestError('The signed-in GitLab username has characters GitLab does not allow in a username (letters, digits, `_`, `.`, `-`); check `glab auth status` and try again.');
   if (defaultBranch === '') throw new BadRequestError('The GitLab project has no default branch yet; push one first, then try again.');
   if (gitlabProjectId <= 0) throw new BadRequestError('GitLab did not return the project id; check `glab auth status` and try again.');
   if (gitlabCiPath === '' || gitlabCiPath === GITLAB_INCLUDE_FILE) throw new BadRequestError('The project has an unsupported custom CI configuration path; choose a regular project-relative CI file, then try again.');
