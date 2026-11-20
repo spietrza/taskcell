@@ -8,7 +8,7 @@ const days = (n: number): string => new Date(NOW - n * 864e5).toISOString();
 
 const runWith = (cursor = ''): DockerRunner => async (_c, args) => {
   if (args[0] === 'image') return { stdout: '' };
-  return { stdout: `claude 2.1.260 (Claude Code)\ncodex codex-cli 0.167.2\nagent ${cursor}\n` };
+  return { stdout: `claude 2.1.260 (Claude Code)\ncodex codex-cli 0.169.0\nagent ${cursor}\n` };
 };
 
 /** A packument whose `versions` lists every `time` key except `unpublished`. */
@@ -21,7 +21,7 @@ const packument = (times: Record<string, string>, unpublished: string[] = []): u
 function fetcher(claudeTimes: Record<string, string>, cursorText = 'https://downloads.cursor.com/lab/2026.11.01-abcdef1/linux', unpublished: string[] = []): Fetcher {
   return vi.fn(async (url: string) => {
     if (url.includes('claude-code')) return { ok: true, json: async () => packument(claudeTimes, unpublished), text: async () => '' };
-    if (url.includes('codex')) return { ok: true, json: async () => packument({ '0.167.2': days(10) }), text: async () => '' };
+    if (url.includes('codex')) return { ok: true, json: async () => packument({ '0.169.0': days(10) }), text: async () => '' };
     return { ok: true, json: async () => ({}), text: async () => cursorText };
   });
 }
@@ -30,20 +30,20 @@ const check = (f: Fetcher, run = runWith(), now = NOW): Promise<CliVersionReport
 
 describe('checkCliVersions', () => {
   it('reports outdated claude with the soaked release as target, and current codex', async () => {
-    const r = await check(fetcher({ '2.1.260': days(60), '2.1.322': days(5) }));
+    const r = await check(fetcher({ '2.1.260': days(60), '2.1.326': days(5) }));
     const by = Object.fromEntries(r.clis.map((c) => [c.name, c]));
-    expect(by.claude).toMatchObject({ installed: '2.1.260', latest: '2.1.322', target: '2.1.322', outdated: true, updatable: true });
+    expect(by.claude).toMatchObject({ installed: '2.1.260', latest: '2.1.326', target: '2.1.326', outdated: true, updatable: true });
     expect(by.codex).toMatchObject({ outdated: false, updatable: false });
     expect(by.cursor).toBeUndefined();
   });
 
   it('offers the newest soaked release when the newest is inside the soak', async () => {
-    const r = await check(fetcher({ '2.1.260': days(60), '2.1.321': days(10), '2.1.322': days(1) }));
-    expect(r.clis[0]).toMatchObject({ latest: '2.1.322', target: '2.1.321', outdated: true, updatable: true });
+    const r = await check(fetcher({ '2.1.260': days(60), '2.1.321': days(10), '2.1.326': days(1) }));
+    expect(r.clis[0]).toMatchObject({ latest: '2.1.326', target: '2.1.321', outdated: true, updatable: true });
   });
 
   it('shows but does not offer a release when nothing newer has soaked', async () => {
-    const r = await check(fetcher({ '2.1.260': days(60), '2.1.322': days(1) }));
+    const r = await check(fetcher({ '2.1.260': days(60), '2.1.326': days(1) }));
     expect(r.clis[0]).toMatchObject({ outdated: true, updatable: false });
     expect(r.clis[0]?.target).toBeUndefined();
     expect(r.clis[0]?.reason).toMatch(/3 days/);
@@ -62,16 +62,16 @@ describe('checkCliVersions', () => {
   });
 
   it('ignores versions that were unpublished from npm', async () => {
-    const r = await check(fetcher({ '2.1.260': days(60), '2.1.300': days(10), '2.1.322': days(5) }, undefined, ['2.1.322']));
+    const r = await check(fetcher({ '2.1.260': days(60), '2.1.300': days(10), '2.1.326': days(5) }, undefined, ['2.1.326']));
     expect(r.clis[0]).toMatchObject({ latest: '2.1.300', target: '2.1.300' });
   });
 
   it('does not cache a non-OK response, and refetches once the TTL expires', async () => {
     let ok = false;
-    const f: Fetcher = vi.fn(async () => ({ ok, json: async () => packument({ '2.1.322': days(10) }), text: async () => '' }));
+    const f: Fetcher = vi.fn(async () => ({ ok, json: async () => packument({ '2.1.326': days(10) }), text: async () => '' }));
     expect((await check(f)).clis[0]).toMatchObject({ reason: 'version lookup failed' });
     ok = true;
-    expect((await check(f)).clis[0]).toMatchObject({ latest: '2.1.322' });
+    expect((await check(f)).clis[0]).toMatchObject({ latest: '2.1.326' });
     const calls = vi.mocked(f).mock.calls.length;
     await check(f, runWith(), NOW + 59 * 60_000);
     expect(vi.mocked(f).mock.calls.length).toBe(calls);
@@ -80,7 +80,7 @@ describe('checkCliVersions', () => {
   });
 
   it('makes no lookups for a CLI that is not installed', async () => {
-    const f = fetcher({ '2.1.322': days(10) });
+    const f = fetcher({ '2.1.326': days(10) });
     const r = await check(f, async (_c, args) => ({ stdout: args[0] === 'image' ? 'sha256:1' : 'claude \ncodex \nagent \n' }));
     expect(f).not.toHaveBeenCalled();
     expect(formatCliVersions(r)).toEqual([]);

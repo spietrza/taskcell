@@ -23,7 +23,7 @@ function selfHealingRunner(): { run: PreflightRunner; calls: string[] } {
   const run: PreflightRunner = async (name, args) => {
     calls.push(`${name} ${args.join(' ')}`);
     if (name === 'docker' && args[0] === 'run' && args.includes('npm')) {
-      version = '2.1.322';
+      version = '2.1.326';
       return { stdout: '' };
     }
     if (name === 'docker' && args[0] === 'run') return { stdout: `${version} (Claude Code)` };
@@ -37,7 +37,7 @@ function selfHealingRunner(): { run: PreflightRunner; calls: string[] } {
 const runner: PreflightRunner = async (name, args) => {
   if (name === 'git' && args[0] === 'rev-parse') return { stdout: '/repo' };
   if (name === 'git' && args[0] === 'remote') return { stdout: 'https://github.com/owner/repo.git' };
-  if (name === 'docker' && args[0] === 'run') return { stdout: '2.1.322 (Claude Code)' };
+  if (name === 'docker' && args[0] === 'run') return { stdout: '2.1.326 (Claude Code)' };
   if (name === 'docker') return { stdout: '' };
   if (name === 'gh' && args[0] === 'label') {
     return {
@@ -53,11 +53,11 @@ const runner: PreflightRunner = async (name, args) => {
 function versionRunner(codex: string, installs: string[], install: 'ok' | 'fail' | 'noop' = 'ok'): PreflightRunner {
   let codexNow = codex;
   return async (name, args, o) => {
-    if (name === 'docker' && args[0] === 'run' && args.includes('sh')) return { stdout: `claude 2.1.322\ncodex ${codexNow}\nagent \n` };
+    if (name === 'docker' && args[0] === 'run' && args.includes('sh')) return { stdout: `claude 2.1.326\ncodex ${codexNow}\nagent \n` };
     if (name === 'docker' && args[0] === 'run' && args.includes('npm')) {
       installs.push(args.at(-1) ?? '');
       if (install === 'fail') throw new Error('npm down');
-      if (install === 'ok') codexNow = '0.167.2';
+      if (install === 'ok') codexNow = '0.169.0';
       return { stdout: '' };
     }
     return runner(name, args, o);
@@ -74,9 +74,9 @@ describe('doctorCommand cli versions', () => {
       ...base,
       run: runner,
       log: (l) => logs.push(l),
-      cliVersions: async () => ({ enabled: true, clis: [{ name: 'codex', installed: '0.100.0', latest: '0.167.2', changelog: 'https://x', outdated: true, updatable: true }] }),
+      cliVersions: async () => ({ enabled: true, clis: [{ name: 'codex', installed: '0.100.0', latest: '0.169.0', changelog: 'https://x', outdated: true, updatable: true }] }),
     });
-    expect(logs).toContain('cli versions: codex installed 0.100.0, latest 0.167.2 — newer available (https://x)');
+    expect(logs).toContain('cli versions: codex installed 0.100.0, latest 0.169.0 — newer available (https://x)');
     // The preflight report comes first: the version check must not delay it.
     expect(logs.findIndex((l) => l.startsWith('preflight:'))).toBeLessThan(logs.findIndex((l) => l.startsWith('cli versions:')));
   });
@@ -91,13 +91,13 @@ describe('doctorCommand cli versions', () => {
     const installs: string[] = [];
     const logs: string[] = [];
     await doctorCommand(fix, { ...base, run: versionRunner('0.100.0', installs), log: (l) => logs.push(l) });
-    expect(installs).toEqual(['@openai/codex@0.167.2']);
-    expect(logs).toContain('doctor --fix: installing codex 0.167.2 into the sandbox image');
+    expect(installs).toEqual(['@openai/codex@0.169.0']);
+    expect(logs).toContain('doctor --fix: installing codex 0.169.0 into the sandbox image');
   });
 
   it('--fix leaves a current codex alone', async () => {
     const installs: string[] = [];
-    await doctorCommand(fix, { ...base, run: versionRunner('0.167.2', installs), log: () => undefined, cliVersions: async () => ({ enabled: false, clis: [] }) });
+    await doctorCommand(fix, { ...base, run: versionRunner('0.169.0', installs), log: () => undefined, cliVersions: async () => ({ enabled: false, clis: [] }) });
     expect(installs).toEqual([]);
   });
 
@@ -180,7 +180,7 @@ describe('doctorCommand --fix', () => {
       { env: { TASKCELL_CLI_VERSION_CHECK: 'off', GH_TOKEN: 'gh', CLAUDE_CODE_OAUTH_TOKEN: 'token' }, nodeVersion: '24.11.1', run, log: (l) => lines.push(l) },
     );
 
-    expect(calls.some((c) => c.includes('npm install -g --force @anthropic-ai/claude-code@2.1.322'))).toBe(true);
+    expect(calls.some((c) => c.includes('npm install -g --force @anthropic-ai/claude-code@2.1.326'))).toBe(true);
     // USER/WorkingDir are restored from the original image, never hardcoded — a commit without them
     // bakes root into the image and the new CLI then refuses to start.
     expect(calls.some((c) => c.startsWith('docker commit') && c.includes('USER '))).toBe(true);
