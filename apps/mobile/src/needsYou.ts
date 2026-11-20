@@ -18,6 +18,8 @@ export interface Row {
   url: string | null;
   /** True for a state that is broken, not just waiting (shown in red). */
   alert: boolean;
+  /** The hub's item, kept so the detail sheet can act on it (its `repoPath` is the hub's, never typed). */
+  item: WaitingItem;
 }
 
 export const kindLabel = (item: NeedsYouItem): string => {
@@ -57,6 +59,7 @@ export function toRows(items: readonly WaitingItem[], now: number = Date.now()):
         age: ageOf(item.updatedAt, now),
         url: /^https:\/\//.test(item.url) ? item.url : null,
         alert: kind === 'Verify failed',
+        item,
       };
     });
 }
@@ -68,6 +71,16 @@ const hubClient = (c: Credentials, fetchImpl?: typeof fetch): ReturnType<typeof 
 export async function loadWaiting(c: Credentials, fetchImpl?: typeof fetch): Promise<{ items: WaitingItem[]; failures: RepoReadFailure[] }> {
   const { items, failures } = await hubClient(c, fetchImpl).call('list_needs_you_all');
   return { items, failures: failures ?? [] };
+}
+
+/** The hub's `merge_needs_you`; the hub gates it (checks, state, role). Rejects with the hub's message. */
+export async function mergeItem(c: Credentials, item: WaitingItem, fetchImpl?: typeof fetch): Promise<void> {
+  await hubClient(c, fetchImpl).call('merge_needs_you', { repoPath: item.repoPath ?? '', id: item.id });
+}
+
+/** The hub's `reply_needs_you`. Rejects with the hub's message. */
+export async function replyItem(c: Credentials, item: WaitingItem, body: string, fetchImpl?: typeof fetch): Promise<void> {
+  await hubClient(c, fetchImpl).call('reply_needs_you', { repoPath: item.repoPath ?? '', id: item.id, kind: item.kind, body });
 }
 
 const RECONNECT_MIN_MS = 1000;

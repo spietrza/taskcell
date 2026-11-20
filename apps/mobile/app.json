@@ -7,8 +7,12 @@
     "orientation": "portrait",
     "userInterfaceStyle": "automatic",
     "platforms": ["ios"],
-    "ios": { "supportsTablet": false, "bundleIdentifier": "dev.taskcell.mobile" },
-    "plugins": ["expo-router", "expo-secure-store"],
+    "ios": {
+      "supportsTablet": false,
+      "bundleIdentifier": "dev.taskcell.mobile",
+      "infoPlist": { "NSFaceIDUsageDescription": "Confirm merging a pull request." }
+    },
+    "plugins": ["expo-router", "expo-secure-store", "expo-local-authentication"],
     "experiments": { "typedRoutes": true }
   }
 }
