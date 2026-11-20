@@ -1,4 +1,8 @@
 import { taskRefKey } from './features/board/taskref';
+import { ASKED_WORDS, runStateWord } from '../../../packages/hub-client/src/runLabels';
+
+// Shared with the mobile app: lives in packages/hub-client.
+export { ASKED_WORDS, runStateWord };
 
 /** Who started a run, when that is a person: the hub's shared `token` identity and the local worker are not, so they show nothing. */
 export function startedByLabel(startedBy: string | undefined): string | undefined {
@@ -34,19 +38,8 @@ export function repoInitials(name: string | undefined, siblings: readonly string
   return ((words[0]?.[0] ?? '?') + (words[1]?.[0] ?? words[0]?.[1] ?? '')).toUpperCase();
 }
 
-/** The words for a card or run whose agent stopped to ask: it is the person's turn. */
-export const ASKED_WORDS = 'Waiting for your answer';
 /** Needs-you styling (the one orange thing): a card or run waiting on the person. */
 export const NEEDS_YOU_CHIP = 'rounded bg-primary/15 px-1.5 py-0.5 font-medium text-primary-text';
-
-/** A finished run's state word, one source for the Runs row and the run header: the hub's `prState` decides merged. */
-export function runStateWord(r: { anyFailed: boolean; stoppedBy?: string; prState?: string; prUrl?: string; verifyFailed?: true; cardDone?: true; asked?: string }): string {
-  if (r.stoppedBy !== undefined) return 'stopped: provider limit';
-  // Once its card is done the run waits on no answer: neutral history, as the card panel says it.
-  if (r.asked !== undefined) return r.cardDone === true ? 'stopped to ask' : ASKED_WORDS;
-  if (r.anyFailed || r.verifyFailed === true) return 'failed';
-  return r.prState === 'merged' ? 'merged' : r.prUrl !== undefined ? 'PR open' : r.cardDone === true ? 'done, no PR' : 'passed';
-}
 
 /** The chip colour of a state word: the colour always follows the word, never a second reading of the run. */
 export function runStateTone(word: string): 'success' | 'destructive' | 'secondary' | 'primary' {

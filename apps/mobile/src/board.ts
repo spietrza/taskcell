@@ -1,8 +1,8 @@
 import { createHubClient } from '../../../packages/hub-client/src/client';
 import type { BoardTask, RepoReadFailure, RepoStamp, RunSummary } from '../../../packages/hub-client/src/wire';
-import { taskRefKey } from '../../desktop/src/features/board/taskref';
-import { runStateWord } from '../../desktop/src/runLabels';
-import { STATION_SHORT, cardStationOf } from '../../desktop/src/stations';
+import { taskRefKey } from '../../../packages/hub-client/src/taskref';
+import { runStateWord } from '../../../packages/hub-client/src/runLabels';
+import { STATION_SHORT, cardStationOf } from '../../../packages/hub-client/src/stations';
 import { ageOf } from './needsYou';
 import { withOrigin } from './connect';
 import type { Credentials } from './credentials';
