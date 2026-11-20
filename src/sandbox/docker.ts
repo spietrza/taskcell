@@ -84,10 +84,10 @@ export async function resolveSandboxImage(image: string, exists: ImageExists = d
  * surfaces deep inside a run as a gateway error (live case: 2.1.165 answered every Meridian request
  * with `400 This session advanced while the request was waiting`, burning ~50 min per attempt).
  */
-export const SANDBOX_CLAUDE_VERSION = '2.1.322';
+export const SANDBOX_CLAUDE_VERSION = '2.1.326';
 
 /** Codex CLI the sandbox image is built with — keep in sync with docker/cli/codex/package.json. */
-export const SANDBOX_CODEX_VERSION = '0.167.2';
+export const SANDBOX_CODEX_VERSION = '0.169.0';
 
 /** True when `actual` sorts below `expected`; unparseable parts count as older. */
 export function isOlderVersion(actual: string, expected: string): boolean {

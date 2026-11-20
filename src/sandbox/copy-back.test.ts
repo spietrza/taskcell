@@ -172,12 +172,12 @@ describe('exportWorkspace', () => {
     try {
       const pointer = 'gitdir: /somewhere/real\n';
       await writeFile(join(worktree, '.git'), pointer);
-      const sandbox = fakeSandbox({ 'README.md': '# r\n', '.GIT': 'gitdir: ./evilgit\n', 'evilgit/config': 'x\n', '.Git/config': 'x\n', 'sub/.gIt/HEAD': 'x\n' });
+      const sandbox = fakeSandbox({ 'README.md': '# r\n', '.GIT': 'gitdir: ./evilgit\n', 'evilgit/config': 'x\n', 'b/.Git/config': 'x\n', 'c/sub/.gIt/HEAD': 'x\n' });
       const report = await exportWorkspace(sandbox, '/workspace', staging, worktree);
       expect(await readFile(join(worktree, '.git'), 'utf8')).toEqual(pointer);
-      await expect(stat(join(worktree, 'sub', '.gIt'))).rejects.toThrow();
+      await expect(stat(join(worktree, 'c', 'sub', '.gIt'))).rejects.toThrow();
       expect(await readFile(join(worktree, 'README.md'), 'utf8')).toEqual('# r\n');
-      expect([...report.gitCaseVariants].sort()).toEqual(['.GIT', '.Git', join('sub', '.gIt')].sort());
+      expect([...report.gitCaseVariants].sort()).toEqual(['.GIT', join('b', '.Git'), join('c', 'sub', '.gIt')].sort());
       expect(await classifyPath(staging, '.GIT')).toBeDefined();
       expect(await classifyPath(staging, 'a/.Git/x')).toBeDefined();
     } finally {
