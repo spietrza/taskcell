@@ -333,17 +333,14 @@ p { max-width: 62ch; }
 /* Light page: the theme button shows the sun, as the app does in its light theme. */
 :root[data-theme="light"] .hub-app [aria-label="Switch to light mode"] > span:first-child { opacity: 1; scale: 1; }
 :root[data-theme="light"] .hub-app [aria-label="Switch to light mode"] > span:last-child { opacity: 0; scale: 0.75; }
-/* Below 1024px the scaled Board would be unreadable: the drawer stays in the window, in place of the Board
-   (the app itself moves it to a bottom sheet below md). */
+/* Below 1024px the Board itself, as the app shows it on a narrow window: full-size columns that scroll sideways.
+   The drawer would cover it (the app makes it a full-screen sheet below md), so it stays closed. */
 @media (max-width: 1023px) {
   .hub-app { height: 600px; }
   .hub-top { position: static; height: auto; padding: 12px 16px; border-bottom-color: var(--line); }
   .hub-top b { display: block; }
   .hub-app > div > header { display: none; }
-  .hub-app aside[data-open] > div:first-child { display: none; }
-  .hub-app [data-hub-feed] { display: none; }
-  .hub-app [data-hub-lanes] { display: none; }
-  .hub-app [data-hub-drawer] { position: static !important; max-height: none !important; width: auto !important; flex: 1 1 auto; border: 0; border-radius: 0; box-shadow: none; }
+  .hub-app [data-hub-drawer] { display: none; }
 }
 .hub-screens { grid-column: 1 / -1; margin-top: 32px; display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 20px; }
 .hub-screens li { padding-top: 14px; border-top: 1px solid var(--line); font-size: 16px; }
