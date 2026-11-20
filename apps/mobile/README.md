@@ -24,4 +24,4 @@ pnpm typecheck
 pnpm test         # jest-expo, connect flow against a fake hub
 ```
 
-CI does not run these yet; that needs a workflow edit by a human.
+`pnpm verify` at the repo root runs both (`verify:mobile`), so CI and the factory gate cover them.
