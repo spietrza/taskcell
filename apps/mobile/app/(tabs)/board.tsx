@@ -1,6 +1,8 @@
 import type { ReactNode } from 'react';
-import { Placeholder } from '../../src/Placeholder';
+import { BoardScreen } from '../../src/BoardScreen';
+import { useSession } from '../../src/session';
 
 export default function Board(): ReactNode {
-  return <Placeholder title="Board" />;
+  const { credentials } = useSession();
+  return credentials ? <BoardScreen credentials={credentials} /> : null;
 }
