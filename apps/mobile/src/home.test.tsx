@@ -55,14 +55,14 @@ test('a hub card with no repoSlug shows its repoName', () => {
 
 test('shows repository read failures, even with no items', async () => {
   const failures = [{ repoPath: '/r', repoName: 'broken-repo', error: 'tracker down' }];
-  await render(<HomeScreen credentials={creds} fetchImpl={fakeHub([], failures)} />);
+  await renderHome(<HomeScreen credentials={creds} fetchImpl={fakeHub([], failures)} />);
   expect(await screen.findByText(/Could not read broken-repo: tracker down/)).toBeTruthy();
   expect(screen.queryByText('Nothing is waiting for you')).toBeNull();
 });
 
 test('a failed Linking.openURL is caught', async () => {
   jest.spyOn(Linking, 'openURL').mockRejectedValue(new Error('no handler'));
-  await render(<HomeScreen credentials={creds} fetchImpl={fakeHub([item({ title: 'Add login' })])} />);
+  await renderHome(<HomeScreen credentials={creds} fetchImpl={fakeHub([item({ title: 'Add login' })])} />);
   await fireEvent.press(await screen.findByText('Add login'));
 });
 
@@ -88,7 +88,7 @@ const tick = (): Promise<void> => new Promise((r) => setTimeout(r, 50));
 
 test('100 other events trigger no reload; a vanguard:changed burst at most one more', async () => {
   const hub = streamingHub();
-  await render(<HomeScreen credentials={creds} fetchImpl={hub.fetchImpl} />);
+  await renderHome(<HomeScreen credentials={creds} fetchImpl={hub.fetchImpl} />);
   await screen.findByText('Add login');
   expect(hub.reads()).toBe(1);
   for (let i = 0; i < 100; i += 1) hub.emit(frame('run-update', { i }));
@@ -102,7 +102,7 @@ test('100 other events trigger no reload; a vanguard:changed burst at most one m
 
 test('a failed background reload keeps the list and shows the error inline', async () => {
   const hub = streamingHub();
-  await render(<HomeScreen credentials={creds} fetchImpl={hub.fetchImpl} />);
+  await renderHome(<HomeScreen credentials={creds} fetchImpl={hub.fetchImpl} />);
   await screen.findByText('Add login');
   hub.failNext();
   hub.emit(frame('vanguard:changed', '/r'));
