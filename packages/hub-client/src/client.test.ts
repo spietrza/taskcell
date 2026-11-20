@@ -83,13 +83,16 @@ describe('hub client', () => {
     expect(sub.lastEventId).toBe("4");
   });
 
-  it("reports a frame buffer that grows past the cap through onError", async () => {
-    const chunk = enc("data: " + "x".repeat(64 * 1024));
-    const client = createHubClient({ token: 't', fetch: (async () => streamOf(Array.from({ length: 20 }, () => chunk))) as typeof fetch });
+  it("skips an oversized frame, reports it once, and keeps the stream", async () => {
+    const big = Array.from({ length: 20 }, () => enc("data: " + "x".repeat(64 * 1024)));
+    const client = createHubClient({ token: 't', fetch: (async () => streamOf([enc("event: a\ndata: 1\n\n"), ...big, enc("\n\nevent: a\ndata: 2\n\n")])) as typeof fetch });
     const events: unknown[] = [];
-    const msg = await new Promise<string>((resolve) => { client.subscribe({ onEvent: (n, p) => events.push([n, p]), onError: resolve }); });
-    expect(msg).toContain("too large");
-    expect(events).toEqual([]);
+    const errors: string[] = [];
+    await new Promise<void>((resolve) => {
+      client.subscribe({ onEvent: (n, p) => events.push([n, p]), onError: (m) => { errors.push(m); if (m === "event stream closed") resolve(); } });
+    });
+    expect(events).toEqual([["a", 1], ["a", 2]]);
+    expect(errors.filter((m) => m.includes("too large"))).toHaveLength(1);
   });
 
   it("dispatches many frames from one chunk in order", async () => {

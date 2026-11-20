@@ -51,3 +51,15 @@ test('a failed keychain delete shows an error and stays connected', async () => 
   expect(screen.getByText('connected')).toBeTruthy();
   expect(mockStore.size).toBe(2);
 });
+
+test('a failed URL delete after the token delete still ends disconnected', async () => {
+  const { clearCredentials, loadCredentials } = require('./credentials');
+  mockStore.set('taskcell.hub.url', 'http://hub.local:4317');
+  mockStore.set('taskcell.hub.token', 't');
+  const SecureStore = require('expo-secure-store');
+  SecureStore.deleteItemAsync.mockImplementationOnce(async (k: string) => void mockStore.delete(k));
+  SecureStore.deleteItemAsync.mockImplementationOnce(async () => { throw new Error('keychain locked'); });
+  await clearCredentials();
+  expect(mockStore.has('taskcell.hub.token')).toBe(false);
+  expect(await loadCredentials()).toBeNull();
+});

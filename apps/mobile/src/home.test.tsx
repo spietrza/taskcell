@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/react-native';
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react-native';
 import type { ReactElement } from 'react';
 import { Linking, StyleSheet } from 'react-native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
@@ -132,4 +132,117 @@ test('keeps the heading below the status bar', async () => {
   await renderHome(<HomeScreen credentials={creds} fetchImpl={fakeHub([])} />);
   await screen.findByText('Waiting for you');
   expect(StyleSheet.flatten(screen.getByTestId('home').props.style)).toMatchObject({ paddingTop: 47 + 16 });
+});
+
+/** A hub whose `/events` answers `status`, counting calls of each kind. */
+function failingEventsHub(status: number): { fetchImpl: typeof fetch; reads: () => number; streams: () => number } {
+  let reads = 0;
+  let streams = 0;
+  const fetchImpl = (async (input: string) => {
+    if (input.endsWith('/events')) {
+      streams += 1;
+      return { ok: false, status, body: null };
+    }
+    reads += 1;
+    return { status: 200, json: async () => ({ result: { items: [], failures: [] } }) };
+  }) as unknown as typeof fetch;
+  return { fetchImpl, reads: () => reads, streams: () => streams };
+}
+
+test('a 401 on /events stops the reconnects, reloads nothing and says the token was rejected', async () => {
+  jest.useFakeTimers();
+  try {
+    const hub = failingEventsHub(401);
+    await renderHome(<HomeScreen credentials={creds} fetchImpl={hub.fetchImpl} />);
+    expect(await screen.findByText(/Token rejected/)).toBeTruthy();
+    await jest.advanceTimersByTimeAsync(120000);
+    expect(hub.streams()).toBe(1);
+    expect(hub.reads()).toBe(1);
+  } finally {
+    jest.useRealTimers();
+  }
+});
+
+test('a 503 on /events retries with backoff and does not reload while the stream stays down', async () => {
+  jest.useFakeTimers();
+  try {
+    const hub = failingEventsHub(503);
+    await renderHome(<HomeScreen credentials={creds} fetchImpl={hub.fetchImpl} />);
+    await jest.advanceTimersByTimeAsync(1000 + 2000 + 4000 + 100);
+    expect(hub.streams()).toBe(4);
+    expect(hub.reads()).toBe(1);
+  } finally {
+    jest.useRealTimers();
+  }
+});
+
+/** The list's RefreshControl props (the jest mock renders a bare host, so read them off the list). */
+const refreshControl = (): { refreshing: boolean; onRefresh: () => void } => screen.getByTestId('list').props.refreshControl.props;
+
+test('pull-to-refresh keeps the spinner until the read it triggered finishes', async () => {
+  const hub = streamingHub();
+  await renderHome(<HomeScreen credentials={creds} fetchImpl={hub.fetchImpl} />);
+  await screen.findByText('Add login');
+  hub.emit(frame('vanguard:changed', '/r')); // a read starts…
+  await new Promise((r) => setTimeout(r, 10));
+  await act(async () => refreshControl().onRefresh()); // …and the pull lands mid-read
+  expect(refreshControl().refreshing).toBe(true);
+  await waitFor(() => expect(refreshControl().refreshing).toBe(false));
+  expect(hub.reads()).toBe(3); // initial + the change + the trailing read the pull asked for
+});
+
+test('a reconnect that opens on a quiet hub reloads once', async () => {
+  jest.useFakeTimers();
+  try {
+    let reads = 0;
+    let streams = 0;
+    const fetchImpl = (async (input: string) => {
+      if (input.endsWith('/events')) {
+        streams += 1;
+        if (streams === 1) return { ok: false, status: 503, body: null };
+        return { ok: true, status: 200, body: new ReadableStream<Uint8Array>({ start: () => undefined }) }; // open, no frames
+      }
+      reads += 1;
+      return { status: 200, json: async () => ({ result: { items: [], failures: [] } }) };
+    }) as unknown as typeof fetch;
+    await renderHome(<HomeScreen credentials={creds} fetchImpl={fetchImpl} />);
+    await jest.advanceTimersByTimeAsync(1100);
+    expect(streams).toBe(2);
+    expect(reads).toBe(2);
+  } finally {
+    jest.useRealTimers();
+  }
+});
+
+test('a hub that opens the stream then closes it keeps backing off', async () => {
+  jest.useFakeTimers();
+  try {
+    let reads = 0;
+    let streams = 0;
+    const fetchImpl = (async (input: string) => {
+      if (input.endsWith('/events')) {
+        streams += 1;
+        return { ok: true, status: 200, body: new ReadableStream<Uint8Array>({ start: (c) => c.close() }) }; // open, then closed
+      }
+      reads += 1;
+      return { status: 200, json: async () => ({ result: { items: [], failures: [] } }) };
+    }) as unknown as typeof fetch;
+    await renderHome(<HomeScreen credentials={creds} fetchImpl={fetchImpl} />);
+    await jest.advanceTimersByTimeAsync(1000 + 2000 + 4000 + 100);
+    expect(streams).toBe(4); // reconnects at 1 s, 3 s, 7 s: an open alone does not reset the backoff
+    expect(reads).toBe(4); // initial + one catch-up per reopened stream
+  } finally {
+    jest.useRealTimers();
+  }
+});
+
+test('a skipped oversized frame keeps the stream and reloads once', async () => {
+  const hub = streamingHub();
+  await renderHome(<HomeScreen credentials={creds} fetchImpl={hub.fetchImpl} />);
+  await screen.findByText('Add login');
+  expect(hub.reads()).toBe(1);
+  hub.emit(`event: vanguard:changed\ndata: "${'x'.repeat(1024 * 1024 + 10)}"\n\n`);
+  await waitFor(() => expect(hub.reads()).toBe(2));
+  await new Promise((r) => setTimeout(r, 100));
+  expect(hub.reads()).toBe(2);
 });

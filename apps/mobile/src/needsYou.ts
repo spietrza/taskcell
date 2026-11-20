@@ -76,27 +76,48 @@ const RECONNECT_MAX_MS = 30000;
 /**
  * Call `onChange` on `vanguard:changed` (the desktop Home's trigger) and after a reset — not on every
  * `/events` frame, which a busy run floods. A failed or closed stream reconnects with backoff, and when the app
- * returns to the foreground; each reconnect calls `onChange` once to catch up. Returns a function that closes it.
+ * returns to the foreground; a reconnect catches up with one `onChange` once its stream opens. A 401
+ * stops retrying and calls `onRejected`. Returns a function that closes it.
  */
-export function watchHub(c: Credentials, onChange: () => void, fetchImpl?: typeof fetch): () => void {
+export function watchHub(c: Credentials, onChange: () => void, fetchImpl?: typeof fetch, onRejected?: () => void): () => void {
   const client = hubClient(c, fetchImpl);
   let stopped = false;
+  let rejected = false;
+  let catchUp = false; // a reconnect is waiting for its stream to open
   let close: (() => void) | undefined;
   let timer: ReturnType<typeof setTimeout> | undefined;
   let delay = RECONNECT_MIN_MS;
 
+  /** A frame arrived, so the stream is healthy: reset the backoff and reload. */
+  const frameChanged = (): void => {
+    delay = RECONNECT_MIN_MS;
+    onChange();
+  };
   const open = (): void => {
     close = client.subscribe({
+      onOpen: () => {
+        // The backoff resets on a frame, not here: a hub that opens the stream then closes it keeps backing off.
+        if (!catchUp) return;
+        catchUp = false;
+        onChange(); // a quiet hub sends no frame, so the open itself is the catch-up
+      },
       onEvent: (name) => {
         delay = RECONNECT_MIN_MS;
         if (name === 'vanguard:changed') onChange();
       },
-      onReset: () => {
-        delay = RECONNECT_MIN_MS;
-        onChange();
-      },
-      onError: () => {
+      onReset: frameChanged,
+      onError: (message, detail) => {
         if (stopped) return;
+        if (detail?.streamOpen) {
+          // A skipped frame leaves the stream up; it may have been a `vanguard:changed`, so catch up once.
+          frameChanged();
+          return;
+        }
+        if (detail?.status === 401) {
+          rejected = true;
+          onRejected?.();
+          return;
+        }
         clearTimeout(timer);
         timer = setTimeout(reconnect, delay);
         delay = Math.min(delay * 2, RECONNECT_MAX_MS);
@@ -104,11 +125,11 @@ export function watchHub(c: Credentials, onChange: () => void, fetchImpl?: typeo
     });
   };
   const reconnect = (): void => {
-    if (stopped) return;
+    if (stopped || rejected) return;
     clearTimeout(timer);
     close?.();
+    catchUp = true;
     open();
-    onChange();
   };
 
   open();

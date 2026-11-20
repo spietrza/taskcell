@@ -20,42 +20,49 @@ export function HomeScreen({ credentials, fetchImpl }: { credentials: Credential
   const insets = useSafeAreaInsets();
   const [state, setState] = useState<State>({ status: 'loading' });
   const [refreshing, setRefreshing] = useState(false);
+  const [rejected, setRejected] = useState(false); // /events answered 401: the token is no longer valid
 
   const busy = useRef(false);
   const again = useRef(false); // a change arrived mid-read: one trailing read
+  const running = useRef<Promise<void> | null>(null); // the read in flight, trailing read included
   const generation = useRef(0); // a response for an older credentials/mount is dropped
 
-  const load = useCallback(async (): Promise<void> => {
+  const load = useCallback((): Promise<void> => {
     if (busy.current) {
       again.current = true;
-      return;
+      return running.current ?? Promise.resolve(); // the pull waits for the trailing read too
     }
     busy.current = true;
     const mine = generation.current;
-    try {
-      do {
-        again.current = false;
-        try {
-          const { items, failures } = await loadWaiting(credentials, fetchImpl);
-          if (mine !== generation.current) return;
-          setState({ status: 'ready', rows: toRows(items), failures, error: null });
-        } catch (err) {
-          if (mine !== generation.current) return;
-          // Keep a good list; only the first load has nothing to keep.
-          setState((prev) => (prev.status === 'ready' ? { ...prev, error: String(err) } : { status: 'error', error: String(err) }));
-        }
-      } while (again.current && mine === generation.current);
-    } finally {
-      if (mine === generation.current) busy.current = false;
-    }
+    const read = (async (): Promise<void> => {
+      try {
+        do {
+          again.current = false;
+          try {
+            const { items, failures } = await loadWaiting(credentials, fetchImpl);
+            if (mine !== generation.current) return;
+            setState({ status: 'ready', rows: toRows(items), failures, error: null });
+          } catch (err) {
+            if (mine !== generation.current) return;
+            // Keep a good list; only the first load has nothing to keep.
+            setState((prev) => (prev.status === 'ready' ? { ...prev, error: String(err) } : { status: 'error', error: String(err) }));
+          }
+        } while (again.current && mine === generation.current);
+      } finally {
+        if (mine === generation.current) busy.current = false;
+      }
+    })();
+    running.current = read;
+    return read;
   }, [credentials, fetchImpl]);
 
   useEffect(() => {
     generation.current += 1;
     busy.current = false;
     setState({ status: 'loading' });
+    setRejected(false);
     void load();
-    const close = watchHub(credentials, () => void load(), fetchImpl);
+    const close = watchHub(credentials, () => void load(), fetchImpl, () => setRejected(true));
     return () => {
       generation.current += 1;
       close();
@@ -64,8 +71,11 @@ export function HomeScreen({ credentials, fetchImpl }: { credentials: Credential
 
   const refresh = async (): Promise<void> => {
     setRefreshing(true);
-    await load();
-    setRefreshing(false);
+    try {
+      await load();
+    } finally {
+      setRefreshing(false);
+    }
   };
 
   const message = (text: string, detail?: string): ReactNode => (
@@ -78,6 +88,11 @@ export function HomeScreen({ credentials, fetchImpl }: { credentials: Credential
   return (
     <View testID="home" style={[styles.root, { backgroundColor: theme.background, paddingTop: insets.top + 16 }]}>
       <Text style={[styles.heading, { color: theme.foreground }]}>Waiting for you</Text>
+      {rejected ? (
+        <Text accessibilityRole="alert" style={[styles.notice, { color: theme.destructive }]}>
+          Token rejected, reconnect in Settings.
+        </Text>
+      ) : null}
       {state.status === 'loading' ? (
         message('Loading…')
       ) : state.status === 'error' ? (
@@ -100,6 +115,7 @@ export function HomeScreen({ credentials, fetchImpl }: { credentials: Credential
             </Text>
           ))}
         <FlatList
+          testID="list"
           data={state.rows}
           keyExtractor={(r) => r.id}
           refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => void refresh()} />}

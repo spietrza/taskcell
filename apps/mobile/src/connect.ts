@@ -38,9 +38,9 @@ export function isCleartext(url: string): boolean {
 /** Check a hub URL and token with one read call (`list_projects`) through the shared hub client. */
 export async function connectToHub(urlInput: string, tokenInput: string, fetchImpl?: typeof fetch): Promise<ConnectResult> {
   const url = normalizeHubUrl(urlInput);
-  if (!url) return { ok: false, error: 'Enter the hub URL, e.g. http://192.168.1.20:4317.' };
+  if (!url) return { ok: false, error: 'Enter the hub URL, e.g. http://192.168.1.20:7777.' };
   const token = tokenInput.trim();
-  if (!token) return { ok: false, error: 'Enter the hub token that `taskcell hub` prints.' };
+  if (!token) return { ok: false, error: 'Enter the hub token that taskcell hub prints.' };
   const client = createHubClient({ baseUrl: url, token, fetch: withOrigin(url, fetchImpl) });
   try {
     await client.call('list_projects');
