@@ -44,6 +44,9 @@ export type CallArgs<K extends keyof Commands> = undefined extends Commands[K]['
 
 export type HubSubscription = (() => void) & { readonly lastEventId: string | undefined };
 
+/** The most `subscribe` buffers without seeing a frame boundary before it gives up on the stream. */
+const MAX_FRAME_BUFFER = 1024 * 1024;
+
 const message = (err: unknown): string => (err instanceof Error ? err.message : String(err));
 
 export function createHubClient(options: HubClientOptions): HubClient {
@@ -83,7 +86,10 @@ export function createHubClient(options: HubClientOptions): HubClient {
       const data: string[] = [];
       for (const line of frame.split('\n')) {
         if (line.startsWith('event:')) name = line.slice(6).trim();
-        else if (line.startsWith('id:')) lastEventId = line.slice(3).replace(/^ /, '');
+        else if (line.startsWith('id:')) {
+          const id = line.slice(3).replace(/^ /, '');
+          if (!id.includes('\0')) lastEventId = id; // SSE: an id containing U+0000 is ignored
+        }
         else if (line.startsWith('data:')) data.push(line.slice(5).replace(/^ /, ''));
       }
       if (data.length === 0 && name !== STREAM_RESET_EVENT) return; // a comment / keep-alive frame
@@ -102,23 +108,26 @@ export function createHubClient(options: HubClientOptions): HubClient {
         const decoder = new TextDecoder();
         let buffer = '';
         let carry = ''; // a trailing '\r' held back: the next chunk may start with its '\n'
-        const feed = (text: string): void => {
+        const feed = (text: string, eof = false): boolean => {
           const all = carry + text;
-          carry = all.endsWith('\r') ? '\r' : '';
+          carry = !eof && all.endsWith('\r') ? '\r' : ''; // at EOF a leftover '\r' is a line end
           buffer += all.slice(0, all.length - carry.length).replace(/\r\n?/g, '\n');
-          let end = buffer.indexOf('\n\n');
-          while (end !== -1) {
-            dispatch(buffer.slice(0, end));
-            buffer = buffer.slice(end + 2);
-            end = buffer.indexOf('\n\n');
+          let start = 0;
+          for (let end = buffer.indexOf('\n\n'); end !== -1; end = buffer.indexOf('\n\n', start)) {
+            dispatch(buffer.slice(start, end));
+            start = end + 2;
           }
+          if (start) buffer = buffer.slice(start);
+          if (buffer.length <= MAX_FRAME_BUFFER) return true;
+          handlers.onError?.('event frame too large');
+          return false;
         };
         for (;;) {
           const { done, value } = await reader.read();
           if (done) break;
-          feed(decoder.decode(value, { stream: true }));
+          if (!feed(decoder.decode(value, { stream: true }))) return void reader.cancel().catch(() => undefined);
         }
-        feed(decoder.decode());
+        if (!feed(decoder.decode(), true)) return;
         handlers.onError?.('event stream closed');
       } catch (err) {
         if (!abort.signal.aborted) handlers.onError?.(message(err));

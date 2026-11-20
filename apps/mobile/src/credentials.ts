@@ -21,5 +21,7 @@ export async function saveCredentials({ url, token }: Credentials): Promise<void
 }
 
 export async function clearCredentials(): Promise<void> {
-  await Promise.all([SecureStore.deleteItemAsync(URL_KEY), SecureStore.deleteItemAsync(TOKEN_KEY)]);
+  // The token first: if the second delete fails, the leftover URL alone is no credential.
+  await SecureStore.deleteItemAsync(TOKEN_KEY);
+  await SecureStore.deleteItemAsync(URL_KEY);
 }

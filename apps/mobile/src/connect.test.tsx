@@ -1,6 +1,6 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/react-native';
 import { ConnectScreen } from './ConnectScreen';
-import { connectToHub, normalizeHubUrl } from './connect';
+import { connectToHub, isCleartext, normalizeHubUrl } from './connect';
 import { SessionProvider, useSession } from './session';
 import { Text } from 'react-native';
 
@@ -16,11 +16,11 @@ const requests: { url: string; token: string | undefined }[] = [];
 
 /** A fake hub: `POST /rpc/list_projects` answers `{result: []}` for the right token, a 401 envelope otherwise. */
 const fakeHub = (async (input: string, init: RequestInit) => {
-  const headers = init.headers as Record<string, string>;
-  const token = headers['x-vanguard-hub-token'];
+  const headers = init.headers as Headers;
+  const token = headers.get('x-vanguard-hub-token') ?? undefined;
   requests.push({ url: input, token });
   // Like the real hub: a POST without an Origin matching its host is a 400, whatever the token.
-  if (headers['origin'] !== 'http://hub.local:4317') return { status: 400, json: async () => ({ error: { message: 'cross-origin request rejected' } }) };
+  if (headers.get('origin') !== 'http://hub.local:4317') return { status: 400, json: async () => ({ error: { message: 'cross-origin request rejected' } }) };
   const ok = input === 'http://hub.local:4317/rpc/list_projects' && token === TOKEN;
   return { status: ok ? 200 : 401, json: async () => (ok ? { result: [] } : { error: { message: 'bad hub token' } }) };
 }) as unknown as typeof fetch;
@@ -83,4 +83,24 @@ test('a good token is kept in the keychain', async () => {
   await fireEvent.press(screen.getByText('Connect'));
   await waitFor(() => expect(screen.getByText('connected:http://hub.local:4317')).toBeTruthy());
   expect([...mockStore.values()].sort()).toEqual([TOKEN, 'http://hub.local:4317'].sort());
+});
+
+test('isCleartext: http to a non-loopback host only', () => {
+  expect(isCleartext('http://192.168.1.20:4317')).toBe(true);
+  expect(isCleartext('http://hub.local:4317')).toBe(true);
+  expect(isCleartext('https://192.168.1.20:4317')).toBe(false);
+  expect(isCleartext('http://127.0.0.1:4317')).toBe(false);
+  expect(isCleartext('http://localhost:4317')).toBe(false);
+  expect(isCleartext('http://[::1]:4317')).toBe(false);
+});
+
+test('the Connect screen warns about cleartext http to a LAN address only', async () => {
+  await renderConnect();
+  const urlInput = screen.getByLabelText('Hub URL');
+  await fireEvent.changeText(urlInput, 'http://192.168.1.20:4317');
+  expect(screen.getByText(/cleartext/i)).toBeTruthy();
+  await fireEvent.changeText(urlInput, 'https://192.168.1.20:4317');
+  expect(screen.queryByText(/cleartext/i)).toBeNull();
+  await fireEvent.changeText(urlInput, 'http://127.0.0.1:4317');
+  expect(screen.queryByText(/cleartext/i)).toBeNull();
 });

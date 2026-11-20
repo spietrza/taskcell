@@ -15,6 +15,8 @@ Start a hub that listens on your network (e.g. `taskcell hub`, see the root READ
 
 **Phone with Expo Go:** install Expo Go, join the same Wi-Fi as the machine running the hub, scan the QR code from `expo start`. Enter `http://<your-machine-LAN-IP>:<port>` as the hub URL (not `127.0.0.1`) and the token.
 
+**Cleartext HTTP:** a plain `http://` URL to anything but loopback (`127.0.0.1`, `localhost`, `[::1]`) sends the hub token unencrypted over the network, so the Connect screen shows a warning. Expo Go allows HTTP; a standalone iOS build does not (App Transport Security blocks it), so it needs the hub behind HTTPS (e.g. a reverse proxy with a certificate).
+
 ## Checks
 
 ```sh

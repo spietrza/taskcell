@@ -185,8 +185,10 @@ function singleHeader(value: string | string[] | undefined): string | undefined 
 }
 
 /** Same-origin check for mutating routes: the Origin header is required — every browser sends it on
- * a POST, and the hub has no non-browser RPC client (a script can send one itself) — and must match
- * the request's own Host, or the request is cross-origin. This
+ * a POST, and a script can send one itself, and so does the one non-browser RPC client, the
+ * mobile app (apps/mobile `withOrigin`, which sends the hub's own origin: React Native's fetch sends none) — and must match
+ * the request's own Host, or the request is cross-origin. Do not tighten this (e.g. to browser-only Origins) without
+ * updating the phone app. This
  * guards against cross-site requests by host, not by scheme, so an HTTPS reverse proxy in front of
  * the hub (the VPS deployment) works with no extra configuration: the browser's `https://` Origin
  * still matches the `Host` header the hub sees, provided the proxy preserves the public Host. */

@@ -1,5 +1,6 @@
 import { createHubClient } from '../../../packages/hub-client/src/client';
-import type { NeedsYouItem, RepoStamp } from '../../../packages/hub-client/src/wire';
+import { AppState } from 'react-native';
+import type { NeedsYouItem, RepoReadFailure, RepoStamp } from '../../../packages/hub-client/src/wire';
 import { withOrigin } from './connect';
 import type { Credentials } from './credentials';
 
@@ -52,7 +53,7 @@ export function toRows(items: readonly WaitingItem[], now: number = Date.now()):
         id: `${item.repoPath ?? ''}|${item.id}`,
         kind,
         title: item.title,
-        repo: item.repoSlug,
+        repo: item.repoSlug || item.repoName || '',
         age: ageOf(item.updatedAt, now),
         url: /^https:\/\//.test(item.url) ? item.url : null,
         alert: kind === 'Verify failed',
@@ -63,13 +64,63 @@ export function toRows(items: readonly WaitingItem[], now: number = Date.now()):
 const hubClient = (c: Credentials, fetchImpl?: typeof fetch): ReturnType<typeof createHubClient> =>
   createHubClient({ baseUrl: c.url, token: c.token, fetch: withOrigin(c.url, fetchImpl) });
 
-/** The same hub call the desktop Home makes: the waiting items of every repository. */
-export async function loadWaiting(c: Credentials, fetchImpl?: typeof fetch): Promise<WaitingItem[]> {
-  const { items } = await hubClient(c, fetchImpl).call('list_needs_you_all');
-  return items;
+/** The same hub call the desktop Home makes: the waiting items of every repository, and the repositories that could not be read. */
+export async function loadWaiting(c: Credentials, fetchImpl?: typeof fetch): Promise<{ items: WaitingItem[]; failures: RepoReadFailure[] }> {
+  const { items, failures } = await hubClient(c, fetchImpl).call('list_needs_you_all');
+  return { items, failures: failures ?? [] };
 }
 
-/** Call `onChange` on every `/events` frame (and after a reset); returns a function that closes the stream. */
+const RECONNECT_MIN_MS = 1000;
+const RECONNECT_MAX_MS = 30000;
+
+/**
+ * Call `onChange` on `vanguard:changed` (the desktop Home's trigger) and after a reset — not on every
+ * `/events` frame, which a busy run floods. A failed or closed stream reconnects with backoff, and when the app
+ * returns to the foreground; each reconnect calls `onChange` once to catch up. Returns a function that closes it.
+ */
 export function watchHub(c: Credentials, onChange: () => void, fetchImpl?: typeof fetch): () => void {
-  return hubClient(c, fetchImpl).subscribe({ onEvent: onChange, onReset: onChange });
+  const client = hubClient(c, fetchImpl);
+  let stopped = false;
+  let close: (() => void) | undefined;
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  let delay = RECONNECT_MIN_MS;
+
+  const open = (): void => {
+    close = client.subscribe({
+      onEvent: (name) => {
+        delay = RECONNECT_MIN_MS;
+        if (name === 'vanguard:changed') onChange();
+      },
+      onReset: () => {
+        delay = RECONNECT_MIN_MS;
+        onChange();
+      },
+      onError: () => {
+        if (stopped) return;
+        clearTimeout(timer);
+        timer = setTimeout(reconnect, delay);
+        delay = Math.min(delay * 2, RECONNECT_MAX_MS);
+      },
+    });
+  };
+  const reconnect = (): void => {
+    if (stopped) return;
+    clearTimeout(timer);
+    close?.();
+    open();
+    onChange();
+  };
+
+  open();
+  const appState = AppState.addEventListener('change', (state) => {
+    if (state !== 'active') return;
+    delay = RECONNECT_MIN_MS;
+    reconnect();
+  });
+  return () => {
+    stopped = true;
+    clearTimeout(timer);
+    close?.();
+    appState.remove();
+  };
 }

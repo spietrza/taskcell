@@ -19,7 +19,21 @@ export type ConnectResult = { ok: true; credentials: Credentials } | { ok: false
 /** The hub rejects a POST without an Origin matching its Host (a browser sends one; React Native's fetch
  * does not), so send the hub's own origin — the same-origin value a browser page served by it would send. */
 export const withOrigin = (origin: string, base: typeof fetch = fetch): typeof fetch =>
-  ((input, init) => base(input, { ...init, headers: { ...(init?.headers as Record<string, string> | undefined), origin } })) as typeof fetch;
+  ((input, init) => {
+    const headers = new Headers(init?.headers);
+    headers.set('origin', origin);
+    return base(input, { ...init, headers });
+  }) as typeof fetch;
+
+/** True for plain `http://` to a host other than loopback: the owner token would cross the network in cleartext. */
+export function isCleartext(url: string): boolean {
+  try {
+    const { protocol, hostname } = new URL(url);
+    return protocol === 'http:' && !(hostname === 'localhost' || hostname === '[::1]' || /^127(\.\d{1,3}){3}$/.test(hostname));
+  } catch {
+    return false;
+  }
+}
 
 /** Check a hub URL and token with one read call (`list_projects`) through the shared hub client. */
 export async function connectToHub(urlInput: string, tokenInput: string, fetchImpl?: typeof fetch): Promise<ConnectResult> {
