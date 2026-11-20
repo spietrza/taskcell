@@ -35,6 +35,8 @@ export interface NeedsYouItem {
   baseBranch?: string;
   /** Why the hub refuses to merge this PR (set only when it would); the UI shows it instead of offering Merge. */
   mergeBlocked?: string;
+  /** When the issue/PR last changed (ISO 8601, from the tracker). */
+  updatedAt?: string;
   /** An issue only: `'too-vague'` when the factory's last comment is triage's too-vague notice, otherwise `'question'`. */
   ask?: 'question' | 'too-vague';
 }
@@ -65,6 +67,7 @@ interface GhIssueLite {
   title: string;
   url: string;
   labels: GhLabelLite[];
+  updatedAt?: string;
 }
 
 interface GhPrLite extends GhIssueLite {
@@ -128,8 +131,8 @@ function prReason(pr: { labels: GhLabelLite[]; reviewDecision?: string | null })
   return undefined;
 }
 
-const ISSUE_FIELDS = 'number,title,url,labels';
-const PR_FIELDS = 'number,title,url,labels,reviewDecision,baseRefName';
+const ISSUE_FIELDS = 'number,title,url,labels,updatedAt';
+const PR_FIELDS = 'number,title,url,labels,updatedAt,reviewDecision,baseRefName';
 /** Explicit `-L`: gh's own default (30) would silently hide waiting items on a busy repo. */
 const DEFAULT_LIST_LIMIT = 100;
 /** Concurrent `gh … view --json comments` calls per list — one per waiting item, bounded. */
@@ -159,6 +162,7 @@ function toItem(
     // Only an https address is a link (docs/hub.md § Open in the original system); '' ⇒ the UI renders none.
     url: httpsUrl(raw.url) ?? '',
     reason,
+    ...(raw.updatedAt ? { updatedAt: raw.updatedAt } : {}),
     ...(raw.baseRefName !== undefined ? { baseRef: raw.baseRefName } : {}),
     ...(lastComment !== undefined ? { lastComment } : {}),
     ...(baseBranch !== undefined && baseBranch !== '' ? { baseBranch } : {}),
