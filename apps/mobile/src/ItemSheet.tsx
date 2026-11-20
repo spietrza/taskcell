@@ -1,4 +1,4 @@
-import { useState, type ReactNode } from 'react';
+import { useRef, useState, type ReactNode } from 'react';
 import { ActivityIndicator, Alert, Linking, Modal, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 import * as LocalAuthentication from 'expo-local-authentication';
 import type { Credentials } from './credentials';
@@ -9,8 +9,8 @@ const openUrl = (url: string): void => void Linking.openURL(url).catch(() => und
 
 /** Face ID / passcode; with neither on the device, a plain dialog naming the PR. True only when confirmed. */
 async function confirmMerge(title: string): Promise<boolean> {
-  const capable = (await LocalAuthentication.hasHardwareAsync()) && (await LocalAuthentication.isEnrolledAsync());
-  if (capable) {
+  // SECRET (passcode only) counts too: authenticateAsync falls back to the passcode.
+  if ((await LocalAuthentication.getEnrolledLevelAsync()) > LocalAuthentication.SecurityLevel.NONE) {
     const res = await LocalAuthentication.authenticateAsync({ promptMessage: `Merge: ${title}` });
     return res.success;
   }
@@ -34,11 +34,14 @@ export function ItemSheet({ row, credentials, fetchImpl, onClose, onDone }: {
   const { item } = row;
   const [body, setBody] = useState('');
   const [busy, setBusy] = useState(false);
+  const inFlight = useRef(false); // set synchronously: a second tap before `busy` renders sends nothing
   const [error, setError] = useState<string | null>(null);
   const canMerge = row.kind === 'PR ready' && item.kind === 'pr' && !item.mergeBlocked;
   const canReply = row.kind === 'Question' || row.kind === 'Too vague' || row.kind === 'Changes requested';
 
   const run = async (act: () => Promise<void>, done: string): Promise<void> => {
+    if (inFlight.current) return;
+    inFlight.current = true;
     setBusy(true);
     setError(null);
     try {
@@ -46,6 +49,7 @@ export function ItemSheet({ row, credentials, fetchImpl, onClose, onDone }: {
       onDone(done);
     } catch (err) {
       setError(String(err instanceof Error ? err.message : err));
+      inFlight.current = false;
       setBusy(false);
     }
   };

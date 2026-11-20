@@ -144,7 +144,10 @@ export function HomeScreen({ credentials, fetchImpl }: { credentials: Credential
           renderItem={({ item }) => (
             <Pressable
               accessibilityRole="button"
-              onPress={() => setOpen(item)}
+              onPress={() => {
+                setNotice(null);
+                setOpen(item);
+              }}
               style={[styles.card, { backgroundColor: theme.card, borderColor: theme.border }]}
             >
               <Text style={[styles.caption, { color: item.alert ? theme.destructive : theme.primary }]}>{item.kind}</Text>

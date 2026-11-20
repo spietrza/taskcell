@@ -6,9 +6,9 @@ import { HomeScreen } from './HomeScreen';
 import type { WaitingItem } from './needsYou';
 
 jest.mock('expo-local-authentication', () => ({
-  hasHardwareAsync: jest.fn(),
-  isEnrolledAsync: jest.fn(),
+  getEnrolledLevelAsync: jest.fn(),
   authenticateAsync: jest.fn(),
+  SecurityLevel: { NONE: 0, SECRET: 1, BIOMETRIC_WEAK: 2, BIOMETRIC_STRONG: 3 },
 }));
 const auth = LocalAuthentication as jest.Mocked<typeof LocalAuthentication>;
 
@@ -43,8 +43,7 @@ const renderHome = async (fetchImpl: typeof fetch): Promise<void> => {
 
 beforeEach(() => {
   auth.authenticateAsync.mockReset();
-  auth.hasHardwareAsync.mockResolvedValue(true);
-  auth.isEnrolledAsync.mockResolvedValue(true);
+  auth.getEnrolledLevelAsync.mockResolvedValue(LocalAuthentication.SecurityLevel.BIOMETRIC_STRONG);
 });
 
 test('merge calls the hub after Face ID succeeds, then the row leaves', async () => {
@@ -69,8 +68,22 @@ test('a failed or cancelled Face ID sends nothing', async () => {
   expect(writes).toEqual([]);
 });
 
+test('a passcode-only device gets the passcode check, not the dialog', async () => {
+  auth.getEnrolledLevelAsync.mockResolvedValue(LocalAuthentication.SecurityLevel.SECRET);
+  auth.authenticateAsync.mockResolvedValue({ success: true } as never);
+  const alert = jest.spyOn(Alert, 'alert');
+  const { fetchImpl, writes } = hub([item({})]);
+  await renderHome(fetchImpl);
+  await open();
+  await fireEvent.press(screen.getByText('Merge'));
+  await waitFor(() => expect(writes).toHaveLength(1));
+  expect(auth.authenticateAsync).toHaveBeenCalledWith({ promptMessage: 'Merge: Add login' });
+  expect(alert).not.toHaveBeenCalled();
+  alert.mockRestore();
+});
+
 test('without biometrics or passcode, a dialog naming the PR confirms the merge', async () => {
-  auth.isEnrolledAsync.mockResolvedValue(false);
+  auth.getEnrolledLevelAsync.mockResolvedValue(LocalAuthentication.SecurityLevel.NONE);
   const alert = jest.spyOn(Alert, 'alert').mockImplementation((_t, _m, buttons) => buttons?.find((b) => b.text === 'Merge')?.onPress?.());
   const { fetchImpl, writes } = hub([item({})]);
   await renderHome(fetchImpl);
