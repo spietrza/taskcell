@@ -1,6 +1,8 @@
 import type { ReactNode } from 'react';
-import { Placeholder } from '../../src/Placeholder';
+import { RunsScreen } from '../../src/RunsScreen';
+import { useSession } from '../../src/session';
 
 export default function Runs(): ReactNode {
-  return <Placeholder title="Runs" />;
+  const { credentials } = useSession();
+  return credentials ? <RunsScreen credentials={credentials} /> : null;
 }
