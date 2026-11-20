@@ -149,7 +149,7 @@ team-probe scoped to the dep (a watch-path list() never probes — pinned). Side
 ordering; drop the pagination cap; make the board pass state to Linear (the empty-board test
 must fail). Live probes per AC 7.
 
-## 6. Delivery note from review: PR A regenerates `apps/desktop/src/wire.ts` (BoardTask lands on
+## 6. Delivery note from review: PR A regenerates `packages/hub-client/src/wire.ts` (BoardTask lands on
 the S7 wire), mildly crossing the "core-only" framing — expected, harmless.
 
 ## 6b. Delivery
