@@ -1,5 +1,28 @@
 # Changelog
 
+## [1.16.10](https://github.com/spietrza/taskcell/compare/v1.16.9...v1.16.10) (2026-11-20)
+
+
+### Features
+
+* copy-back test "drops .GIT (file) and .Git/ (dir)" fails on macOS: the fixture creates case-colliding names on APFS (spietrza/taskcell[#1275](https://github.com/spietrza/taskcell/issues/1275)) ([#1276](https://github.com/spietrza/taskcell/issues/1276)) ([a8e1e9b](https://github.com/spietrza/taskcell/commit/a8e1e9bd22eaf3ceee74f982f6bf83c3970d088e))
+* Mobile: Expo app shell that connects to a hub (apps/mobile) (spietrza/taskcell[#1259](https://github.com/spietrza/taskcell/issues/1259)) ([#1274](https://github.com/spietrza/taskcell/issues/1274)) ([29057eb](https://github.com/spietrza/taskcell/commit/29057eb60f1092fb4467ab0977ae06f9fcec766e))
+* Mobile: harden the hub event stream and the phone connect flow before testers (spietrza/taskcell[#1278](https://github.com/spietrza/taskcell/issues/1278)) ([#1283](https://github.com/spietrza/taskcell/issues/1283)) ([2277541](https://github.com/spietrza/taskcell/commit/2277541bf65fa320c462c8c0d5bad1dc19a39243))
+* Mobile: Home shows what waits for you (spietrza/taskcell[#1260](https://github.com/spietrza/taskcell/issues/1260)) ([#1279](https://github.com/spietrza/taskcell/issues/1279)) ([5670c8c](https://github.com/spietrza/taskcell/commit/5670c8cd7c716ca8684cabf94debaac873b4a925))
+* Mobile: shared hub client gets typecheck, lint and a sturdier event stream (spietrza/taskcell[#1271](https://github.com/spietrza/taskcell/issues/1271)) ([#1273](https://github.com/spietrza/taskcell/issues/1273)) ([0f7aed7](https://github.com/spietrza/taskcell/commit/0f7aed73343d52acc123f2d5912f3b55f627d56e))
+
+
+### Bug Fixes
+
+* **landing:** Hub preview keeps the Board between 1024px and 1359px, scaled down ([#1280](https://github.com/spietrza/taskcell/issues/1280)) ([eeb53b7](https://github.com/spietrza/taskcell/commit/eeb53b7ba259849614065522fd631ee58b5232e4))
+* **mobile:** safe-area Home heading, no save-password prompt, Connect caption and port ([#1282](https://github.com/spietrza/taskcell/issues/1282)) ([3f3a4c8](https://github.com/spietrza/taskcell/commit/3f3a4c8cb22c0787025b3a36824659f8cd0fa450))
+* **sandbox:** bump agent CLIs (@anthropic-ai/claude-code 2.1.326, @openai/codex 0.169.0) ([#1250](https://github.com/spietrza/taskcell/issues/1250)) ([02b3006](https://github.com/spietrza/taskcell/commit/02b3006d367c56db13e7d9a6d6a80692127e47ee))
+
+
+### Miscellaneous
+
+* release 1.16.10 ([1b9ce84](https://github.com/spietrza/taskcell/commit/1b9ce840d8a034650ffd54b97bc21dc0c38fd1c7))
+
 ## [1.16.9](https://github.com/spietrza/taskcell/compare/v1.16.8...v1.16.9) (2026-11-19)
 
 
