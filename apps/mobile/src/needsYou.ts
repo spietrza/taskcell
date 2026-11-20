@@ -88,20 +88,31 @@ export function watchHub(c: Credentials, onChange: () => void, fetchImpl?: typeo
   let timer: ReturnType<typeof setTimeout> | undefined;
   let delay = RECONNECT_MIN_MS;
 
+  /** A frame arrived, so the stream is healthy: reset the backoff and reload. */
+  const frameChanged = (): void => {
+    delay = RECONNECT_MIN_MS;
+    onChange();
+  };
   const open = (): void => {
     close = client.subscribe({
       onOpen: () => {
-        delay = RECONNECT_MIN_MS;
+        // The backoff resets on a frame, not here: a hub that opens the stream then closes it keeps backing off.
         if (!catchUp) return;
         catchUp = false;
         onChange(); // a quiet hub sends no frame, so the open itself is the catch-up
       },
       onEvent: (name) => {
+        delay = RECONNECT_MIN_MS;
         if (name === 'vanguard:changed') onChange();
       },
-      onReset: onChange,
+      onReset: frameChanged,
       onError: (message, detail) => {
-        if (stopped || detail?.streamOpen) return; // a skipped frame leaves the stream up
+        if (stopped) return;
+        if (detail?.streamOpen) {
+          // A skipped frame leaves the stream up; it may have been a `vanguard:changed`, so catch up once.
+          frameChanged();
+          return;
+        }
         if (detail?.status === 401) {
           rejected = true;
           onRejected?.();

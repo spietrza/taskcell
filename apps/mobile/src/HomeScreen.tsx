@@ -115,6 +115,7 @@ export function HomeScreen({ credentials, fetchImpl }: { credentials: Credential
             </Text>
           ))}
         <FlatList
+          testID="list"
           data={state.rows}
           keyExtractor={(r) => r.id}
           refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => void refresh()} />}
