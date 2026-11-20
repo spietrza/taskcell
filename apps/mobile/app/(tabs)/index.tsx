@@ -1,6 +1,8 @@
 import type { ReactNode } from 'react';
-import { Placeholder } from '../../src/Placeholder';
+import { HomeScreen } from '../../src/HomeScreen';
+import { useSession } from '../../src/session';
 
 export default function Home(): ReactNode {
-  return <Placeholder title="Home" />;
+  const { credentials } = useSession();
+  return credentials ? <HomeScreen credentials={credentials} /> : null;
 }

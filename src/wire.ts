@@ -1065,6 +1065,8 @@ export interface NeedsYouItem {
   mergeBlocked?: string;
   /** An issue or a card: `'too-vague'` when the factory's last comment is triage's too-vague notice, otherwise `'question'` (also when the comment was not fetched). */
   ask?: 'question' | 'too-vague';
+  /** When the issue/PR last changed (ISO 8601, from the tracker); the phone shows it as an age. Absent for a card or when unknown. */
+  updatedAt?: string;
 }
 
 /** A Fleet-screen spawned process (Fleet is enabled only on the desktop app's local hub). */
