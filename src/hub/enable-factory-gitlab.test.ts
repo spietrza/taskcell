@@ -360,6 +360,16 @@ describe('applyGitlabFactory', () => {
     expect(out).toMatch(/^ {2}stage: test\n {2}tags: \["\$\$CI_TAG", "\$&", "\$'", "\$1"\]$/m);
     expect(parse(out)['.taskcell-base'].tags).toEqual(['$$CI_TAG', '$&', "$'", '$1']);
   });
+  it('rejects a login that is not a GitLab username', async () => {
+    await expect(planGitlabFactory(await repo(), { exec: fake({ user: { username: 'a"; rm -rf /; "' } }).exec })).rejects.toThrow(/username/);
+  });
+  it('passes the login as --feedback-authors on every command that reads notes', async () => {
+    const dir = await repo();
+    await applyGitlabFactory(dir, plan, { exec: fake().exec });
+    const out = await readFile(join(dir, '.gitlab/taskcell.yml'), 'utf8');
+    for (const cmd of ['doctor', 'watch']) expect(out).toMatch(new RegExp(`index\\.js ${cmd} .*--feedback-authors "tanuki"`));
+    expect(out).not.toContain('YOUR_GITLAB_LOGIN');
+  });
   it('turns an empty include: into a one-entry list', async () => {
     const dir = await repo();
     await applyGitlabFactory(dir, plan, { exec: fake({ show: { '.gitlab-ci.yml': 'include:\nstages: [a]\n' } }).exec });
@@ -516,6 +526,12 @@ describe('variable, merge and pipeline checks', () => {
 });
 
 describe('templates/gitlab/taskcell.yml', () => {
+  it('carries --feedback-authors on doctor and watch, not watch-mrs', async () => {
+    const yml = await readFile(new URL('../../templates/gitlab/taskcell.yml', import.meta.url), 'utf8');
+    for (const cmd of ['doctor', 'watch']) expect(yml).toMatch(new RegExp(`index\\.js ${cmd} .*--feedback-authors "YOUR_GITLAB_LOGIN"`));
+    expect(yml).toMatch(/index\.js watch-mrs /);
+    expect(yml).not.toMatch(/watch-mrs .*--feedback-authors/);
+  });
   it('runs commands the CLI accepts, only in pipelines started with a variable', async () => {
     const { parseCli } = await import('../cli/args.js');
     const yml = await readFile(new URL('../../templates/gitlab/taskcell.yml', import.meta.url), 'utf8');

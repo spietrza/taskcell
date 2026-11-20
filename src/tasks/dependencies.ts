@@ -63,6 +63,10 @@ const read = (gh: GhRunner, args: string[]): Promise<string> =>
     return error instanceof NoRetryError || (status !== undefined && status >= 400 && status < 500);
   });
 
+/** Whether `repo` is the task's own repository or one of the allowed `dependencyRepos`: the only repos a dependency is read from. */
+const inScope = (repo: string, self: TaskRef, dependencyRepos: readonly string[]): boolean =>
+  [self.repo, ...dependencyRepos].some((r) => r.toLowerCase() === repo.toLowerCase());
+
 /** 'missing': 404, and only the caller knows whether that means "does not exist" or "not readable". 'deleted': 410. */
 async function getIssue(ref: TaskRef, gh: GhRunner): Promise<DepIssue | 'missing' | 'deleted'> {
   try {
@@ -97,9 +101,12 @@ async function nativeBlockers(ref: TaskRef, gh: GhRunner): Promise<TaskRef[]> {
 export type { DependencyVerdict };
 
 /** The GitHub side of the shared walk: reads issues and native blocked-by relations through `gh`. */
-const githubAdapter = (self: TaskRef, gh: GhRunner): WalkAdapter<DepIssue> => ({
+const githubAdapter = (self: TaskRef, gh: GhRunner, dependencyRepos: readonly string[] = []): WalkAdapter<DepIssue> => ({
   text: refText,
   async fetch(dep, referencedBy) {
+    if (!inScope(dep.repo, self, dependencyRepos)) {
+      return { problem: `${refText(dep)} is invalid: it is outside this repository and the allowed dependency repositories (referenced by ${refText(referencedBy)})` };
+    }
     const issue = await getIssue(dep, gh);
     if (issue === 'deleted') return { problem: `${refText(dep)} was deleted (referenced by ${refText(referencedBy)})` };
     if (issue === 'missing') {
@@ -124,21 +131,22 @@ const githubAdapter = (self: TaskRef, gh: GhRunner): WalkAdapter<DepIssue> => ({
 });
 
 /** An issue's declared dependencies: native blocked-by relations plus `Depends on` body lines. */
-export async function directDependencies(repo: string, number: number, body: string, gh: GhRunner = defaultGhRunner): Promise<TaskRef[]> {
+export async function directDependencies(repo: string, number: number, body: string, gh: GhRunner = defaultGhRunner, dependencyRepos: readonly string[] = []): Promise<TaskRef[]> {
   const self = { repo, number };
-  return dedupeRefs(githubAdapter(self, gh), [...(await nativeBlockers(self, gh)), ...parseBodyDependencies(repo, body)]);
+  return dedupeRefs(githubAdapter(self, gh, dependencyRepos), [...(await nativeBlockers(self, gh)), ...parseBodyDependencies(repo, body)]);
 }
 
 /**
  * Whether `task` (a GitHub issue of `repo`) may start. A dependency is met when closed as completed
  * (including legacy closes with no reason) or a merged PR; closed as not planned or duplicate / an
  * unmerged PR can never be met and is `invalid`. Uses `task.dependsOn` when already filled, else
- * native relations plus body lines.
+ * native relations plus body lines. Only `repo` and `dependencyRepos` are read: a reference anywhere
+ * else is `invalid` (no API call), whether from a body line or a native relation.
  */
-export async function checkDependencies(repo: string, task: Task, gh: GhRunner = defaultGhRunner, now: Date = new Date()): Promise<DependencyVerdict> {
+export async function checkDependencies(repo: string, task: Task, gh: GhRunner = defaultGhRunner, now: Date = new Date(), dependencyRepos: readonly string[] = []): Promise<DependencyVerdict> {
   const self: TaskRef = { repo, number: Number(issueNumber(task)) };
   try {
-    const adapter = githubAdapter(self, gh);
+    const adapter = githubAdapter(self, gh, dependencyRepos);
     const direct = task.dependsOn ?? dedupeRefs(adapter, [...(await nativeBlockers(self, gh)), ...parseBodyDependencies(repo, task.description)]);
     return await evaluateDependencies(adapter, { self, direct, start: parseStartDate(task.description), now });
   } catch (error) {
@@ -163,6 +171,8 @@ export interface DependencyGateOptions {
   /** Label for a cycle or missing reference (omitted ⇒ the issue is only commented and un-triggered). */
   needsInfoLabel?: string;
   gh?: GhRunner;
+  /** Other repos (`owner/repo`) dependencies may be read from; `repo` itself is always allowed. */
+  dependencyRepos?: readonly string[];
   now?: Date;
   log?: (line: string) => void;
   /**
@@ -205,7 +215,7 @@ export async function applyDependencyGate(tasks: Task[], opts: DependencyGateOpt
   const gh = opts.gh ?? defaultGhRunner;
   const log = opts.log ?? console.log;
   return runDependencyGate(tasks, {
-    check: (task) => checkDependencies(opts.repo, task, gh, opts.now),
+    check: (task) => checkDependencies(opts.repo, task, gh, opts.now, opts.dependencyRepos),
     async release(task, verdict) {
       if (opts.overlap !== undefined && opts.overlap.holdMs > 0) {
         const holds = await opts.overlap.check(task).catch((error: unknown) => {

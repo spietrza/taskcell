@@ -47,7 +47,7 @@ const comments = (s: Setup): string[] => s.calls.filter((c) => c[0] === 'issue' 
 
 describe('isSharedPath', () => {
   it('counts the real generated files and aggregates, not their hand-written sources', () => {
-    for (const f of ['apps/desktop/src/wire.ts', 'apps/desktop/src/hub-wire.ts', 'src/hub/commands/index.ts', 'pnpm-lock.yaml', 'CHANGELOG.md', 'x/foo.generated.ts']) expect(isSharedPath(f)).toBe(true);
+    for (const f of ['packages/hub-client/src/wire.ts', 'packages/hub-client/src/hub-wire.ts', 'src/hub/commands/index.ts', 'pnpm-lock.yaml', 'CHANGELOG.md', 'x/foo.generated.ts']) expect(isSharedPath(f)).toBe(true);
     for (const f of ['src/wire.ts', 'src/hub-wire.ts', 'src/a.ts', 'src/hub/commands/start.ts']) expect(isSharedPath(f)).toBe(false);
   });
 });
@@ -80,7 +80,7 @@ describe('overlap hold', () => {
   });
 
   it('ignores generated and aggregate overlap', async () => {
-    const shared = ['pnpm-lock.yaml', 'CHANGELOG.md', 'apps/desktop/src/hub-wire.ts', 'src/hub/commands/index.ts'];
+    const shared = ['pnpm-lock.yaml', 'CHANGELOG.md', 'packages/hub-client/src/hub-wire.ts', 'src/hub/commands/index.ts'];
     expect(await gate([issue(1, ...shared)], setup([pr(9, shared)]))).toHaveLength(1);
   });
 

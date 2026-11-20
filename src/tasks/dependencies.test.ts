@@ -80,7 +80,7 @@ describe('checkDependencies', () => {
   });
   it('looks cross-repo refs up in their own repo', async () => {
     const gh = fakeGh({ 'a/b#2': { state: 'closed', state_reason: 'completed' }, 'o/r#2': { state: 'open' } });
-    expect((await checkDependencies('o/r', task(1, 'Depends on a/b#2'), gh)).status).toBe('ready');
+    expect((await checkDependencies('o/r', task(1, 'Depends on a/b#2'), gh, new Date(), ['a/b'])).status).toBe('ready');
   });
   it('blocks until a future start date', async () => {
     const now = new Date('2030-01-01T00:00:00Z');
@@ -233,13 +233,33 @@ describe('applyDependencyGate', () => {
       if (p.endsWith('/dependencies/blocked_by')) return '[]';
       throw new Error('unexpected ' + p);
     }) as unknown as GhRunner;
-    expect((await checkDependencies('o/r', task(1), gh)).status).toBe('ready');
+    expect((await checkDependencies('o/r', task(1), gh, new Date(), ['a/b'])).status).toBe('ready');
     const bare = (async () => JSON.stringify([{ number: 5 }])) as GhRunner;
     expect((await checkDependencies('o/r', task(1), bare)).status).toBe('error');
   });
   it('treats an unreadable cross-repo 404 as a lookup error, not a missing reference', async () => {
-    const v = await checkDependencies('o/r', task(1, 'Depends on a/b#2'), fakeGh({}));
+    const v = await checkDependencies('o/r', task(1, 'Depends on a/b#2'), fakeGh({}), new Date(), ['a/b']);
     expect(v.status).toBe('error');
+  });
+  it('makes no gh call for a cross-repo reference without an allowlist, and names it invalid', async () => {
+    const gh = fakeGh({ 'other/private#7': { state: 'open' } });
+    const v = await checkDependencies('o/r', task(1, 'Depends on other/private#7\nDepends on https://github.com/other/private/issues/8'), gh);
+    expect(v).toMatchObject({ status: 'invalid', reason: expect.stringContaining('other/private#7 is invalid') });
+    expect((gh as ReturnType<typeof vi.fn>).mock.calls.some((c) => String((c[0] as string[])[1]).includes('other/private'))).toBe(false);
+  });
+  it('resolves a cross-repo reference once its repo is allowlisted (case-insensitively)', async () => {
+    const gh = fakeGh({ 'other/private#7': { state: 'open' } });
+    const v = await checkDependencies('o/r', task(1, 'Depends on other/private#7'), gh, new Date(), ['Other/Private']);
+    expect(v).toMatchObject({ status: 'waiting', blockers: [{ repo: 'other/private', number: 7 }] });
+  });
+  it('flags native blockers outside the allowed repos as invalid without reading them', async () => {
+    const gh = vi.fn(async (args: string[]) => {
+      const p = args[1] ?? '';
+      if (p.endsWith('/issues/1/dependencies/blocked_by')) return JSON.stringify([{ number: 5, repository_url: 'https://api.github.com/repos/a/b' }]);
+      throw new Error('unexpected ' + p);
+    }) as unknown as GhRunner;
+    expect(await checkDependencies('o/r', task(1), gh)).toMatchObject({ status: 'invalid', reason: expect.stringContaining('a/b#5 is invalid') });
+    expect((gh as ReturnType<typeof vi.fn>).mock.calls.some((c) => String((c[0] as string[])[1]).includes('repos/a/b'))).toBe(false);
   });
   it('retries a transient failure', async () => {
     let n = 0;

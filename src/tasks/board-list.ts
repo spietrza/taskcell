@@ -1,7 +1,5 @@
 import { readStageMarkers } from '../core/run-stage-marker.js';
 import { latestRunChips } from './board-chips.js';
-import { readFile } from 'node:fs/promises';
-import { join } from 'node:path';
 import { execa } from 'execa';
 import { TaskcellError, visibleError } from '../core/errors.js';
 import { detectRepoSlug } from '../runners/github.js';
@@ -15,7 +13,7 @@ import type { TaskFetcher } from './fetcher.js';
 import { NO_TASK_SOURCE_MESSAGE, type BoardTask } from '../wire.js';
 import { parseBodyDependencies, parseStartDate } from './dependencies.js';
 import { readRepoBaseBranch } from '../core/base-branch.js';
-import { stateDir } from '../core/state-path.js';
+import { readStateFileNoSymlink } from '../core/state-path.js';
 
 export { columnFor, mintBoardId, resolveTaskRef, toBoardTask };
 
@@ -37,7 +35,7 @@ export interface BoardConfig {
 export async function readBoardConfig(repoPath: string): Promise<BoardConfig> {
   let raw: string;
   try {
-    raw = await readFile(join(stateDir(repoPath), 'app.json'), 'utf8');
+    raw = await readStateFileNoSymlink(repoPath, 'app.json');
   } catch {
     return {};
   }

@@ -74,7 +74,7 @@ A hub RPC command (`POST /rpc/:cmd`) lives in ONE module per feature, `src/hub/c
 2. `export const commands = defineCommands<<Feature>Commands>({ name: async ({ ctx, args, caller, allow, scope, roots, assertRunVisible }) => { ... } }, { name: auditSpec })` — validation (the `require*` helpers in `src/hub/command-kit.ts`) and the handler, plus an optional audit spec. The handler map must have exactly the interface's keys (type-checked). Resolve every `repoPath` through `allow`.
 3. A neighbouring `<feature>.test.ts`, using the fixtures in `src/hub/test-kit.ts`.
 
-Then run `pnpm gen:wire`. It regenerates `src/hub/commands/index.ts` (merged `Commands`, the sorted `COMMAND_NAMES`, the dispatch and audit lookups `dispatchRpc` uses) and the desktop copy `apps/desktop/src/wire.ts` (which gets `Commands`/`COMMAND_NAMES` inlined). Commit those generated files; the drift test in `src/wire.test.ts` fails when they are stale. Do not edit `rpc.ts`, `wire.ts`'s catalogue or `server.ts` to add a command. A command needing new request-wide state adds a field to `RpcContext` (`src/hub/rpc.ts`, built in `server.ts`).
+Then run `pnpm gen:wire`. It regenerates `src/hub/commands/index.ts` (merged `Commands`, the sorted `COMMAND_NAMES`, the dispatch and audit lookups `dispatchRpc` uses) and the generated copy `packages/hub-client/src/wire.ts` (which gets `Commands`/`COMMAND_NAMES` inlined). Commit those generated files; the drift test in `src/wire.test.ts` fails when they are stale. Do not edit `rpc.ts`, `wire.ts`'s catalogue or `server.ts` to add a command. A command needing new request-wide state adds a field to `RpcContext` (`src/hub/rpc.ts`, built in `server.ts`).
 
 ## Workflow
 

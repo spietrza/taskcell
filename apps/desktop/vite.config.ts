@@ -8,6 +8,6 @@ export default defineConfig({
   plugins: [react(), tailwindcss()],
   clearScreen: false,
   resolve: { alias: { '@': fileURLToPath(new URL('./src', import.meta.url)) } },
-  server: { port: 1420, strictPort: true, watch: { ignored: ['**/src-tauri/**'] } },
+  server: { port: 1420, strictPort: true, fs: { allow: ['.', '../../packages/hub-client'] }, watch: { ignored: ['**/src-tauri/**'] } },
   test: { exclude: ['e2e/**', 'node_modules/**', 'src-tauri/**'], environment: 'jsdom', globals: true, setupFiles: './src/test-setup.ts' },
 });

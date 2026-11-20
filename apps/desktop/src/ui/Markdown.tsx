@@ -1,5 +1,6 @@
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
+import { ExternalLink } from '../components/ExternalLink';
 import { CodeBlock } from './CodeBlock';
 
 /** Render agent markdown (headers, lists, bold, fenced code/JSON). Enhance later. */
@@ -13,6 +14,8 @@ export function Markdown({ children }: { children: string }) {
           pre: ({ children }) => <>{children}</>,
           // A task-list box is read-only; its state is its name, the item text follows it.
           input: ({ node: _node, ...props }) => <input {...props} {...(props.type === 'checkbox' ? { 'aria-label': props.checked ? 'Done' : 'Not done' } : {})} />,
+          // Untrusted text: links open out of the app, http(s) only.
+          a: ({ href, children }) => (href ? <ExternalLink href={href}>{children}</ExternalLink> : <>{children}</>), // react-markdown blanks unsafe schemes
           code({ className, children, ...props }) {
             const lang = /language-(\w+)/.exec(className ?? '')?.[1];
             const text = String(children).replace(/\n$/, '');

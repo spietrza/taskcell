@@ -27,7 +27,7 @@ const { HUB_POLICY } = (await import('../src/hub/commands/index.js')) as typeof 
 
 for (const file of FILES) {
   const header = `// GENERATED from src/${file} — do not edit; run pnpm gen:wire\n`;
-  const target = join(root, 'apps', 'desktop', 'src', file);
+  const target = join(root, 'packages', 'hub-client', 'src', file);
   const tail = file === 'wire.ts' ? desktopCommandsSource(modules, HUB_POLICY) : '';
   writeFileSync(target, header + readFileSync(join(root, 'src', file), 'utf8') + tail);
   console.log(`wrote ${target}`);

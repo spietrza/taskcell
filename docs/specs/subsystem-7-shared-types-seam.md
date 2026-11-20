@@ -92,12 +92,12 @@ RunEvent import is already `import type`; nothing pattern-matches at a site a re
 ### `scripts/gen-desktop-wire.ts` (NEW)
 
 Reads `src/wire.ts`, prepends `// GENERATED from src/wire.ts — do not edit; run pnpm gen:wire`,
-writes `apps/desktop/src/wire.ts` (header + exact source bytes, trailing newline included).
+writes `packages/hub-client/src/wire.ts` (header + exact source bytes, trailing newline included).
 Root package.json gains `"gen:wire"`.
 
 ### Drift guard (NEW, root)
 
-`src/wire.test.ts`: byte-compares desktop copy against header + core source; plus the
+`src/wire.test.ts`: byte-compares hub-client copy against header + core source; plus the
 zero-imports assertion; plus the `WIRE_PROVIDER_NAMES === PROVIDER_NAMES` pin (in registry.test
 or here). Runs in `pnpm test` → existing CI. No formatter exists on either side to rewrite the
 generated file (verified: no prettier/biome configs, desktop has no lint script, root lint globs
@@ -130,7 +130,7 @@ wire's — that is the part that drifts in practice).
 1. Pure-move guarantee: root suite green with zero test-body changes except new wire tests; CLI
    byte-identical (imports only — no runtime changes).
 2. Drift guard mutation-verified in both directions (edit core wire without regen → root test
-   fails naming `pnpm gen:wire`; edit desktop copy → same).
+   fails naming `pnpm gen:wire`; edit hub-client copy → same).
 3. Zero-imports + syntax-ceiling assertions pass; desktop typecheck + vite build green locally
    (no CI surface for this yet — stated limitation).
 4. Mirror deletion verified by review (decided: review-only — a grep test would false-positive

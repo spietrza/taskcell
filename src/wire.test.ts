@@ -18,7 +18,7 @@ function readSource(relPath: string): string {
 function assertByteIdenticalCopy(file: string, tail = ''): void {
   const header = `// GENERATED from src/${file} — do not edit; run pnpm gen:wire\n`;
   const core = join(__dirname, file);
-  const desktop = join(__dirname, '..', 'apps', 'desktop', 'src', file);
+  const desktop = join(__dirname, '..', 'packages', 'hub-client', 'src', file);
   expect(readFileSync(desktop, 'utf8')).toBe(header + readFileSync(core, 'utf8') + tail);
 }
 
@@ -42,7 +42,7 @@ describe('wire contract (S7)', () => {
     expectTypeOf<keyof CompleteCallArgs>().toEqualTypeOf<'system' | 'messages' | 'model' | 'attachments'>();
   });
 
-  it('desktop copy is byte-identical to header + core source (codegen drift guard — run pnpm gen:wire)', () => {
+  it('hub-client copy is byte-identical to header + core source (codegen drift guard — run pnpm gen:wire)', () => {
     assertByteIdenticalCopy('wire.ts', desktopCommandsSource(commandModules(), HUB_POLICY));
   });
 
@@ -50,20 +50,20 @@ describe('wire contract (S7)', () => {
     expect(readSource('hub/commands/index.ts')).toBe(commandIndexSource(commandModules()));
   });
 
-  it('BoardTask.waiting is an optional boolean, present in both core and the regenerated desktop copy (T11)', () => {
+  it('BoardTask.waiting is an optional boolean, present in both core and the regenerated hub-client copy (T11)', () => {
     expectTypeOf<BoardTask['waiting']>().toEqualTypeOf<boolean | undefined>();
     expectTypeOf<{ id: string; title: string; column: 'queued'; state: string }>().toExtend<BoardTask>();
-    const desktop = readSource('../apps/desktop/src/wire.ts');
+    const desktop = readSource('../packages/hub-client/src/wire.ts');
     expect(desktop).toMatch(/^\s*waiting\?: boolean;$/m);
   });
 
-  it('RunRecord.verdict/findings and BoardTask.stage/chips are optional, present in the regenerated desktop copy (T23)', () => {
+  it('RunRecord.verdict/findings and BoardTask.stage/chips are optional, present in the regenerated hub-client copy (T23)', () => {
     expectTypeOf<RunRecord['verdict']>().toEqualTypeOf<ReviewVerdict | undefined>();
     expectTypeOf<RunRecord['findings']>().toEqualTypeOf<Finding[] | undefined>();
     expectTypeOf<BoardTask['stage']>().toEqualTypeOf<string | undefined>();
     expectTypeOf<BoardTask['chips']>().toEqualTypeOf<BoardChip[] | undefined>();
     expectTypeOf<{ id: string; title: string; column: 'queued'; state: string }>().toExtend<BoardTask>();
-    const desktop = readFileSync(join(__dirname, '..', 'apps', 'desktop', 'src', 'wire.ts'), 'utf8');
+    const desktop = readFileSync(join(__dirname, '..', 'packages', 'hub-client', 'src', 'wire.ts'), 'utf8');
     expect(desktop).toMatch(/^\s*stage\?: string;$/m);
     expect(desktop).toMatch(/^\s*chips\?: BoardChip\[\];$/m);
     expect(desktop).toMatch(/^\s*verdict\?: ReviewVerdict;$/m);
@@ -89,7 +89,7 @@ describe('run-record read path (T9)', () => {
 });
 
 describe('hub wire contract', () => {
-  it('desktop copy is byte-identical to header + core source (codegen drift guard — run pnpm gen:wire)', () => {
+  it('hub-client copy is byte-identical to header + core source (codegen drift guard — run pnpm gen:wire)', () => {
     assertByteIdenticalCopy('hub-wire.ts');
   });
 
