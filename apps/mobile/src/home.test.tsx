@@ -43,7 +43,7 @@ test('shows the waiting items and opens one in the browser', async () => {
   const open = jest.spyOn(Linking, 'openURL').mockResolvedValue(undefined as never);
   await renderHome(<HomeScreen credentials={creds} fetchImpl={fakeHub([item({ title: 'Add login' })])} />);
   await fireEvent.press(await screen.findByText('Add login'));
-  expect(screen.getByText('PR ready')).toBeTruthy();
+  await fireEvent.press(await screen.findByText('Open in GitHub'));
   expect(open).toHaveBeenCalledWith('https://github.com/o/r/pull/1');
 });
 
@@ -64,6 +64,7 @@ test('a failed Linking.openURL is caught', async () => {
   jest.spyOn(Linking, 'openURL').mockRejectedValue(new Error('no handler'));
   await renderHome(<HomeScreen credentials={creds} fetchImpl={fakeHub([item({ title: 'Add login' })])} />);
   await fireEvent.press(await screen.findByText('Add login'));
+  await fireEvent.press(await screen.findByText('Open in GitHub'));
 });
 
 /** A hub whose /events stream the test feeds, counting `list_needs_you_all` calls. */

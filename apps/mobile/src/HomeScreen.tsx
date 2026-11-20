@@ -1,9 +1,10 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
-import { FlatList, Linking, Pressable, RefreshControl, StyleSheet, Text, View } from 'react-native';
+import { FlatList, Pressable, RefreshControl, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import type { Credentials } from './credentials';
 import type { RepoReadFailure } from '../../../packages/hub-client/src/wire';
 import { loadWaiting, toRows, watchHub, type Row } from './needsYou';
+import { ItemSheet } from './ItemSheet';
 import { useTheme } from './useTheme';
 
 type State =
@@ -12,8 +13,6 @@ type State =
   // `error`: the last background reload failed; the rows are the last good list.
   | { status: 'ready'; rows: Row[]; failures: RepoReadFailure[]; error: string | null };
 
-const openUrl = (url: string): void => void Linking.openURL(url).catch(() => undefined);
-
 export function HomeScreen({ credentials, fetchImpl }: { credentials: Credentials; fetchImpl?: typeof fetch }): ReactNode {
   const theme = useTheme();
   // The tab stack hides its header, so Home keeps its heading clear of the status bar itself.
@@ -21,6 +20,9 @@ export function HomeScreen({ credentials, fetchImpl }: { credentials: Credential
   const [state, setState] = useState<State>({ status: 'loading' });
   const [refreshing, setRefreshing] = useState(false);
   const [rejected, setRejected] = useState(false); // /events answered 401: the token is no longer valid
+
+  const [open, setOpen] = useState<Row | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
 
   const busy = useRef(false);
   const again = useRef(false); // a change arrived mid-read: one trailing read
@@ -93,6 +95,20 @@ export function HomeScreen({ credentials, fetchImpl }: { credentials: Credential
           Token rejected, reconnect in Settings.
         </Text>
       ) : null}
+      {notice ? <Text style={[styles.notice, { color: theme.primary }]}>{notice}</Text> : null}
+      {open ? (
+        <ItemSheet
+          row={open}
+          credentials={credentials}
+          fetchImpl={fetchImpl}
+          onClose={() => setOpen(null)}
+          onDone={(text) => {
+            setOpen(null);
+            setNotice(text);
+            void load();
+          }}
+        />
+      ) : null}
       {state.status === 'loading' ? (
         message('Loading…')
       ) : state.status === 'error' ? (
@@ -127,9 +143,8 @@ export function HomeScreen({ credentials, fetchImpl }: { credentials: Credential
           contentContainerStyle={styles.list}
           renderItem={({ item }) => (
             <Pressable
-              accessibilityRole={item.url ? 'link' : 'text'}
-              disabled={item.url === null}
-              onPress={() => item.url && openUrl(item.url)}
+              accessibilityRole="button"
+              onPress={() => setOpen(item)}
               style={[styles.card, { backgroundColor: theme.card, borderColor: theme.border }]}
             >
               <Text style={[styles.caption, { color: item.alert ? theme.destructive : theme.primary }]}>{item.kind}</Text>
