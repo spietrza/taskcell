@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState, type ReactNode } from 'react';
 import { FlatList, Linking, Pressable, RefreshControl, StyleSheet, Text, View } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import type { Credentials } from './credentials';
 import { loadWaiting, toRows, watchHub, type Row } from './needsYou';
 import { useTheme } from './useTheme';
@@ -8,6 +9,8 @@ type State = { status: 'loading' } | { status: 'error'; error: string } | { stat
 
 export function HomeScreen({ credentials, fetchImpl }: { credentials: Credentials; fetchImpl?: typeof fetch }): ReactNode {
   const theme = useTheme();
+  // The tab stack hides its header, so Home keeps its heading clear of the status bar itself.
+  const insets = useSafeAreaInsets();
   const [state, setState] = useState<State>({ status: 'loading' });
   const [refreshing, setRefreshing] = useState(false);
 
@@ -38,7 +41,7 @@ export function HomeScreen({ credentials, fetchImpl }: { credentials: Credential
   );
 
   return (
-    <View style={[styles.root, { backgroundColor: theme.background }]}>
+    <View testID="home" style={[styles.root, { backgroundColor: theme.background, paddingTop: insets.top + 16 }]}>
       <Text style={[styles.heading, { color: theme.foreground }]}>Waiting for you</Text>
       {state.status === 'loading' ? (
         message('Loading…')
@@ -75,7 +78,7 @@ export function HomeScreen({ credentials, fetchImpl }: { credentials: Credential
 }
 
 const styles = StyleSheet.create({
-  root: { flex: 1, paddingTop: 16 },
+  root: { flex: 1 },
   heading: { fontSize: 24, fontWeight: '700', paddingHorizontal: 16, paddingBottom: 8 },
   center: { alignItems: 'center', gap: 8, padding: 24 },
   title: { fontSize: 18, fontWeight: '600' },

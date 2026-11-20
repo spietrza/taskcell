@@ -32,14 +32,16 @@ export function ConnectScreen({ fetchImpl }: { fetchImpl?: typeof fetch }): Reac
   return (
     <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={[styles.root, { backgroundColor: theme.background }]}>
       <Text style={[styles.title, { color: theme.foreground }]}>Connect to a hub</Text>
-      <Text style={[styles.caption, { color: theme.caption }]}>Run `taskcell hub` and enter its URL and token</Text>
+      <Text style={[styles.caption, { color: theme.caption }]}>Run taskcell hub and enter its URL and token</Text>
       <TextInput
         accessibilityLabel="Hub URL"
-        placeholder="http://192.168.1.20:4317"
+        placeholder="http://192.168.1.20:7777"
         placeholderTextColor={theme.mutedForeground}
         autoCapitalize="none"
         autoCorrect={false}
         keyboardType="url"
+        textContentType="none"
+        autoComplete="off"
         value={url}
         onChangeText={setUrl}
         style={input}
@@ -51,6 +53,8 @@ export function ConnectScreen({ fetchImpl }: { fetchImpl?: typeof fetch }): Reac
         autoCapitalize="none"
         autoCorrect={false}
         secureTextEntry
+        textContentType="none"
+        autoComplete="off"
         value={token}
         onChangeText={setToken}
         style={input}
