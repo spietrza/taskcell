@@ -11,9 +11,7 @@
   },
   "jest": {
     "preset": "jest-expo",
-    "moduleNameMapper": {
-      "^(\\.{1,2}/.*)\\.js$": "$1"
-    }
+    "resolver": "<rootDir>/jest.resolver.js"
   },
   "dependencies": {
     "expo": "^58.0.26",

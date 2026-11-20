@@ -68,6 +68,37 @@ describe('hub client', () => {
     expect(events).toEqual([["a", 1]]);
   });
 
+  it("a CR split from its LF across chunks after the event name still yields the event", async () => {
+    const { events } = await run(streamOf([enc("event: a\r"), enc("\ndata: 1\n\n")]));
+    expect(events).toEqual([["a", 1]]);
+  });
+
+  it("a stream ending with a lone CR after the last frame still dispatches it", async () => {
+    const { events } = await run(streamOf([enc("event: a\ndata: 1\n\r")]));
+    expect(events).toEqual([["a", 1]]);
+  });
+
+  it("ignores an id containing U+0000", async () => {
+    const { sub } = await run(streamOf([enc("id: 4\nevent: a\ndata: 1\n\nid: 5\u00006\nevent: a\ndata: 2\n\n")]));
+    expect(sub.lastEventId).toBe("4");
+  });
+
+  it("reports a frame buffer that grows past the cap through onError", async () => {
+    const chunk = enc("data: " + "x".repeat(64 * 1024));
+    const client = createHubClient({ token: 't', fetch: (async () => streamOf(Array.from({ length: 20 }, () => chunk))) as typeof fetch });
+    const events: unknown[] = [];
+    const msg = await new Promise<string>((resolve) => { client.subscribe({ onEvent: (n, p) => events.push([n, p]), onError: resolve }); });
+    expect(msg).toContain("too large");
+    expect(events).toEqual([]);
+  });
+
+  it("dispatches many frames from one chunk in order", async () => {
+    const body = Array.from({ length: 500 }, (_, i) => `event: a\ndata: ${i}\n\n`).join("");
+    const { events } = await run(streamOf([enc(body)]));
+    expect(events).toHaveLength(500);
+    expect(events[499]).toEqual(["a", 499]);
+  });
+
   it("cancels the body on a non-2xx response", async () => {
     const cancel = vi.fn();
     const body = new ReadableStream<Uint8Array>({ cancel });

@@ -16,7 +16,7 @@ export interface Theme {
 export const dark: Theme = {
   background: '#0d1013',
   foreground: '#e8ecef',
-  card: '#141a1f',
+  card: '#0d1013',
   primary: '#f99a2c',
   primaryForeground: '#14100a',
   muted: '#1b2228',

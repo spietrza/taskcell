@@ -1,6 +1,6 @@
 import { useState, type ReactNode } from 'react';
 import { ActivityIndicator, KeyboardAvoidingView, Platform, Pressable, StyleSheet, Text, TextInput } from 'react-native';
-import { connectToHub } from './connect';
+import { connectToHub, isCleartext, normalizeHubUrl } from './connect';
 import { useSession } from './session';
 import { useTheme } from './useTheme';
 
@@ -28,6 +28,8 @@ export function ConnectScreen({ fetchImpl }: { fetchImpl?: typeof fetch }): Reac
     setBusy(false);
   };
 
+  const normalized = normalizeHubUrl(url);
+  const cleartext = normalized !== null && isCleartext(normalized);
   const input = [styles.input, { color: theme.foreground, backgroundColor: theme.muted, borderColor: theme.input }];
   return (
     <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={[styles.root, { backgroundColor: theme.background }]}>
@@ -59,6 +61,11 @@ export function ConnectScreen({ fetchImpl }: { fetchImpl?: typeof fetch }): Reac
         onChangeText={setToken}
         style={input}
       />
+      {cleartext ? (
+        <Text accessibilityRole="alert" style={{ color: theme.destructive }}>
+          Cleartext warning: http:// sends the hub token unencrypted over the network. Use https:// unless this is a network you trust.
+        </Text>
+      ) : null}
       {error ? (
         <Text accessibilityRole="alert" style={{ color: theme.destructive }}>
           {error}
