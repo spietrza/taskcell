@@ -23,8 +23,11 @@ export interface HubStreamHandlers {
   onEvent: (name: string, payload: unknown) => void;
   /** `stream-reset`: a reconnect gap the hub could not replay — re-fetch snapshots. */
   onReset?: () => void;
-  /** The stream failed (non-2xx status or a network error); it is not retried. */
-  onError?: (message: string) => void;
+  /** The stream answered 2xx: it is open. Called once, before any event. */
+  onOpen?: () => void;
+  /** The stream failed (non-2xx status or a network error); it is not retried. With `detail.status` the HTTP
+   *  status; with `detail.streamOpen` a problem the stream survived (an oversized frame was skipped). */
+  onError?: (message: string, detail?: { status?: number; streamOpen?: boolean }) => void;
 }
 
 export interface HubClient {
@@ -44,7 +47,7 @@ export type CallArgs<K extends keyof Commands> = undefined extends Commands[K]['
 
 export type HubSubscription = (() => void) & { readonly lastEventId: string | undefined };
 
-/** The most `subscribe` buffers without seeing a frame boundary before it gives up on the stream. */
+/** The most `subscribe` buffers without seeing a frame boundary before it drops that frame. */
 const MAX_FRAME_BUFFER = 1024 * 1024;
 
 const message = (err: unknown): string => (err instanceof Error ? err.message : String(err));
@@ -102,32 +105,40 @@ export function createHubClient(options: HubClientOptions): HubClient {
         const response = await doFetch(`${baseUrl}/events`, { method: 'GET', headers: { [HUB_TOKEN_HEADER]: token(), accept: 'text/event-stream' }, signal: abort.signal });
         if (!response.ok || !response.body) {
           await response.body?.cancel().catch(() => undefined);
-          return handlers.onError?.(`request failed with status ${response.status}`);
+          return handlers.onError?.(`request failed with status ${response.status}`, { status: response.status });
         }
+        handlers.onOpen?.();
         const reader = response.body.getReader();
         const decoder = new TextDecoder();
         let buffer = '';
         let carry = ''; // a trailing '\r' held back: the next chunk may start with its '\n'
-        const feed = (text: string, eof = false): boolean => {
+        let scanned = 0; // buffer[0, scanned) holds no frame boundary
+        let dropping = false; // inside an oversized frame: discard through its end
+        const feed = (text: string, eof = false): void => {
           const all = carry + text;
           carry = !eof && all.endsWith('\r') ? '\r' : ''; // at EOF a leftover '\r' is a line end
           buffer += all.slice(0, all.length - carry.length).replace(/\r\n?/g, '\n');
           let start = 0;
-          for (let end = buffer.indexOf('\n\n'); end !== -1; end = buffer.indexOf('\n\n', start)) {
-            dispatch(buffer.slice(start, end));
+          for (let end = buffer.indexOf('\n\n', scanned); end !== -1; end = buffer.indexOf('\n\n', start)) {
+            if (dropping) dropping = false;
+            else if (end - start > MAX_FRAME_BUFFER) handlers.onError?.('event frame too large; skipped', { streamOpen: true });
+            else dispatch(buffer.slice(start, end));
             start = end + 2;
           }
-          if (start) buffer = buffer.slice(start);
-          if (buffer.length <= MAX_FRAME_BUFFER) return true;
-          handlers.onError?.('event frame too large');
-          return false;
+          buffer = buffer.slice(start);
+          if (buffer.length > MAX_FRAME_BUFFER) {
+            if (!dropping) handlers.onError?.('event frame too large; skipped', { streamOpen: true });
+            dropping = true;
+            buffer = buffer.slice(-1); // keep a possible half boundary
+          }
+          scanned = Math.max(buffer.length - 1, 0); // a boundary may straddle the next chunk
         };
         for (;;) {
           const { done, value } = await reader.read();
           if (done) break;
-          if (!feed(decoder.decode(value, { stream: true }))) return void reader.cancel().catch(() => undefined);
+          feed(decoder.decode(value, { stream: true }));
         }
-        if (!feed(decoder.decode(), true)) return;
+        feed(decoder.decode(), true);
         handlers.onError?.('event stream closed');
       } catch (err) {
         if (!abort.signal.aborted) handlers.onError?.(message(err));

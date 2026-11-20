@@ -76,27 +76,37 @@ const RECONNECT_MAX_MS = 30000;
 /**
  * Call `onChange` on `vanguard:changed` (the desktop Home's trigger) and after a reset — not on every
  * `/events` frame, which a busy run floods. A failed or closed stream reconnects with backoff, and when the app
- * returns to the foreground; each reconnect calls `onChange` once to catch up. Returns a function that closes it.
+ * returns to the foreground; a reconnect catches up with one `onChange` once its stream opens. A 401
+ * stops retrying and calls `onRejected`. Returns a function that closes it.
  */
-export function watchHub(c: Credentials, onChange: () => void, fetchImpl?: typeof fetch): () => void {
+export function watchHub(c: Credentials, onChange: () => void, fetchImpl?: typeof fetch, onRejected?: () => void): () => void {
   const client = hubClient(c, fetchImpl);
   let stopped = false;
+  let rejected = false;
+  let catchUp = false; // a reconnect is waiting for its stream to open
   let close: (() => void) | undefined;
   let timer: ReturnType<typeof setTimeout> | undefined;
   let delay = RECONNECT_MIN_MS;
 
   const open = (): void => {
     close = client.subscribe({
-      onEvent: (name) => {
+      onOpen: () => {
         delay = RECONNECT_MIN_MS;
+        if (!catchUp) return;
+        catchUp = false;
+        onChange(); // a quiet hub sends no frame, so the open itself is the catch-up
+      },
+      onEvent: (name) => {
         if (name === 'vanguard:changed') onChange();
       },
-      onReset: () => {
-        delay = RECONNECT_MIN_MS;
-        onChange();
-      },
-      onError: () => {
-        if (stopped) return;
+      onReset: onChange,
+      onError: (message, detail) => {
+        if (stopped || detail?.streamOpen) return; // a skipped frame leaves the stream up
+        if (detail?.status === 401) {
+          rejected = true;
+          onRejected?.();
+          return;
+        }
         clearTimeout(timer);
         timer = setTimeout(reconnect, delay);
         delay = Math.min(delay * 2, RECONNECT_MAX_MS);
@@ -104,11 +114,11 @@ export function watchHub(c: Credentials, onChange: () => void, fetchImpl?: typeo
     });
   };
   const reconnect = (): void => {
-    if (stopped) return;
+    if (stopped || rejected) return;
     clearTimeout(timer);
     close?.();
+    catchUp = true;
     open();
-    onChange();
   };
 
   open();
