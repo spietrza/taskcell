@@ -63,6 +63,9 @@ export interface HubServerOptions {
    * `--allowed-host` / `TASKCELL_HUB_ALLOWED_HOSTS`, for the VPS / reverse-proxy deployment
    * (docs/hub.md). */
   allowedHosts?: readonly string[];
+  /** Behind a reverse proxy that sets `X-Forwarded-For` (`TASKCELL_HUB_TRUST_PROXY=1`): the device-code cap counts the
+   * forwarded client, not the proxy. Off by default: without a proxy the header is client-supplied. */
+  trustProxy?: boolean;
   /** Fixed token (from `--token-file`); a fresh one per launch when omitted. */
   token?: string;
   /** Sign-in (Better Auth) and the owner user (src/hub/auth.ts). Omitted: token-only, local owner. */
@@ -115,6 +118,8 @@ interface HubAuth {
   lastRefusedAuditMs: number;
   /** Pending mobile device-flow codes (src/hub/device-auth.ts). */
   device: DeviceAuth;
+  /** Take the client address from `X-Forwarded-For` (`HubServerOptions.trustProxy`). */
+  trustProxy: boolean;
 }
 
 /** At most one refused-sign-in line per minute: the endpoint is unauthenticated, so an unthrottled
@@ -351,6 +356,15 @@ const POLL_ERRORS = {
   invalid_grant: ['invalid_grant', 'Unknown or already used device code.'],
 } as const;
 
+/** The client's address: the last `X-Forwarded-For` entry (the one the trusted proxy appended) when a proxy is trusted. */
+function clientAddress(req: IncomingMessage, trustProxy: boolean): string {
+  if (trustProxy) {
+    const last = singleHeader(req.headers['x-forwarded-for'])?.split(',').pop()?.trim();
+    if (last) return last;
+  }
+  return req.socket.remoteAddress ?? '';
+}
+
 /** The mobile device flow (RFC 8628 shape): `/api/device/{code,token,revoke,me}` for the app, `/device` for the browser. */
 async function handleDevice(
   ctx: RpcContext,
@@ -424,9 +438,14 @@ async function handleDevice(
 
   if (req.method !== 'POST' && !(pathname === '/api/device/me' && req.method === 'GET')) return methodNotAllowed(res, pathname === '/api/device/me' ? 'GET, POST' : 'POST');
   if (req.method === 'POST' && !sameOriginOk(req)) return jsonError(res, 400, 'cross-origin request rejected', 'bad-request');
+  // Only the native app runs the code/token steps: a browser always attaches `Sec-Fetch-Site` (Node's fetch sends only `Sec-Fetch-Mode: cors`, so that alone is no browser signal), so page script
+  // on the hub origin cannot mint a `tcd_` bearer.
+  if ((pathname === '/api/device/code' || pathname === '/api/device/token') && (req.headers['sec-fetch-site'] !== undefined || req.headers['sec-fetch-mode'] === 'navigate')) {
+    return jsonError(res, 403, 'the device flow is for the native app, not a browser', 'bad-request');
+  }
 
   if (pathname === '/api/device/code') {
-    const started = auth.device.start(req.socket.remoteAddress ?? '');
+    const started = auth.device.start(clientAddress(req, auth.trustProxy));
     if (started === null) return deviceError(res, 429, 'slow_down', 'Too many sign-ins in progress. Try again in a few minutes.');
     // The page the member opens, on the hub's public origin; the code is typed there, never carried in the link.
     writeJson(res, 200, { ...started, verification_uri: `${baseURL}/device` }, { 'cache-control': 'no-store' });
@@ -634,6 +653,7 @@ export function createHubServer(opts: HubServerOptions): HubServer {
     eventsSecret: randomBytes(32).toString('hex'),
     lastRefusedAuditMs: 0,
     device: new DeviceAuth(),
+    trustProxy: opts.trustProxy === true,
   };
   const identity = opts.identity ?? localOnlyIdentity();
   const deps = opts.deps ?? productionDeps();
