@@ -111,14 +111,15 @@ describe('hub server', () => {
   });
 
   test('a tunnel Host with the matching https Origin is accepted only when allowed (--allowed-host)', async () => {
-    const rpc = (host: string): Promise<{ status: number; body: string }> => withHost('/rpc/list_runs', host, {
+    const rpc = (host: string, origin = `https://${host}`): Promise<{ status: number; body: string }> => withHost('/rpc/list_runs', host, {
       method: 'POST',
-      headers: { origin: `https://${host}`, 'content-type': 'application/json', 'x-vanguard-hub-token': hub.token },
-      payload: '{}',
+      headers: { origin, 'content-type': 'application/json', 'x-vanguard-hub-token': hub.token },
+      payload: JSON.stringify({ repoPath: repo }),
     });
-    const allowed = await rpc('hub.example');
-    expect(allowed.status).not.toBe(403);
-    expect(allowed.body).not.toContain('cross-origin');
+    expect((await rpc('hub.example')).status).toBe(200);
+    const wrongOrigin = await rpc('hub.example', 'https://evil.example');
+    expect(wrongOrigin.status).toBe(400);
+    expect(wrongOrigin.body).toContain('cross-origin');
     expect((await rpc('other.trycloudflare.com')).status).toBe(403);
   });
 
