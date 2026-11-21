@@ -2,6 +2,7 @@
   "expo": {
     "name": "Taskcell",
     "slug": "taskcell-mobile",
+    "owner": "taskcell",
     "scheme": "taskcell",
     "version": "0.0.0",
     "orientation": "portrait",
@@ -13,6 +14,7 @@
       "infoPlist": { "NSFaceIDUsageDescription": "Confirm merging a pull request." }
     },
     "plugins": ["expo-router", "expo-secure-store", "expo-local-authentication", "expo-notifications"],
-    "experiments": { "typedRoutes": true }
+    "experiments": { "typedRoutes": true },
+    "extra": { "eas": { "projectId": "67eb3622-8cf6-4640-a16e-c8a8e6987c3c" } }
   }
 }
