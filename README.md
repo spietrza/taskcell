@@ -68,7 +68,7 @@ taskcell run --github owner/repo#123 --repo /path/to/repo --skills ./skills --ll
 
 `--llm-proxy` keeps the model credential in a sidecar and limits the sandbox's network to an allowlist. `pnpm link --global` puts `taskcell` on your PATH.
 
-Prefer a native app? See [Install the desktop app](docs/hub.md#install-the-desktop-app).
+Prefer a native app? See [Install the desktop app](docs/hub.md#install-the-desktop-app). Reaching a Mac hub from your phone without a VPS: [docs/mobile-remote.md](docs/mobile-remote.md).
 
 ### Set up with an AI agent
 
