@@ -25,7 +25,8 @@ import { loadPaths } from './projects.js';
 import { SpawnRegistry } from './spawn.js';
 import { productionDeps } from '../sidecar/deps.js';
 import type { SidecarDeps } from '../sidecar/sidecar.js';
-import { localOnlyIdentity, signInPage, type HubIdentity, type HubUser } from './auth.js';
+import { csrfOk, DeviceAuth, newCsrfToken, normalizeUserCode } from './device-auth.js';
+import { esc, localOnlyIdentity, SIGNUP_REFUSED_MESSAGE, signInPage, type HubIdentity, type HubUser } from './auth.js';
 
 /** How often the hub-board scheduler looks for tasks that may start. */
 const SCHEDULER_INTERVAL_MS = 15_000;
@@ -106,6 +107,8 @@ interface HubAuth {
   eventsSecret: string;
   /** When a refused sign-in was last audited (epoch ms). */
   lastRefusedAuditMs: number;
+  /** Pending mobile device-flow codes (src/hub/device-auth.ts). */
+  device: DeviceAuth;
 }
 
 /** At most one refused-sign-in line per minute: the endpoint is unauthenticated, so an unthrottled
@@ -292,6 +295,169 @@ async function handleRpcRequest(ctx: RpcContext, req: IncomingMessage, res: Serv
   }
 }
 
+const DEVICE_CSRF_COOKIE = 'taskcell_device_csrf';
+const DEVICE_WARNING = '<p role="note"><strong>Only enter a code shown on your own phone.</strong> Someone who sends you a code is asking to sign in as you.</p>';
+const MAX_FORM_BYTES = 4096;
+
+function readForm(req: IncomingMessage): Promise<URLSearchParams> {
+  return new Promise((resolve, reject) => {
+    const chunks: Buffer[] = [];
+    let size = 0;
+    req.on('data', (c: Buffer) => {
+      size += c.length;
+      if (size <= MAX_FORM_BYTES) chunks.push(c);
+    });
+    req.on('end', () => (size > MAX_FORM_BYTES ? reject(new BodyTooLargeError('request body too large')) : resolve(new URLSearchParams(Buffer.concat(chunks).toString('utf8')))));
+    req.on('error', reject);
+  });
+}
+
+function cookieValue(header: string | undefined, name: string): string | undefined {
+  for (const part of (header ?? '').split(';')) {
+    const eq = part.indexOf('=');
+    if (eq !== -1 && part.slice(0, eq).trim() === name) return part.slice(eq + 1).trim();
+  }
+  return undefined;
+}
+
+/** A typed code that can be neither reviewed nor decided: entry is locked, or the code is wrong or expired. */
+function codeRefused(res: ServerResponse, why: 'locked' | 'invalid'): void {
+  if (why === 'locked') return devicePage(res, 429, '<p role="alert">Too many wrong codes. Wait a few minutes and try again.</p>');
+  return devicePage(res, 400, '<p role="alert">That code is not valid or has expired. Check the code on your phone.</p>');
+}
+
+function devicePage(res: ServerResponse, status: number, body: string, headers: Record<string, string> = {}): void {
+  const html = `<!doctype html><html lang="en"><head><meta charset="utf-8"><title>Connect a device — Taskcell Hub</title>
+<meta name="viewport" content="width=device-width,initial-scale=1"></head><body style="font-family:system-ui;max-width:24rem;margin:4rem auto">
+<h1>Taskcell Hub</h1>${body}</body></html>`;
+  res.writeHead(status, { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store', 'x-frame-options': 'DENY', 'referrer-policy': 'no-referrer', 'content-security-policy': contentSecurityPolicy(html), ...headers });
+  res.end(html);
+}
+
+const deviceError = (res: ServerResponse, status: number, error: string, description: string): void =>
+  writeJson(res, status, { error, error_description: description }, { 'cache-control': 'no-store' });
+
+const POLL_ERRORS = {
+  pending: ['authorization_pending', 'Waiting for approval in the browser.'],
+  slow_down: ['slow_down', 'Polling too fast: wait for the interval.'],
+  expired_token: ['expired_token', 'The code expired. Start sign-in again.'],
+  access_denied: ['access_denied', 'The sign-in was denied.'],
+  invalid_grant: ['invalid_grant', 'Unknown or already used device code.'],
+} as const;
+
+/** The mobile device flow (RFC 8628 shape): `/api/device/{code,token,revoke,me}` for the app, `/device` for the browser. */
+async function handleDevice(
+  ctx: RpcContext,
+  auth: HubAuth,
+  identity: HubIdentity,
+  req: IncomingMessage,
+  res: ServerResponse,
+  pathname: string,
+  baseURL: string,
+  offeredToken: string | undefined,
+): Promise<void> {
+  if (pathname === '/device') {
+    const user = await identity.sessionUser(req);
+    if (req.method === 'GET' || req.method === 'HEAD') {
+      if (user === undefined) {
+        res.writeHead(302, { location: '/sign-in?next=device', 'cache-control': 'no-store' });
+        res.end();
+        return;
+      }
+      // A `?user_code=` in the link is deliberately ignored: the member must type the code the phone shows.
+      const csrf = newCsrfToken();
+      // `Secure` when the public URL is https, like Better Auth's cookies (both follow the identity's baseURL).
+      const secure = new URL(baseURL).protocol === 'https:' ? '; Secure' : '';
+      devicePage(
+        res,
+        200,
+        `<p>Signed in as ${esc(user.name)}. Type the code shown on your phone to connect it as you.</p>${DEVICE_WARNING}
+<form method="post" action="/device"><input type="hidden" name="csrf" value="${csrf}">
+<p><input name="user_code" autocomplete="off" autocapitalize="characters" required aria-label="Code" style="font-size:1.5rem;width:100%"></p>
+<p><button name="action" value="review">Continue</button></p></form>`,
+        { 'set-cookie': `${DEVICE_CSRF_COOKIE}=${csrf}; Path=/device; HttpOnly; SameSite=Strict${secure}` },
+      );
+      return;
+    }
+    if (req.method !== 'POST') return methodNotAllowed(res, 'GET, HEAD, POST');
+    if (!sameOriginOk(req)) return jsonError(res, 400, 'cross-origin request rejected', 'bad-request');
+    let form: URLSearchParams;
+    try {
+      form = await readForm(req);
+    } catch {
+      return jsonError(res, 413, 'request body too large', 'bad-request');
+    }
+    if (user === undefined) return devicePage(res, 401, '<p role="alert">Sign in first.</p>');
+    if (!csrfOk(cookieValue(singleHeader(req.headers.cookie), DEVICE_CSRF_COOKIE), form.get('csrf') ?? undefined)) {
+      return devicePage(res, 403, '<p role="alert">This form expired. Reload the page and try again.</p>');
+    }
+    // The sign-up allowlist is re-checked at approval, not only at sign-up.
+    if ((await identity.userById(user.id)) === undefined) return devicePage(res, 403, `<p role="alert">${esc(SIGNUP_REFUSED_MESSAGE)}</p>`);
+    const typed = form.get('user_code') ?? '';
+    if (form.get('action') === 'review') {
+      // A second look before deciding: when the phone asked, with the warning again.
+      const found = auth.device.lookup(typed, user.id);
+      if (typeof found === 'string') return codeRefused(res, found);
+      const minutes = Math.max(0, Math.floor((Date.now() - found.requestedAt) / 60_000));
+      const at = new Date(found.requestedAt).toISOString().slice(11, 16);
+      const code = normalizeUserCode(typed);
+      return devicePage(
+        res,
+        200,
+        `<p>Code <strong>${code.slice(0, 4)}-${code.slice(4)}</strong> was requested ${minutes === 0 ? 'less than a minute' : `${minutes} min`} ago (${at} UTC).</p>${DEVICE_WARNING}
+<form method="post" action="/device"><input type="hidden" name="csrf" value="${esc(form.get('csrf') ?? '')}"><input type="hidden" name="user_code" value="${code}">
+<p><button name="action" value="approve">Approve</button> <button name="action" value="deny">Deny</button></p></form>`,
+      );
+    }
+    const outcome = auth.device.decide(typed, user.id, form.get('action') !== 'deny');
+    const actor = { login: user.email, admin: false, id: user.id, name: user.name };
+    if (outcome === 'locked' || outcome === 'invalid') return codeRefused(res, outcome);
+    await ctx.audit?.record({ login: actor.login, actor: auditActorOf(actor), action: 'sign-in', outcome: outcome === 'approved' ? 'ok' : 'refused' }).catch(reportAuditFailure);
+    return devicePage(res, 200, outcome === 'approved' ? '<p>Approved. Return to the Taskcell app.</p>' : '<p>Denied. The phone was not connected.</p>');
+  }
+
+  if (req.method !== 'POST' && !(pathname === '/api/device/me' && req.method === 'GET')) return methodNotAllowed(res, pathname === '/api/device/me' ? 'GET, POST' : 'POST');
+  if (req.method === 'POST' && !sameOriginOk(req)) return jsonError(res, 400, 'cross-origin request rejected', 'bad-request');
+
+  if (pathname === '/api/device/code') {
+    const started = auth.device.start(req.socket.remoteAddress ?? '');
+    if (started === null) return deviceError(res, 429, 'slow_down', 'Too many sign-ins in progress. Try again in a few minutes.');
+    // The page the member opens, on the hub's public origin; the code is typed there, never carried in the link.
+    writeJson(res, 200, { ...started, verification_uri: `${baseURL}/device` }, { 'cache-control': 'no-store' });
+    return;
+  }
+
+  if (pathname === '/api/device/token') {
+    let body: unknown;
+    try {
+      body = await readJsonBody(req, MAX_FORM_BYTES);
+    } catch {
+      return deviceError(res, 400, 'invalid_request', 'Invalid JSON body.');
+    }
+    const code = (body as { device_code?: unknown } | null)?.device_code;
+    if (typeof code !== 'string' || code === '') return deviceError(res, 400, 'invalid_request', 'device_code is required.');
+    const polled = auth.device.poll(code);
+    if (polled.status !== 'approved') {
+      const [error, description] = POLL_ERRORS[polled.status];
+      return deviceError(res, 400, error, description);
+    }
+    // Allowlist re-check at redemption: an approver removed meanwhile gets nothing.
+    const token = (await identity.userById(polled.userId)) === undefined ? undefined : await identity.issueDeviceSession(polled.userId);
+    if (token === undefined) return deviceError(res, 403, 'access_denied', SIGNUP_REFUSED_MESSAGE);
+    writeJson(res, 200, { access_token: token, token_type: 'session' }, { 'cache-control': 'no-store' });
+    return;
+  }
+
+  if (pathname === '/api/device/revoke' || pathname === '/api/device/me') {
+    const user = offeredToken ? await identity.deviceSessionUser(offeredToken) : undefined;
+    if (user === undefined || offeredToken === undefined) return jsonError(res, 401, HUB_TOKEN_REJECTED, 'bad-request');
+    if (pathname === '/api/device/me') return writeJson(res, 200, { id: user.id, name: user.name, email: user.email }, { 'cache-control': 'no-store' });
+    await identity.revokeDeviceSession(offeredToken);
+    return writeJson(res, 200, { ok: true });
+  }
+  notFound(res);
+}
+
 async function handleRequest(
   ctx: RpcContext,
   eventBus: EventBus,
@@ -312,7 +478,9 @@ async function handleRequest(
   const offeredToken = singleHeader(req.headers[HUB_TOKEN_HEADER]);
   const tokenValid = tokenOk(offeredToken, auth.token);
   // The token (CLI, scripts) maps to the owner; otherwise the Better Auth session (server mode only).
-  const resolveUser = async (): Promise<HubUser | undefined> => (tokenValid ? identity.owner : identity.sessionUser(req));
+  // A mobile member session (device flow) rides the same header: it is a session, never the owner.
+  const resolveUser = async (): Promise<HubUser | undefined> =>
+    tokenValid ? identity.owner : ((await identity.sessionUser(req)) ?? (offeredToken ? identity.deviceSessionUser(offeredToken) : undefined));
   // A wrong token is audited (throttled) and is "token dead"; a server-mode request that offered none
   // is a sign-in prompt, not a refusal.
   const unauthorized = async (): Promise<void> => {
@@ -332,10 +500,16 @@ async function handleRequest(
     return;
   }
 
+  if (pathname.startsWith('/api/device/') || pathname === '/device') {
+    if (identity.handler === undefined || identity.baseURL === undefined) return notFound(res);
+    await handleDevice(ctx, auth, identity, req, res, pathname, identity.baseURL, offeredToken);
+    return;
+  }
+
   if (pathname === '/sign-in') {
     if (identity.handler === undefined) return notFound(res);
     if (req.method !== 'GET' && req.method !== 'HEAD') return methodNotAllowed(res, 'GET, HEAD');
-    const html = signInPage(identity.providers, url.searchParams.get('error') ?? undefined);
+    const html = signInPage(identity.providers, url.searchParams.get('error') ?? undefined, url.searchParams.get('next') === 'device' ? '/device' : '/');
     // The same policy as the app's pages: only this page's own inline script (by hash) may run, and nothing may frame it.
     res.writeHead(200, { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store', 'x-frame-options': 'DENY', 'content-security-policy': contentSecurityPolicy(html) });
     res.end(req.method === 'HEAD' ? undefined : html);
@@ -467,6 +641,7 @@ export function createHubServer(opts: HubServerOptions): HubServer {
     eventsCookieName: `vanguard_hub_events_${randomBytes(4).toString('hex')}`,
     eventsSecret: randomBytes(32).toString('hex'),
     lastRefusedAuditMs: 0,
+    device: new DeviceAuth(),
   };
   const identity = opts.identity ?? localOnlyIdentity();
   const deps = opts.deps ?? productionDeps();

@@ -460,6 +460,7 @@ describe('team caller wiring', () => {
     await saveTeams(configDir, [{ id: 'default', name: 'D', members: [{ login: 'ann', role: 'admin' }, { login: 'mia', role: 'member' }], repositories: [repo] }]);
     const identity = {
       owner: { id: 'local-owner', email: 'owner@hub.invalid', name: 'Owner' },
+      baseURL: undefined,
       providers: [],
       handler: undefined,
       sessionUser: async (req: { headers: Record<string, string | string[] | undefined> }) => {
@@ -467,6 +468,9 @@ describe('team caller wiring', () => {
         return typeof id === 'string' ? { id, email: `${id}@x.test`, name: id } : undefined;
       },
       userById: async (id: string) => ({ id, email: `${id}@x.test`, name: id }),
+      issueDeviceSession: async () => undefined,
+      deviceSessionUser: async () => undefined,
+      revokeDeviceSession: async () => undefined,
       close: () => undefined,
     };
     const h = createHubServer({ uiDir, configDir, browseRoot, bind: { isLoopback: true, allowAdd: false }, seedRepoPath: repo, deps: unimplementedDeps(), token: TOKEN, identity });

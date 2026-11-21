@@ -90,7 +90,8 @@ describe('server mode', () => {
     await rm(dir, { recursive: true, force: true });
   });
 
-  async function start(allow: string[]): Promise<void> {
+  /** `publicScheme: 'https'`: the hub sits behind an https proxy (its public URL), still reached here over http. */
+  async function start(allow: string[], { publicScheme = 'http' }: { publicScheme?: 'http' | 'https' } = {}): Promise<void> {
     const probe = createServer();
     await new Promise<void>((r) => probe.listen(0, '127.0.0.1', r));
     const port = (probe.address() as AddressInfo).port;
@@ -98,7 +99,7 @@ describe('server mode', () => {
     origin = `http://127.0.0.1:${port}`;
     identity = await createHubIdentity({
       configDir: dir,
-      baseURL: origin,
+      baseURL: `${publicScheme}://127.0.0.1:${port}`,
       providers: { github: { clientId: 'a', clientSecret: 'b' }, gitlab: { clientId: 'c', clientSecret: 'd', issuer: 'https://gl.test' } },
       allowlist: parseSignupAllowlist(allow),
     });
@@ -267,6 +268,185 @@ describe('server mode', () => {
     } finally {
       db.close();
     }
+  });
+
+  describe('device flow (mobile)', () => {
+    const json = async (res: Response): Promise<Record<string, string>> => (await res.json()) as Record<string, string>;
+    const begin = async (): Promise<{ device_code: string; user_code: string; verification_uri: string }> =>
+      (await json(await post('/api/device/code', {}))) as never;
+    const poll = (device_code: string): Promise<Response> => post('/api/device/token', {}, JSON.stringify({ device_code }));
+    /** Open /device as the signed-in member, then type the code and POST the form (CSRF cookie + field). */
+    async function approve(cookie: string, userCode: string, action = 'approve', opts: { csrf?: string; headers?: Record<string, string> } = {}): Promise<Response> {
+      const page = await fetch(origin + '/device', { headers: { cookie }, redirect: 'manual' });
+      const html = await page.text();
+      const field = /name="csrf" value="([0-9a-f]+)"/.exec(html)?.[1] ?? '';
+      const csrfCookie = page.headers.getSetCookie().map((c) => c.split(';', 1)[0]).join('; ');
+      return fetch(origin + '/device', {
+        method: 'POST',
+        redirect: 'manual',
+        headers: { 'content-type': 'application/x-www-form-urlencoded', origin, cookie: [cookie, csrfCookie].join('; '), ...opts.headers },
+        body: new URLSearchParams({ csrf: opts.csrf ?? field, user_code: userCode, action }).toString(),
+      });
+    }
+
+    test('token before approval is pending; approval yields a member session once; it authorises RPC as the member and can be revoked', async () => {
+      await start(['github:octo']);
+      const { cookie } = await signIn();
+      const d = await begin();
+      expect(d.verification_uri).toBe(origin + '/device');
+      expect(d.user_code).toMatch(/^[A-Z]{8}$/);
+      const pending = await poll(d.device_code);
+      expect(pending.status).toBe(400);
+      expect(await json(pending)).toMatchObject({ error: 'authorization_pending' });
+      const ok = await approve(cookie, d.user_code.slice(0, 4).toLowerCase() + '-' + d.user_code.slice(4));
+      expect(ok.status).toBe(200);
+      const granted = await poll(d.device_code);
+      expect(granted.status).toBe(200);
+      const { access_token } = await json(granted);
+      // Single use: the same device_code is refused now.
+      expect(await json(await poll(d.device_code))).toMatchObject({ error: 'invalid_grant' });
+      const h = { [HUB_TOKEN_HEADER]: access_token! };
+      expect((await rpc(h)).status).toBe(200);
+      const me = await json(await fetch(origin + '/api/device/me', { headers: h }));
+      expect(me.email).toBe('octo@nowhere.test');
+      expect(me.id).not.toBe(identity!.owner.id);
+      // A member session is not the owner: it is not the events-cookie token.
+      expect((await post('/events/session', h)).headers.get('set-cookie')).toBeNull();
+      expect((await post('/api/device/revoke', h)).status).toBe(200);
+      expect((await rpc(h)).status).toBe(401);
+      expect((await fetch(origin + '/api/device/me', { headers: h })).status).toBe(401);
+    });
+
+    test('behind an https public URL the verification page is https and the CSRF cookie is Secure; over http it is not', async () => {
+      await start(['github:octo'], { publicScheme: 'https' });
+      const { cookie } = await signIn('github', { origin: origin.replace('http:', 'https:') });
+      expect((await begin()).verification_uri).toBe(origin.replace('http:', 'https:') + '/device');
+      const secureCsrf = (await fetch(origin + '/device', { headers: { cookie }, redirect: 'manual' })).headers.get('set-cookie') ?? '';
+      expect(secureCsrf).toMatch(/^taskcell_device_csrf=.*; Secure/);
+      await hub!.close();
+      await start(['github:octo']);
+      const plain = await signIn();
+      const page = await fetch(origin + '/device', { headers: { cookie: plain.cookie }, redirect: 'manual' });
+      expect(page.headers.get('set-cookie')).toMatch(/^taskcell_device_csrf=/);
+      expect(page.headers.get('set-cookie')).not.toContain('Secure');
+    });
+
+    test('the page warns to enter only your own code, and the review step shows when the code was requested', async () => {
+      await start(['github:octo']);
+      const { cookie } = await signIn();
+      const d = await begin();
+      const page = await fetch(origin + '/device', { headers: { cookie } });
+      const pageHtml = await page.text();
+      expect(pageHtml).toContain('Only enter a code shown on your own phone');
+      const both = [cookie, page.headers.getSetCookie().map((c) => c.split(';', 1)[0]).join('; ')].join('; ');
+      const send = (fields: Record<string, string>): Promise<Response> =>
+        fetch(origin + '/device', { method: 'POST', headers: { 'content-type': 'application/x-www-form-urlencoded', origin, cookie: both }, body: new URLSearchParams(fields).toString() });
+      const review = await send({ csrf: /name="csrf" value="([0-9a-f]+)"/.exec(pageHtml)![1]!, user_code: d.user_code.toLowerCase(), action: 'review' });
+      expect(review.status).toBe(200);
+      const html = await review.text();
+      expect(html).toContain(`${d.user_code.slice(0, 4)}-${d.user_code.slice(4)}`);
+      expect(html).toMatch(/was requested less than a minute ago \(\d\d:\d\d UTC\)/);
+      expect(html).toContain('Only enter a code shown on your own phone');
+      // Reviewing decides nothing; the review form's own fields approve.
+      expect(await json(await poll(d.device_code))).toMatchObject({ error: 'authorization_pending' });
+      const field = (name: string): string => new RegExp(`name="${name}" value="([^"]+)"`).exec(html)![1]!;
+      expect((await send({ csrf: field('csrf'), user_code: field('user_code'), action: 'approve' })).status).toBe(200);
+      expect((await poll(d.device_code)).status).toBe(200);
+      expect((await approve(cookie, 'BBBBBBBB', 'review')).status).toBe(400);
+    });
+
+    test('Better Auth list-sessions is disabled: page script cannot read the device sessions\' tokens', async () => {
+      await start(['github:octo']);
+      const { cookie } = await signIn();
+      const d = await begin();
+      await approve(cookie, d.user_code);
+      const { access_token } = await json(await poll(d.device_code));
+      expect(access_token).toMatch(/^tcd_/);
+      const res = await fetch(origin + '/api/auth/list-sessions', { headers: { cookie, origin } });
+      expect(res.status).toBe(404);
+      expect(await res.text()).not.toContain(access_token!);
+    });
+
+    test('a wrong or expired device_code is refused', async () => {
+      await start(['github:octo']);
+      expect(await json(await poll('nope'))).toMatchObject({ error: 'invalid_grant' });
+      expect((await post('/api/device/token', {}, '{}')).status).toBe(400);
+    });
+
+    test('a denied code is refused to the app', async () => {
+      await start(['github:octo']);
+      const { cookie } = await signIn();
+      const d = await begin();
+      expect((await approve(cookie, d.user_code, 'deny')).status).toBe(200);
+      expect(await json(await poll(d.device_code))).toMatchObject({ error: 'access_denied' });
+    });
+
+    test('a non-allowlisted account cannot approve, and the phone gets nothing', async () => {
+      await start(['github:octo']);
+      const { cookie } = await signIn();
+      const d = await begin();
+      // The operator narrows the allowlist after the member signed in.
+      await hub!.close();
+      identity = await createHubIdentity({ configDir: dir, baseURL: origin, providers: { github: { clientId: 'a', clientSecret: 'b' } }, allowlist: parseSignupAllowlist(['someone@else.test']) });
+      hub = createHubServer({ uiDir: dir, configDir: dir, browseRoot: dir, bind: { isLoopback: false, allowAdd: false }, deps, identity, token: TOKEN });
+      await hub.listen(Number(new URL(origin).port), '127.0.0.1');
+      const d2 = await begin();
+      const refused = await approve(cookie, d2.user_code);
+      expect(refused.status).toBe(403);
+      expect(await refused.text()).toContain('Sign-up is not open');
+      expect(await json(await poll(d.device_code))).toMatchObject({ error: 'invalid_grant' }); // the restart dropped it
+      expect(await json(await poll(d2.device_code))).toMatchObject({ error: 'authorization_pending' });
+    });
+
+    test('an account that never made it past the allowlist has no session to approve with', async () => {
+      await start(['someone@else.test']);
+      const { cookie } = await signIn();
+      const d = await begin();
+      const res = await fetch(origin + '/device', { headers: { cookie }, redirect: 'manual' });
+      expect(res.status).toBe(302);
+      expect(res.headers.get('location')).toBe('/sign-in?next=device');
+      expect((await approve(cookie, d.user_code)).status).toBe(401);
+      expect(await json(await poll(d.device_code))).toMatchObject({ error: 'authorization_pending' });
+    });
+
+    test('a ?user_code= link neither prefills nor approves; approval needs the CSRF field and a same-origin POST', async () => {
+      await start(['github:octo']);
+      const { cookie } = await signIn();
+      const d = await begin();
+      const page = await fetch(`${origin}/device?user_code=${d.user_code}`, { headers: { cookie } });
+      expect(await page.text()).not.toContain(d.user_code);
+      expect(await json(await poll(d.device_code))).toMatchObject({ error: expect.stringMatching(/authorization_pending|slow_down/) });
+      expect((await fetch(`${origin}/device?user_code=${d.user_code}&action=approve`, { headers: { cookie } })).status).toBe(200);
+      expect(await json(await poll(d.device_code))).toMatchObject({ error: expect.stringMatching(/authorization_pending|slow_down/) });
+      expect((await approve(cookie, d.user_code, 'approve', { csrf: 'f'.repeat(48) })).status).toBe(403);
+      expect((await approve(cookie, d.user_code, 'approve', { headers: { origin: 'https://evil.test' } })).status).toBe(400);
+      expect(await json(await poll(d.device_code))).toMatchObject({ error: expect.stringMatching(/authorization_pending|slow_down/) });
+      expect((await approve(cookie, d.user_code)).status).toBe(200);
+    });
+
+    test('user_code entry is rate-limited per approver: the right code is refused after too many wrong ones', async () => {
+      await start(['github:octo']);
+      const { cookie } = await signIn();
+      const d = await begin();
+      for (let i = 0; i < 5; i++) expect((await approve(cookie, 'BBBBBBBB')).status).toBe(400);
+      expect((await approve(cookie, 'BBBBBBBB')).status).toBe(429);
+      expect((await approve(cookie, d.user_code)).status).toBe(429);
+      expect(await json(await poll(d.device_code))).toMatchObject({ error: 'authorization_pending' });
+    });
+
+    test('the code endpoint needs a same-origin POST, and a browser session token is no bearer', async () => {
+      await start(['github:octo']);
+      expect((await fetch(origin + '/api/device/code', { method: 'POST' })).status).toBe(400);
+      const { cookie } = await signIn();
+      const raw = new DatabaseSync(join(dir, 'auth.sqlite'));
+      try {
+        const { token } = raw.prepare('SELECT token FROM session LIMIT 1').get() as { token: string };
+        expect((await rpc({ [HUB_TOKEN_HEADER]: token })).status).toBe(401);
+        expect(cookie).not.toContain(token + ';');
+      } finally {
+        raw.close();
+      }
+    });
   });
 
   test('the auth db is private to the operator', async () => {

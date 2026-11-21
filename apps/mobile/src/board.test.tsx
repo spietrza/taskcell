@@ -1,10 +1,11 @@
+import type { Credentials } from './credentials';
 import { fireEvent, render, screen, waitFor } from '@testing-library/react-native';
 import { Linking } from 'react-native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { BoardScreen } from './BoardScreen';
 import { COLUMNS, toCards, type HubTask } from './board';
 
-const creds = { url: 'http://hub.local:4317', token: 't' };
+const creds: Credentials = { url: 'http://hub.local:4317', token: 't', kind: 'owner' };
 const METRICS = { frame: { x: 0, y: 0, width: 390, height: 844 }, insets: { top: 47, left: 0, right: 0, bottom: 34 } };
 const NOW = Date.parse('2026-07-06T12:00:00Z');
 const task = (o: Partial<HubTask>): HubTask => ({ id: 'gh-1', title: 'T', column: 'queued', state: 'ready', repoPath: '/r', repoName: 'o/r', ...o });

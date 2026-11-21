@@ -90,9 +90,10 @@ export function HomeScreen({ credentials, fetchImpl }: { credentials: Credential
   return (
     <View testID="home" style={[styles.root, { backgroundColor: theme.background, paddingTop: insets.top + 16 }]}>
       <Text style={[styles.heading, { color: theme.foreground }]}>Waiting for you</Text>
+      {credentials.kind === 'member' && credentials.name ? <Text style={[styles.notice, { color: theme.mutedForeground }]}>Signed in as {credentials.name}</Text> : null}
       {rejected ? (
         <Text accessibilityRole="alert" style={[styles.notice, { color: theme.destructive }]}>
-          Token rejected, reconnect in Settings.
+          {credentials.kind === 'member' ? 'Session ended, sign in again in Settings.' : 'Token rejected, reconnect in Settings.'}
         </Text>
       ) : null}
       {notice ? <Text style={[styles.notice, { color: theme.primary }]}>{notice}</Text> : null}

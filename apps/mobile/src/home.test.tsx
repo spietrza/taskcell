@@ -1,3 +1,4 @@
+import type { Credentials } from './credentials';
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react-native';
 import type { ReactElement } from 'react';
 import { Linking, StyleSheet } from 'react-native';
@@ -5,7 +6,7 @@ import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { HomeScreen } from './HomeScreen';
 import { kindLabel, toRows, type WaitingItem } from './needsYou';
 
-const creds = { url: 'http://hub.local:4317', token: 't' };
+const creds: Credentials = { url: 'http://hub.local:4317', token: 't', kind: 'owner' };
 /** An iPhone-like top inset (status bar), as expo-router's SafeAreaProvider would give it. */
 const METRICS = { frame: { x: 0, y: 0, width: 390, height: 844 }, insets: { top: 47, left: 0, right: 0, bottom: 34 } };
 const renderHome = (el: ReactElement): ReturnType<typeof render> => render(<SafeAreaProvider initialMetrics={METRICS}>{el}</SafeAreaProvider>);

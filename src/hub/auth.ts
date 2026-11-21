@@ -38,16 +38,27 @@ export type ProviderConfigs = Partial<Record<AuthProviderId, ProviderConfig>>;
 
 export interface HubIdentity {
   readonly owner: HubUser;
+  /** The hub's public origin (`TASKCELL_HUB_PUBLIC_URL`, Better Auth's `baseURL`); undefined in local mode. Hub URLs and cookie `Secure` flags follow it, never the request's own scheme. */
+  readonly baseURL: string | undefined;
   /** Enabled sign-in providers (empty in local mode: no OAuth there). */
   readonly providers: readonly AuthProviderId[];
   /** The signed-in user of this request's session cookie, if any. Always undefined in local mode. */
   sessionUser(req: IncomingMessage): Promise<HubUser | undefined>;
   /** The user with this id as the store holds them now (undefined: gone, or no longer allowed to have an account). For work that runs later as a stored user; required, so no identity can skip the check. */
   userById(id: string): Promise<HubUser | undefined>;
+  /** Mints a session for the user an approved device flow named (src/hub/device-auth.ts) and returns its secret token. Required, so no identity can skip the device flow's checks. */
+  issueDeviceSession(userId: string): Promise<string | undefined>;
+  /** The user behind a device-flow session token (undefined: unknown, expired, revoked, or no longer allowed). */
+  deviceSessionUser(token: string): Promise<HubUser | undefined>;
+  /** Ends a device-flow session (sign-out from the app). */
+  revokeDeviceSession(token: string): Promise<void>;
   /** Better Auth's node handler for `/api/auth/*`; undefined in local mode (no sign-in). */
   readonly handler: ((req: IncomingMessage, res: ServerResponse) => Promise<void>) | undefined;
   close(): void;
 }
+
+/** Device-flow session tokens carry this prefix: a browser session's token is never accepted as a bearer. */
+const DEVICE_TOKEN_PREFIX = 'tcd_';
 
 /** `.invalid` can never be a registered domain, so no OAuth account can claim this address. */
 export const OWNER_EMAIL = 'owner@hub.invalid';
@@ -220,7 +231,8 @@ export async function createHubIdentity(opts: CreateIdentityOptions): Promise<Hu
     onAPIError: { errorURL: '/sign-in' },
     // `providerLogin` is an input field, so `/update-user` would let a signed-in user rewrite it to
     // `github:<an admin>` and pass the credential admin check. The hub never edits a profile.
-    disabledPaths: ['/update-user'],
+    // `/list-sessions` returns every session's token to page script, the app's device-flow (`tcd_`) bearers included.
+    disabledPaths: ['/update-user', '/list-sessions'],
   };
 
   await (await getMigrations(options)).runMigrations();
@@ -257,8 +269,12 @@ export async function createHubIdentity(opts: CreateIdentityOptions): Promise<Hu
     return { id, email, name, emailVerified, ...(logins.length > 0 ? { login: logins[0], logins } : {}) };
   };
 
+  const allowedNow = (user: HubUser): boolean =>
+    user.id === owner.id || (user.logins ?? [undefined]).some((login) => allowed({ email: user.email, emailVerified: user.emailVerified === true, login }));
+
   return {
     owner,
+    baseURL: opts.baseURL,
     providers: Object.keys(socialProviders) as AuthProviderId[],
     handler: toNodeHandler(auth),
     sessionUser: async (req) => {
@@ -278,8 +294,23 @@ export async function createHubIdentity(opts: CreateIdentityOptions): Promise<Hu
       if (u === null || u === undefined) return undefined;
       const user = toHubUser(u);
       // An account the sign-up allowlist no longer names is as good as gone (the owner is not an OAuth account).
-      if (user.id !== owner.id && !(user.logins ?? [undefined]).some((login) => allowed({ email: user.email, emailVerified: user.emailVerified === true, login }))) return undefined;
-      return user;
+      return allowedNow(user) ? user : undefined;
+    },
+    issueDeviceSession: async (userId) => {
+      const token = DEVICE_TOKEN_PREFIX + randomBytes(32).toString('hex');
+      // `overrideAll` is what lets the token be ours; the session otherwise takes Better Auth's defaults (expiry).
+      const session = await ctx.internalAdapter.createSession(userId, false, { token }, true);
+      return session?.token;
+    },
+    deviceSessionUser: async (token) => {
+      if (!token.startsWith(DEVICE_TOKEN_PREFIX)) return undefined;
+      const found = await ctx.internalAdapter.findSession(token);
+      if (found === null || found === undefined || found.session.expiresAt.getTime() <= Date.now()) return undefined;
+      const user = toHubUser(found.user);
+      return allowedNow(user) ? user : undefined;
+    },
+    revokeDeviceSession: async (token) => {
+      if (token.startsWith(DEVICE_TOKEN_PREFIX)) await ctx.internalAdapter.deleteSession(token);
     },
     close: () => db.close(),
   };
@@ -290,19 +321,23 @@ export async function createHubIdentity(opts: CreateIdentityOptions): Promise<Hu
 export function localOnlyIdentity(): HubIdentity {
   return {
     owner: { id: 'local-owner', email: OWNER_EMAIL, name: 'Owner' },
+    baseURL: undefined,
     providers: [],
     handler: undefined,
     sessionUser: async () => undefined,
     userById: async (id) => (id === 'local-owner' ? { id, email: OWNER_EMAIL, name: 'Owner' } : undefined),
+    issueDeviceSession: async () => undefined,
+    deviceSessionUser: async () => undefined,
+    revokeDeviceSession: async () => undefined,
     close: () => undefined,
   };
 }
 
-const esc = (s: string): string => s.replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`);
+export const esc = (s: string): string => s.replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`);
 const LABELS: Record<AuthProviderId, string> = { github: 'GitHub', gitlab: 'GitLab', google: 'Google' };
 
 /** The server-mode sign-in page: one button per enabled provider, plus a refusal reason from `?error=`. */
-export function signInPage(providers: readonly AuthProviderId[], error: string | undefined): string {
+export function signInPage(providers: readonly AuthProviderId[], error: string | undefined, next: '/' | '/device' = '/'): string {
   const message = error === undefined ? '' : `<p role="alert">${esc(error === 'FORBIDDEN' || error === 'unable_to_create_user' ? SIGNUP_REFUSED_MESSAGE : error.replace(/_/g, ' '))}</p>`;
   const buttons =
     providers.length === 0
@@ -312,6 +347,6 @@ export function signInPage(providers: readonly AuthProviderId[], error: string |
 <meta name="viewport" content="width=device-width,initial-scale=1"></head><body style="font-family:system-ui;max-width:24rem;margin:4rem auto">
 <h1>Taskcell Hub</h1>${message}${buttons}
 <script>document.querySelectorAll('button[data-provider]').forEach(function(b){b.onclick=async function(){
-var r=await fetch('/api/auth/sign-in/social',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({provider:b.dataset.provider,callbackURL:'/',errorCallbackURL:'/sign-in'})});
+var r=await fetch('/api/auth/sign-in/social',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({provider:b.dataset.provider,callbackURL:'${next}',errorCallbackURL:'/sign-in'})});
 var j=await r.json();if(j.url)location.href=j.url;};});</script></body></html>`;
 }

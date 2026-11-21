@@ -19,6 +19,7 @@ export default function Settings(): ReactNode {
   return (
     <Placeholder title="Settings">
       <Text style={{ color: theme.caption }}>{credentials?.url}</Text>
+      {credentials?.kind === 'member' && credentials.name ? <Text style={{ color: theme.caption }}>Signed in as {credentials.name}</Text> : null}
       <Pressable accessibilityRole="button" onPress={() => void confirmDisconnect()} style={[styles.button, { borderColor: theme.destructive }]}>
         <Text style={{ color: theme.destructive, fontWeight: '600' }}>Disconnect</Text>
       </Pressable>
