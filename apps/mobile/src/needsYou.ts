@@ -1,6 +1,6 @@
 import { createHubClient } from '../../../packages/hub-client/src/client';
 import { AppState } from 'react-native';
-import type { NeedsYouItem, RepoReadFailure, RepoStamp } from '../../../packages/hub-client/src/wire';
+import type { CallerCapabilities, NeedsYouItem, RepoReadFailure, RepoStamp } from '../../../packages/hub-client/src/wire';
 import { withOrigin } from './connect';
 import type { Credentials } from './credentials';
 
@@ -157,4 +157,21 @@ export function watchHub(c: Credentials, onChange: () => void, fetchImpl?: typeo
     close?.();
     appState.remove();
   };
+}
+
+/** What the hub says the caller may do on one project (`caller_capabilities`); null while unread or unreadable, which leaves every action open for the hub to refuse. */
+export async function loadCapabilities(c: Credentials, repoPath: string, fetchImpl?: typeof fetch): Promise<CallerCapabilities['project'] | null> {
+  try {
+    return (await hubClient(c, fetchImpl).call('caller_capabilities', { repoPath })).project ?? null;
+  } catch {
+    return null;
+  }
+}
+
+/** The hub's retry for a failed or paused task: `hub_task_retry` for a hub card, `retry_paused_task` for a GitHub issue (`gh-N`). Rejects with the hub's message. */
+export async function rerunTask(c: Credentials, repoPath: string, taskId: string, fetchImpl?: typeof fetch): Promise<void> {
+  const client = hubClient(c, fetchImpl);
+  const gh = /^gh-(\d+)$/.exec(taskId)?.[1];
+  if (gh !== undefined) await client.call('retry_paused_task', { repoPath, number: Number(gh) });
+  else await client.call('hub_task_retry', { repoPath, id: taskId });
 }
