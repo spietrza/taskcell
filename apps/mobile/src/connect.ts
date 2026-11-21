@@ -1,3 +1,4 @@
+import * as Crypto from 'expo-crypto';
 import { createHubClient } from '../../../packages/hub-client/src/client';
 import { HUB_TOKEN_HEADER } from '../../../packages/hub-client/src/hub-wire';
 import type { Credentials } from './credentials';
@@ -88,23 +89,33 @@ export async function fetchProviders(urlInput: string, fetchImpl?: typeof fetch)
 /** Opens the system browser on `url` until it redirects to `redirect` (expo-web-browser's `openAuthSessionAsync`). */
 export type OpenAuth = (url: string, redirect: string) => Promise<{ type: string; url?: string }>;
 
+/** A PKCE pair for one sign-in: the verifier never leaves the app, the hub only sees its S256 challenge. */
+export async function pkcePair(): Promise<{ verifier: string; challenge: string }> {
+  const verifier = Array.from(Crypto.getRandomBytes(32), (b) => b.toString(16).padStart(2, '0')).join('');
+  const digest = await Crypto.digestStringAsync(Crypto.CryptoDigestAlgorithm.SHA256, verifier, { encoding: Crypto.CryptoEncoding.BASE64 });
+  return { verifier, challenge: digest.replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '') };
+}
+
 /** Sign in through the hub's own Better Auth flow: the system browser runs the provider's OAuth and ends on
- * `taskcell://auth?ott=…`; that one-time token buys a bearer session, which is what the app keeps. */
+ * `taskcell://auth?ott=…`; that one-time token, with the verifier of the challenge this sign-in started with,
+ * buys a bearer session, which is what the app keeps. Another app that catches the redirect lacks the verifier. */
 export async function signInToHub(urlInput: string, provider: AuthProvider, openAuth: OpenAuth, fetchImpl?: typeof fetch): Promise<ConnectResult> {
   const url = normalizeHubUrl(urlInput);
   if (!url) return { ok: false, error: 'Enter the hub URL, e.g. http://192.168.1.20:7777.' };
   const hubCall = withOrigin(url, fetchImpl);
   try {
-    const result = await openAuth(`${url}/api/auth/native/start?provider=${provider}`, NATIVE_REDIRECT);
+    const { verifier, challenge } = await pkcePair();
+    const start = new URLSearchParams({ provider, code_challenge: challenge, code_challenge_method: 'S256' });
+    const result = await openAuth(`${url}/api/auth/native/start?${start}`, NATIVE_REDIRECT);
     if (result.type !== 'success' || !result.url) return { ok: false, error: 'Sign-in was cancelled.' };
     const params = new URL(result.url).searchParams;
     const error = params.get('error');
     if (error) return { ok: false, error };
     const ott = params.get('ott');
     if (!ott) return { ok: false, error: 'Sign-in did not complete. Try again.' };
-    const verify = await hubCall(`${url}/api/auth/one-time-token/verify`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ token: ott }) });
-    const token = verify.headers.get('set-auth-token');
-    if (!token) return { ok: false, error: 'The hub did not accept the sign-in. Try again.' };
+    const exchange = await hubCall(`${url}/api/auth/native/token`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ ott, code_verifier: verifier }) });
+    const { token } = exchange.status === 200 ? ((await exchange.json()) as { token?: unknown }) : {};
+    if (typeof token !== 'string' || token === '') return { ok: false, error: 'The hub did not accept the sign-in. Try again.' };
     const session = await hubFetch({ url, token, user: '' }, fetchImpl)(`${url}/api/auth/get-session`);
     const me = (await session.json()) as { user?: { name?: string; email?: string } } | null;
     const user = me?.user?.name || me?.user?.email;

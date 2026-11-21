@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import { mkdtemp, rm, stat } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -5,7 +6,7 @@ import { createServer, type IncomingMessage } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { DatabaseSync } from 'node:sqlite';
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
-import { createHubIdentity, localOnlyIdentity, OWNER_EMAIL, parsePublicUrl, parseSignupAllowlist, providersFromEnv, type HubIdentity } from './auth.js';
+import { createHubIdentity, localOnlyIdentity, OWNER_EMAIL, parsePublicUrl, parseSignupAllowlist, providersFromEnv, SIGNUP_REFUSED_MESSAGE, type HubIdentity } from './auth.js';
 import { saveTeams } from './teams.js';
 import { createHubServer, type HubServer } from './server.js';
 import { contentSecurityPolicy } from './static.js';
@@ -187,26 +188,35 @@ describe('server mode', () => {
     expect(await (await fetch(location)).text()).toContain('Sign-up is not open');
   });
 
-  /** The native app's round trip: social sign-in with the hub's native callback, then one-time token -> bearer session. */
-  async function nativeSignIn(): Promise<{ location: URL; bearer?: string | undefined }> {
-    const start = await fetch(origin + '/api/auth/native/start?provider=github', { redirect: 'manual' });
-    expect(start.status).toBe(302);
-    const state = new URL(start.headers.get('location')!).searchParams.get('state')!;
-    const callback = await fetch(`${origin}/api/auth/callback/github?code=c&state=${state}`, { redirect: 'manual', headers: { cookie: cookieOf(start) } });
-    const cookie = [cookieOf(start), cookieOf(callback)].join('; ');
+  /** The native app's PKCE pair: the verifier stays in the app, the S256 challenge goes to `/native/start`. */
+  const VERIFIER = 'v'.repeat(43);
+  const CHALLENGE = createHash('sha256').update(VERIFIER).digest('base64url');
+  const nativeStart = (query = `provider=github&code_challenge=${CHALLENGE}&code_challenge_method=S256`): Promise<Response> =>
+    fetch(`${origin}/api/auth/native/start?${query}`, { redirect: 'manual' });
+  const redeem = (ott: string, verifier?: string): Promise<Response> =>
+    post('/api/auth/native/token', {}, JSON.stringify({ ott, ...(verifier === undefined ? {} : { code_verifier: verifier }) }));
+  const tokenOf = async (res: Response): Promise<string | undefined> => (res.status === 200 ? ((await res.json()) as { token: string }).token : undefined);
+
+  /** The native app's round trip: `/native/start` in the system browser, the provider callback, `/native/complete`
+   * (one-time token on `taskcell://auth`), then the app redeems it with its verifier (`null`: left unredeemed). */
+  async function nativeSignIn(verifier: string | null = VERIFIER): Promise<{ location: URL; ott: string | null; bearer?: string | undefined; cookie: string }> {
+    const begin = await nativeStart();
+    expect(begin.status).toBe(302);
+    const state = new URL(begin.headers.get('location')!).searchParams.get('state')!;
+    const callback = await fetch(`${origin}/api/auth/callback/github?code=c&state=${state}`, { redirect: 'manual', headers: { cookie: cookieOf(begin) } });
+    const cookie = [cookieOf(begin), cookieOf(callback)].join('; ');
     // The system browser follows the callback's redirect to the hub's native page, carrying the cookie jar.
     const complete = await fetch(new URL(callback.headers.get('location')!, origin), { redirect: 'manual', headers: { cookie } });
     const location = new URL(complete.headers.get('location')!);
     const ott = location.searchParams.get('ott');
-    if (ott === null) return { location };
-    const verify = await post('/api/auth/one-time-token/verify', {}, JSON.stringify({ token: ott }));
-    return { location, bearer: verify.headers.get('set-auth-token') ?? undefined };
+    if (ott === null || verifier === null) return { location, ott, cookie };
+    return { location, ott, bearer: await tokenOf(await redeem(ott, verifier)), cookie };
   }
 
   test('native sign-in: an allowlisted member gets a bearer session for RPC and SSE; sign-out revokes it', async () => {
     await start(['github:octo']);
     const providers = (await (await fetch(origin + '/api/auth/native/providers')).json()) as { providers: string[] };
-    expect((await fetch(origin + '/api/auth/native/start?provider=nope', { redirect: 'manual' })).status).toBe(400);
+    expect((await nativeStart(`provider=nope&code_challenge=${CHALLENGE}&code_challenge_method=S256`)).status).toBe(400);
     expect(providers.providers).toEqual(['github', 'gitlab']);
     const { location, bearer } = await nativeSignIn();
     expect(location.protocol + '//' + location.host).toBe('taskcell://auth');
@@ -227,18 +237,75 @@ describe('server mode', () => {
     const { location, bearer } = await nativeSignIn();
     expect(bearer).toBeUndefined();
     expect(location.searchParams.get('ott')).toBeNull();
-    expect(location.searchParams.get('error')).toContain('Sign-up is not open');
+    expect(location.searchParams.get('error')).toBe(SIGNUP_REFUSED_MESSAGE);
   });
 
-  test('native sign-in: the one-time token is single use, a forged one and a bare complete call get nothing', async () => {
+  test('native sign-in: a provider or caller error code reads as a fixed message, never as its own text', async () => {
     await start(['github:octo']);
-    const { location } = await nativeSignIn();
-    const ott = location.searchParams.get('ott')!;
-    expect((await post('/api/auth/one-time-token/verify', {}, JSON.stringify({ token: ott }))).headers.get('set-auth-token')).toBeNull();
-    expect((await post('/api/auth/one-time-token/verify', {}, JSON.stringify({ token: 'forged' }))).headers.get('set-auth-token')).toBeNull();
+    const errorOf = async (code: string): Promise<string | null> => {
+      const res = await fetch(`${origin}/api/auth/native/complete?error=${encodeURIComponent(code)}`, { redirect: 'manual' });
+      return new URL(res.headers.get('location')!).searchParams.get('error');
+    };
+    expect(await errorOf('unable_to_create_user')).toBe(SIGNUP_REFUSED_MESSAGE);
+    expect(await errorOf('access_denied')).toBe('Sign-in was cancelled at the provider.');
+    expect(await errorOf('Your_hub_was_moved_visit_evil.example')).toBe('Sign-in did not complete. Try again.');
+  });
+
+  test('native sign-in: /start needs an S256 challenge, a plain link starts nothing', async () => {
+    await start(['github:octo']);
+    expect((await nativeStart('provider=github')).status).toBe(400);
+    expect((await nativeStart(`provider=github&code_challenge=${CHALLENGE}`)).status).toBe(400);
+    expect((await nativeStart('provider=github&code_challenge=short&code_challenge_method=S256')).status).toBe(400);
+  });
+
+  test('native sign-in: a wrong or missing verifier gets no session and burns the token', async () => {
+    await start(['github:octo']);
+    expect((await nativeSignIn('w'.repeat(43))).bearer).toBeUndefined();
+    const missing = await nativeSignIn(null);
+    expect(missing.ott).toBeTruthy();
+    const noVerifier = await redeem(missing.ott!);
+    expect(noVerifier.status).toBe(400);
+    // The binding went with the failed attempt: the right verifier is now too late.
+    expect(await tokenOf(await redeem(missing.ott!, VERIFIER))).toBeUndefined();
+  });
+
+  test('native sign-in: the one-time token is single use and never redeemed through Better Auth directly', async () => {
+    await start(['github:octo']);
+    const { ott, bearer } = await nativeSignIn();
+    expect(bearer).toBeTruthy();
+    expect(await tokenOf(await redeem(ott!, VERIFIER))).toBeUndefined();
+    expect(await tokenOf(await redeem('forged', VERIFIER))).toBeUndefined();
+    // A fresh token, taken off the redirect by another app, cannot skip the verifier through the plugin's own routes.
+    const { ott: fresh } = await nativeSignIn(null);
+    const direct = await post('/api/auth/one-time-token/verify', {}, JSON.stringify({ token: fresh }));
+    expect(direct.status).toBe(404);
+    expect(direct.headers.get('set-auth-token')).toBeNull();
+    expect(direct.headers.getSetCookie().join()).not.toContain('session_token');
+    expect(await tokenOf(await redeem(fresh!, VERIFIER))).toBeTruthy();
+    expect((await rpc({ authorization: 'Bearer forged' })).status).toBe(401);
+  });
+
+  test('native sign-in: /complete mints nothing without the challenge /start set, even for a signed-in browser', async () => {
+    await start(['github:octo']);
     const bare = await fetch(origin + '/api/auth/native/complete', { redirect: 'manual' });
     expect(new URL(bare.headers.get('location')!).searchParams.get('ott')).toBeNull();
-    expect((await rpc({ authorization: 'Bearer forged' })).status).toBe(401);
+    // A cross-site page sends a signed-in browser (session cookie, no challenge cookie) to /complete.
+    const { cookie } = await signIn();
+    const crossSite = await fetch(origin + '/api/auth/native/complete', { redirect: 'manual', headers: { cookie, 'sec-fetch-site': 'cross-site', referer: 'https://evil.example/' } });
+    const location = new URL(crossSite.headers.get('location')!);
+    expect(location.searchParams.get('ott')).toBeNull();
+    expect(location.searchParams.get('error')).toBe('Sign-in did not complete. Try again.');
+    // Nor can the browser mint one through the plugin's own route.
+    expect((await fetch(origin + '/api/auth/one-time-token/generate', { headers: { cookie } })).status).toBe(404);
+  });
+
+  test('browser sign-in responses do not expose the session as set-auth-token', async () => {
+    await start(['github:octo']);
+    const { callback, cookie } = await signIn();
+    expect(callback.headers.get('set-auth-token')).toBeNull();
+    const session = await fetch(origin + '/api/auth/get-session', { headers: { cookie } });
+    expect(session.headers.get('set-auth-token')).toBeNull();
+    expect(session.headers.get('access-control-expose-headers') ?? '').not.toContain('set-auth-token');
   });
 
   test('a verified domain admits an account', async () => {

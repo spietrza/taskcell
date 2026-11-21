@@ -16,6 +16,17 @@ jest.mock('expo-secure-store', () => ({
   deleteItemAsync: jest.fn(async (k: string) => void mockStore.delete(k)),
 }));
 jest.mock('expo-web-browser', () => ({ openAuthSessionAsync: jest.fn() }));
+/** The slice of Node's crypto the test needs (the app has no Node types). */
+type NodeCrypto = { randomBytes(n: number): Uint8Array; createHash(a: string): { update(d: string): { digest(e: string): string } } };
+jest.mock('expo-crypto', () => {
+  const nodeCrypto = jest.requireActual<NodeCrypto>('crypto');
+  return {
+    CryptoDigestAlgorithm: { SHA256: 'SHA-256' },
+    CryptoEncoding: { BASE64: 'base64' },
+    getRandomBytes: (n: number) => new Uint8Array(nodeCrypto.randomBytes(n)),
+    digestStringAsync: async (_a: string, data: string) => nodeCrypto.createHash('sha256').update(data).digest('base64'),
+  };
+});
 
 const ORIGIN = 'http://hub.local:4317';
 const OTT = 'one-time';
@@ -23,6 +34,9 @@ const SESSION = 'session-token';
 const METRICS = { frame: { x: 0, y: 0, width: 390, height: 844 }, insets: { top: 47, left: 0, right: 0, bottom: 34 } };
 
 let sessionLive = true;
+/** The S256 challenge the app opened `/native/start` with: the hub binds the one-time token to it. */
+let challenge = '';
+const s256 = (v: string): string => jest.requireActual<NodeCrypto>('crypto').createHash('sha256').update(v).digest('base64url');
 let calls: { path: string; headers: Headers }[] = [];
 const json = (status: number, body: unknown, headers: Record<string, string> = {}) => ({ status, headers: new Headers(headers), json: async () => body });
 
@@ -33,9 +47,10 @@ const fakeHub = (async (input: string, init: RequestInit = {}) => {
   calls.push({ path, headers });
   if (headers.get('origin') !== ORIGIN) return json(400, { error: { message: 'cross-origin request rejected' } });
   if (path === '/api/auth/native/providers') return json(200, { providers: ['github', 'google'] });
-  if (path === '/api/auth/one-time-token/verify') {
-    const ok = JSON.parse(String(init.body)).token === OTT;
-    return ok ? json(200, {}, { 'set-auth-token': SESSION }) : json(401, null);
+  if (path === '/api/auth/native/token') {
+    const { ott, code_verifier: verifier } = JSON.parse(String(init.body)) as { ott?: string; code_verifier?: string };
+    const ok = ott === OTT && typeof verifier === 'string' && challenge !== '' && s256(verifier) === challenge;
+    return ok ? json(200, { token: SESSION }) : json(400, { error: 'Sign-in did not complete. Try again.' });
   }
   const bearer = headers.get('authorization') === `Bearer ${SESSION}` && sessionLive;
   if (path === '/api/auth/get-session') return json(200, bearer ? { user: { name: 'Octo Cat', email: 'octo@nowhere.test' } } : null);
@@ -49,7 +64,12 @@ const fakeHub = (async (input: string, init: RequestInit = {}) => {
 }) as unknown as typeof fetch;
 
 const allowed: OpenAuth = async (url, redirect) => {
-  expect(url).toBe(`${ORIGIN}/api/auth/native/start?provider=github`);
+  const start = new URL(url);
+  expect(start.origin + start.pathname).toBe(`${ORIGIN}/api/auth/native/start`);
+  expect(start.searchParams.get('provider')).toBe('github');
+  expect(start.searchParams.get('code_challenge_method')).toBe('S256');
+  challenge = start.searchParams.get('code_challenge') ?? '';
+  expect(challenge).toMatch(/^[A-Za-z0-9_-]{43}$/);
   expect(redirect).toBe('taskcell://auth');
   return { type: 'success', url: `taskcell://auth?ott=${OTT}` };
 };
@@ -58,6 +78,7 @@ const refused: OpenAuth = async () => ({ type: 'success', url: `taskcell://auth?
 beforeEach(() => {
   mockStore.clear();
   sessionLive = true;
+  challenge = '';
   calls = [];
 });
 
@@ -113,6 +134,17 @@ test('a non-allowlisted account is refused with the hub message and nothing is s
   expect(await screen.findByText(/Sign-up is not open on this hub/)).toBeTruthy();
   expect(screen.getByText('disconnected')).toBeTruthy();
   expect(mockStore.size).toBe(0);
+});
+
+test('a one-time token caught by another app is useless without this sign-in\'s verifier', async () => {
+  // Another app started its own sign-in (its challenge bound on the hub) and this app receives its token.
+  const intercepted: OpenAuth = async () => {
+    challenge = s256('x'.repeat(64));
+    return { type: 'success', url: `taskcell://auth?ott=${OTT}` };
+  };
+  const result = await signInToHub('hub.local:4317', 'github', intercepted, fakeHub);
+  expect(result).toEqual({ ok: false, error: 'The hub did not accept the sign-in. Try again.' });
+  expect(calls.find((c) => c.path === '/api/auth/one-time-token/verify')).toBeUndefined();
 });
 
 test('a cancelled browser sheet signs nothing in', async () => {

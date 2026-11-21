@@ -1,7 +1,7 @@
 // Hub sign-in (server mode) on Better Auth, stored in node:sqlite (no native module). Every hub
 // request resolves to a HubUser: the Better Auth session, the hub token (-> owner), or — on a
 // loopback bind — the automatic owner. Docs: docs/hub.md "Server mode sign-in".
-import { randomBytes } from 'node:crypto';
+import { createHash, randomBytes, timingSafeEqual } from 'node:crypto';
 import { chmod, mkdir, readFile, writeFile } from 'node:fs/promises';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { join } from 'node:path';
@@ -11,6 +11,7 @@ import { getMigrations } from 'better-auth/db/migration';
 import { fromNodeHeaders, toNodeHandler } from 'better-auth/node';
 import { bearer, oneTimeToken } from 'better-auth/plugins';
 import { readEnv } from '../core/env.js';
+import { writeJson } from './json-response.js';
 
 export interface HubUser {
   /** Better Auth's user id; teams and roles (#841) key on it. */
@@ -145,14 +146,55 @@ const loginOf = <P extends object>(prefix: 'github' | 'gitlab', key: string) => 
   return typeof login === 'string' && login !== '' ? { providerLogin: `${prefix}:${login}` } : {};
 };
 
-/** The native app's sign-in round trip: it opens `NATIVE_START_PATH?provider=…` in the system browser, whose OAuth
- * callback lands on `NATIVE_COMPLETE_PATH`; the app then exchanges the `ott` it receives at
- * `/api/auth/one-time-token/verify` for a bearer session (`set-auth-token`). */
+/** The native app's sign-in round trip, PKCE-style: it opens `NATIVE_START_PATH?provider=…&code_challenge=S256(verifier)`
+ * in the system browser, whose OAuth callback lands on `NATIVE_COMPLETE_PATH`; that hands out a one-time token bound
+ * to the challenge, which only `NATIVE_TOKEN_PATH` with the matching verifier trades for a bearer session. */
 export const NATIVE_COMPLETE_PATH = '/api/auth/native/complete';
 export const NATIVE_START_PATH = '/api/auth/native/start';
+export const NATIVE_TOKEN_PATH = '/api/auth/native/token';
 /** Public: which providers this hub offers (the mobile Connect screen asks before sign-in). */
 export const NATIVE_PROVIDERS_PATH = '/api/auth/native/providers';
 export const NATIVE_REDIRECT = 'taskcell://auth';
+/** Binds a native sign-in to the browser that started it; only `/api/auth/native/*` ever sees it. */
+const NATIVE_CHALLENGE_COOKIE = 'taskcell-native-challenge';
+const NATIVE_CHALLENGE_TTL_S = 600;
+/** How long a native one-time token, and the challenge binding stored with it, stays redeemable. */
+const NATIVE_OTT_TTL_MIN = 1;
+const S256_CHALLENGE = /^[A-Za-z0-9_-]{43}$/;
+const PKCE_VERIFIER = /^[A-Za-z0-9._~-]{43,128}$/;
+const s256 = (verifier: string): string => createHash('sha256').update(verifier).digest('base64url');
+
+/** The fixed messages a native sign-in ends with: never a provider's or a caller's own error text. */
+export const NATIVE_SIGN_IN_FAILED = 'Sign-in did not complete. Try again.';
+export const NATIVE_SIGN_IN_CANCELLED = 'Sign-in was cancelled at the provider.';
+const nativeErrorMessage = (code: string): string =>
+  code === 'FORBIDDEN' || code === 'unable_to_create_user' ? SIGNUP_REFUSED_MESSAGE : code === 'access_denied' ? NATIVE_SIGN_IN_CANCELLED : NATIVE_SIGN_IN_FAILED;
+
+const cookieValue = (req: IncomingMessage, name: string): string | undefined => {
+  for (const part of (req.headers.cookie ?? '').split(';')) {
+    const at = part.indexOf('=');
+    if (at !== -1 && part.slice(0, at).trim() === name) return part.slice(at + 1).trim();
+  }
+  return undefined;
+};
+
+/** The request body, or undefined once it passes `limit` characters. */
+async function readBody(req: IncomingMessage, limit = 4096): Promise<string | undefined> {
+  let body = '';
+  for await (const chunk of req) {
+    body += String(chunk);
+    if (body.length > limit) return undefined;
+  }
+  return body;
+}
+
+/** Better Auth's `bearer` limited to accepting `Authorization: Bearer`: its after-hook, which copies every new
+ * session cookie into a `set-auth-token` header that page scripts can read, is dropped. Native clients get
+ * their session from NATIVE_TOKEN_PATH instead. */
+function acceptBearerOnly(): ReturnType<typeof bearer> {
+  const plugin = bearer();
+  return { ...plugin, hooks: { before: plugin.hooks.before } } as ReturnType<typeof bearer>;
+}
 
 /** Server-mode identity: Better Auth over node:sqlite, with the owner user the token maps to. */
 export async function createHubIdentity(opts: CreateIdentityOptions): Promise<HubIdentity> {
@@ -228,13 +270,14 @@ export async function createHubIdentity(opts: CreateIdentityOptions): Promise<Hu
       },
     },
     // Native clients (apps/mobile) hold a bearer session instead of a cookie: `bearer` accepts it as
-    // `Authorization: Bearer` and exposes it as `set-auth-token`; `oneTimeToken` carries it out of the
-    // system browser's OAuth round trip (see NATIVE_COMPLETE_PATH). Browser cookie sign-in is unchanged.
-    plugins: [bearer(), oneTimeToken({ expiresIn: 1 })],
+    // `Authorization: Bearer`; `oneTimeToken` carries it out of the system browser's OAuth round trip
+    // (see NATIVE_START_PATH). Browser cookie sign-in is unchanged.
+    plugins: [acceptBearerOnly(), oneTimeToken({ expiresIn: NATIVE_OTT_TTL_MIN, disableClientRequest: true, disableSetSessionCookie: true })],
     onAPIError: { errorURL: '/sign-in' },
     // `providerLogin` is an input field, so `/update-user` would let a signed-in user rewrite it to
     // `github:<an admin>` and pass the credential admin check. The hub never edits a profile.
-    disabledPaths: ['/update-user'],
+    // One-time tokens are minted and redeemed only by the hub's challenge-bound native endpoints, never by a caller.
+    disabledPaths: ['/update-user', '/one-time-token/generate', '/one-time-token/verify'],
   };
 
   await (await getMigrations(options)).runMigrations();
@@ -248,7 +291,14 @@ export async function createHubIdentity(opts: CreateIdentityOptions): Promise<Hu
   const ctx = await auth.$context;
   const nodeHandler = toNodeHandler(auth);
   const signInSocial = (auth.api as unknown as { signInSocial(o: { body: Record<string, string>; headers: Headers; asResponse: true }): Promise<Response> }).signInSocial;
-  const generateOneTimeToken = (auth.api as unknown as { generateOneTimeToken(o: { headers: Headers }): Promise<{ token: string }> }).generateOneTimeToken;
+  const { generateOneTimeToken, verifyOneTimeToken } = auth.api as unknown as {
+    generateOneTimeToken(o: { headers: Headers }): Promise<{ token: string }>;
+    verifyOneTimeToken(o: { body: { token: string } }): Promise<{ session: { token: string } }>;
+  };
+  const secureCookie = opts.baseURL.startsWith('https:') ? '; Secure' : '';
+  const challengeCookie = (value: string, maxAge: number): string =>
+    `${NATIVE_CHALLENGE_COOKIE}=${value}; Path=/api/auth/native; HttpOnly; SameSite=Lax; Max-Age=${maxAge}${secureCookie}`;
+  const bindingId = (ott: string): string => `taskcell-native:${ott}`;
   // Unverified on purpose: Better Auth only links a provider account to an existing user whose e-mail
   // is verified, so no provider profile can claim the owner (and skip the allowlist) by e-mail.
   creatingOwner = true;
@@ -286,10 +336,12 @@ export async function createHubIdentity(opts: CreateIdentityOptions): Promise<Hu
       }
       if (pathname === NATIVE_START_PATH && req.method === 'GET') {
         // Started here, in the system browser, so Better Auth's state cookie lands in the browser that finishes the OAuth round trip.
+        // The app's PKCE challenge is required: a plain link (no challenge) starts nothing.
         const provider = searchParams.get('provider') ?? '';
-        if (!Object.hasOwn(socialProviders, provider)) {
+        const challenge = searchParams.get('code_challenge') ?? '';
+        if (!Object.hasOwn(socialProviders, provider) || !S256_CHALLENGE.test(challenge) || searchParams.get('code_challenge_method') !== 'S256') {
           res.writeHead(400, { 'content-type': 'text/plain; charset=utf-8' });
-          res.end('unknown sign-in provider');
+          res.end('unknown sign-in provider or missing S256 code_challenge');
           return;
         }
         const begin = await signInSocial({
@@ -303,24 +355,54 @@ export async function createHubIdentity(opts: CreateIdentityOptions): Promise<Hu
           res.end('sign-in could not start');
           return;
         }
-        res.writeHead(302, { location: url, 'set-cookie': begin.headers.getSetCookie(), 'cache-control': 'no-store' });
+        res.writeHead(302, { location: url, 'set-cookie': [...begin.headers.getSetCookie(), challengeCookie(challenge, NATIVE_CHALLENGE_TTL_S)], 'cache-control': 'no-store' });
         res.end();
+        return;
+      }
+      if (pathname === NATIVE_TOKEN_PATH && req.method === 'POST') {
+        // The app redeems the one-time token with the verifier only it holds: a token taken off the redirect is useless alone.
+        const refuse = (): void => writeJson(res, 400, { error: NATIVE_SIGN_IN_FAILED }, { 'cache-control': 'no-store' });
+        let body: { ott?: unknown; code_verifier?: unknown } | null;
+        try {
+          body = JSON.parse((await readBody(req)) ?? '') as typeof body;
+        } catch {
+          return refuse();
+        }
+        const { ott, code_verifier: verifier } = body ?? {};
+        if (typeof ott !== 'string' || ott === '') return refuse();
+        // Consumed on every attempt, so a wrong verifier burns the token.
+        const binding = await ctx.internalAdapter.consumeVerificationValue(bindingId(ott));
+        if (!binding || binding.expiresAt < new Date() || typeof verifier !== 'string' || !PKCE_VERIFIER.test(verifier)) return refuse();
+        const want = Buffer.from(binding.value);
+        const got = Buffer.from(s256(verifier));
+        if (want.length !== got.length || !timingSafeEqual(want, got)) return refuse();
+        try {
+          const { session } = await verifyOneTimeToken({ body: { token: ott } });
+          writeJson(res, 200, { token: session.token }, { 'cache-control': 'no-store' });
+        } catch {
+          refuse();
+        }
         return;
       }
       if (pathname !== NATIVE_COMPLETE_PATH || req.method !== 'GET') return nodeHandler(req, res);
       // The system browser lands here after the provider callback, holding the session cookie. Hand the
-      // app a one-time token (valid a minute, single use) — never the session itself — on its own scheme.
+      // app a one-time token (valid a minute, single use, bound to the challenge `/native/start` set) —
+      // never the session itself — on its own scheme. No challenge cookie, no token: a bare or cross-site
+      // visit by a signed-in browser mints nothing.
+      const challenge = cookieValue(req, NATIVE_CHALLENGE_COOKIE);
       const redirect = (params: Record<string, string>): void => {
-        res.writeHead(302, { location: `${NATIVE_REDIRECT}?${new URLSearchParams(params)}`, 'cache-control': 'no-store' });
+        res.writeHead(302, { location: `${NATIVE_REDIRECT}?${new URLSearchParams(params)}`, 'set-cookie': challengeCookie('', 0), 'cache-control': 'no-store' });
         res.end();
       };
       const error = searchParams.get('error');
-      if (error !== null) return redirect({ error: error === 'FORBIDDEN' || error === 'unable_to_create_user' ? SIGNUP_REFUSED_MESSAGE : error.replace(/_/g, ' ') });
+      if (error !== null) return redirect({ error: nativeErrorMessage(error) });
+      if (challenge === undefined || !S256_CHALLENGE.test(challenge)) return redirect({ error: NATIVE_SIGN_IN_FAILED });
       try {
         const { token } = await generateOneTimeToken({ headers: fromNodeHeaders(req.headers) });
+        await ctx.internalAdapter.createVerificationValue({ identifier: bindingId(token), value: challenge, expiresAt: new Date(Date.now() + NATIVE_OTT_TTL_MIN * 60_000) });
         return redirect({ ott: token });
       } catch {
-        return redirect({ error: 'Sign-in did not complete. Try again.' });
+        return redirect({ error: NATIVE_SIGN_IN_FAILED });
       }
     },
     sessionUser: async (req) => {

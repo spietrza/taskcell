@@ -192,14 +192,19 @@ redirect to (`0.0.0.0`) — and the hub warns at startup when a provider is conf
 - *Google*: Google Cloud console → APIs & Services → Credentials → Create credentials → OAuth client ID
   (Web application). Authorized redirect URI = `…/api/auth/callback/google`; configure the consent screen.
 
-**Native clients (the mobile app).** Better Auth's `bearer` and `one-time-token` plugins let a phone hold a
-session instead of a cookie; browser cookie sign-in and the sign-up allowlist are unchanged. The app opens
-`/api/auth/native/start?provider=<github|gitlab|google>` in the system browser (so Better Auth's state cookie
-stays in that browser); the provider callback lands on `/api/auth/native/complete`, which redirects to
-`taskcell://auth?ott=<one-time token>` (valid a minute, single use) or `?error=<message>` (the allowlist refusal
-reads as on the web page). The app posts the token to `/api/auth/one-time-token/verify` and keeps the
-`set-auth-token` response header, which it sends as `Authorization: Bearer` on `/rpc/*` and `/events`;
-`POST /api/auth/sign-out` revokes it. `GET /api/auth/native/providers` lists the enabled providers.
+**Native clients (the mobile app).** Better Auth's `bearer` (accept only: browser responses carry no
+`set-auth-token`) and `one-time-token` plugins let a phone hold a session instead of a cookie; browser cookie
+sign-in and the sign-up allowlist are unchanged. The flow is PKCE-style. The app makes a random verifier and opens
+`/api/auth/native/start?provider=<github|gitlab|google>&code_challenge=<S256(verifier)>&code_challenge_method=S256`
+in the system browser (so Better Auth's state cookie stays in that browser); the hub keeps the challenge in a
+short-lived HttpOnly cookie, and refuses a start without one. The provider callback lands on
+`/api/auth/native/complete`, which mints a one-time token (valid a minute, single use) only when that challenge
+cookie is present, binds it to the challenge and redirects to `taskcell://auth?ott=<token>` — or `?error=<message>`,
+one of a fixed set (the allowlist refusal reads as on the web page). The app posts `{ ott, code_verifier }` to
+`POST /api/auth/native/token`, which returns `{ token }` only when S256 of the verifier matches (any attempt uses the
+token up); the app sends it as `Authorization: Bearer` on `/rpc/*` and `/events`, and `POST /api/auth/sign-out`
+revokes it. Better Auth's own `/one-time-token/*` routes are disabled. `GET /api/auth/native/providers` lists the
+enabled providers.
 
 **Sign-up allowlist.** Sign-up is not open. `TASKCELL_HUB_SIGNUP_ALLOW` is a comma-separated list that
 decides who may *create* an account on first sign-in; anyone else is refused with "Sign-up is not open
