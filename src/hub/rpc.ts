@@ -11,6 +11,7 @@ import type { SpawnRegistry } from './spawn.js';
 import type { RunSession } from './run-session.js';
 import type { CompleteRegistry } from './complete.js';
 import * as teams from './teams.js';
+import { repoVisibility, type RepoVisibility } from './callers.js';
 import { AuditWriteError } from '../core/audit.js';
 import { auditActorOf, reportAuditFailure, type AuditLog, type Actor, type AuditOutcome } from './audit.js';
 import { ForbiddenError, type CredentialService, type HubUser } from './credentials.js';
@@ -68,15 +69,15 @@ async function dispatchInner(ctx: RpcContext, cmd: string, rawArgs: unknown, cal
   // The allowlist, then the caller's teams: a repository outside every team of the caller is refused
   // for every command that reads or writes one (runs, files, drafts, flows, ...). The team roots are
   // read once per request.
-  let rootsOnce: Promise<string[] | undefined> | undefined;
-  const roots = (): Promise<string[] | undefined> => (rootsOnce ??= teams.callerRepoRoots(ctx.configDir, caller));
+  let reposOnce: Promise<RepoVisibility> | undefined;
+  const repos = (): Promise<RepoVisibility> => (reposOnce ??= repoVisibility(ctx.configDir, caller));
   const allowed = new Map<string, Promise<string>>();
   const allow = (repoPath: string): Promise<string> => {
     const known = allowed.get(repoPath);
     if (known !== undefined) return known;
     const check = (async (): Promise<string> => {
       const real = await ctx.allowlist.assertAllowed(repoPath);
-      teams.assertRepoInRoots(await roots(), real);
+      (await repos()).assert(real);
       return real;
     })();
     allowed.set(repoPath, check);
@@ -94,10 +95,10 @@ async function dispatchInner(ctx: RpcContext, cmd: string, rawArgs: unknown, cal
   // A run known to the session: its repository must be the caller's. Unknown (finished) runs: owner only.
   const assertRunVisible = async (runId: string, unknownOk: boolean): Promise<void> => {
     const known = [ctx.runSession.activeRun(), ...ctx.runSession.queued()].find((r) => r !== null && r.runId === runId);
-    if (known != null) teams.assertRepoInRoots(await roots(), known.repoPath);
+    if (known != null) (await repos()).assert(known.repoPath);
     else if (!unknownOk) teams.assertOwner(caller);
   };
-  const call: CommandCall = { ctx, args, caller, allow, scope, roots, assertRunVisible };
+  const call: CommandCall = { ctx, args, caller, allow, scope, repos, assertRunVisible };
   // The command's declared policy (src/hub/command-kit.ts), enforced here and not in each handler.
   if (policy.remote !== undefined && (policy.remote !== 'owner-only' || caller.owner) && policy.remoteWhen?.(args) !== false) assertMutationsAllowed(ctx.bind);
   if (policy.owner === 'or-hub-admin') teams.assertOwnerOrHubAdmin(caller);

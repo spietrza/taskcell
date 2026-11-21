@@ -9,6 +9,7 @@ import { NO_REMOTE_MESSAGE, type SettingsValueChange } from '../wire.js';
 import { TOKEN_ACTOR, type Actor, type AuditAction, type AuditOutcome } from './audit.js';
 import type { RpcContext } from './rpc.js';
 import type { Caller } from './teams.js';
+import type { RepoVisibility } from './callers.js';
 
 export type Args = Record<string, unknown>;
 
@@ -22,8 +23,8 @@ export interface CommandCall {
   allow: (repoPath: string) => Promise<string>;
   /** The repositories a list is limited to (the selected team's); undefined for no limit. */
   scope: () => Promise<string[] | undefined>;
-  /** The caller's team repository roots (read once per request). */
-  roots: () => Promise<string[] | undefined>;
+  /** Which repositories the caller's teams hold (read once per request). */
+  repos: () => Promise<RepoVisibility>;
   /** A run known to the session must be in the caller's repositories; unknown runs: owner only unless `unknownOk`. */
   assertRunVisible: (runId: string, unknownOk: boolean) => Promise<void>;
 }

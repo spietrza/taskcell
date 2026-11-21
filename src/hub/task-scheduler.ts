@@ -11,6 +11,7 @@ import { failureMessage } from './projects.js';
 import type { RunSession } from './run-session.js';
 import { planSchedule } from './schedule.js';
 import * as teams from './teams.js';
+import { repoVisibility } from './callers.js';
 
 /** The transport of a hub-board run. Not one of `TRANSPORTS`: only the scheduler can ask for it, never a client. */
 export const HUB_TRANSPORT = 'hub';
@@ -158,7 +159,7 @@ async function startHubTask(ctx: SweepContext, repoPath: string, task: HubTask, 
     const caller = await ctx.recheckCaller(who.caller);
     if (caller === undefined) throw new BadRequestError('the owner of this task no longer has an account on this hub (or is no longer allowed on it) — save its schedule to run it as you');
     if (who.actor.id !== undefined) actor = { ...who.actor, login: caller.user.email, name: caller.user.name };
-    teams.assertRepoInRoots(await teams.callerRepoRoots(ctx.configDir, caller), repoPath);
+    (await repoVisibility(ctx.configDir, caller)).assert(repoPath);
     const config = await readAppConfig(repoPath);
     const provider = typeof config.provider === 'string' && config.provider.trim() !== '' ? config.provider : undefined;
     const flow = configuredFlow(config);
