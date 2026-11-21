@@ -19,13 +19,19 @@ const item = (o: Partial<WaitingItem>): WaitingItem => ({
   url: 'https://github.com/o/r/pull/1', reason: 'taskcell:needs-human-review', ...o,
 });
 
+const caps = (allowed: boolean): unknown => {
+  const c = { allowed, reason: allowed ? undefined : 'read-only' };
+  return { project: { canReply: c, canMerge: c, canStartTask: c } };
+};
+
 /** A fake hub: lists `items`; a write command is recorded and answers `error` (hub refusal) or success (and the item leaves). */
-function hub(items: WaitingItem[], error?: string): { fetchImpl: typeof fetch; writes: { cmd: string; args: unknown }[] } {
+function hub(items: WaitingItem[], error?: string, capabilities: unknown = caps(true)): { fetchImpl: typeof fetch; writes: { cmd: string; args: unknown }[] } {
   const writes: { cmd: string; args: unknown }[] = [];
   const fetchImpl = (async (input: string, init: { body: string }) => {
     if (input.endsWith('/events')) return { ok: false, status: 404, body: null };
     const cmd = input.split('/rpc/')[1]!;
     if (cmd === 'list_needs_you_all') return { status: 200, json: async () => ({ result: { items, failures: [] } }) };
+    if (cmd === 'caller_capabilities') return { status: 200, json: async () => ({ result: capabilities }) };
     writes.push({ cmd, args: JSON.parse(init.body) });
     if (error) return { status: 400, json: async () => ({ error: { message: error } }) };
     items.splice(0, items.length);
@@ -130,4 +136,26 @@ test('a reply refusal is shown and the row stays', async () => {
   await fireEvent.changeText(screen.getByLabelText('Reply'), 'hi');
   await fireEvent.press(screen.getByText('Send reply'));
   await screen.findByText(/read-only member/);
+});
+
+test('Request changes on a ready PR sends the body as the desktop does (reply_needs_you); an empty body is refused', async () => {
+  auth.authenticateAsync.mockResolvedValue({ success: true } as never);
+  const { fetchImpl, writes } = hub([item({})]);
+  await renderHome(fetchImpl);
+  await open();
+  await fireEvent.press(screen.getByText('Request changes'));
+  await screen.findByText('Describe the changes you want first.');
+  expect(writes).toEqual([]);
+  await fireEvent.changeText(screen.getByLabelText('Request changes'), 'rename foo');
+  await fireEvent.press(screen.getByText('Request changes'));
+  await waitFor(() => expect(screen.getByText('Changes requested.')).toBeTruthy());
+  expect(writes).toEqual([{ cmd: 'reply_needs_you', args: { repoPath: '/repo', id: 'o/r#1', kind: 'pr', body: 'rename foo' } }]);
+});
+
+test('a read-only caller sees neither Merge nor Request changes', async () => {
+  const { fetchImpl } = hub([item({})], undefined, caps(false));
+  await renderHome(fetchImpl);
+  await open();
+  await waitFor(() => expect(screen.queryByText('Merge')).toBeNull());
+  expect(screen.queryByText('Request changes')).toBeNull();
 });

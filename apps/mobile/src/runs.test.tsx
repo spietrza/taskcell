@@ -1,5 +1,5 @@
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react-native';
-import { Linking } from 'react-native';
+import { Alert, Linking } from 'react-native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { RunsScreen } from './RunsScreen';
 import { MAX_LINES, diffSummary } from './runs';
@@ -149,4 +149,65 @@ test('finished run view shows the timeline, diff summary and https links only', 
 test('diffSummary counts files and changed lines of the last diff', () => {
   expect(diffSummary([{ record: {} as never, diff: DIFF }])).toEqual({ files: 2, added: 3, removed: 1 });
   expect(diffSummary([{ record: {} as never }])).toBeNull();
+});
+
+
+const runsHub = (runs: unknown[], caps: unknown, retry: { refuse?: string }): { fetchImpl: typeof fetch; calls: { cmd: string; args: unknown }[] } => {
+  const calls: { cmd: string; args: unknown }[] = [];
+  const fetchImpl = (async (input: string, init?: { body?: string }) => {
+    const cmd = input.split('/rpc/')[1] ?? '';
+    const reply = (result: unknown) => ({ status: 200, json: async () => ({ result }) });
+    if (input.endsWith('/events')) return { ok: false, status: 404, body: null };
+    if (cmd === 'list_runs_all') return reply({ runs, failures: [] });
+    if (cmd === 'list_tasks_all') return reply({ tasks: [], capped: false, failures: [] });
+    if (cmd === 'list_projects') return reply([]);
+    if (cmd === 'caller_capabilities') return reply(caps);
+    if (cmd === 'read_run') return reply({ taskId: 'x', timestamp: run.timestamp, stages: [] });
+    calls.push({ cmd, args: JSON.parse(init?.body ?? '{}') });
+    return retry.refuse ? { status: 400, json: async () => ({ error: { message: retry.refuse } }) } : reply({ label: 'x' });
+  }) as unknown as typeof fetch;
+  return { fetchImpl, calls };
+};
+const ALLOW = { project: { canStartTask: { allowed: true } } };
+const confirmWith = (label: string) =>
+  jest.spyOn(Alert, 'alert').mockImplementation((...a: unknown[]) => (a[2] as { text: string; onPress?: () => void }[]).find((x) => x.text === label)?.onPress?.());
+
+test.each([
+  ['gh-9', { stoppedBy: 'rate-limit' }, 'retry_paused_task', { repoPath: '/r', number: 9 }],
+  ['hub-4', { anyFailed: true }, 'hub_task_retry', { repoPath: '/r', id: 'hub-4' }],
+])('Re-run of %s calls %s after the dialog; cancel sends nothing', async (taskId, extra, cmd, args) => {
+  const { fetchImpl, calls } = runsHub([{ ...run, taskId, prUrl: undefined, anyFailed: false, ...extra }], ALLOW, {});
+  await renderRuns(fetchImpl);
+  await fireEvent.press(await screen.findByText(taskId));
+  const alert = confirmWith('Cancel');
+  await fireEvent.press(await screen.findByText('Re-run'));
+  expect(alert.mock.calls[0]![1]).toBe(taskId);
+  expect(calls).toEqual([]);
+  alert.mockRestore();
+  confirmWith('Re-run');
+  await fireEvent.press(screen.getByText('Re-run'));
+  await screen.findByText('Re-run requested.');
+  expect(calls).toEqual([{ cmd, args }]);
+});
+
+test('Re-run shows a hub refusal; it is absent for a read-only caller and for runs the hub would refuse', async () => {
+  const failedGh = { ...run, taskId: 'gh-9', prUrl: undefined, anyFailed: true };
+  const refused = runsHub([{ ...run, taskId: 'hub-4', prUrl: undefined, anyFailed: true }], ALLOW, { refuse: 'not failed' });
+  const first = await renderRuns(refused.fetchImpl);
+  await fireEvent.press(await screen.findByText('hub-4'));
+  confirmWith('Re-run');
+  await fireEvent.press(await screen.findByText('Re-run'));
+  await screen.findByText(/not failed/);
+  await first.unmount();
+  const ro = runsHub([{ ...run, taskId: 'hub-4', prUrl: undefined, anyFailed: true }], { project: { canStartTask: { allowed: false } } }, {});
+  const second = await renderRuns(ro.fetchImpl);
+  await fireEvent.press(await screen.findByText('hub-4'));
+  await screen.findByText(/Status: failed/);
+  await waitFor(() => expect(screen.queryByText('Re-run')).toBeNull());
+  await second.unmount();
+  await renderRuns(runsHub([failedGh], ALLOW, {}).fetchImpl); // a failed (not paused) GitHub run
+  await fireEvent.press(await screen.findByText('gh-9'));
+  await screen.findByText(/Status: failed/);
+  await new Promise((r) => setTimeout(r, 50));
+  expect(screen.queryByText('Re-run')).toBeNull();
 });
