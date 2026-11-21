@@ -1,6 +1,7 @@
 import { useEffect, useState, type ReactNode } from 'react';
 import { FlatList, Linking, Pressable, RefreshControl, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { NO_TASK_SOURCE_MESSAGE } from '../../../packages/hub-client/src/wire';
 import { COLUMNS, loadBoard } from './board';
 import { useHub } from './hubContext';
 import { useHubQuery } from './useHubQuery';
@@ -17,6 +18,10 @@ export function BoardScreen(): ReactNode {
   const [openId, setOpenId] = useState<string | null>(null);
 
   useEffect(() => setOpenId(null), [client]);
+  // A repository with no task source chosen is a setup step, not a read error (desktop shows it as a hint too).
+  const all = state.status === 'ready' ? state.failures : [];
+  const unsourced = all.filter((f) => f.error.includes(NO_TASK_SOURCE_MESSAGE));
+  const failures = all.filter((f) => !f.error.includes(NO_TASK_SOURCE_MESSAGE));
 
   const refresh = async (): Promise<void> => {
     setRefreshing(true);
@@ -79,11 +84,16 @@ export function BoardScreen(): ReactNode {
             Could not refresh from {credentials.url}: {state.error}
           </Text>
         ) : null}
-        {state.failures.map((f) => (
+        {failures.map((f) => (
           <Text key={f.repoPath} accessibilityRole="alert" style={[styles.notice, { color: theme.destructive }]}>
             Could not read {f.repoName || f.repoPath}: {f.error}
           </Text>
         ))}
+        {unsourced.length > 0 ? (
+          <Text style={[styles.notice, { color: theme.mutedForeground }]}>
+            No card source yet: {unsourced.map((f) => f.repoName || f.repoPath).join(', ')}. Choose one in the hub's Settings on your computer.
+          </Text>
+        ) : null}
         {state.capped ? <Text style={[styles.notice, { color: theme.mutedForeground }]}>Some cards are missing: a repository hit the card limit.</Text> : null}
         <View>
           <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.segments}>
@@ -111,7 +121,7 @@ export function BoardScreen(): ReactNode {
           refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => void refresh()} />}
           ListEmptyComponent={() =>
             state.cards.length === 0
-              ? state.failures.length > 0
+              ? failures.length > 0
                 ? message('No readable cards', 'Some repositories could not be read.')
                 : message('No cards yet', 'Pull down to refresh.')
               : message('No cards in this column')
