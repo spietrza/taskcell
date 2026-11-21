@@ -3,7 +3,8 @@ import { act, fireEvent, render, screen, waitFor } from '@testing-library/react-
 import type { ReactElement } from 'react';
 import { Linking, StyleSheet } from 'react-native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
-import { HomeScreen } from './HomeScreen';
+import { HomeScreen as Home } from './HomeScreen';
+import { HubProvider } from './hubContext';
 import { kindLabel, toRows, type WaitingItem } from './needsYou';
 
 const creds: Credentials = { url: 'http://hub.local:4317', token: 't', kind: 'owner' };
@@ -111,6 +112,15 @@ test('a failed background reload keeps the list and shows the error inline', asy
   expect(await screen.findByText(/Could not refresh from .*Network request failed/)).toBeTruthy();
   expect(screen.getByText('Add login')).toBeTruthy();
   expect(screen.queryByText('Hub unreachable')).toBeNull();
+});
+
+test('an RPC 401 moves the app to the same rejected state as a stream 401', async () => {
+  const dead = (async (input: string) =>
+    input.endsWith('/events')
+      ? { ok: true, status: 200, body: new ReadableStream<Uint8Array>({ start: () => undefined }) }
+      : { status: 401, json: async () => ({ error: { message: 'invalid hub token' } }) }) as unknown as typeof fetch;
+  await renderHome(<HomeScreen credentials={creds} fetchImpl={dead} />);
+  expect(await screen.findByText('Token rejected, reconnect in Settings.')).toBeTruthy();
 });
 
 test('says so when nothing waits', async () => {
@@ -248,3 +258,12 @@ test('a skipped oversized frame keeps the stream and reloads once', async () => 
   await new Promise((r) => setTimeout(r, 100));
   expect(hub.reads()).toBe(2);
 });
+
+/** The screen inside the session's one hub connection, as the app provides it. */
+function HomeScreen({ credentials, fetchImpl, ...props }: { credentials: Credentials; fetchImpl?: typeof fetch } & Parameters<typeof Home>[0]): ReactElement {
+  return (
+    <HubProvider credentials={credentials} fetchImpl={fetchImpl}>
+      <Home {...props} />
+    </HubProvider>
+  );
+}

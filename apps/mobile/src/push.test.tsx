@@ -1,8 +1,11 @@
+import type { Credentials } from './credentials';
+import type { ReactElement } from 'react';
 import { fireEvent, render, screen, waitFor } from '@testing-library/react-native';
 import { Text } from 'react-native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import Settings from '../app/(tabs)/settings';
-import { HomeScreen } from './HomeScreen';
+import { HomeScreen as Home } from './HomeScreen';
+import { HubProvider } from './hubContext';
 import { disablePush, enablePush, tappedItem } from './push';
 import { SessionProvider, useSession } from './session';
 
@@ -104,3 +107,12 @@ test('a tapped notification opens that item\'s sheet on Home', async () => {
   expect(tappedItem(response as never)).toEqual({ id: 'o/r#2', repoName: 'r', key: 'n1' });
   expect(tappedItem({ notification: { request: { identifier: 'n2', content: { data: {} } } } } as never)).toBeNull();
 });
+
+/** The screen inside the session's one hub connection, as the app provides it. */
+function HomeScreen({ credentials, fetchImpl, ...props }: { credentials: Credentials; fetchImpl?: typeof fetch } & Parameters<typeof Home>[0]): ReactElement {
+  return (
+    <HubProvider credentials={credentials} fetchImpl={fetchImpl}>
+      <Home {...props} />
+    </HubProvider>
+  );
+}

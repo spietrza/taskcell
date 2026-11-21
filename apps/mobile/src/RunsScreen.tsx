@@ -1,14 +1,17 @@
 import { useCallback, useEffect, useState, type ReactNode } from 'react';
 import { Linking, Pressable, RefreshControl, ScrollView, SectionList, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import type { Credentials } from './credentials';
+import type { HubClient } from '../../../packages/hub-client/src/client';
+import { useHub } from './hubContext';
+import { RejectedNotice } from './RejectedNotice';
 import { RerunButton, canRerun } from './Rerun';
 import { followRun, loadRunView, loadRuns, type RunRow, type RunView, type RunsData } from './runs';
 import { useTheme } from './useTheme';
 
 type State = { status: 'loading' } | { status: 'error'; error: string } | { status: 'ready'; data: RunsData };
 
-export function RunsScreen({ credentials, fetchImpl }: { credentials: Credentials; fetchImpl?: typeof fetch }): ReactNode {
+export function RunsScreen(): ReactNode {
+  const { credentials, client } = useHub();
   const theme = useTheme();
   const insets = useSafeAreaInsets();
   const [state, setState] = useState<State>({ status: 'loading' });
@@ -17,11 +20,11 @@ export function RunsScreen({ credentials, fetchImpl }: { credentials: Credential
 
   const load = useCallback(async (): Promise<void> => {
     try {
-      setState({ status: 'ready', data: await loadRuns(credentials, fetchImpl) });
+      setState({ status: 'ready', data: await loadRuns(client) });
     } catch (err) {
       setState((prev) => (prev.status === 'ready' ? prev : { status: 'error', error: String(err) }));
     }
-  }, [credentials, fetchImpl]);
+  }, [client]);
 
   useEffect(() => {
     setState({ status: 'loading' });
@@ -46,7 +49,7 @@ export function RunsScreen({ credentials, fetchImpl }: { credentials: Credential
   );
 
   const body = (): ReactNode => {
-    if (open) return <RunDetailView credentials={credentials} row={open} fetchImpl={fetchImpl} onBack={() => setOpen(null)} />;
+    if (open) return <RunDetailView client={client} row={open} onBack={() => setOpen(null)} />;
     if (state.status === 'loading') return message('Loading…');
     if (state.status === 'error') {
       return (
@@ -89,12 +92,13 @@ export function RunsScreen({ credentials, fetchImpl }: { credentials: Credential
   return (
     <View testID="runs" style={[styles.root, { backgroundColor: theme.background, paddingTop: insets.top + 16 }]}>
       <Text style={[styles.heading, { color: theme.foreground }]}>Runs</Text>
+      <RejectedNotice />
       {body()}
     </View>
   );
 }
 
-function RunDetailView({ credentials, row, fetchImpl, onBack }: { credentials: Credentials; row: RunRow; fetchImpl?: typeof fetch; onBack: () => void }): ReactNode {
+function RunDetailView({ client, row, onBack }: { client: HubClient; row: RunRow; onBack: () => void }): ReactNode {
   const theme = useTheme();
   const [view, setView] = useState<RunView | null>(null);
   const [lines, setLines] = useState<string[]>([]);
@@ -104,22 +108,17 @@ function RunDetailView({ credentials, row, fetchImpl, onBack }: { credentials: C
   useEffect(() => {
     if (row.active) {
       setLive(true);
-      return followRun(
-        credentials,
-        row,
-        { onLines: setLines, onEnd: () => setLive(false), onError: setError },
-        fetchImpl,
-      );
+      return followRun(client, row, { onLines: setLines, onEnd: () => setLive(false), onError: setError });
     }
     let cancelled = false;
-    loadRunView(credentials, row, fetchImpl).then(
+    loadRunView(client, row).then(
       (v) => !cancelled && setView(v),
       (err) => !cancelled && setError(String(err)),
     );
     return () => {
       cancelled = true;
     };
-  }, [credentials, row, fetchImpl]);
+  }, [client, row]);
 
   const link = (label: string, url: string): ReactNode => (
     <Pressable accessibilityRole="link" onPress={() => void Linking.openURL(url).catch(() => undefined)}>
@@ -137,7 +136,7 @@ function RunDetailView({ credentials, row, fetchImpl, onBack }: { credentials: C
       <Text style={{ color: theme.foreground }}>Status: {row.active ? (live ? 'running' : 'ended') : row.status}</Text>
       {row.issueUrl ? link('Open issue', row.issueUrl) : null}
       {!row.active && canRerun(row.taskId, row.status) ? (
-        <RerunButton credentials={credentials} repoPath={row.repoPath} taskId={row.taskId} title={row.title} fetchImpl={fetchImpl} />
+        <RerunButton repoPath={row.repoPath} taskId={row.taskId} title={row.title} />
       ) : null}
       {error ? (
         <Text accessibilityRole="alert" style={{ color: theme.destructive }}>

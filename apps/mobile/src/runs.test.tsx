@@ -1,8 +1,10 @@
+import type { ReactElement } from 'react';
 import type { Credentials } from './credentials';
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react-native';
 import { Alert, Linking } from 'react-native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
-import { RunsScreen } from './RunsScreen';
+import { RunsScreen as Runs } from './RunsScreen';
+import { HubProvider } from './hubContext';
 import { MAX_LINES, diffSummary } from './runs';
 
 const creds: Credentials = { url: 'http://hub.local:4317', token: 't', kind: 'owner' };
@@ -220,3 +222,12 @@ test.each(['gl-3', 'linear-ab12', 'o-r-7'])('a failed %s run offers no Re-run (n
   await new Promise((r) => setTimeout(r, 50));
   expect(screen.queryByText('Re-run')).toBeNull();
 });
+
+/** The screen inside the session's one hub connection, as the app provides it. */
+function RunsScreen({ credentials, fetchImpl }: { credentials: Credentials; fetchImpl?: typeof fetch }): ReactElement {
+  return (
+    <HubProvider credentials={credentials} fetchImpl={fetchImpl}>
+      <Runs />
+    </HubProvider>
+  );
+}
