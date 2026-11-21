@@ -3,18 +3,14 @@
 // without push. The token is kept in the keychain only so Disconnect can name it; it is never logged or shown.
 import * as Notifications from 'expo-notifications';
 import * as SecureStore from 'expo-secure-store';
-import { createHubClient } from '../../../packages/hub-client/src/client';
-import { withOrigin } from './connect';
 import type { Credentials } from './credentials';
+import { hubClient } from './hub';
 
 const TOKEN_KEY = 'taskcell.push.token';
 const OFF_KEY = 'taskcell.push.off';
 const KEYCHAIN = { keychainAccessible: SecureStore.WHEN_UNLOCKED_THIS_DEVICE_ONLY };
 
 export type PushStatus = 'on' | 'denied' | 'failed';
-
-const hubClient = (c: Credentials, fetchImpl?: typeof fetch): ReturnType<typeof createHubClient> =>
-  createHubClient({ baseUrl: c.url, token: c.token, fetch: withOrigin(c.url, fetchImpl) });
 
 /** False once the user switched Notifications off in Settings. */
 export const pushWanted = async (): Promise<boolean> => (await SecureStore.getItemAsync(OFF_KEY, KEYCHAIN).catch(() => null)) !== '1';

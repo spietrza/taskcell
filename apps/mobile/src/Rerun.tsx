@@ -1,21 +1,22 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { Alert, Pressable, StyleSheet, Text } from 'react-native';
 import type { CallerCapabilities } from '../../../packages/hub-client/src/wire';
-import type { Credentials } from './credentials';
+import { useHub } from './hubContext';
 import { loadCapabilities, rerunTask } from './needsYou';
 import { useTheme } from './useTheme';
 
 /** The caller's capabilities on a project; null until read (every action then stays open and the hub's refusal shows). */
-export function useCapabilities(credentials: Credentials, repoPath: string | undefined, fetchImpl?: typeof fetch): CallerCapabilities['project'] | null {
+export function useCapabilities(repoPath: string | undefined): CallerCapabilities['project'] | null {
+  const { client } = useHub();
   const [caps, setCaps] = useState<CallerCapabilities['project'] | null>(null);
   useEffect(() => {
     let cancelled = false;
     setCaps(null);
-    if (repoPath !== undefined) void loadCapabilities(credentials, repoPath, fetchImpl).then((c) => !cancelled && setCaps(c));
+    if (repoPath !== undefined) void loadCapabilities(client, repoPath).then((c) => !cancelled && setCaps(c));
     return () => {
       cancelled = true;
     };
-  }, [credentials, repoPath, fetchImpl]);
+  }, [client, repoPath]);
   return caps;
 }
 
@@ -25,15 +26,14 @@ export const canRerun = (taskId: string, status: string): boolean =>
   /^hub-[1-9]\d{0,8}$/.test(taskId) ? status === 'failed' : /^gh-\d+$/.test(taskId) && status === 'stopped: provider limit';
 
 /** "Re-run" for a failed or paused task, after a dialog naming it. Hidden when the caller may not start tasks. */
-export function RerunButton({ credentials, repoPath, taskId, title, fetchImpl }: {
-  credentials: Credentials;
+export function RerunButton({ repoPath, taskId, title }: {
   repoPath: string;
   taskId: string;
   title: string;
-  fetchImpl?: typeof fetch;
 }): ReactNode {
   const theme = useTheme();
-  const caps = useCapabilities(credentials, repoPath, fetchImpl);
+  const { client } = useHub();
+  const caps = useCapabilities(repoPath);
   const [state, setState] = useState<{ busy: boolean; message: string | null; error: string | null }>({ busy: false, message: null, error: null });
   const inFlight = useRef(false);
   if (caps?.canStartTask.allowed === false) return null;
@@ -43,7 +43,7 @@ export function RerunButton({ credentials, repoPath, taskId, title, fetchImpl }:
     inFlight.current = true;
     setState({ busy: true, message: null, error: null });
     try {
-      await rerunTask(credentials, repoPath, taskId, fetchImpl);
+      await rerunTask(client, repoPath, taskId);
       setState({ busy: false, message: 'Re-run requested.', error: null });
     } catch (err) {
       setState({ busy: false, message: null, error: String(err instanceof Error ? err.message : err) });

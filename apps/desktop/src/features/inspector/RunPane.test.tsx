@@ -1,21 +1,31 @@
 import { afterEach, beforeEach, expect, test, vi } from 'vitest';
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { RunPane } from './RunPane';
-import { readRunEvents, readSession } from '../../ipc';
+import { readSession } from '../../ipc';
+import { subscribe } from '../../transport';
 import type { RunDetail, StageDetail } from '../../taskcell-output';
 
 vi.mock('../../ipc', async (orig) => ({
   ...(await orig<typeof import('../../ipc')>()),
-  readRunEvents: vi.fn(),
   readSession: vi.fn(),
   listLessons: vi.fn(async () => ({ lessons: [], branchFound: true })),
 }));
-vi.mock('../../transport', async (orig) => ({ ...(await orig<typeof import('../../transport')>()), subscribe: vi.fn(async () => () => {}) }));
+// The event log is read through the transport's `invoke`; `readRunEvents` stands for `read_run_events` (repo, task, timestamp).
+const readRunEvents = vi.fn();
+vi.mock('../../transport', async (orig) => {
+  const t = await orig<typeof import('../../transport')>();
+  return {
+    ...t,
+    subscribe: vi.fn(async () => () => {}),
+    invoke: vi.fn(async (cmd: string, args?: Record<string, unknown>) => (cmd === 'read_run_events' ? readRunEvents(args?.repoPath, args?.taskId, args?.timestamp, args?.after) : t.invoke(cmd, args))),
+  };
+});
 
 const noEvents = { events: [], nextAfter: 0, hasMore: false, truncated: false };
 beforeEach(() => {
   vi.stubGlobal('matchMedia', vi.fn(() => ({ matches: false, addEventListener: vi.fn(), removeEventListener: vi.fn() }))); // the Tabs under the pane read it
-  vi.mocked(readRunEvents).mockResolvedValue(noEvents);
+  readRunEvents.mockReset();
+  readRunEvents.mockResolvedValue(noEvents);
   vi.mocked(readSession).mockResolvedValue({ entries: [], inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, estCostUsd: 0 });
 });
 afterEach(() => {
@@ -63,7 +73,7 @@ test('a finished run: header with the issue link and one PR chip, the six statio
   expect(screen.getByLabelText('Total time')).toHaveTextContent('2m 16s');
   expect(screen.getByText('PR open')).toBeInTheDocument();
   expect(screen.queryByRole('button', { name: 'Stop run' })).toBeNull();
-  await waitFor(() => expect(readRunEvents).toHaveBeenCalledWith('/r', 'gh-r-3', detail.timestamp));
+  await waitFor(() => expect(readRunEvents).toHaveBeenCalledWith('/r', 'gh-r-3', detail.timestamp, 0));
 });
 
 test('the board task url is the issue link when known', async () => {
@@ -104,7 +114,7 @@ test('a failed stage is marked on its station and in the activity', async () => 
 test('a running run: the stage line comes from the persisted events, the running stage is highlighted, pending ones wait; the log is the live session; Cancel stops it by its run id', async () => {
   const at = (s: number): string => new Date(Date.now() - 60_000 + s * 1000).toISOString();
   const e = (n: number, s: number, event: Record<string, unknown>) => ({ id: n, ts: at(s), event: 'api:event', data: { runId: 'run-9', event } });
-  vi.mocked(readRunEvents).mockResolvedValue({
+  readRunEvents.mockResolvedValue({
     events: [
       e(1, 0, { type: 'stage-start', name: 'sandbox', index: 0, of: 1 }),
       e(2, 4, { type: 'stage-end', name: 'sandbox', index: 0, of: 1, outcome: 'completed' }),
@@ -175,7 +185,7 @@ const sealedEvents = (tail: Record<string, unknown>[] = []) => {
 };
 
 test('a finished run keeps its Cell step from the event log', async () => {
-  vi.mocked(readRunEvents).mockResolvedValue(sealedEvents());
+  readRunEvents.mockResolvedValue(sealedEvents());
   render(<RunPane {...props} detail={detail} />);
   await waitFor(() => expect(screen.getByTestId('step-0')).toHaveTextContent('Cell'));
   expect(screen.getByTestId('step-0')).toHaveTextContent('4s');
@@ -183,8 +193,8 @@ test('a finished run keeps its Cell step from the event log', async () => {
 });
 
 test('the Tests and PR cards stay when the live run turns terminal', async () => {
-  vi.mocked(readRunEvents).mockResolvedValue(sealedEvents([{ type: 'run-error', message: 'boom' }]));
-  render(<RunPane {...props} active={{ taskId: 'gh-r-3', sessionFile: '/s.jsonl', lastActivityMs: Date.now() }} />);
+  readRunEvents.mockResolvedValue(sealedEvents([{ type: 'run-error', message: 'boom' }]));
+  render(<RunPane {...props} active={{ taskId: 'gh-r-3', sessionFile: '/s.jsonl', lastActivityMs: Date.UTC(2026, 10, 16, 9) }} />);
   await waitFor(() => expect(screen.getByTestId('stage-5')).toHaveTextContent('PR'));
   expect(screen.getByTestId('stage-0')).toHaveTextContent('Cell');
   expect(screen.getByTestId('stage-2')).toHaveTextContent('Gates');
@@ -224,4 +234,44 @@ test('a question answered in the pane tells the caller, so it can follow the run
   fireEvent.change(await screen.findByRole('textbox', { name: 'reply to hub-4' }), { target: { value: 'config.json' } });
   fireEvent.click(screen.getByRole('button', { name: 'Reply' }));
   await waitFor(() => expect(onAnswered).toHaveBeenCalledOnce());
+});
+
+// A fake log of n events served 500 to a page, as the hub's default limit does: the tail must page on with `after`.
+const longLog = (n: number) => {
+  const at = (i: number): string => new Date(Date.UTC(2026, 10, 16, 10, 0, 0) + i * 1000).toISOString();
+  const log = [
+    { id: 1, ts: at(0), event: 'api:event', data: { runId: 'run-9', event: { type: 'run-start', taskId: 'gh-r-3', stages: ['implementer'] } } },
+    { id: 2, ts: at(1), event: 'api:event', data: { runId: 'run-9', event: { type: 'stage-start', name: 'implementer', index: 0, of: 1 } } },
+    ...Array.from({ length: n - 3 }, (_, i) => ({ id: i + 3, ts: at(i + 2), event: 'note', data: 'x' })),
+    { id: n, ts: at(n), event: 'api:event', data: { runId: 'run-9', event: { type: 'run-end', outcome: 'success' } } },
+  ];
+  return (_repo: unknown, _task: unknown, _ts: unknown, after: unknown) => {
+    const rest = log.filter((e) => e.id > (after as number));
+    const events = rest.slice(0, 500);
+    return Promise.resolve({ events, nextAfter: events.at(-1)?.id ?? (after as number), hasMore: rest.length > 500, truncated: false });
+  };
+};
+
+test('a live run past 500 events: the tail pages on and reaches its terminal event', async () => {
+  readRunEvents.mockImplementation(longLog(1300));
+  render(<RunPane {...props} active={{ taskId: 'gh-r-3', sessionFile: '', lastActivityMs: Date.UTC(2026, 10, 16, 9) }} />);
+  await waitFor(() => expect(screen.queryByRole('button', { name: 'Stop run' })).toBeNull());
+  await waitFor(() => expect(screen.getByRole('region', { name: 'Run gh-r-3' }).firstElementChild).toHaveTextContent(/passed$/));
+  expect(readRunEvents.mock.calls.map((c) => c[3])).toEqual([0, 500, 1000]);
+});
+
+test("another run's event does not re-read this run's log", async () => {
+  let push: ((payload: unknown) => void) | undefined;
+  vi.mocked(subscribe).mockImplementation((async (_name: string, h: (e: { payload: unknown }) => void) => {
+    push = (payload) => h({ payload });
+    return () => {};
+  }) as never);
+  readRunEvents.mockResolvedValue(sealedEvents([{ type: 'stage-start', name: 'implementer', index: 1, of: 4 }]));
+  render(<RunPane {...props} active={{ taskId: 'gh-r-3', sessionFile: '', lastActivityMs: Date.UTC(2026, 10, 16, 9) }} />);
+  await waitFor(() => expect(readRunEvents).toHaveBeenCalled());
+  await waitFor(() => expect(push).toBeDefined());
+  const before = readRunEvents.mock.calls.length;
+  push!({ runId: 'other', event: { type: 'stage-start', name: 'implementer' } });
+  push!({ runId: 'run-9', event: { type: 'stage-end', name: 'implementer' } });
+  await waitFor(() => expect(readRunEvents.mock.calls.length).toBe(before + 1));
 });
