@@ -111,8 +111,8 @@ describe('server mode', () => {
     fetch(origin + path, { method: 'POST', redirect: 'manual', headers: { 'content-type': 'application/json', origin, ...headers }, body });
 
   /** The real OAuth dance against the stubbed provider: start, then hit the callback with its state. */
-  async function signIn(provider: 'github' | 'gitlab' = 'github', headers: Record<string, string> = {}): Promise<{ callback: Response; cookie: string }> {
-    const begin = await post('/api/auth/sign-in/social', headers, JSON.stringify({ provider, callbackURL: '/', errorCallbackURL: '/sign-in' }));
+  async function signIn(provider: 'github' | 'gitlab' = 'github', headers: Record<string, string> = {}, callbackURL = '/'): Promise<{ callback: Response; cookie: string }> {
+    const begin = await post('/api/auth/sign-in/social', headers, JSON.stringify({ provider, callbackURL, errorCallbackURL: callbackURL === '/' ? '/sign-in' : callbackURL }));
     const { url } = (await begin.json()) as { url: string };
     const state = new URL(url).searchParams.get('state')!;
     const callback = await fetch(`${origin}/api/auth/callback/${provider}?code=c&state=${state}`, { redirect: 'manual', headers: { cookie: [headers.cookie, cookieOf(begin)].filter(Boolean).join('; ') } });
@@ -185,6 +185,60 @@ describe('server mode', () => {
     expect(location.searchParams.get('error')).toBe('unable_to_create_user');
     expect((await rpc({ cookie })).status).toBe(401);
     expect(await (await fetch(location)).text()).toContain('Sign-up is not open');
+  });
+
+  /** The native app's round trip: social sign-in with the hub's native callback, then one-time token -> bearer session. */
+  async function nativeSignIn(): Promise<{ location: URL; bearer?: string | undefined }> {
+    const start = await fetch(origin + '/api/auth/native/start?provider=github', { redirect: 'manual' });
+    expect(start.status).toBe(302);
+    const state = new URL(start.headers.get('location')!).searchParams.get('state')!;
+    const callback = await fetch(`${origin}/api/auth/callback/github?code=c&state=${state}`, { redirect: 'manual', headers: { cookie: cookieOf(start) } });
+    const cookie = [cookieOf(start), cookieOf(callback)].join('; ');
+    // The system browser follows the callback's redirect to the hub's native page, carrying the cookie jar.
+    const complete = await fetch(new URL(callback.headers.get('location')!, origin), { redirect: 'manual', headers: { cookie } });
+    const location = new URL(complete.headers.get('location')!);
+    const ott = location.searchParams.get('ott');
+    if (ott === null) return { location };
+    const verify = await post('/api/auth/one-time-token/verify', {}, JSON.stringify({ token: ott }));
+    return { location, bearer: verify.headers.get('set-auth-token') ?? undefined };
+  }
+
+  test('native sign-in: an allowlisted member gets a bearer session for RPC and SSE; sign-out revokes it', async () => {
+    await start(['github:octo']);
+    const providers = (await (await fetch(origin + '/api/auth/native/providers')).json()) as { providers: string[] };
+    expect((await fetch(origin + '/api/auth/native/start?provider=nope', { redirect: 'manual' })).status).toBe(400);
+    expect(providers.providers).toEqual(['github', 'gitlab']);
+    const { location, bearer } = await nativeSignIn();
+    expect(location.protocol + '//' + location.host).toBe('taskcell://auth');
+    expect(bearer).toBeTruthy();
+    const auth = { authorization: `Bearer ${bearer}` };
+    expect((await rpc(auth)).status).toBe(200);
+    const me = (await (await fetch(origin + '/api/auth/get-session', { headers: auth })).json()) as { user: { email: string } };
+    expect(me.user.email).toBe('octo@nowhere.test');
+    const ac = new AbortController();
+    expect((await fetch(origin + '/events', { headers: auth, signal: ac.signal })).status).toBe(200);
+    ac.abort();
+    expect((await post('/api/auth/sign-out', auth)).status).toBe(200);
+    expect((await rpc(auth)).status).toBe(401);
+  });
+
+  test('native sign-in: a non-allowlisted account is refused with the hub message and gets no session', async () => {
+    await start(['someone@else.test']);
+    const { location, bearer } = await nativeSignIn();
+    expect(bearer).toBeUndefined();
+    expect(location.searchParams.get('ott')).toBeNull();
+    expect(location.searchParams.get('error')).toContain('Sign-up is not open');
+  });
+
+  test('native sign-in: the one-time token is single use, a forged one and a bare complete call get nothing', async () => {
+    await start(['github:octo']);
+    const { location } = await nativeSignIn();
+    const ott = location.searchParams.get('ott')!;
+    expect((await post('/api/auth/one-time-token/verify', {}, JSON.stringify({ token: ott }))).headers.get('set-auth-token')).toBeNull();
+    expect((await post('/api/auth/one-time-token/verify', {}, JSON.stringify({ token: 'forged' }))).headers.get('set-auth-token')).toBeNull();
+    const bare = await fetch(origin + '/api/auth/native/complete', { redirect: 'manual' });
+    expect(new URL(bare.headers.get('location')!).searchParams.get('ott')).toBeNull();
+    expect((await rpc({ authorization: 'Bearer forged' })).status).toBe(401);
   });
 
   test('a verified domain admits an account', async () => {

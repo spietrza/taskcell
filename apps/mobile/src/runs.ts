@@ -1,7 +1,6 @@
-import { createHubClient } from '../../../packages/hub-client/src/client';
 import type { RepoStamp, RunDetail, RunSummary } from '../../../packages/hub-client/src/wire';
 import { runStateWord } from '../../../packages/hub-client/src/runLabels';
-import { withOrigin } from './connect';
+import { hubClient } from './connect';
 import type { Credentials } from './credentials';
 import { ageOf } from './needsYou';
 
@@ -35,9 +34,6 @@ export interface RunsData {
   active: RunRow[];
   recent: RunRow[];
 }
-
-const hubClient = (c: Credentials, fetchImpl?: typeof fetch): ReturnType<typeof createHubClient> =>
-  createHubClient({ baseUrl: c.url, token: c.token, fetch: withOrigin(c.url, fetchImpl) });
 
 export const https = (u: string | undefined): string | null => (u !== undefined && /^https:\/\//.test(u) ? u : null);
 

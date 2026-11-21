@@ -166,7 +166,7 @@ their own rules; when the capabilities cannot be read, the buttons stay open and
 **Providers.** Each is enabled by the operator from env; a provider without both halves is hidden from
 the sign-in page. Any enabled provider can sign in — one hub may hold GitHub and GitLab projects, and
 Google is for people who only work on cards (e.g. Linear). Setup suggests the provider matching the
-hub's repositories, but that is only a suggestion. (Apple arrives with the iOS app, #860.)
+hub's repositories, but that is only a suggestion. (The mobile app does not offer Apple: see apps/mobile/README.md.)
 
 | Provider | Env vars |
 |---|---|
@@ -191,6 +191,15 @@ redirect to (`0.0.0.0`) — and the hub warns at startup when a provider is conf
   that host to `TASKCELL_HUB_CLONE_HOSTS` if projects are cloned from it.
 - *Google*: Google Cloud console → APIs & Services → Credentials → Create credentials → OAuth client ID
   (Web application). Authorized redirect URI = `…/api/auth/callback/google`; configure the consent screen.
+
+**Native clients (the mobile app).** Better Auth's `bearer` and `one-time-token` plugins let a phone hold a
+session instead of a cookie; browser cookie sign-in and the sign-up allowlist are unchanged. The app opens
+`/api/auth/native/start?provider=<github|gitlab|google>` in the system browser (so Better Auth's state cookie
+stays in that browser); the provider callback lands on `/api/auth/native/complete`, which redirects to
+`taskcell://auth?ott=<one-time token>` (valid a minute, single use) or `?error=<message>` (the allowlist refusal
+reads as on the web page). The app posts the token to `/api/auth/one-time-token/verify` and keeps the
+`set-auth-token` response header, which it sends as `Authorization: Bearer` on `/rpc/*` and `/events`;
+`POST /api/auth/sign-out` revokes it. `GET /api/auth/native/providers` lists the enabled providers.
 
 **Sign-up allowlist.** Sign-up is not open. `TASKCELL_HUB_SIGNUP_ALLOW` is a comma-separated list that
 decides who may *create* an account on first sign-in; anyone else is refused with "Sign-up is not open

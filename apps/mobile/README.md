@@ -1,6 +1,12 @@
 # Taskcell mobile
 
-Expo (React Native) iPhone app for a Taskcell hub. Four tabs like the hub's top bar: Home, Board, Runs, Settings (placeholders for now). The Connect screen takes the hub URL and the token `taskcell hub` prints, checks them with one read call (`list_projects`) through the shared hub client (`packages/hub-client`), and keeps them in the keychain via `expo-secure-store` only. Disconnect from Settings. Better Auth sign-in is a later card.
+Expo (React Native) iPhone app for a Taskcell hub. Four tabs like the hub's top bar: Home, Board, Runs, Settings (placeholders for now). The Connect screen takes the hub URL and the token `taskcell hub` prints, checks them with one read call (`list_projects`) through the shared hub client (`packages/hub-client`), and keeps them in the keychain via `expo-secure-store` only. Disconnect from Settings.
+
+## Sign in to a server-mode hub
+
+A hub with sign-in enabled (docs/hub.md, "Server mode sign-in") reports its providers at `/api/auth/native/providers`; the Connect screen then offers **Sign in with GitHub / GitLab / Google** next to the owner-token form (which stays for single-user hubs). Sign-in runs the hub's own Better Auth flow in the system browser (`expo-web-browser`), ends on `taskcell://auth`, and the app trades the one-time token it receives for a bearer session. That session is kept in the keychain (`expo-secure-store`, this device only) and sent as `Authorization: Bearer`; Home and Settings show who is signed in. A non-allowlisted account is refused with the hub's own message. **Disconnect** revokes the session on the hub (best effort when the hub is unreachable) and clears the keychain. The redirect is the fixed `taskcell://auth`, so sign-in needs a development or standalone build, not Expo Go.
+
+**Sign in with Apple (App Store guideline 4.8): exempt, not offered.** The app is a client for a hub the user's own team self-hosts. The third-party providers only authenticate members against that hub's operator-controlled allowlist (the enterprise-account exemption: "apps that require the user to sign in with an existing education or enterprise account"), the app has no accounts of its own, and the owner-token path needs no third-party login at all. If a store review disagrees, add Apple as a hub provider (docs/hub.md notes it as planned) and list it here.
 
 ## Run
 

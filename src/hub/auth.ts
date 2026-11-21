@@ -9,6 +9,7 @@ import { DatabaseSync } from 'node:sqlite';
 import { betterAuth, type BetterAuthOptions } from 'better-auth';
 import { getMigrations } from 'better-auth/db/migration';
 import { fromNodeHeaders, toNodeHandler } from 'better-auth/node';
+import { bearer, oneTimeToken } from 'better-auth/plugins';
 import { readEnv } from '../core/env.js';
 
 export interface HubUser {
@@ -144,6 +145,15 @@ const loginOf = <P extends object>(prefix: 'github' | 'gitlab', key: string) => 
   return typeof login === 'string' && login !== '' ? { providerLogin: `${prefix}:${login}` } : {};
 };
 
+/** The native app's sign-in round trip: it opens `NATIVE_START_PATH?provider=…` in the system browser, whose OAuth
+ * callback lands on `NATIVE_COMPLETE_PATH`; the app then exchanges the `ott` it receives at
+ * `/api/auth/one-time-token/verify` for a bearer session (`set-auth-token`). */
+export const NATIVE_COMPLETE_PATH = '/api/auth/native/complete';
+export const NATIVE_START_PATH = '/api/auth/native/start';
+/** Public: which providers this hub offers (the mobile Connect screen asks before sign-in). */
+export const NATIVE_PROVIDERS_PATH = '/api/auth/native/providers';
+export const NATIVE_REDIRECT = 'taskcell://auth';
+
 /** Server-mode identity: Better Auth over node:sqlite, with the owner user the token maps to. */
 export async function createHubIdentity(opts: CreateIdentityOptions): Promise<HubIdentity> {
   await mkdir(opts.configDir, { recursive: true });
@@ -217,6 +227,10 @@ export async function createHubIdentity(opts: CreateIdentityOptions): Promise<Hu
         },
       },
     },
+    // Native clients (apps/mobile) hold a bearer session instead of a cookie: `bearer` accepts it as
+    // `Authorization: Bearer` and exposes it as `set-auth-token`; `oneTimeToken` carries it out of the
+    // system browser's OAuth round trip (see NATIVE_COMPLETE_PATH). Browser cookie sign-in is unchanged.
+    plugins: [bearer(), oneTimeToken({ expiresIn: 1 })],
     onAPIError: { errorURL: '/sign-in' },
     // `providerLogin` is an input field, so `/update-user` would let a signed-in user rewrite it to
     // `github:<an admin>` and pass the credential admin check. The hub never edits a profile.
@@ -232,6 +246,9 @@ export async function createHubIdentity(opts: CreateIdentityOptions): Promise<Hu
   );
   const auth = betterAuth(options);
   const ctx = await auth.$context;
+  const nodeHandler = toNodeHandler(auth);
+  const signInSocial = (auth.api as unknown as { signInSocial(o: { body: Record<string, string>; headers: Headers; asResponse: true }): Promise<Response> }).signInSocial;
+  const generateOneTimeToken = (auth.api as unknown as { generateOneTimeToken(o: { headers: Headers }): Promise<{ token: string }> }).generateOneTimeToken;
   // Unverified on purpose: Better Auth only links a provider account to an existing user whose e-mail
   // is verified, so no provider profile can claim the owner (and skip the allowlist) by e-mail.
   creatingOwner = true;
@@ -260,7 +277,52 @@ export async function createHubIdentity(opts: CreateIdentityOptions): Promise<Hu
   return {
     owner,
     providers: Object.keys(socialProviders) as AuthProviderId[],
-    handler: toNodeHandler(auth),
+    handler: async (req, res) => {
+      const { pathname, searchParams } = new URL(req.url ?? '/', 'http://hub.local');
+      if (pathname === NATIVE_PROVIDERS_PATH && req.method === 'GET') {
+        res.writeHead(200, { 'content-type': 'application/json', 'cache-control': 'no-store' });
+        res.end(JSON.stringify({ providers: Object.keys(socialProviders) }));
+        return;
+      }
+      if (pathname === NATIVE_START_PATH && req.method === 'GET') {
+        // Started here, in the system browser, so Better Auth's state cookie lands in the browser that finishes the OAuth round trip.
+        const provider = searchParams.get('provider') ?? '';
+        if (!Object.hasOwn(socialProviders, provider)) {
+          res.writeHead(400, { 'content-type': 'text/plain; charset=utf-8' });
+          res.end('unknown sign-in provider');
+          return;
+        }
+        const begin = await signInSocial({
+          body: { provider, callbackURL: NATIVE_COMPLETE_PATH, errorCallbackURL: NATIVE_COMPLETE_PATH },
+          headers: fromNodeHeaders(req.headers),
+          asResponse: true,
+        });
+        const { url } = (await begin.json()) as { url?: string };
+        if (!begin.ok || url === undefined) {
+          res.writeHead(502, { 'content-type': 'text/plain; charset=utf-8' });
+          res.end('sign-in could not start');
+          return;
+        }
+        res.writeHead(302, { location: url, 'set-cookie': begin.headers.getSetCookie(), 'cache-control': 'no-store' });
+        res.end();
+        return;
+      }
+      if (pathname !== NATIVE_COMPLETE_PATH || req.method !== 'GET') return nodeHandler(req, res);
+      // The system browser lands here after the provider callback, holding the session cookie. Hand the
+      // app a one-time token (valid a minute, single use) — never the session itself — on its own scheme.
+      const redirect = (params: Record<string, string>): void => {
+        res.writeHead(302, { location: `${NATIVE_REDIRECT}?${new URLSearchParams(params)}`, 'cache-control': 'no-store' });
+        res.end();
+      };
+      const error = searchParams.get('error');
+      if (error !== null) return redirect({ error: error === 'FORBIDDEN' || error === 'unable_to_create_user' ? SIGNUP_REFUSED_MESSAGE : error.replace(/_/g, ' ') });
+      try {
+        const { token } = await generateOneTimeToken({ headers: fromNodeHeaders(req.headers) });
+        return redirect({ ott: token });
+      } catch {
+        return redirect({ error: 'Sign-in did not complete. Try again.' });
+      }
+    },
     sessionUser: async (req) => {
       let session;
       try {

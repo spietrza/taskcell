@@ -90,6 +90,7 @@ export function HomeScreen({ credentials, fetchImpl }: { credentials: Credential
   return (
     <View testID="home" style={[styles.root, { backgroundColor: theme.background, paddingTop: insets.top + 16 }]}>
       <Text style={[styles.heading, { color: theme.foreground }]}>Waiting for you</Text>
+      {credentials.user ? <Text style={{ color: theme.caption }}>Signed in as {credentials.user}</Text> : null}
       {rejected ? (
         <Text accessibilityRole="alert" style={[styles.notice, { color: theme.destructive }]}>
           Token rejected, reconnect in Settings.

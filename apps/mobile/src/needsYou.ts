@@ -1,7 +1,6 @@
-import { createHubClient } from '../../../packages/hub-client/src/client';
 import { AppState } from 'react-native';
 import type { CallerCapabilities, NeedsYouItem, RepoReadFailure, RepoStamp } from '../../../packages/hub-client/src/wire';
-import { withOrigin } from './connect';
+import { hubClient } from './connect';
 import type { Credentials } from './credentials';
 
 export type WaitingItem = NeedsYouItem & Partial<RepoStamp>;
@@ -63,9 +62,6 @@ export function toRows(items: readonly WaitingItem[], now: number = Date.now()):
       };
     });
 }
-
-const hubClient = (c: Credentials, fetchImpl?: typeof fetch): ReturnType<typeof createHubClient> =>
-  createHubClient({ baseUrl: c.url, token: c.token, fetch: withOrigin(c.url, fetchImpl) });
 
 /** The same hub call the desktop Home makes: the waiting items of every repository, and the repositories that could not be read. */
 export async function loadWaiting(c: Credentials, fetchImpl?: typeof fetch): Promise<{ items: WaitingItem[]; failures: RepoReadFailure[] }> {
