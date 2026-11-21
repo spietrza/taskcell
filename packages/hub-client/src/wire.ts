@@ -767,7 +767,9 @@ export type AuditAction =
   | 'team-repository-remove'
   | 'labels-migrate'
   | 'project-watch'
-  | 'project-unwatch';
+  | 'project-unwatch'
+  | 'push-register'
+  | 'push-unregister';
 export type AuditOutcome = 'ok' | 'refused' | 'failed';
 
 /** One saved change to a repository's settings, as the Line screen's history shows it: no actor, subject or chain fields. */
@@ -1393,6 +1395,10 @@ export interface Commands {
   remove_project: { args: { path: string }; result: Project[] };
   /** HUB_ONLY: no native folder dialog in a browser (src/hub/browse.ts stands in for one). */
   browse_dirs: { args: { path?: string }; result: DirListing };
+  /** HUB_ONLY: store an Expo push token for the signed-in caller (no RPC takes a user id). The hub pushes to it when something new waits for them. */
+  register_push_token: { args: { token: string; platform: 'ios' | 'android' }; result: void };
+  /** HUB_ONLY: remove the caller's own push token (another user's token is left alone). */
+  unregister_push_token: { args: { token: string }; result: void };
   api_list_repo_files: { args: { repoPath: string }; result: { files: string[]; capped: boolean } };
   api_read_repo_file: { args: { repoPath: string; path: string }; result: { path: string; content: string; truncated: boolean } };
   api_repo_ok: { args: { repoPath: string }; result: boolean };
@@ -1593,6 +1599,7 @@ export const COMMAND_NAMES = [
   'read_run_events',
   'read_session',
   'read_settings_history',
+  'register_push_token',
   'remove_project',
   'remove_skill_pr',
   'remove_team_member',
@@ -1608,6 +1615,7 @@ export const COMMAND_NAMES = [
   'spawn_run',
   'start_task',
   'team_role',
+  'unregister_push_token',
   'unwatch_project',
   'update_skill_pr',
   'user_credentials_status',
@@ -1658,6 +1666,7 @@ export const WRITE_COMMAND_NAMES: readonly (typeof COMMAND_NAMES)[number][] = [
   'merge_needs_you',
   'migrate_labels',
   'pull_checkout',
+  'register_push_token',
   'remove_project',
   'remove_skill_pr',
   'remove_team_member',
@@ -1671,6 +1680,7 @@ export const WRITE_COMMAND_NAMES: readonly (typeof COMMAND_NAMES)[number][] = [
   'set_task_skills',
   'spawn_run',
   'start_task',
+  'unregister_push_token',
   'unwatch_project',
   'update_skill_pr',
   'watch_project',

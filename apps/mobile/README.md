@@ -29,3 +29,9 @@ pnpm test         # jest-expo, connect flow against a fake hub
 ```
 
 `pnpm verify` at the repo root runs both (`verify:mobile`), so CI and the factory gate cover them.
+
+## Push notifications
+
+When something new waits for you (PR ready, question, too vague, changes requested) the hub sends a push through Expo's push service (APNs on iOS). The app asks for notification permission right after you connect (never on first launch), registers its Expo push token with the hub (`register_push_token`), and unregisters it on **Disconnect** (`unregister_push_token`). Settings has a **Notifications** switch. If you deny permission the app works as before, without push. Tapping a notification opens Home with that item's sheet.
+
+Setup: nothing in the app beyond `expo-notifications` (already a dependency). Expo Go on an iPhone simulator can receive real pushes only on a physical device; on the simulator verify registration and the hub's log. The hub must be able to reach `https://exp.host`. See [docs/hub.md](../../docs/hub.md#push-notifications).

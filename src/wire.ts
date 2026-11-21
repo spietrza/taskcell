@@ -766,7 +766,9 @@ export type AuditAction =
   | 'team-repository-remove'
   | 'labels-migrate'
   | 'project-watch'
-  | 'project-unwatch';
+  | 'project-unwatch'
+  | 'push-register'
+  | 'push-unregister';
 export type AuditOutcome = 'ok' | 'refused' | 'failed';
 
 /** One saved change to a repository's settings, as the Line screen's history shows it: no actor, subject or chain fields. */

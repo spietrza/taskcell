@@ -16,6 +16,7 @@ import { commands as lessons, type LessonsCommands } from './lessons.js';
 import { commands as localWorker, type LocalWorkerCommands } from './local-worker.js';
 import { commands as needsYou, type NeedsYouCommands } from './needs-you.js';
 import { commands as projects, type ProjectsCommands } from './projects.js';
+import { commands as push, type PushCommands } from './push.js';
 import { commands as repoFiles, type RepoFilesCommands } from './repo-files.js';
 import { commands as runSession, type RunSessionCommands } from './run-session.js';
 import { commands as runs, type RunsCommands } from './runs.js';
@@ -45,6 +46,7 @@ export interface Commands extends
   LocalWorkerCommands,
   NeedsYouCommands,
   ProjectsCommands,
+  PushCommands,
   RepoFilesCommands,
   RunSessionCommands,
   RunsCommands,
@@ -149,6 +151,7 @@ export const COMMAND_NAMES = [
   'read_run_events',
   'read_session',
   'read_settings_history',
+  'register_push_token',
   'remove_project',
   'remove_skill_pr',
   'remove_team_member',
@@ -164,6 +167,7 @@ export const COMMAND_NAMES = [
   'spawn_run',
   'start_task',
   'team_role',
+  'unregister_push_token',
   'unwatch_project',
   'update_skill_pr',
   'user_credentials_status',
@@ -197,6 +201,7 @@ export const HUB_COMMANDS: { readonly [K in keyof Commands]: CommandHandler } = 
   ...localWorker.handlers,
   ...needsYou.handlers,
   ...projects.handlers,
+  ...push.handlers,
   ...repoFiles.handlers,
   ...runSession.handlers,
   ...runs.handlers,
@@ -226,6 +231,7 @@ export const HUB_POLICY: { readonly [K in keyof Commands]: CommandPolicy } = {
   ...localWorker.policy,
   ...needsYou.policy,
   ...projects.policy,
+  ...push.policy,
   ...repoFiles.policy,
   ...runSession.policy,
   ...runs.policy,
@@ -255,6 +261,7 @@ export const HUB_AUDITED: { readonly [K in keyof Commands]?: AuditSpec } = {
   ...localWorker.audit,
   ...needsYou.audit,
   ...projects.audit,
+  ...push.audit,
   ...repoFiles.audit,
   ...runSession.audit,
   ...runs.audit,
