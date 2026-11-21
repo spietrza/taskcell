@@ -715,7 +715,8 @@ export function createHubServer(opts: HubServerOptions): HubServer {
   const pusher = setInterval(() => void notifyNewItems({
     configDir: opts.configDir,
     listWaiting: async () => ((await dispatchRpc(ctx, 'list_needs_you_all', {}, ownerCaller)) as { items: WaitingItem[] }).items,
-    callerOf: async (reg) => (reg.owner ? ownerCaller : recheckCaller({ user: { id: reg.userId, email: '', name: '' }, owner: false })),
+    // Every registration goes through the recheck: a stored owner flag stops counting after a mode switch or a new auth.sqlite.
+    callerOf: (reg) => recheckCaller({ user: { id: reg.userId, email: '', name: '' }, owner: reg.owner }),
     ...(opts.pushUrl !== undefined ? { url: opts.pushUrl } : {}),
     ...(pushAccessToken ? { accessToken: pushAccessToken } : {}),
   }).catch((e: unknown) => console.error(`vanguard-hub: push: ${(e as Error).message}`)), opts.pushIntervalMs ?? PUSH_INTERVAL_MS);
