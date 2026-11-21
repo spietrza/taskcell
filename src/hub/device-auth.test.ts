@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'vitest';
-import { DEVICE_CODE_TTL_MS, DeviceAuth, MAX_PENDING_CODES, MAX_PENDING_CODES_PER_IP, MAX_USER_CODE_FAILURES, USER_CODE_WINDOW_MS, csrfOk, normalizeUserCode } from './device-auth.js';
+import { DEVICE_CODE_TTL_MS, DeviceAuth, MAX_PENDING_CODES, MAX_PENDING_CODES_PER_IP, MAX_USER_CODE_FAILURES, USER_CODE_WINDOW_MS, clientKey, csrfOk, normalizeUserCode } from './device-auth.js';
 
 describe('DeviceAuth', () => {
   test('pending -> approved once; the user code decides once', () => {
@@ -53,6 +53,15 @@ describe('DeviceAuth', () => {
     for (let i = 0; i < MAX_PENDING_CODES_PER_IP; i++) expect(one.start('1.2.3.4')).not.toBeNull();
     expect(one.start('1.2.3.4')).toBeNull();
     expect(one.start('5.6.7.8')).not.toBeNull();
+  });
+
+  test('IPv6 clients are counted per /64', () => {
+    expect(clientKey('2001:db8:1:2:aaaa::1')).toBe(clientKey('2001:db8:1:2:bbbb:0:0:2'));
+    expect(clientKey('2001:db8:1:2::1')).not.toBe(clientKey('2001:db8:1:3::1'));
+    expect(clientKey('::ffff:1.2.3.4')).toBe('1.2.3.4');
+    const d = new DeviceAuth(() => 1_000_000);
+    for (let i = 0; i < MAX_PENDING_CODES_PER_IP; i++) expect(d.start(`2001:db8:1:2::${i + 1}`)).not.toBeNull();
+    expect(d.start('2001:db8:1:2:ffff::9')).toBeNull();
   });
 
   test('helpers', () => {

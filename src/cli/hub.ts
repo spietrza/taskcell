@@ -83,7 +83,7 @@ export function hubLaunchUrl(origin: string, token: string): string {
 const NO_PROVIDER_WARNING =
   'WARNING: no sign-in provider is configured (TASKCELL_HUB_AUTH_<GITHUB|GITLAB|GOOGLE>_CLIENT_ID/_CLIENT_SECRET): only the hub token works. See docs/hub.md "Server mode sign-in".';
 const NO_PUBLIC_URL_WARNING =
-  'WARNING: TASKCELL_HUB_PUBLIC_URL is not set: OAuth callbacks will use the bind address, which a provider cannot redirect to. Set it to the URL users open (https://hub.example.com).';
+  'WARNING: TASKCELL_HUB_PUBLIC_URL is not set: OAuth callbacks will use the bind address, which a provider cannot redirect to, and mobile sign-in hands the app that address as its verification URL, which the app refuses. Set it to the URL users open (https://hub.example.com).';
 const NO_ALLOWLIST_WARNING =
   'WARNING: TASKCELL_HUB_SIGNUP_ALLOW is empty: nobody can create an account. See docs/hub.md "Server mode sign-in".';
 
@@ -167,6 +167,7 @@ export async function hubCommand(command: Extract<Command, { kind: 'hub' }>): Pr
     identity,
     uiDir,
     allowedHosts,
+    trustProxy: readEnv('TASKCELL_HUB_TRUST_PROXY') === '1',
     adminGithubLogins,
     hubAdmins,
     fleet,

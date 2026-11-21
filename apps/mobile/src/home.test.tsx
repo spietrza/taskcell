@@ -122,6 +122,22 @@ test('an RPC 401 moves the app to the same rejected state as a stream 401', asyn
   expect(await screen.findByText('Token rejected, reconnect in Settings.')).toBeTruthy();
 });
 
+const member: Credentials = { url: 'http://hub.local:4317', token: 'tcd_x', kind: 'member', name: 'Ada' };
+
+test('a member session shows who is signed in', async () => {
+  await renderHome(<HomeScreen credentials={member} fetchImpl={fakeHub([])} />);
+  expect(await screen.findByText('Signed in as Ada')).toBeTruthy();
+});
+
+test('a rejected member session says to sign in again', async () => {
+  const dead = (async (input: string) =>
+    input.endsWith('/events')
+      ? { ok: true, status: 200, body: new ReadableStream<Uint8Array>({ start: () => undefined }) }
+      : { status: 401, json: async () => ({ error: { message: 'invalid hub token' } }) }) as unknown as typeof fetch;
+  await renderHome(<HomeScreen credentials={member} fetchImpl={dead} />);
+  expect(await screen.findByText('Session ended, sign in again in Settings.')).toBeTruthy();
+});
+
 test('says so when nothing waits', async () => {
   await renderHome(<HomeScreen credentials={creds} fetchImpl={fakeHub([])} />);
   expect(await screen.findByText('Nothing is waiting for you')).toBeTruthy();

@@ -91,7 +91,7 @@ describe('server mode', () => {
   });
 
   /** `publicScheme: 'https'`: the hub sits behind an https proxy (its public URL), still reached here over http. */
-  async function start(allow: string[], { publicScheme = 'http' }: { publicScheme?: 'http' | 'https' } = {}): Promise<void> {
+  async function start(allow: string[], { publicScheme = 'http', trustProxy = false }: { publicScheme?: 'http' | 'https'; trustProxy?: boolean } = {}): Promise<void> {
     const probe = createServer();
     await new Promise<void>((r) => probe.listen(0, '127.0.0.1', r));
     const port = (probe.address() as AddressInfo).port;
@@ -103,7 +103,7 @@ describe('server mode', () => {
       providers: { github: { clientId: 'a', clientSecret: 'b' }, gitlab: { clientId: 'c', clientSecret: 'd', issuer: 'https://gl.test' } },
       allowlist: parseSignupAllowlist(allow),
     });
-    hub = createHubServer({ uiDir: dir, configDir: dir, browseRoot: dir, bind: { isLoopback: false, allowAdd: false }, deps, identity, token: TOKEN });
+    hub = createHubServer({ uiDir: dir, configDir: dir, browseRoot: dir, bind: { isLoopback: false, allowAdd: false }, deps, identity, token: TOKEN, trustProxy });
     await hub.listen(port, '127.0.0.1');
   }
 
@@ -432,6 +432,43 @@ describe('server mode', () => {
       expect((await approve(cookie, 'BBBBBBBB')).status).toBe(429);
       expect((await approve(cookie, d.user_code)).status).toBe(429);
       expect(await json(await poll(d.device_code))).toMatchObject({ error: 'authorization_pending' });
+    });
+
+    test('code and token steps refuse browser fetch metadata; the native app (none) works', async () => {
+      await start(['github:octo']);
+      for (const h of [{ 'sec-fetch-site': 'same-origin' }, { 'sec-fetch-site': 'cross-site' }, { 'sec-fetch-site': 'none' }]) {
+        expect((await post('/api/device/code', h)).status).toBe(403);
+        expect((await post('/api/device/token', h, JSON.stringify({ device_code: 'x' }))).status).toBe(403);
+      }
+      const d = await begin();
+      expect(await json(await poll(d.device_code))).toMatchObject({ error: 'authorization_pending' });
+    });
+
+    test('HEAD /device sends the sign-in redirect without a body; an oversized form is 413', async () => {
+      await start(['github:octo']);
+      const head = await fetch(origin + '/device', { method: 'HEAD', redirect: 'manual' });
+      expect(head.status).toBe(302);
+      expect(head.headers.get('location')).toBe('/sign-in?next=device');
+      const { cookie } = await signIn();
+      const big = await fetch(origin + '/device', {
+        method: 'POST',
+        headers: { 'content-type': 'application/x-www-form-urlencoded', origin, cookie },
+        body: 'x='.padEnd(5000, 'a'),
+      });
+      expect(big.status).toBe(413);
+    });
+
+    test('with trustProxy the code cap counts the forwarded client, not the proxy', async () => {
+      await start(['github:octo'], { trustProxy: true });
+      for (let i = 0; i < 20; i++) expect((await post('/api/device/code', { 'x-forwarded-for': '203.0.113.1' })).status).toBe(200);
+      expect((await post('/api/device/code', { 'x-forwarded-for': '203.0.113.1' })).status).toBe(429);
+      expect((await post('/api/device/code', { 'x-forwarded-for': '198.51.100.2' })).status).toBe(200);
+    });
+
+    test('without trustProxy a forwarded header is ignored: one shared address', async () => {
+      await start(['github:octo']);
+      for (let i = 0; i < 20; i++) expect((await post('/api/device/code', { 'x-forwarded-for': `203.0.113.${i}` })).status).toBe(200);
+      expect((await post('/api/device/code', { 'x-forwarded-for': '198.51.100.2' })).status).toBe(429);
     });
 
     test('the code endpoint needs a same-origin POST, and a browser session token is no bearer', async () => {
