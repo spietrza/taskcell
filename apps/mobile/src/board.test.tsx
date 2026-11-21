@@ -115,6 +115,21 @@ test('says so when there are no cards', async () => {
   expect(await screen.findByText('No cards yet')).toBeTruthy();
 });
 
+test('a repository without a task source is a setup hint, not a read error', async () => {
+  const failures = [
+    { repoPath: '/r/a', repoName: 'alpha', error: 'Set a Task Source in Settings to load the board.' },
+    { repoPath: '/r/b', repoName: 'beta', error: 'gh: not logged in' },
+  ];
+  const f = (async (input: string) => {
+    if (input.endsWith('/events')) return { ok: false, status: 404, body: null };
+    return { status: 200, json: async () => ({ result: input.includes('list_tasks_all') ? { tasks: [], capped: false, failures } : { runs: [], failures: [] } }) };
+  }) as unknown as typeof fetch;
+  await renderBoard(f);
+  expect(await screen.findByText(/No card source yet: alpha\./)).toBeTruthy();
+  expect(screen.getByText('Could not read beta: gh: not logged in')).toBeTruthy();
+  expect(screen.queryByText(/Could not read alpha/)).toBeNull();
+});
+
 test('says so when the hub is unreachable', async () => {
   const f = (async (input: string) => {
     if (input.endsWith('/events')) return { ok: false, status: 404, body: null };
