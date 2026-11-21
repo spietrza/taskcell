@@ -1,4 +1,4 @@
-import { mkdtemp, mkdir } from 'node:fs/promises';
+import { mkdtemp, mkdir, realpath } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { beforeEach, describe, expect, it } from 'vitest';
@@ -70,8 +70,9 @@ describe('repoVisibility', () => {
   let outside: string;
   beforeEach(async () => {
     cfg = await mkdtemp(join(tmpdir(), 'callers-cfg-'));
-    inside = await mkdtemp(join(tmpdir(), 'callers-in-'));
-    outside = await mkdtemp(join(tmpdir(), 'callers-out-'));
+    // realpath: the hub stores team repositories realpath'd, and macOS tmpdir is a symlink (/var -> /private/var).
+    inside = await realpath(await mkdtemp(join(tmpdir(), 'callers-in-')));
+    outside = await realpath(await mkdtemp(join(tmpdir(), 'callers-out-')));
     await mkdir(join(inside, 'sub'));
     await saveTeams(cfg, [{ id: 't', name: 'T', members: [{ login: 'ann', role: 'member' }], repositories: [inside] }]);
   });
