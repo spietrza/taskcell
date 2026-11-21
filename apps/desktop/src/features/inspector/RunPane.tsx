@@ -1,8 +1,8 @@
 import { useEffect, useRef, useState } from 'react';
 import { Button, Chip, Tabs } from '@/ui';
 import { ArrowLeft, Clock, GitBranch, RefreshCw, Square } from 'lucide-react';
-import { readRunEvents, readSession } from '../../ipc';
-import { subscribe } from '../../transport';
+import { readSession, tailRunEvents } from '../../ipc';
+import type { RunTail } from '../../../../../packages/hub-client/src/runTail';
 import { ExternalLink, hostName, issueUrl } from '../../components/ExternalLink';
 import { AgentQuestion } from '../../components/AgentQuestion';
 import { askedOf, cardIdOf, repoInitials, runStateTone, runStateWord, startedByLabel } from '../../runLabels';
@@ -65,27 +65,27 @@ export function RunPane({
   const [events, setEvents] = useState<LoggedEvent[]>([]);
   const [session, setSession] = useState<SessionRead | null>(null);
   const [now, setNow] = useState(() => Date.now());
-  const [reload, setReload] = useState(0);
   const tail = useRef<HTMLDivElement>(null);
   const live = active !== undefined;
 
   // The persisted event log: stage times and the hub's run id. Hub only: elsewhere the records alone drive the line.
+  // Paged to its end and, for a live run, followed: it reads again only on a hub event of this run (the tick is the backstop).
+  const tailing = useRef<RunTail | undefined>(undefined);
+  // The run's activity time when the pane opened: it moves with every session write, and a restarted tail would re-read from 0.
+  const activeSince = useRef(active?.lastActivityMs);
   useEffect(() => {
-    let alive = true;
-    readRunEvents(repo, taskId, detail?.timestamp)
-      .then((p) => alive && setEvents(p.events))
-      .catch(() => alive && setEvents([]));
-    return () => {
-      alive = false;
-    };
-  }, [repo, taskId, detail?.timestamp, tick, reload]);
-
-  // Live: a hub event re-reads the log at once (the file watcher's tick is the backstop).
+    const t = tailRunEvents(
+      { repoPath: repo, taskId, timestamp: detail?.timestamp, activeSince: activeSince.current, follow: live },
+      { onEvents: setEvents, onEnd: () => {}, onError: () => {} },
+    );
+    tailing.current = t;
+    return t;
+  }, [repo, taskId, detail?.timestamp, live]);
+  const seenTick = useRef(tick);
   useEffect(() => {
-    if (!live) return;
-    const un = subscribe('api:event', () => setReload((n) => n + 1));
-    return () => void un.then((f) => f());
-  }, [live]);
+    if (seenTick.current !== tick) tailing.current?.refresh();
+    seenTick.current = tick;
+  }, [tick]);
 
   useEffect(() => {
     // A run listed from its launch has no session file yet: its stage line comes from the event log alone.
@@ -97,7 +97,7 @@ export function RunPane({
     return () => {
       alive = false;
     };
-  }, [active?.sessionFile, tick, reload]);
+  }, [active?.sessionFile, tick, events.length]);
 
   const timeline = foldRunEvents(events);
   const [tab, setTab] = useState('activity');

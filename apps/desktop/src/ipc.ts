@@ -1,4 +1,5 @@
-import { invoke } from './transport';
+import { invoke, onStreamReset, subscribe } from './transport';
+import { tailRun, type RunTail, type RunTailHandlers, type RunTailTarget } from '../../../packages/hub-client/src/runTail';
 import type { ApproverMode, CallerCapabilities, ApproverModeChange, ApproverPeriod, ApproverPrDecision, ApproverScorecard, CostBreakdown, CostPeriod, SetupStatus, Team, TeamRole } from './wire';
 import type {
   RunSummary,
@@ -76,6 +77,27 @@ export function readRun(repoPath: string, ref: RunRef): Promise<RunDetail> {
 /** HUB_ONLY: a run's persisted event log (stage starts and ends with their times), `timestamp` picking that run, default the newest. */
 export function readRunEvents(repoPath: string, taskId: string, timestamp?: string): Promise<Commands['read_run_events']['result']> {
   return call('read_run_events', { repoPath, taskId, ...(timestamp !== undefined ? { timestamp } : {}) });
+}
+
+/**
+ * HUB_ONLY: follow a run's event log (the shared tail in packages/hub-client): every page past the first 500, a read only
+ * on an `api:event` of this run, ended at its terminal event. `refresh()` reads again (the file watcher's backstop).
+ */
+export function tailRunEvents(target: RunTailTarget, handlers: RunTailHandlers): RunTail {
+  return tailRun(
+    {
+      call: ((cmd: keyof Commands, args: Commands[keyof Commands]['args']) => call(cmd, args)) as never,
+      subscribe: (h) => {
+        const closers = [
+          subscribe('api:event', (e) => h.onEvent('api:event', e.payload)),
+          ...(h.onReset ? [onStreamReset(h.onReset)] : []),
+        ];
+        return Object.assign(() => closers.forEach((c) => void c.then((f) => f())), { lastEventId: undefined });
+      },
+    },
+    target,
+    handlers,
+  );
 }
 
 /** Hub-only: a native-dialog stand-in (src/hub/browse.ts) — lists `path`'s subdirectories, confined
