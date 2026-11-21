@@ -1,4 +1,5 @@
 import type { HubClient } from '../../../packages/hub-client/src/client';
+import { agoWords, needsYouAlert, needsYouCaption } from '../../../packages/hub-client/src/needs-you-caption';
 import type { CallerCapabilities, NeedsYouItem, RepoReadFailure, RepoStamp } from '../../../packages/hub-client/src/wire';
 
 export type WaitingItem = NeedsYouItem & Partial<RepoStamp>;
@@ -19,13 +20,6 @@ export interface Row {
   item: WaitingItem;
 }
 
-export const kindLabel = (item: NeedsYouItem): string => {
-  if (item.reason === 'changes requested') return 'Changes requested';
-  if (item.reason.includes('verify-failed')) return 'Verify failed';
-  if (item.kind === 'pr') return 'PR ready';
-  return item.ask === 'too-vague' ? 'Too vague' : 'Question';
-};
-
 const parseTime = (iso: string | undefined): number => {
   const ms = iso ? Date.parse(iso) : NaN;
   return Number.isFinite(ms) ? ms : -Infinity;
@@ -33,12 +27,7 @@ const parseTime = (iso: string | undefined): number => {
 
 export function ageOf(iso: string | undefined, now: number): string {
   const ms = parseTime(iso);
-  if (ms === -Infinity) return '';
-  const s = Math.max(0, Math.round((now - ms) / 1000));
-  if (s < 60) return `${s}s ago`;
-  if (s < 3600) return `${Math.round(s / 60)}m ago`;
-  if (s < 86400) return `${Math.round(s / 3600)}h ago`;
-  return `${Math.round(s / 86400)}d ago`;
+  return ms === -Infinity ? '' : agoWords(now - ms);
 }
 
 /** Hub items → rows, newest first (items with no time last, in the hub's order). */
@@ -46,19 +35,16 @@ export function toRows(items: readonly WaitingItem[], now: number = Date.now()):
   return items
     .map((item, i) => ({ item, i, t: parseTime(item.updatedAt) }))
     .sort((a, b) => (b.t === a.t ? a.i - b.i : b.t - a.t))
-    .map(({ item }) => {
-      const kind = kindLabel(item);
-      return {
-        id: `${item.repoPath ?? ''}|${item.id}`,
-        kind,
-        title: item.title,
-        repo: item.repoSlug || item.repoName || '',
-        age: ageOf(item.updatedAt, now),
-        url: /^https:\/\//.test(item.url) ? item.url : null,
-        alert: kind === 'Verify failed',
-        item,
-      };
-    });
+    .map(({ item }) => ({
+      id: `${item.repoPath ?? ''}|${item.id}`,
+      kind: needsYouCaption(item),
+      title: item.title,
+      repo: item.repoSlug || item.repoName || '',
+      age: ageOf(item.updatedAt, now),
+      url: /^https:\/\//.test(item.url) ? item.url : null,
+      alert: needsYouAlert(item),
+      item,
+    }));
 }
 
 /** The same hub call the desktop Home makes: the waiting items of every repository, and the repositories that could not be read. */

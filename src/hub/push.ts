@@ -8,6 +8,7 @@ import { join } from 'node:path';
 import { BadRequestError } from '../sidecar/sidecar.js';
 import { redactForPublish } from '../core/secret-scan.js';
 import type { NeedsYouItem, RepoStamp } from '../wire.js';
+import { needsYouCaption } from '../needs-you-caption.js';
 import { repoVisibility, type RepoVisibility } from './callers.js';
 import type { Caller } from './teams.js';
 
@@ -82,14 +83,6 @@ export const unregisterPushToken = (configDir: string, token: string, userId: st
 
 const dropTokens = (configDir: string, dead: ReadonlySet<string>): Promise<void> => edit(configDir, (all) => all.filter((r) => !dead.has(r.token)));
 
-/** What the item is, as the Home screens caption it. */
-export function pushKind(item: NeedsYouItem): string {
-  if (item.reason === 'changes requested') return 'Changes requested';
-  if (item.reason.includes('verify-failed')) return 'Verify failed';
-  if (item.kind === 'pr') return 'PR ready';
-  return item.ask === 'too-vague' ? 'Too vague' : 'Question';
-}
-
 const clip = (s: string, max: number): string => {
   const flat = redactForPublish(s).replace(/\s+/g, ' ').trim();
   return flat.length > max ? `${flat.slice(0, max - 1)}…` : flat;
@@ -101,7 +94,7 @@ export type WaitingItem = NeedsYouItem & Partial<RepoStamp>;
 export function pushMessage(to: string, item: WaitingItem): Record<string, unknown> {
   return {
     to,
-    title: `${pushKind(item)}: ${clip(item.title, 120)}`,
+    title: `${needsYouCaption(item)}: ${clip(item.title, 120)}`,
     body: clip(item.repoSlug || item.repoName || '', 120),
     sound: 'default',
     data: { id: item.id, repoName: item.repoName ?? '' },

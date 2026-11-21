@@ -5,7 +5,7 @@ import { Linking, StyleSheet } from 'react-native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { HomeScreen as Home } from './HomeScreen';
 import { HubProvider } from './hubContext';
-import { kindLabel, toRows, type WaitingItem } from './needsYou';
+import { toRows, type WaitingItem } from './needsYou';
 
 const creds: Credentials = { url: 'http://hub.local:4317', token: 't', kind: 'owner' };
 /** An iPhone-like top inset (status bar), as expo-router's SafeAreaProvider would give it. */
@@ -38,7 +38,6 @@ test('toRows maps kinds, repo, age, newest first', () => {
     ['old', 'PR ready', 'o/r', '2d ago', 'https://github.com/o/r/pull/1'],
     ['none', 'Question', 'o/r', '', null],
   ]);
-  expect(kindLabel(item({ reason: 'changes requested' }))).toBe('Changes requested');
 });
 
 test('shows the waiting items and opens one in the browser', async () => {
