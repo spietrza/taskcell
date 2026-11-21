@@ -7,7 +7,6 @@ export function Placeholder({ title, children }: { title: string; children?: Rea
   return (
     <View style={[styles.root, { backgroundColor: theme.background }]}>
       <Text style={[styles.title, { color: theme.foreground }]}>{title}</Text>
-      <Text style={{ color: theme.mutedForeground }}>Coming soon.</Text>
       {children}
     </View>
   );
