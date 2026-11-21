@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { ActivityIndicator, KeyboardAvoidingView, Linking, Platform, Pressable, StyleSheet, Text, TextInput } from 'react-native';
-import { connectToHub, hubHasSignIn, isCleartext, normalizeHubUrl, pollDeviceSignIn, startDeviceSignIn, type DeviceSignIn, type PollOptions } from './connect';
+import { connectToHub, hubHasSignIn, isCleartext, normalizeHubUrl, pollDeviceSignIn, revokeSession, startDeviceSignIn, type DeviceSignIn, type PollOptions } from './connect';
 import { useSession } from './session';
 import { useTheme } from './useTheme';
 
@@ -43,12 +43,17 @@ export function ConnectScreen({ fetchImpl, sleep }: { fetchImpl?: typeof fetch; 
     // The page carries no code, session or token: the member signs in there and types the code shown here.
     void Linking.openURL(started.flow.verificationUri).catch(() => undefined);
     const result = await pollDeviceSignIn(started.flow, { fetchImpl, signal: abort.signal, ...(sleep ? { sleep } : {}) });
-    if (abort.signal.aborted) return;
+    if (abort.signal.aborted) {
+      // Cancelled after the hub issued the session: end it there rather than leave it unused.
+      if (result.ok) await revokeSession(result.credentials, fetchImpl);
+      return;
+    }
     setFlow(null);
     if (result.ok) {
       try {
         await connect(result.credentials);
       } catch {
+        await revokeSession(result.credentials, fetchImpl);
         setError('Could not save the connection to the keychain.');
       }
     } else {

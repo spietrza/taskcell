@@ -38,6 +38,8 @@ export type ProviderConfigs = Partial<Record<AuthProviderId, ProviderConfig>>;
 
 export interface HubIdentity {
   readonly owner: HubUser;
+  /** The hub's public origin (`TASKCELL_HUB_PUBLIC_URL`, Better Auth's `baseURL`); undefined in local mode. Hub URLs and cookie `Secure` flags follow it, never the request's own scheme. */
+  readonly baseURL: string | undefined;
   /** Enabled sign-in providers (empty in local mode: no OAuth there). */
   readonly providers: readonly AuthProviderId[];
   /** The signed-in user of this request's session cookie, if any. Always undefined in local mode. */
@@ -229,7 +231,8 @@ export async function createHubIdentity(opts: CreateIdentityOptions): Promise<Hu
     onAPIError: { errorURL: '/sign-in' },
     // `providerLogin` is an input field, so `/update-user` would let a signed-in user rewrite it to
     // `github:<an admin>` and pass the credential admin check. The hub never edits a profile.
-    disabledPaths: ['/update-user'],
+    // `/list-sessions` returns every session's token to page script, the app's device-flow (`tcd_`) bearers included.
+    disabledPaths: ['/update-user', '/list-sessions'],
   };
 
   await (await getMigrations(options)).runMigrations();
@@ -271,6 +274,7 @@ export async function createHubIdentity(opts: CreateIdentityOptions): Promise<Hu
 
   return {
     owner,
+    baseURL: opts.baseURL,
     providers: Object.keys(socialProviders) as AuthProviderId[],
     handler: toNodeHandler(auth),
     sessionUser: async (req) => {
@@ -317,6 +321,7 @@ export async function createHubIdentity(opts: CreateIdentityOptions): Promise<Hu
 export function localOnlyIdentity(): HubIdentity {
   return {
     owner: { id: 'local-owner', email: OWNER_EMAIL, name: 'Owner' },
+    baseURL: undefined,
     providers: [],
     handler: undefined,
     sessionUser: async () => undefined,

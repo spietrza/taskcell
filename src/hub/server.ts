@@ -25,7 +25,7 @@ import { loadPaths } from './projects.js';
 import { SpawnRegistry } from './spawn.js';
 import { productionDeps } from '../sidecar/deps.js';
 import type { SidecarDeps } from '../sidecar/sidecar.js';
-import { csrfOk, DeviceAuth, newCsrfToken } from './device-auth.js';
+import { csrfOk, DeviceAuth, newCsrfToken, normalizeUserCode } from './device-auth.js';
 import { esc, localOnlyIdentity, SIGNUP_REFUSED_MESSAGE, signInPage, type HubIdentity, type HubUser } from './auth.js';
 
 /** How often the hub-board scheduler looks for tasks that may start. */
@@ -296,6 +296,7 @@ async function handleRpcRequest(ctx: RpcContext, req: IncomingMessage, res: Serv
 }
 
 const DEVICE_CSRF_COOKIE = 'taskcell_device_csrf';
+const DEVICE_WARNING = '<p role="note"><strong>Only enter a code shown on your own phone.</strong> Someone who sends you a code is asking to sign in as you.</p>';
 const MAX_FORM_BYTES = 4096;
 
 function readForm(req: IncomingMessage): Promise<URLSearchParams> {
@@ -317,6 +318,12 @@ function cookieValue(header: string | undefined, name: string): string | undefin
     if (eq !== -1 && part.slice(0, eq).trim() === name) return part.slice(eq + 1).trim();
   }
   return undefined;
+}
+
+/** A typed code that can be neither reviewed nor decided: entry is locked, or the code is wrong or expired. */
+function codeRefused(res: ServerResponse, why: 'locked' | 'invalid'): void {
+  if (why === 'locked') return devicePage(res, 429, '<p role="alert">Too many wrong codes. Wait a few minutes and try again.</p>');
+  return devicePage(res, 400, '<p role="alert">That code is not valid or has expired. Check the code on your phone.</p>');
 }
 
 function devicePage(res: ServerResponse, status: number, body: string, headers: Record<string, string> = {}): void {
@@ -346,7 +353,7 @@ async function handleDevice(
   req: IncomingMessage,
   res: ServerResponse,
   pathname: string,
-  url: URL,
+  baseURL: string,
   offeredToken: string | undefined,
 ): Promise<void> {
   if (pathname === '/device') {
@@ -359,14 +366,16 @@ async function handleDevice(
       }
       // A `?user_code=` in the link is deliberately ignored: the member must type the code the phone shows.
       const csrf = newCsrfToken();
+      // `Secure` when the public URL is https, like Better Auth's cookies (both follow the identity's baseURL).
+      const secure = new URL(baseURL).protocol === 'https:' ? '; Secure' : '';
       devicePage(
         res,
         200,
-        `<p>Signed in as ${esc(user.name)}. Type the code shown on your phone to connect it as you.</p>
+        `<p>Signed in as ${esc(user.name)}. Type the code shown on your phone to connect it as you.</p>${DEVICE_WARNING}
 <form method="post" action="/device"><input type="hidden" name="csrf" value="${csrf}">
 <p><input name="user_code" autocomplete="off" autocapitalize="characters" required aria-label="Code" style="font-size:1.5rem;width:100%"></p>
-<p><button name="action" value="approve">Approve</button> <button name="action" value="deny" formnovalidate>Deny</button></p></form>`,
-        { 'set-cookie': `${DEVICE_CSRF_COOKIE}=${csrf}; Path=/device; HttpOnly; SameSite=Strict` },
+<p><button name="action" value="review">Continue</button></p></form>`,
+        { 'set-cookie': `${DEVICE_CSRF_COOKIE}=${csrf}; Path=/device; HttpOnly; SameSite=Strict${secure}` },
       );
       return;
     }
@@ -384,10 +393,25 @@ async function handleDevice(
     }
     // The sign-up allowlist is re-checked at approval, not only at sign-up.
     if ((await identity.userById(user.id)) === undefined) return devicePage(res, 403, `<p role="alert">${esc(SIGNUP_REFUSED_MESSAGE)}</p>`);
-    const outcome = auth.device.decide(form.get('user_code') ?? '', user.id, form.get('action') !== 'deny');
+    const typed = form.get('user_code') ?? '';
+    if (form.get('action') === 'review') {
+      // A second look before deciding: when the phone asked, with the warning again.
+      const found = auth.device.lookup(typed, user.id);
+      if (typeof found === 'string') return codeRefused(res, found);
+      const minutes = Math.max(0, Math.floor((Date.now() - found.requestedAt) / 60_000));
+      const at = new Date(found.requestedAt).toISOString().slice(11, 16);
+      const code = normalizeUserCode(typed);
+      return devicePage(
+        res,
+        200,
+        `<p>Code <strong>${code.slice(0, 4)}-${code.slice(4)}</strong> was requested ${minutes === 0 ? 'less than a minute' : `${minutes} min`} ago (${at} UTC).</p>${DEVICE_WARNING}
+<form method="post" action="/device"><input type="hidden" name="csrf" value="${esc(form.get('csrf') ?? '')}"><input type="hidden" name="user_code" value="${code}">
+<p><button name="action" value="approve">Approve</button> <button name="action" value="deny">Deny</button></p></form>`,
+      );
+    }
+    const outcome = auth.device.decide(typed, user.id, form.get('action') !== 'deny');
     const actor = { login: user.email, admin: false, id: user.id, name: user.name };
-    if (outcome === 'locked') return devicePage(res, 429, '<p role="alert">Too many wrong codes. Wait a few minutes and try again.</p>');
-    if (outcome === 'invalid') return devicePage(res, 400, '<p role="alert">That code is not valid or has expired. Check the code on your phone.</p>');
+    if (outcome === 'locked' || outcome === 'invalid') return codeRefused(res, outcome);
     await ctx.audit?.record({ login: actor.login, actor: auditActorOf(actor), action: 'sign-in', outcome: outcome === 'approved' ? 'ok' : 'refused' }).catch(reportAuditFailure);
     return devicePage(res, 200, outcome === 'approved' ? '<p>Approved. Return to the Taskcell app.</p>' : '<p>Denied. The phone was not connected.</p>');
   }
@@ -396,10 +420,10 @@ async function handleDevice(
   if (req.method === 'POST' && !sameOriginOk(req)) return jsonError(res, 400, 'cross-origin request rejected', 'bad-request');
 
   if (pathname === '/api/device/code') {
-    const started = auth.device.start();
+    const started = auth.device.start(req.socket.remoteAddress ?? '');
     if (started === null) return deviceError(res, 429, 'slow_down', 'Too many sign-ins in progress. Try again in a few minutes.');
-    // The page the member opens; the code is typed there, never carried in the link.
-    writeJson(res, 200, { ...started, verification_uri: `${url.protocol}//${req.headers.host}/device` }, { 'cache-control': 'no-store' });
+    // The page the member opens, on the hub's public origin; the code is typed there, never carried in the link.
+    writeJson(res, 200, { ...started, verification_uri: `${baseURL}/device` }, { 'cache-control': 'no-store' });
     return;
   }
 
@@ -477,8 +501,8 @@ async function handleRequest(
   }
 
   if (pathname.startsWith('/api/device/') || pathname === '/device') {
-    if (identity.handler === undefined) return notFound(res);
-    await handleDevice(ctx, auth, identity, req, res, pathname, url, offeredToken);
+    if (identity.handler === undefined || identity.baseURL === undefined) return notFound(res);
+    await handleDevice(ctx, auth, identity, req, res, pathname, identity.baseURL, offeredToken);
     return;
   }
 

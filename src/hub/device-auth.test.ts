@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'vitest';
-import { DEVICE_CODE_TTL_MS, DeviceAuth, MAX_PENDING_CODES, MAX_USER_CODE_FAILURES, USER_CODE_WINDOW_MS, csrfOk, normalizeUserCode } from './device-auth.js';
+import { DEVICE_CODE_TTL_MS, DeviceAuth, MAX_PENDING_CODES, MAX_PENDING_CODES_PER_IP, MAX_USER_CODE_FAILURES, USER_CODE_WINDOW_MS, csrfOk, normalizeUserCode } from './device-auth.js';
 
 describe('DeviceAuth', () => {
   test('pending -> approved once; the user code decides once', () => {
@@ -40,11 +40,19 @@ describe('DeviceAuth', () => {
     const c = d.start()!;
     for (let i = 0; i < MAX_USER_CODE_FAILURES; i++) expect(d.decide('BBBBBBBB', 'u1', true)).toBe('invalid');
     expect(d.decide(c.user_code, 'u1', true)).toBe('locked');
+    expect(d.lookup(c.user_code, 'u1')).toBe('locked');
+    // The lockout is per approver: another member's code entry still works.
+    expect(d.lookup(c.user_code, 'u2')).toEqual({ requestedAt: 1_000_000 });
+    expect(d.decide(c.user_code, 'u2', true)).toBe('approved');
     t += USER_CODE_WINDOW_MS;
     expect(d.decide(d.start()!.user_code, 'u1', true)).toBe('approved');
     const full = new DeviceAuth(() => t);
-    for (let i = 0; i < MAX_PENDING_CODES; i++) expect(full.start()).not.toBeNull();
-    expect(full.start()).toBeNull();
+    for (let i = 0; i < MAX_PENDING_CODES; i++) expect(full.start(`ip${i % 10}`)).not.toBeNull();
+    expect(full.start('another')).toBeNull();
+    const one = new DeviceAuth(() => t);
+    for (let i = 0; i < MAX_PENDING_CODES_PER_IP; i++) expect(one.start('1.2.3.4')).not.toBeNull();
+    expect(one.start('1.2.3.4')).toBeNull();
+    expect(one.start('5.6.7.8')).not.toBeNull();
   });
 
   test('helpers', () => {

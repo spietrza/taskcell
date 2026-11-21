@@ -460,6 +460,7 @@ describe('team caller wiring', () => {
     await saveTeams(configDir, [{ id: 'default', name: 'D', members: [{ login: 'ann', role: 'admin' }, { login: 'mia', role: 'member' }], repositories: [repo] }]);
     const identity = {
       owner: { id: 'local-owner', email: 'owner@hub.invalid', name: 'Owner' },
+      baseURL: undefined,
       providers: [],
       handler: undefined,
       sessionUser: async (req: { headers: Record<string, string | string[] | undefined> }) => {

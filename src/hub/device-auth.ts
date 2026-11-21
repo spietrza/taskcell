@@ -10,9 +10,10 @@ export const DEVICE_CODE_TTL_MS = 10 * 60_000;
 export const DEVICE_POLL_INTERVAL_S = 5;
 /** Pending codes held at once: `POST /api/device/code` is unauthenticated, so it is bounded. */
 export const MAX_PENDING_CODES = 200;
-/** Wrong `user_code` entries one approver (and, in total, everyone) may make per window before entry is locked. */
+/** Pending codes one client address may hold at once (behind a reverse proxy every client shares the proxy's address). */
+export const MAX_PENDING_CODES_PER_IP = 20;
+/** Wrong `user_code` entries one approver may make per window before their code entry is locked. */
 export const MAX_USER_CODE_FAILURES = 5;
-export const MAX_USER_CODE_FAILURES_GLOBAL = 30;
 export const USER_CODE_WINDOW_MS = 10 * 60_000;
 
 // No vowels or look-alikes: a typed code cannot spell a word or be misread (20^8 ≈ 2.6e10 codes).
@@ -22,6 +23,7 @@ interface Entry {
   userCode: string;
   expiresAt: number;
   lastPollMs: number;
+  ip: string;
   userId?: string;
   denied?: boolean;
 }
@@ -31,6 +33,8 @@ export type DevicePoll =
   | { status: 'approved'; userId: string };
 
 export type DeviceApproval = 'approved' | 'denied' | 'invalid' | 'locked';
+/** A typed code checked before deciding: when it was requested (epoch ms), or why it cannot be decided. */
+export type DeviceLookup = { requestedAt: number } | 'invalid' | 'locked';
 
 const hash = (s: string): string => createHash('sha256').update(s).digest('hex');
 /** `bcdf-ghjk` / `BCDFGHJK` → `BCDFGHJK`. */
@@ -40,20 +44,22 @@ export class DeviceAuth {
   private readonly byDevice = new Map<string, Entry>(); // sha256(device_code) -> entry
   private readonly byUser = new Map<string, string>(); // user_code -> sha256(device_code)
   private readonly failures = new Map<string, number[]>(); // approver id -> failure timestamps
-  private globalFailures: number[] = [];
 
   constructor(private readonly now: () => number = Date.now) {}
 
-  /** Null when too many codes are pending (the caller answers 429). */
-  start(): { device_code: string; user_code: string; expires_in: number; interval: number } | null {
+  /** Null when too many codes are pending, in total or from `ip` (the caller answers 429). */
+  start(ip = ''): { device_code: string; user_code: string; expires_in: number; interval: number } | null {
     this.sweep();
     if (this.byDevice.size >= MAX_PENDING_CODES) return null;
+    let fromIp = 0;
+    for (const e of this.byDevice.values()) if (e.ip === ip) fromIp++;
+    if (fromIp >= MAX_PENDING_CODES_PER_IP) return null;
     let userCode: string;
     do userCode = Array.from({ length: 8 }, () => ALPHABET[randomInt(ALPHABET.length)]).join('');
     while (this.byUser.has(userCode));
     const deviceCode = randomBytes(32).toString('hex');
     const key = hash(deviceCode);
-    this.byDevice.set(key, { userCode, expiresAt: this.now() + DEVICE_CODE_TTL_MS, lastPollMs: 0 });
+    this.byDevice.set(key, { userCode, expiresAt: this.now() + DEVICE_CODE_TTL_MS, lastPollMs: 0, ip });
     this.byUser.set(userCode, key);
     return { device_code: deviceCode, user_code: userCode, expires_in: DEVICE_CODE_TTL_MS / 1000, interval: DEVICE_POLL_INTERVAL_S };
   }
@@ -81,12 +87,26 @@ export class DeviceAuth {
     return { status: tooFast ? 'slow_down' : 'pending' };
   }
 
-  /** The approver typed `rawUserCode`. Wrong entries count against the approver and, in total, against everyone. */
+  /** The approver typed `rawUserCode` and reviews it before deciding. A wrong entry counts against the approver. */
+  lookup(rawUserCode: string, approverId: string): DeviceLookup {
+    const found = this.find(rawUserCode, approverId);
+    return typeof found === 'string' ? found : { requestedAt: found.entry.expiresAt - DEVICE_CODE_TTL_MS };
+  }
+
+  /** The approver typed `rawUserCode`. Wrong entries count against that approver only: one member cannot lock out the others. */
   decide(rawUserCode: string, approverId: string, approve: boolean): DeviceApproval {
+    const found = this.find(rawUserCode, approverId);
+    if (typeof found === 'string') return found;
+    this.byUser.delete(found.typed);
+    if (approve) found.entry.userId = approverId;
+    else found.entry.denied = true;
+    return approve ? 'approved' : 'denied';
+  }
+
+  private find(rawUserCode: string, approverId: string): { typed: string; entry: Entry } | 'invalid' | 'locked' {
     const now = this.now();
     const mine = (this.failures.get(approverId) ?? []).filter((t) => now - t < USER_CODE_WINDOW_MS);
-    this.globalFailures = this.globalFailures.filter((t) => now - t < USER_CODE_WINDOW_MS);
-    if (mine.length >= MAX_USER_CODE_FAILURES || this.globalFailures.length >= MAX_USER_CODE_FAILURES_GLOBAL) return 'locked';
+    if (mine.length >= MAX_USER_CODE_FAILURES) return 'locked';
     const typed = normalizeUserCode(rawUserCode);
     const key = this.byUser.get(typed);
     const entry = key === undefined ? undefined : this.byDevice.get(key);
@@ -94,13 +114,9 @@ export class DeviceAuth {
     if (key === undefined || entry === undefined || entry.expiresAt <= now || entry.userId !== undefined || entry.denied === true) {
       mine.push(now);
       this.failures.set(approverId, mine);
-      this.globalFailures.push(now);
       return 'invalid';
     }
-    this.byUser.delete(typed);
-    if (approve) entry.userId = approverId;
-    else entry.denied = true;
-    return approve ? 'approved' : 'denied';
+    return { typed, entry };
   }
 
   private drop(key: string, entry: Entry): void {

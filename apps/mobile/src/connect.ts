@@ -77,6 +77,16 @@ const post = async (url: string, path: string, body: unknown, fetchImpl?: typeof
   return { status: res.status, json: ((await res.json().catch(() => ({}))) ?? {}) as Record<string, unknown> };
 };
 
+/** The verification page is opened only when it is http(s) on the very hub origin the app connected to. */
+function sameHubPage(uri: string, hubUrl: string): boolean {
+  try {
+    const page = new URL(uri);
+    return (page.protocol === 'http:' || page.protocol === 'https:') && page.origin === hubUrl;
+  } catch {
+    return false;
+  }
+}
+
 /** Step 1 of the device flow: ask the hub for a `device_code` (kept secret in the app) and a `user_code` (shown). */
 export async function startDeviceSignIn(urlInput: string, fetchImpl?: typeof fetch): Promise<{ ok: true; flow: DeviceSignIn } | { ok: false; error: string }> {
   const url = normalizeHubUrl(urlInput);
@@ -86,6 +96,9 @@ export async function startDeviceSignIn(urlInput: string, fetchImpl?: typeof fet
     const { device_code, user_code, verification_uri, interval, expires_in } = json;
     if (status !== 200 || typeof device_code !== 'string' || typeof user_code !== 'string' || typeof verification_uri !== 'string') {
       return { ok: false, error: `${url} did not start a sign-in: ${String(json.error_description ?? status)}` };
+    }
+    if (!sameHubPage(verification_uri, url)) {
+      return { ok: false, error: `${url} sent a sign-in page on another address (${verification_uri}). Connect with the hub's public URL.` };
     }
     return { ok: true, flow: { url, deviceCode: device_code, userCode: user_code, verificationUri: verification_uri, intervalS: Number(interval) || 5, expiresInS: Number(expires_in) || 600 } };
   } catch (err) {
@@ -110,10 +123,23 @@ export async function pollDeviceSignIn(flow: DeviceSignIn, { fetchImpl, signal, 
       if (signal?.aborted) return { ok: false, error: 'Sign-in cancelled.' };
       const { status, json } = await post(flow.url, '/api/device/token', { device_code: flow.deviceCode }, fetchImpl);
       if (status === 200 && typeof json.access_token === 'string') {
-        const token = json.access_token;
-        const me = await withOrigin(flow.url, fetchImpl)(`${flow.url}/api/device/me`, { headers: { 'x-vanguard-hub-token': token } });
-        const who = (await me.json().catch(() => ({}))) as { name?: unknown };
-        return { ok: true, credentials: { url: flow.url, token, kind: 'member', ...(typeof who.name === 'string' ? { name: who.name } : {}) } };
+        const session: Credentials = { url: flow.url, token: json.access_token, kind: 'member' };
+        // A session the app will not keep is revoked on the hub, not left alive until it expires.
+        const drop = async (error: string): Promise<ConnectResult> => {
+          await revokeSession(session, fetchImpl);
+          return { ok: false, error };
+        };
+        if (signal?.aborted) return drop('Sign-in cancelled.');
+        let who: { name?: unknown };
+        try {
+          const me = await withOrigin(flow.url, fetchImpl)(`${flow.url}/api/device/me`, { headers: { 'x-vanguard-hub-token': session.token } });
+          if (me.status !== 200) return drop(`${flow.url} did not accept the new session (${me.status}). Start sign-in again.`);
+          who = ((await me.json().catch(() => ({}))) ?? {}) as { name?: unknown };
+        } catch (err) {
+          return drop(`Could not connect to ${flow.url}: ${String(err)}`);
+        }
+        if (signal?.aborted) return drop('Sign-in cancelled.');
+        return { ok: true, credentials: { ...session, ...(typeof who.name === 'string' ? { name: who.name } : {}) } };
       }
       if (json.error === 'slow_down') intervalMs += 5000;
       else if (json.error !== 'authorization_pending') return { ok: false, error: String(json.error_description ?? json.error ?? `Sign-in failed (${status}).`) };

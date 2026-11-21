@@ -24,7 +24,14 @@ interface Fake {
 }
 
 /** A fake server-mode hub speaking the device flow (like src/hub/server.ts); `signIn: false` is a local-mode hub. */
-function fakeHub(signIn = true): Fake {
+interface FakeOptions {
+  verificationUri?: string;
+  meStatus?: number;
+  /** Awaited before a token request is answered (to cancel while it is in flight). */
+  beforeToken?: () => Promise<void>;
+}
+
+function fakeHub(signIn = true, { verificationUri = `${ORIGIN}/device`, meStatus, beforeToken }: FakeOptions = {}): Fake {
   const calls: Fake['calls'] = [];
   const pollAnswers: Fake['pollAnswers'] = [{ status: 400, body: { error: 'authorization_pending' } }];
   const fetchImpl = (async (input: string, init: RequestInit = {}) => {
@@ -36,12 +43,13 @@ function fakeHub(signIn = true): Fake {
     if (path === '/sign-in') return res(signIn ? 200 : 404, {});
     if (!signIn) return res(path === '/rpc/list_projects' && headers.get('x-vanguard-hub-token') === 'owner-token' ? 200 : 401, { result: [] });
     if (method === 'POST' && headers.get('origin') !== ORIGIN) return res(400, { error: { message: 'cross-origin request rejected' } });
-    if (path === '/api/device/code') return res(200, { device_code: 'dev-secret', user_code: 'BCDFGHJK', verification_uri: `${ORIGIN}/device`, expires_in: 600, interval: 5 });
+    if (path === '/api/device/code') return res(200, { device_code: 'dev-secret', user_code: 'BCDFGHJK', verification_uri: verificationUri, expires_in: 600, interval: 5 });
     if (path === '/api/device/token') {
+      await beforeToken?.();
       const answer = pollAnswers.length > 1 ? pollAnswers.shift()! : pollAnswers[0]!;
       return res(answer.status, answer.body);
     }
-    if (path === '/api/device/me') return res(headers.get('x-vanguard-hub-token') === SESSION ? 200 : 401, { name: 'Octo Cat' });
+    if (path === '/api/device/me') return res(meStatus ?? (headers.get('x-vanguard-hub-token') === SESSION ? 200 : 401), { name: 'Octo Cat' });
     if (path === '/api/device/revoke') return res(200, { ok: true });
     return res(404, {});
   }) as unknown as typeof fetch;
@@ -85,6 +93,56 @@ test('a member signs in: code shown, browser opened without any code or token, s
   expect(await loadCredentials()).toEqual({ url: ORIGIN, token: SESSION, kind: 'member', name: 'Octo Cat' });
   // The device_code stays in the app and the hub's own pages: it is never in a URL we open.
   expect(open.mock.calls.flat().join(' ')).not.toMatch(/dev-secret|BCDFGHJK/);
+});
+
+const revokes = (hub: Fake): Fake['calls'] => hub.calls.filter((c) => c.path === '/api/device/revoke');
+const FLOW = { url: ORIGIN, deviceCode: 'dev-secret', userCode: 'BCDFGHJK', verificationUri: `${ORIGIN}/device`, intervalS: 5, expiresInS: 600 };
+
+test('cancel while the token request is in flight: the issued session is revoked on the hub and nothing is stored', async () => {
+  let release!: () => void;
+  const gate = new Promise<void>((r) => (release = r));
+  const hub = fakeHub(true, { beforeToken: () => gate });
+  hub.pollAnswers[0] = { status: 200, body: { access_token: SESSION, token_type: 'session' } };
+  await renderConnect(hub);
+  await fireEvent.press(await screen.findByText('Sign in', {}, { timeout: 3000 }));
+  await screen.findByText('BCDF-GHJK');
+  await waitFor(() => expect(hub.calls.some((c) => c.path === '/api/device/token')).toBe(true));
+  await fireEvent.press(screen.getByText('Cancel sign-in'));
+  release();
+  await waitFor(() => expect(revokes(hub)).toEqual([{ path: '/api/device/revoke', method: 'POST', token: SESSION, body: '' }]));
+  expect(screen.getByText('disconnected')).toBeTruthy();
+  expect(mockStore.size).toBe(0);
+});
+
+test('a session /api/device/me does not accept is revoked, not kept', async () => {
+  const hub = fakeHub(true, { meStatus: 500 });
+  hub.pollAnswers[0] = { status: 200, body: { access_token: SESSION, token_type: 'session' } };
+  expect(await pollDeviceSignIn(FLOW, { fetchImpl: hub.fetchImpl, sleep: async () => undefined })).toEqual({ ok: false, error: expect.stringContaining('did not accept the new session (500)') });
+  expect(revokes(hub)).toHaveLength(1);
+  expect(revokes(hub)[0]!.token).toBe(SESSION);
+  // So is one whose /me call fails on the network.
+  const flaky = fakeHub();
+  flaky.pollAnswers[0] = { status: 200, body: { access_token: SESSION, token_type: 'session' } };
+  const fetchImpl = (async (input: string, init?: RequestInit) => {
+    if (input.endsWith('/api/device/me')) throw new Error('Network request failed');
+    return flaky.fetchImpl(input, init);
+  }) as unknown as typeof fetch;
+  expect(await pollDeviceSignIn(FLOW, { fetchImpl, sleep: async () => undefined })).toMatchObject({ ok: false, error: expect.stringContaining('Network request failed') });
+  expect(revokes(flaky)).toHaveLength(1);
+});
+
+test('the verification page is opened only when it is http(s) on the hub origin the app connected to', async () => {
+  for (const uri of ['https://evil.test/device', 'javascript:alert(1)', 'taskcell://device', 'https://hub.local:4317/device', 'http://hub.local:9999/device', 'not a url']) {
+    const hub = fakeHub(true, { verificationUri: uri });
+    expect(await startDeviceSignIn('hub.local:4317', hub.fetchImpl)).toMatchObject({ ok: false, error: expect.stringContaining('another address') });
+  }
+  expect(await startDeviceSignIn('hub.local:4317', fakeHub().fetchImpl)).toMatchObject({ ok: true, flow: { verificationUri: `${ORIGIN}/device` } });
+  const hub = fakeHub(true, { verificationUri: 'https://evil.test/device' });
+  await renderConnect(hub);
+  await fireEvent.press(await screen.findByText('Sign in', {}, { timeout: 3000 }));
+  expect(await screen.findByText(/another address/)).toBeTruthy();
+  expect(open).not.toHaveBeenCalled();
+  expect(hub.calls.some((c) => c.path === '/api/device/token')).toBe(false);
 });
 
 test('a non-allowlisted account is refused with the hub\'s message and nothing is stored', async () => {
