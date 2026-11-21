@@ -20,7 +20,7 @@ TASKCELL_HUB_PUBLIC_URL=http://<mac>.<tailnet>.ts.net:7777 taskcell hub --repo /
 cat ~/.taskcell/hub-token            # the Hub token for the Connect screen
 ```
 
-Connect URL: `http://<mac>.<tailnet>.ts.net:7777` (Expo Go only). The Tailscale IP itself needs no `--allowed-host`.
+Connect URL: `http://<mac>.<tailnet>.ts.net:7777` (Expo Go / development builds only; a TestFlight or App Store build needs one of the HTTPS recipes below). The Tailscale IP itself needs no `--allowed-host`.
 
 For HTTPS (required for standalone builds), enable HTTPS certificates in the Tailscale admin console, keep the hub on loopback and let Tailscale serve it:
 

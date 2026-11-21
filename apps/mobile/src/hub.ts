@@ -1,7 +1,7 @@
 // The app's one hub connection per session: one client factory, one shared `/events` stream, one "rejected" signal.
 import { AppState } from 'react-native';
 import { createHubClient, type CallArgs, type HubClient, type HubStreamHandlers, type HubSubscription } from '../../../packages/hub-client/src/client';
-import { isHubSignInRequired, isHubTokenRejected } from '../../../packages/hub-client/src/hub-wire';
+import { STREAM_RESET_EVENT, isHubSignInRequired, isHubTokenRejected } from '../../../packages/hub-client/src/hub-wire';
 import type { Commands } from '../../../packages/hub-client/src/wire';
 import { withOrigin } from './connect';
 import type { Credentials } from './credentials';
@@ -55,9 +55,9 @@ export function createSessionHub(c: Credentials, fetchImpl: typeof fetch | undef
       },
       onError: (message, detail) => {
         if (detail?.streamOpen) {
-          // A skipped frame leaves the stream up; it may have been a `vanguard:changed`, so catch up once.
+          // A skipped frame leaves the stream up; it may have been a `vanguard:changed` (or a reset, or of unknown name), so catch up once.
           delay = RECONNECT_MIN_MS;
-          each((h) => h.onReset?.());
+          if (!detail.event || detail.event === 'vanguard:changed' || detail.event === STREAM_RESET_EVENT) each((h) => h.onReset?.());
           return;
         }
         if (detail?.status === 401) {

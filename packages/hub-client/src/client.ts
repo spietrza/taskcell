@@ -26,8 +26,9 @@ export interface HubStreamHandlers {
   /** The stream answered 2xx: it is open. Called once, before any event. */
   onOpen?: () => void;
   /** The stream failed (non-2xx status or a network error); it is not retried. With `detail.status` the HTTP
-   *  status; with `detail.streamOpen` a problem the stream survived (an oversized frame was skipped). */
-  onError?: (message: string, detail?: { status?: number; streamOpen?: boolean }) => void;
+   *  status; with `detail.streamOpen` a problem the stream survived (an oversized frame was skipped; `detail.event` is
+   *  its `event:` name when it was seen). */
+  onError?: (message: string, detail?: { status?: number; streamOpen?: boolean; event?: string }) => void;
 }
 
 export interface HubClient {
@@ -84,6 +85,10 @@ export function createHubClient(options: HubClientOptions): HubClient {
   function subscribe(handlers: HubStreamHandlers): HubSubscription {
     let lastEventId: string | undefined;
     const abort = new AbortController();
+    const skipped = (frame: string): { streamOpen: true; event?: string } => {
+      const event = /^event:(.*)$/m.exec(frame)?.[1]?.trim();
+      return { streamOpen: true, ...(event ? { event } : {}) };
+    };
     const dispatch = (frame: string): void => {
       let name = 'message';
       const data: string[] = [];
@@ -121,13 +126,13 @@ export function createHubClient(options: HubClientOptions): HubClient {
           let start = 0;
           for (let end = buffer.indexOf('\n\n', scanned); end !== -1; end = buffer.indexOf('\n\n', start)) {
             if (dropping) dropping = false;
-            else if (end - start > MAX_FRAME_BUFFER) handlers.onError?.('event frame too large; skipped', { streamOpen: true });
+            else if (end - start > MAX_FRAME_BUFFER) handlers.onError?.('event frame too large; skipped', skipped(buffer.slice(start, end)));
             else dispatch(buffer.slice(start, end));
             start = end + 2;
           }
           buffer = buffer.slice(start);
           if (buffer.length > MAX_FRAME_BUFFER) {
-            if (!dropping) handlers.onError?.('event frame too large; skipped', { streamOpen: true });
+            if (!dropping) handlers.onError?.('event frame too large; skipped', skipped(buffer));
             dropping = true;
             buffer = buffer.slice(-1); // keep a possible half boundary
           }

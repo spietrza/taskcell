@@ -38,7 +38,7 @@ Setup: nothing in the app beyond `expo-notifications` (already a dependency); th
 
 ## Release
 
-Profiles are in `eas.json`: `development` (dev client, simulator build), `preview` (internal distribution) and `production` (App Store / TestFlight, build number auto-increments remotely). The bundle id is `dev.taskcell.mobile`; the version comes from `package.json`. ATS is left at its default, so the hub must be served over HTTPS.
+Profiles are in `eas.json`: `development` (simulator build), `preview` (internal distribution) and `production` (App Store / TestFlight, build number auto-increments remotely). The bundle id is `dev.taskcell.mobile`; the version comes from `package.json`. ATS is left at its default, so the hub must be served over HTTPS. The plain-HTTP Tailscale recipe in [docs/mobile-remote.md](../../docs/mobile-remote.md) works only in Expo Go / development builds; a TestFlight or App Store build needs one of its HTTPS recipes.
 
 ```sh
 npx eas-cli login

@@ -207,3 +207,26 @@ function HomeScreen({ credentials, fetchImpl, ...props }: { credentials: Credent
     </HubProvider>
   );
 }
+
+test('an item removed by a reload while its sheet is open can no longer be merged or replied to', async () => {
+  const items = [item({})];
+  let controller!: ReadableStreamDefaultController<Uint8Array>;
+  const writes: string[] = [];
+  const fetchImpl = (async (input: string) => {
+    if (input.endsWith('/events')) return { ok: true, status: 200, body: new ReadableStream<Uint8Array>({ start: (c) => void (controller = c) }) };
+    const cmd = input.split('/rpc/')[1]!;
+    if (cmd === 'list_needs_you_all') return { status: 200, json: async () => ({ result: { items: [...items], failures: [] } }) };
+    if (cmd === 'caller_capabilities') return { status: 200, json: async () => ({ result: caps(true) }) };
+    writes.push(cmd);
+    return { status: 200, json: async () => ({ result: null }) };
+  }) as unknown as typeof fetch;
+  await renderHome(fetchImpl);
+  await open();
+  expect(await screen.findByText('Merge')).toBeTruthy();
+  items.splice(0, items.length);
+  controller.enqueue(new TextEncoder().encode('event: vanguard:changed\ndata: "/repo"\n\n'));
+  await screen.findByText('This item is no longer waiting for you.');
+  expect(screen.queryByText('Merge')).toBeNull();
+  expect(screen.queryByText('Request changes')).toBeNull();
+  expect(writes).toEqual([]);
+});
