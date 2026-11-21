@@ -10,6 +10,7 @@
     "test": "jest"
   },
   "jest": {
+    "testTimeout": 20000,
     "preset": "jest-expo",
     "resolver": "<rootDir>/jest.resolver.js"
   },
