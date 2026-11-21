@@ -82,7 +82,7 @@ beforeEach(async () => {
 
 afterEach(async () => {
   await hub.close();
-  for (const d of dirs) await rm(d, { recursive: true, force: true });
+  for (const d of dirs) await rm(d, { recursive: true, force: true, maxRetries: 3 });
 });
 
 let repoPath: string;
