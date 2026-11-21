@@ -39,7 +39,7 @@ test('normalizeHubUrl', () => {
 
 test('connectToHub accepts a good token with one read call', async () => {
   const result = await connectToHub('hub.local:4317', ` ${TOKEN} `, fakeHub);
-  expect(result).toEqual({ ok: true, credentials: { url: 'http://hub.local:4317', token: TOKEN } });
+  expect(result).toEqual({ ok: true, credentials: { url: 'http://hub.local:4317', token: TOKEN, kind: 'owner' } });
   expect(requests).toHaveLength(1);
 });
 
@@ -82,7 +82,7 @@ test('a good token is kept in the keychain', async () => {
   await fireEvent.changeText(screen.getByLabelText('Hub token'), TOKEN);
   await fireEvent.press(screen.getByText('Connect'));
   await waitFor(() => expect(screen.getByText('connected:http://hub.local:4317')).toBeTruthy());
-  expect([...mockStore.values()].sort()).toEqual([TOKEN, 'http://hub.local:4317'].sort());
+  expect([...mockStore.values()].sort()).toEqual([TOKEN, 'http://hub.local:4317', 'owner'].sort());
 });
 
 test('isCleartext: http to a non-loopback host only', () => {

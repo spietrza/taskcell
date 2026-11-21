@@ -1,4 +1,5 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from 'react';
+import { revokeSession } from './connect';
 import { clearCredentials, loadCredentials, saveCredentials, type Credentials } from './credentials';
 
 interface Session {
@@ -11,7 +12,7 @@ interface Session {
 
 const SessionContext = createContext<Session | null>(null);
 
-export function SessionProvider({ children }: { children: ReactNode }): ReactNode {
+export function SessionProvider({ children, fetchImpl }: { children: ReactNode; fetchImpl?: typeof fetch }): ReactNode {
   const [ready, setReady] = useState(false);
   const [credentials, setCredentials] = useState<Credentials | null>(null);
 
@@ -27,9 +28,11 @@ export function SessionProvider({ children }: { children: ReactNode }): ReactNod
     setCredentials(next);
   }, []);
   const disconnect = useCallback(async (): Promise<void> => {
+    // Sign out on the hub first (a member session is revoked there), then clear the keychain.
+    if (credentials) await revokeSession(credentials, fetchImpl);
     await clearCredentials();
     setCredentials(null);
-  }, []);
+  }, [credentials, fetchImpl]);
 
   const value = useMemo(() => ({ ready, credentials, connect, disconnect }), [ready, credentials, connect, disconnect]);
   return <SessionContext.Provider value={value}>{children}</SessionContext.Provider>;

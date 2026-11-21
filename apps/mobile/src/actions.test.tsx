@@ -1,3 +1,4 @@
+import type { Credentials } from './credentials';
 import { fireEvent, render, screen, waitFor } from '@testing-library/react-native';
 import { Alert } from 'react-native';
 import * as LocalAuthentication from 'expo-local-authentication';
@@ -12,7 +13,7 @@ jest.mock('expo-local-authentication', () => ({
 }));
 const auth = LocalAuthentication as jest.Mocked<typeof LocalAuthentication>;
 
-const creds = { url: 'http://hub.local:4317', token: 't' };
+const creds: Credentials = { url: 'http://hub.local:4317', token: 't', kind: 'owner' };
 const METRICS = { frame: { x: 0, y: 0, width: 390, height: 844 }, insets: { top: 47, left: 0, right: 0, bottom: 34 } };
 const item = (o: Partial<WaitingItem>): WaitingItem => ({
   id: 'o/r#1', kind: 'pr', number: 1, repoSlug: 'o/r', repoPath: '/repo', repoName: 'r', title: 'Add login',

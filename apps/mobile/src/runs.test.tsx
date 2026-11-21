@@ -1,10 +1,11 @@
+import type { Credentials } from './credentials';
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react-native';
 import { Alert, Linking } from 'react-native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { RunsScreen } from './RunsScreen';
 import { MAX_LINES, diffSummary } from './runs';
 
-const creds = { url: 'http://hub.local:4317', token: 't' };
+const creds: Credentials = { url: 'http://hub.local:4317', token: 't', kind: 'owner' };
 const METRICS = { frame: { x: 0, y: 0, width: 390, height: 844 }, insets: { top: 47, left: 0, right: 0, bottom: 34 } };
 const DIFF = 'diff --git a/a b/a\n--- a/a\n+++ b/a\n+x\n+y\n-z\ndiff --git a/b b/b\n--- a/b\n+++ b/b\n+w\n';
 const run = { repoPath: '/r', repoName: 'o/r', taskId: 'gh-3', timestamp: '2026-07-06T09:00:00Z', stages: ['implementer'], totalCostUsd: 0.42, anyFailed: false, prUrl: 'https://github.com/o/r/pull/3' };

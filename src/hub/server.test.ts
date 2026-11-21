@@ -467,6 +467,9 @@ describe('team caller wiring', () => {
         return typeof id === 'string' ? { id, email: `${id}@x.test`, name: id } : undefined;
       },
       userById: async (id: string) => ({ id, email: `${id}@x.test`, name: id }),
+      issueDeviceSession: async () => undefined,
+      deviceSessionUser: async () => undefined,
+      revokeDeviceSession: async () => undefined,
       close: () => undefined,
     };
     const h = createHubServer({ uiDir, configDir, browseRoot, bind: { isLoopback: true, allowAdd: false }, seedRepoPath: repo, deps: unimplementedDeps(), token: TOKEN, identity });

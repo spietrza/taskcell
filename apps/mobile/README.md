@@ -1,6 +1,10 @@
 # Taskcell mobile
 
-Expo (React Native) iPhone app for a Taskcell hub. Four tabs like the hub's top bar: Home, Board, Runs, Settings (placeholders for now). The Connect screen takes the hub URL and the token `taskcell hub` prints, checks them with one read call (`list_projects`) through the shared hub client (`packages/hub-client`), and keeps them in the keychain via `expo-secure-store` only. Disconnect from Settings. Better Auth sign-in is a later card.
+Expo (React Native) iPhone app for a Taskcell hub. Four tabs like the hub's top bar: Home, Board, Runs, Settings (placeholders for now). The Connect screen takes the hub URL and the token `taskcell hub` prints, checks them with one read call (`list_projects`) through the shared hub client (`packages/hub-client`), and keeps them in the keychain via `expo-secure-store` only. When the hub has server-mode sign-in, the Connect screen also offers **Sign in**: the app shows a short code, opens the hub's `/device` page in the browser, where the member signs in and types the code; the app then receives a member session (see docs/hub.md, "Mobile sign-in (device flow)"). No `taskcell://` redirect carries a session or token. The keychain item records the kind (owner token or member session). Disconnect in Settings revokes a member session on the hub and clears the keychain.
+
+## App Store guideline 4.8 (Sign in with Apple)
+
+The app itself offers no third-party login: it only opens the operator's own hub, whose sign-in page is the operator's choice of GitHub, GitLab or Google. We treat the app as exempt from 4.8 as a client for a specific enterprise/self-hosted service that users sign in to with an account for that service (the hub's allowlist decides who may), not a general social-login app. Sign in with Apple is therefore not offered. If review disagrees, the fix is a hub-side provider, not an app change.
 
 ## Run
 

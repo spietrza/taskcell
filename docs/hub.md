@@ -250,6 +250,16 @@ the owner: keep `--token-file` private. Connecting GitHub, GitLab or Linear as a
 separate from sign-in and unchanged. Use HTTPS in front of the hub (cookies are `Secure` when the
 public URL is `https`).
 
+### Mobile sign-in (device flow)
+
+The iPhone app signs a member in with a device authorization flow (RFC 8628 shape); the owner token still works for single-user hubs.
+
+1. The app calls `POST /api/device/code` and gets a secret `device_code` (kept in the app) and a short `user_code` (8 letters), which it shows.
+2. The app opens `/device` in the browser. The member signs in as usual (same providers, same sign-up allowlist), **types** the code and approves with a CSRF-protected form POST. A `?user_code=` in the link is ignored: nothing is prefilled or approved by opening a link.
+3. The app polls `POST /api/device/token` (`authorization_pending`, `slow_down`, `expired_token`, `access_denied`, `invalid_grant`) and, once approved, receives a hub session once. It sends it in the `x-vanguard-hub-token` header; the hub treats it as that member (teams, non-admin), never as the owner.
+
+No custom-scheme redirect carries a session or token. Codes are single-use and expire after 10 minutes; at most 200 are pending at once; a member who types 5 wrong codes in 10 minutes (30 across all members) is locked out of code entry until the window passes. Approval re-checks the allowlist, and so does every request made with the session. The app's Disconnect calls `POST /api/device/revoke`, which deletes the session. Pending codes live in memory: a hub restart drops them. Only sessions the device flow minted work as app credentials (their token has a `tcd_` prefix); a browser session's token is never accepted there.
+
 ### Allowed Hosts (DNS rebinding)
 
 The hub checks the `Host` header of every request — before serving the SPA, which holds a live
