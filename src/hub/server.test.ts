@@ -86,16 +86,16 @@ test('uses a fixed token when given one, instead of minting per launch', () => {
 });
 
 /** `fetch` rewrites the `Host` header from the URL; node:http sends the one it is handed verbatim. */
-function withHost(path: string, host: string): Promise<{ status: number; body: string }> {
+function withHost(path: string, host: string, init: { method?: string; headers?: Record<string, string>; payload?: string } = {}): Promise<{ status: number; body: string }> {
   return new Promise((resolve, reject) => {
-    const req = request(baseUrl + path, { headers: { host } }, (res) => {
+    const req = request(baseUrl + path, { method: init.method, headers: { host, ...init.headers } }, (res) => {
       let body = '';
       res.setEncoding('utf8');
       res.on('data', (chunk: string) => { body += chunk; });
       res.on('end', () => resolve({ status: res.statusCode!, body }));
     });
     req.on('error', reject);
-    req.end();
+    req.end(init.payload);
   });
 }
 
@@ -108,6 +108,19 @@ describe('hub server', () => {
     }
     expect((await withHost('/', 'hub.example')).status).toBe(200);
     expect((await withHost('/', 'hub.example:1234')).status).toBe(403);
+  });
+
+  test('a tunnel Host with the matching https Origin is accepted only when allowed (--allowed-host)', async () => {
+    const rpc = (host: string, origin = `https://${host}`): Promise<{ status: number; body: string }> => withHost('/rpc/list_runs', host, {
+      method: 'POST',
+      headers: { origin, 'content-type': 'application/json', 'x-vanguard-hub-token': hub.token },
+      payload: JSON.stringify({ repoPath: repo }),
+    });
+    expect((await rpc('hub.example')).status).toBe(200);
+    const wrongOrigin = await rpc('hub.example', 'https://evil.example');
+    expect(wrongOrigin.status).toBe(400);
+    expect(wrongOrigin.body).toContain('cross-origin');
+    expect((await rpc('other.trycloudflare.com')).status).toBe(403);
   });
 
   test('an IP-literal or localhost Host needs no --allowed-host on any port (DNS rebinding cannot make one)', async () => {
