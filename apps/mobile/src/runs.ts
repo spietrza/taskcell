@@ -1,9 +1,7 @@
-import { createHubClient } from '../../../packages/hub-client/src/client';
+import type { HubClient } from '../../../packages/hub-client/src/client';
 import type { RepoStamp, RunDetail, RunSummary } from '../../../packages/hub-client/src/wire';
 import { runStateWord } from '../../../packages/hub-client/src/runLabels';
 import { tailRun } from '../../../packages/hub-client/src/runTail';
-import { withOrigin } from './connect';
-import type { Credentials } from './credentials';
 import { ageOf } from './needsYou';
 
 /** The most transcript lines the run view holds; older ones are dropped as new ones arrive. */
@@ -35,16 +33,12 @@ export interface RunsData {
   recent: RunRow[];
 }
 
-const hubClient = (c: Credentials, fetchImpl?: typeof fetch): ReturnType<typeof createHubClient> =>
-  createHubClient({ baseUrl: c.url, token: c.token, fetch: withOrigin(c.url, fetchImpl) });
-
 export const https = (u: string | undefined): string | null => (u !== undefined && /^https:\/\//.test(u) ? u : null);
 
 const costOf = (r: RunSummary): string => (r.costUnknown ? 'cost unknown' : `$${r.totalCostUsd.toFixed(2)}`);
 
 /** Active runs first (every project's `list_active`), then recent runs newest first (`list_runs_all`). */
-export async function loadRuns(c: Credentials, fetchImpl?: typeof fetch, now: number = Date.now()): Promise<RunsData> {
-  const client = hubClient(c, fetchImpl);
+export async function loadRuns(client: HubClient, now: number = Date.now()): Promise<RunsData> {
   const [{ runs }, projects, tasks] = await Promise.all([
     client.call('list_runs_all'),
     client.call('list_projects').catch(() => []),
@@ -121,8 +115,8 @@ export interface RunView {
   ciUrl: string | null;
 }
 
-export async function loadRunView(c: Credentials, row: RunRow, fetchImpl?: typeof fetch): Promise<RunView> {
-  const detail = await hubClient(c, fetchImpl).call('read_run', { repoPath: row.repoPath, taskId: row.taskId, timestamp: row.timestamp, source: { kind: 'local' } });
+export async function loadRunView(client: HubClient, row: RunRow): Promise<RunView> {
+  const detail = await client.call('read_run', { repoPath: row.repoPath, taskId: row.taskId, timestamp: row.timestamp, source: { kind: 'local' } });
   return { detail, diff: diffSummary(detail.stages), prUrl: https(detail.prUrl), diffUrl: https(detail.diffUrl), ciUrl: https(detail.ciUrl) };
 }
 
@@ -152,13 +146,12 @@ export function eventLine(e: LoggedEvent): string {
  * Returns a function that stops it.
  */
 export function followRun(
-  c: Credentials,
+  client: HubClient,
   row: Pick<RunRow, 'repoPath' | 'taskId' | 'activeSince'>,
   handlers: { onLines: (lines: string[]) => void; onEnd: () => void; onError: (message: string) => void },
-  fetchImpl?: typeof fetch,
 ): () => void {
   return tailRun(
-    hubClient(c, fetchImpl),
+    client,
     { repoPath: row.repoPath, taskId: row.taskId, activeSince: row.activeSince, keep: MAX_LINES },
     { onEvents: (events) => handlers.onLines(events.map(eventLine)), onEnd: handlers.onEnd, onError: handlers.onError },
   );

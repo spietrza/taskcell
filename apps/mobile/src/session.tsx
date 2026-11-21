@@ -1,6 +1,7 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from 'react';
 import { revokeSession } from './connect';
 import { clearCredentials, loadCredentials, saveCredentials, type Credentials } from './credentials';
+import { HubContext, useHubConnection } from './hubContext';
 import { disablePush, enablePush, pushWanted, setPushWanted } from './push';
 
 interface Session {
@@ -51,7 +52,12 @@ export function SessionProvider({ children, fetchImpl }: { children: ReactNode; 
   }, [credentials, fetchImpl]);
 
   const value = useMemo(() => ({ ready, credentials, connect, disconnect }), [ready, credentials, connect, disconnect]);
-  return <SessionContext.Provider value={value}>{children}</SessionContext.Provider>;
+  const hub = useHubConnection(credentials, fetchImpl);
+  return (
+    <SessionContext.Provider value={value}>
+      <HubContext.Provider value={hub}>{children}</HubContext.Provider>
+    </SessionContext.Provider>
+  );
 }
 
 export function useSession(): Session {

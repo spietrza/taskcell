@@ -1,73 +1,22 @@
-import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
 import { FlatList, Linking, Pressable, RefreshControl, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import type { Credentials } from './credentials';
-import type { RepoReadFailure } from '../../../packages/hub-client/src/wire';
-import { COLUMNS, loadBoard, type Card } from './board';
-import { watchHub } from './needsYou';
+import { COLUMNS, loadBoard } from './board';
+import { useHub } from './hubContext';
+import { useHubQuery } from './useHubQuery';
+import { RejectedNotice } from './RejectedNotice';
 import { useTheme } from './useTheme';
 
-type State =
-  | { status: 'loading' }
-  | { status: 'error'; error: string }
-  // `error`: the last background reload failed; the cards are the last good board.
-  | { status: 'ready'; cards: Card[]; failures: RepoReadFailure[]; capped: boolean; error: string | null };
-
-export function BoardScreen({ credentials, fetchImpl }: { credentials: Credentials; fetchImpl?: typeof fetch }): ReactNode {
+export function BoardScreen(): ReactNode {
   const theme = useTheme();
   const insets = useSafeAreaInsets();
-  const [state, setState] = useState<State>({ status: 'loading' });
+  const { credentials, client } = useHub();
+  const { state, reload: load } = useHubQuery(loadBoard);
   const [refreshing, setRefreshing] = useState(false);
-  const [rejected, setRejected] = useState(false);
   const [column, setColumn] = useState<string>(COLUMNS[0].key);
   const [openId, setOpenId] = useState<string | null>(null);
 
-  const busy = useRef(false);
-  const again = useRef(false); // a change arrived mid-read: one trailing read
-  const running = useRef<Promise<void> | null>(null);
-  const generation = useRef(0);
-
-  const load = useCallback((): Promise<void> => {
-    if (busy.current) {
-      again.current = true;
-      return running.current ?? Promise.resolve();
-    }
-    busy.current = true;
-    const mine = generation.current;
-    const read = (async (): Promise<void> => {
-      try {
-        do {
-          again.current = false;
-          try {
-            const { cards, failures, capped } = await loadBoard(credentials, fetchImpl);
-            if (mine !== generation.current) return;
-            setState({ status: 'ready', cards, failures, capped, error: null });
-          } catch (err) {
-            if (mine !== generation.current) return;
-            setState((prev) => (prev.status === 'ready' ? { ...prev, error: String(err) } : { status: 'error', error: String(err) }));
-          }
-        } while (again.current && mine === generation.current);
-      } finally {
-        if (mine === generation.current) busy.current = false;
-      }
-    })();
-    running.current = read;
-    return read;
-  }, [credentials, fetchImpl]);
-
-  useEffect(() => {
-    generation.current += 1;
-    busy.current = false;
-    setState({ status: 'loading' });
-    setRejected(false);
-    setOpenId(null);
-    void load();
-    const close = watchHub(credentials, () => void load(), fetchImpl, () => setRejected(true));
-    return () => {
-      generation.current += 1;
-      close();
-    };
-  }, [credentials, fetchImpl, load]);
+  useEffect(() => setOpenId(null), [client]);
 
   const refresh = async (): Promise<void> => {
     setRefreshing(true);
@@ -187,11 +136,7 @@ export function BoardScreen({ credentials, fetchImpl }: { credentials: Credentia
   return (
     <View testID="board" style={[styles.root, { backgroundColor: theme.background, paddingTop: insets.top + 16 }]}>
       <Text style={[styles.heading, { color: theme.foreground }]}>Board</Text>
-      {rejected ? (
-        <Text accessibilityRole="alert" style={[styles.notice, { color: theme.destructive }]}>
-          Token rejected, reconnect in Settings.
-        </Text>
-      ) : null}
+      <RejectedNotice />
       {body()}
     </View>
   );

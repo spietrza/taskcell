@@ -4,5 +4,5 @@ import { useSession } from '../../src/session';
 
 export default function Runs(): ReactNode {
   const { credentials } = useSession();
-  return credentials ? <RunsScreen credentials={credentials} /> : null;
+  return credentials ? <RunsScreen /> : null;
 }

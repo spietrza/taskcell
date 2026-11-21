@@ -1,11 +1,9 @@
-import { createHubClient } from '../../../packages/hub-client/src/client';
+import type { HubClient } from '../../../packages/hub-client/src/client';
 import type { BoardTask, RepoReadFailure, RepoStamp, RunSummary } from '../../../packages/hub-client/src/wire';
 import { taskRefKey } from '../../../packages/hub-client/src/taskref';
 import { runStateWord } from '../../../packages/hub-client/src/runLabels';
 import { STATION_SHORT, cardStationOf } from '../../../packages/hub-client/src/stations';
 import { ageOf } from './needsYou';
-import { withOrigin } from './connect';
-import type { Credentials } from './credentials';
 
 export type HubTask = BoardTask & Partial<RepoStamp>;
 
@@ -83,9 +81,6 @@ export function toCards(tasks: readonly HubTask[], runs: readonly HubRun[], now:
     .sort((a, b) => order(a) - order(b)); // stable: the hub's order holds inside a column
 }
 
-const hubClient = (c: Credentials, fetchImpl?: typeof fetch): ReturnType<typeof createHubClient> =>
-  createHubClient({ baseUrl: c.url, token: c.token, fetch: withOrigin(c.url, fetchImpl) });
-
 export interface BoardData {
   cards: Card[];
   failures: RepoReadFailure[];
@@ -93,8 +88,7 @@ export interface BoardData {
 }
 
 /** The hub's tasks of every repository, with their runs (which place a card in Review / Done). Runs are optional: a failed read leaves cards placed by their column. */
-export async function loadBoard(c: Credentials, fetchImpl?: typeof fetch): Promise<BoardData> {
-  const client = hubClient(c, fetchImpl);
+export async function loadBoard(client: HubClient): Promise<BoardData> {
   const [{ tasks, capped, failures }, runs] = await Promise.all([
     client.call('list_tasks_all'),
     client.call('list_runs_all').then((r) => r.runs, () => [] as HubRun[]),

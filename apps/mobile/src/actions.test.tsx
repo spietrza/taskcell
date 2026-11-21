@@ -1,9 +1,11 @@
+import type { ReactElement } from 'react';
 import type { Credentials } from './credentials';
 import { fireEvent, render, screen, waitFor } from '@testing-library/react-native';
 import { Alert } from 'react-native';
 import * as LocalAuthentication from 'expo-local-authentication';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
-import { HomeScreen } from './HomeScreen';
+import { HomeScreen as Home } from './HomeScreen';
+import { HubProvider } from './hubContext';
 import type { WaitingItem } from './needsYou';
 
 jest.mock('expo-local-authentication', () => ({
@@ -196,3 +198,12 @@ describe('Re-run on a failed card', () => {
     expect(screen.queryByText('Re-run')).toBeNull();
   });
 });
+
+/** The screen inside the session's one hub connection, as the app provides it. */
+function HomeScreen({ credentials, fetchImpl, ...props }: { credentials: Credentials; fetchImpl?: typeof fetch } & Parameters<typeof Home>[0]): ReactElement {
+  return (
+    <HubProvider credentials={credentials} fetchImpl={fetchImpl}>
+      <Home {...props} />
+    </HubProvider>
+  );
+}
