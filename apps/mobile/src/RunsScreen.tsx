@@ -2,7 +2,7 @@ import { useCallback, useEffect, useState, type ReactNode } from 'react';
 import { Linking, Pressable, RefreshControl, ScrollView, SectionList, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import type { Credentials } from './credentials';
-import { RerunButton } from './Rerun';
+import { RerunButton, canRerun } from './Rerun';
 import { followRun, loadRunView, loadRuns, type RunRow, type RunView, type RunsData } from './runs';
 import { useTheme } from './useTheme';
 
@@ -94,9 +94,6 @@ export function RunsScreen({ credentials, fetchImpl }: { credentials: Credential
   );
 }
 
-/** What the hub's retry accepts, as the desktop offers it: a GitHub task only while paused by a provider limit (`retry_paused_task`), a hub card only once failed (`hub_task_retry`). */
-const canRerun = (row: RunRow): boolean => (/^gh-\d+$/.test(row.taskId) ? row.status === 'stopped: provider limit' : row.status === 'failed');
-
 function RunDetailView({ credentials, row, fetchImpl, onBack }: { credentials: Credentials; row: RunRow; fetchImpl?: typeof fetch; onBack: () => void }): ReactNode {
   const theme = useTheme();
   const [view, setView] = useState<RunView | null>(null);
@@ -139,7 +136,7 @@ function RunDetailView({ credentials, row, fetchImpl, onBack }: { credentials: C
       <Text style={{ color: theme.mutedForeground }}>Repository: {row.repo || 'unknown'}</Text>
       <Text style={{ color: theme.foreground }}>Status: {row.active ? (live ? 'running' : 'ended') : row.status}</Text>
       {row.issueUrl ? link('Open issue', row.issueUrl) : null}
-      {!row.active && canRerun(row) ? (
+      {!row.active && canRerun(row.taskId, row.status) ? (
         <RerunButton credentials={credentials} repoPath={row.repoPath} taskId={row.taskId} title={row.title} fetchImpl={fetchImpl} />
       ) : null}
       {error ? (

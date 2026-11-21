@@ -19,6 +19,11 @@ export function useCapabilities(credentials: Credentials, repoPath: string | und
   return caps;
 }
 
+/** Whether the hub's retry accepts `taskId` in `status`, as the desktop offers it: a hub card (`hub-N`) only once failed
+ * (`hub_task_retry`), a GitHub task (`gh-N`) only while paused by a provider limit (`retry_paused_task`). No other id has a retry. */
+export const canRerun = (taskId: string, status: string): boolean =>
+  /^hub-[1-9]\d{0,8}$/.test(taskId) ? status === 'failed' : /^gh-\d+$/.test(taskId) && status === 'stopped: provider limit';
+
 /** "Re-run" for a failed or paused task, after a dialog naming it. Hidden when the caller may not start tasks. */
 export function RerunButton({ credentials, repoPath, taskId, title, fetchImpl }: {
   credentials: Credentials;

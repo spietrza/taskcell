@@ -211,3 +211,11 @@ test('Re-run shows a hub refusal; it is absent for a read-only caller and for ru
   await new Promise((r) => setTimeout(r, 50));
   expect(screen.queryByText('Re-run')).toBeNull();
 });
+
+test.each(['gl-3', 'linear-ab12', 'o-r-7'])('a failed %s run offers no Re-run (no retry RPC accepts that id)', async (taskId) => {
+  await renderRuns(runsHub([{ ...run, taskId, prUrl: undefined, anyFailed: true }], ALLOW, {}).fetchImpl);
+  await fireEvent.press(await screen.findByText(taskId));
+  await screen.findByText(/Status: failed/);
+  await new Promise((r) => setTimeout(r, 50));
+  expect(screen.queryByText('Re-run')).toBeNull();
+});

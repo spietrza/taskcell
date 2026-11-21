@@ -3,7 +3,7 @@ import { ActivityIndicator, Alert, Linking, Modal, Pressable, StyleSheet, Text, 
 import * as LocalAuthentication from 'expo-local-authentication';
 import type { Credentials } from './credentials';
 import { mergeItem, replyItem, type Row } from './needsYou';
-import { useCapabilities } from './Rerun';
+import { RerunButton, canRerun, useCapabilities } from './Rerun';
 import { useTheme } from './useTheme';
 
 const openUrl = (url: string): void => void Linking.openURL(url).catch(() => undefined);
@@ -44,6 +44,8 @@ export function ItemSheet({ row, credentials, fetchImpl, onClose, onDone }: {
   const canReply = replyAllowed && (row.kind === 'Question' || row.kind === 'Too vague' || row.kind === 'Changes requested');
   // The desktop's "Ask for changes" is `reply_needs_you` on the PR: the hub comments and sets `needs revision`.
   const canRequest = replyAllowed && row.kind === 'PR ready' && item.kind === 'pr';
+  // A hub card is listed only while its run failed (src/hub/asking.ts), so it can be retried as well as answered.
+  const rerunRepo = item.kind === 'card' && canRerun(item.id, 'failed') ? item.repoPath : undefined;
 
   const run = async (act: () => Promise<void>, done: string): Promise<void> => {
     if (inFlight.current) return;
@@ -105,6 +107,7 @@ export function ItemSheet({ row, credentials, fetchImpl, onClose, onDone }: {
         {canMerge ? button('Merge', merge) : null}
         {canReply ? button('Send reply', reply) : null}
         {canRequest ? button('Request changes', requestChanges) : null}
+        {rerunRepo !== undefined ? <RerunButton credentials={credentials} repoPath={rerunRepo} taskId={item.id} title={row.title} fetchImpl={fetchImpl} /> : null}
         <Pressable accessibilityRole="button" onPress={onClose} style={styles.close}>
           <Text style={{ color: theme.primary }}>Close</Text>
         </Pressable>

@@ -47,6 +47,8 @@ const renderHome = async (fetchImpl: typeof fetch): Promise<void> => {
   await render(<SafeAreaProvider initialMetrics={METRICS}><HomeScreen credentials={creds} fetchImpl={fetchImpl} /></SafeAreaProvider>);
 };
 
+afterEach(() => jest.restoreAllMocks());
+
 beforeEach(() => {
   auth.authenticateAsync.mockReset();
   auth.getEnrolledLevelAsync.mockResolvedValue(LocalAuthentication.SecurityLevel.BIOMETRIC_STRONG);
@@ -158,4 +160,38 @@ test('a read-only caller sees neither Merge nor Request changes', async () => {
   await open();
   await waitFor(() => expect(screen.queryByText('Merge')).toBeNull());
   expect(screen.queryByText('Request changes')).toBeNull();
+});
+
+describe('Re-run on a failed card', () => {
+  const card = (id: string): WaitingItem =>
+    item({ id, kind: 'card', number: 4, repoSlug: '', url: '', reason: 'asked', ask: 'question', title: 'Board card', lastComment: { author: 'agent', body: 'Which DB?' } });
+
+  test('a failed hub card offers Re-run, which calls hub_task_retry after the dialog', async () => {
+    const { fetchImpl, writes } = hub([card('hub-4')]);
+    await renderHome(fetchImpl);
+    await open('Board card');
+    const alert = jest.spyOn(Alert, 'alert').mockImplementation((_t, _m, buttons) => buttons?.find((b) => b.text === 'Re-run')?.onPress?.());
+    await fireEvent.press(await screen.findByText('Re-run'));
+    expect(alert.mock.calls[0]![1]).toBe('Board card');
+    await screen.findByText('Re-run requested.');
+    expect(writes).toEqual([{ cmd: 'hub_task_retry', args: { repoPath: '/repo', id: 'hub-4' } }]);
+  });
+
+  test.each(['gh-27', 'gl-3', 'linear-ab12'])('a %s card offers no Re-run (it is not a failed hub card)', async (id) => {
+    const { fetchImpl } = hub([card(id)]);
+    await renderHome(fetchImpl);
+    await open('Board card');
+    await screen.findByText('Send reply');
+    await new Promise((r) => setTimeout(r, 50));
+    expect(screen.queryByText('Re-run')).toBeNull();
+  });
+
+  test('a read-only caller sees no Re-run on a failed hub card', async () => {
+    const { fetchImpl } = hub([card('hub-4')], undefined, caps(false));
+    await renderHome(fetchImpl);
+    await open('Board card');
+    await waitFor(() => expect(screen.queryByText('Send reply')).toBeNull());
+    await new Promise((r) => setTimeout(r, 50));
+    expect(screen.queryByText('Re-run')).toBeNull();
+  });
 });
