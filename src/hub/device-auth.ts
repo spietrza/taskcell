@@ -10,7 +10,7 @@ export const DEVICE_CODE_TTL_MS = 10 * 60_000;
 export const DEVICE_POLL_INTERVAL_S = 5;
 /** Pending codes held at once: `POST /api/device/code` is unauthenticated, so it is bounded. */
 export const MAX_PENDING_CODES = 200;
-/** Pending codes one client address may hold at once (behind a reverse proxy every client shares the proxy's address). */
+/** Pending codes one client address may hold at once (IPv6 counted per /64). Behind a reverse proxy this needs the hub's trust-proxy setting, else every client shares the proxy's address. */
 export const MAX_PENDING_CODES_PER_IP = 20;
 /** Wrong `user_code` entries one approver may make per window before their code entry is locked. */
 export const MAX_USER_CODE_FAILURES = 5;
@@ -40,6 +40,17 @@ const hash = (s: string): string => createHash('sha256').update(s).digest('hex')
 /** `bcdf-ghjk` / `BCDFGHJK` → `BCDFGHJK`. */
 export const normalizeUserCode = (raw: string): string => raw.toUpperCase().replace(/[^A-Z]/g, '');
 
+/** The per-client key for the code cap: an IPv4 address as is, an IPv6 address reduced to its /64. */
+export function clientKey(ip: string): string {
+  const v4 = /^::ffff:(\d+\.\d+\.\d+\.\d+)$/i.exec(ip)?.[1];
+  if (v4 !== undefined) return v4;
+  if (!ip.includes(':')) return ip;
+  const [head = '', tail] = ip.toLowerCase().split('::');
+  const groups = head === '' ? [] : head.split(':');
+  if (tail === undefined) return groups.slice(0, 4).join(':');
+  return [...groups, '0', '0', '0', '0'].slice(0, 4).join(':');
+}
+
 export class DeviceAuth {
   private readonly byDevice = new Map<string, Entry>(); // sha256(device_code) -> entry
   private readonly byUser = new Map<string, string>(); // user_code -> sha256(device_code)
@@ -51,15 +62,16 @@ export class DeviceAuth {
   start(ip = ''): { device_code: string; user_code: string; expires_in: number; interval: number } | null {
     this.sweep();
     if (this.byDevice.size >= MAX_PENDING_CODES) return null;
+    const addr = clientKey(ip);
     let fromIp = 0;
-    for (const e of this.byDevice.values()) if (e.ip === ip) fromIp++;
+    for (const e of this.byDevice.values()) if (e.ip === addr) fromIp++;
     if (fromIp >= MAX_PENDING_CODES_PER_IP) return null;
     let userCode: string;
     do userCode = Array.from({ length: 8 }, () => ALPHABET[randomInt(ALPHABET.length)]).join('');
     while (this.byUser.has(userCode));
     const deviceCode = randomBytes(32).toString('hex');
     const key = hash(deviceCode);
-    this.byDevice.set(key, { userCode, expiresAt: this.now() + DEVICE_CODE_TTL_MS, lastPollMs: 0, ip });
+    this.byDevice.set(key, { userCode, expiresAt: this.now() + DEVICE_CODE_TTL_MS, lastPollMs: 0, ip: addr });
     this.byUser.set(userCode, key);
     return { device_code: deviceCode, user_code: userCode, expires_in: DEVICE_CODE_TTL_MS / 1000, interval: DEVICE_POLL_INTERVAL_S };
   }
