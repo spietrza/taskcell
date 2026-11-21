@@ -1,5 +1,23 @@
 # Changelog
 
+## [1.17.0](https://github.com/spietrza/taskcell/compare/v1.16.10...v1.17.0) (2026-11-21)
+
+
+### Features
+
+* Mobile: act on Home items (merge with Face ID, reply) (spietrza/taskcell[#1289](https://github.com/spietrza/taskcell/issues/1289)) ([#1295](https://github.com/spietrza/taskcell/issues/1295)) ([fadc73d](https://github.com/spietrza/taskcell/commit/fadc73d19c39d9a40ecea16e149f55a7fe8a646d))
+* Mobile: ask for changes on a ready PR and re-run a failed task (spietrza/taskcell[#1298](https://github.com/spietrza/taskcell/issues/1298)) ([#1302](https://github.com/spietrza/taskcell/issues/1302)) ([dead4d6](https://github.com/spietrza/taskcell/commit/dead4d6f5b9e93d552ffed3a550233e5d29ae7cf))
+* Mobile: Board tab with cards across projects (read-only) (spietrza/taskcell[#1290](https://github.com/spietrza/taskcell/issues/1290)) ([#1296](https://github.com/spietrza/taskcell/issues/1296)) ([ff40564](https://github.com/spietrza/taskcell/commit/ff40564b033fcdb2d28179fb2bf3b341945f1ce5))
+* Mobile: push notifications when something waits for you (spietrza/taskcell[#1292](https://github.com/spietrza/taskcell/issues/1292)) ([#1306](https://github.com/spietrza/taskcell/issues/1306)) ([49ee803](https://github.com/spietrza/taskcell/commit/49ee803da784ee844130308e0bc415ed8d69e9f0))
+* Mobile: Runs tab with live transcript tail and diff summary (spietrza/taskcell[#1291](https://github.com/spietrza/taskcell/issues/1291)) ([#1301](https://github.com/spietrza/taskcell/issues/1301)) ([24d09ce](https://github.com/spietrza/taskcell/commit/24d09ce973d059dceff3d0cf219e23e54648cae8))
+* Mobile: sign in to a server-mode hub (Better Auth) instead of the owner token only (spietrza/taskcell[#1299](https://github.com/spietrza/taskcell/issues/1299)) ([#1304](https://github.com/spietrza/taskcell/issues/1304)) ([451d949](https://github.com/spietrza/taskcell/commit/451d94950f12c2980a7c955c547c504e8f844a28))
+* Mobile: stop the reconnect reload loop, keep the stream on oversized frames, pull-to-refresh and disconnect edge cases (spietrza/taskcell[#1284](https://github.com/spietrza/taskcell/issues/1284)) ([#1288](https://github.com/spietrza/taskcell/issues/1288)) ([1f2c816](https://github.com/spietrza/taskcell/commit/1f2c81692ad1f5e19aa965fcbed8210e04371094))
+
+
+### Bug Fixes
+
+* **landing:** Hub preview shows the Board on phones and tablets ([#1286](https://github.com/spietrza/taskcell/issues/1286)) ([5447304](https://github.com/spietrza/taskcell/commit/54473049c36c186af0f6d29ab58075674d3f5f4a))
+
 ## [1.16.10](https://github.com/spietrza/taskcell/compare/v1.16.9...v1.16.10) (2026-11-20)
 
 
