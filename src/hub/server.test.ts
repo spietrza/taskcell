@@ -7,7 +7,9 @@ import { request } from 'node:http';
 import { PassThrough } from 'node:stream';
 import type { ChildProcess } from 'node:child_process';
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
-import { callerRechecker, createHubServer, eventRepoPath, MAX_RPC_BODY_BYTES, type HubServer } from './server.js';
+import { callerRechecker } from './callers.js';
+import { createHubServer, eventRepoPath, MAX_RPC_BODY_BYTES, type HubServer } from './server.js';
+import { savePaths } from './projects.js';
 import { listRunSummaries, defaultRunsRoot } from './runs.js';
 import { MAX_CONCURRENT_COMPLETES } from './complete.js';
 import { localOnlyIdentity } from './auth.js';
@@ -520,5 +522,45 @@ describe('eventRepoPath', () => {
     expect(eventRepoPath({ runId: 'r1', event: { type: 'log' } }, runs)).toBe('/a');
     expect(eventRepoPath({ runId: 'r2', event: { type: 'log' } }, runs)).toBeUndefined();
     expect(eventRepoPath({ line: 'x' }, runs)).toBeUndefined();
+  });
+});
+
+describe('push wiring', () => {
+  test('a stored owner: true under an id that is not the identity owner receives no push; the real owner does', async () => {
+    const { createServer } = await import('node:http');
+    const { registerPushToken } = await import('./push.js');
+    const bodies: { to: string }[][] = [];
+    const expo = createServer((rq, rs) => {
+      let b = '';
+      rq.on('data', (c) => (b += c));
+      rq.on('end', () => {
+        bodies.push(JSON.parse(b) as { to: string }[]);
+        rs.writeHead(200, { 'content-type': 'application/json' });
+        rs.end('{}');
+      });
+    });
+    await new Promise<void>((r) => expo.listen(0, '127.0.0.1', r));
+    const pushUrl = `http://127.0.0.1:${(expo.address() as AddressInfo).port}`;
+    const base = localOnlyIdentity();
+    const identity = { ...base, userById: async (id: string) => (id === 'stale-owner' ? { id, email: 'x@x.test', name: 'X' } : base.userById(id)) };
+    const cfg = await mkdtemp(join(tmpdir(), 'vanguard-hub-push-cfg-'));
+    const h = createHubServer({ uiDir, configDir: cfg, browseRoot, bind: { isLoopback: true, allowAdd: false }, seedRepoPath: repo, deps: unimplementedDeps(), identity, pushUrl, pushIntervalMs: 50 });
+    try {
+      await savePaths(cfg, [repo]);
+      await registerPushToken(cfg, { token: 'ExponentPushToken[ghost]', platform: 'ios', userId: 'stale-owner', owner: true });
+      await registerPushToken(cfg, { token: 'ExponentPushToken[real]', platform: 'ios', userId: 'local-owner', owner: true });
+      await h.listen(0, '127.0.0.1');
+      await vi.waitFor(async () => expect(await readFile(join(cfg, 'push-notified.json'), 'utf8').catch(() => '')).not.toBe(''));
+      // A card that waits on a question appears after the first (record-only) pass.
+      await mkdir(join(repo, '.taskcell', 'runs', 'gh-27'), { recursive: true });
+      await writeFile(join(repo, '.taskcell', 'runs', 'gh-27', '2026-11-17T15-53-58-120Z-implementer.json'), JSON.stringify({ taskId: 'gh-27', timestamp: '2026-11-17T15:53:58.120Z', stage: 'implementer', turns: 1, durationMs: 1, worktreePath: '', worktreePreserved: false, completed: false, exitReason: 'incomplete', finalText: 'which file?' }));
+      await vi.waitFor(() => expect(bodies.length).toBeGreaterThan(0), { timeout: 5000 });
+      await new Promise((r) => setTimeout(r, 200));
+      expect(bodies.flat().map((m) => m.to)).toEqual(['ExponentPushToken[real]']);
+    } finally {
+      await h.close();
+      expo.close();
+      await rm(cfg, { recursive: true, force: true });
+    }
   });
 });
