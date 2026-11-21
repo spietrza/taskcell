@@ -49,3 +49,7 @@ eas submit -p ios            # uploads the build to App Store Connect / TestFlig
 Needs a paid Apple Developer Program account: device and distribution builds, signing, TestFlight and push (APNs). Simulator builds (`development`) and Expo Go do not.
 
 Secrets live in EAS, not in the repo: the signing certificate and provisioning profile (managed by EAS credentials), the APNs key, and the App Store Connect API key used by `eas submit`. The repo holds no credentials, Apple team ids or API keys; `eas credentials` and `eas submit` prompt for them, or read them from EAS secrets. Forks run `eas init` to get their own project id (see Push notifications).
+
+## Reaching a hub on your Mac
+
+From outside your home network, without a VPS: see [docs/mobile-remote.md](../../docs/mobile-remote.md) (Tailscale, Cloudflare Tunnel).

@@ -9,7 +9,6 @@ import { readRunEvents } from '../run-events.js';
 import { isSafeTaskId } from '../../core/state-path.js';
 import { listActive, readSession } from '../active.js';
 import * as projects from '../projects.js';
-import * as teams from '../teams.js';
 import * as remote from '../remote.js';
 import { taskRefKey } from '../../tasks/board.js';
 import type { ActiveRun, ConflictStats, RemoteImport, RemoteRun, RepoReadFailure, RepoStamp, RunDetail, RunSource, RunSummary, SessionRead } from '../../wire.js';
@@ -139,10 +138,10 @@ export const commands = defineCommands<RunsCommands>({
     const real = await allow(requireString(args, 'repoPath'));
     return listActive(real);
   },
-  read_session: async ({ ctx, args, roots }) => {
+  read_session: async ({ ctx, args, repos }) => {
     const sessionFile = requireString(args, 'sessionFile');
     const real = await ctx.allowlist.assertSessionPath(sessionFile);
-    teams.assertRepoInRoots(await roots(), real);
+    (await repos()).assert(real);
     return readSession(real);
   },
   conflict_stats: async ({ args, allow }) => readConflictStats(await allow(requireString(args, 'repoPath'))),

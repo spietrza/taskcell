@@ -9,7 +9,8 @@ import { join } from 'node:path';
 import { contentSecurityPolicy, serveStatic } from './static.js';
 import { EventBus } from './events.js';
 import { writeJson, jsonError } from './json-response.js';
-import { callerRepoRoots, repoInRoots, type Caller } from './teams.js';
+import { createCallerResolver, repoVisibility, type CallerResolver } from './callers.js';
+import type { Caller } from './teams.js';
 import { dispatchRpc, classifyError, type RpcContext } from './rpc.js';
 import { AuditLog, TOKEN_ACTOR, auditActorOf, reportAuditFailure, type Actor } from './audit.js';
 import { encodeError, encodeResult, HUB_EVENTS_SESSION_PATH, HUB_SIGN_IN_REQUIRED, HUB_TOKEN_HEADER, HUB_TOKEN_REJECTED } from '../hub-wire.js';
@@ -465,6 +466,7 @@ async function handleDevice(
 
 async function handleRequest(
   ctx: RpcContext,
+  callers: CallerResolver,
   eventBus: EventBus,
   opts: HubServerOptions,
   auth: HubAuth,
@@ -484,8 +486,7 @@ async function handleRequest(
   const tokenValid = tokenOk(offeredToken, auth.token);
   // The token (CLI, scripts) maps to the owner; otherwise the Better Auth session (server mode only).
   // A mobile member session (device flow) rides the same header: it is a session, never the owner.
-  const resolveUser = async (): Promise<HubUser | undefined> =>
-    tokenValid ? identity.owner : ((await identity.sessionUser(req)) ?? (offeredToken ? identity.deviceSessionUser(offeredToken) : undefined));
+  const resolveUser = (): Promise<HubUser | undefined> => callers.userOf(req, offeredToken, tokenValid);
   // A wrong token is audited (throttled) and is "token dead"; a server-mode request that offered none
   // is a sign-in prompt, not a refusal.
   const unauthorized = async (): Promise<void> => {
@@ -563,12 +564,12 @@ async function handleRequest(
     // (and the events cookie they buy) see everything.
     let visible: ((data: unknown) => boolean) | undefined;
     if (user !== undefined && !tokenValid) {
-      const roots = await callerRepoRoots(ctx.configDir, { user, owner: false, hubAdmin: ctx.userCredentials?.isAdmin(user) === true });
+      const repos = await repoVisibility(ctx.configDir, callers.ofRequest(user, false));
       visible = (data) => {
         // A clone's progress names no repository yet: it goes to whoever started it.
         if ((data as { cloneBy?: unknown } | null)?.cloneBy === user.id) return true;
         const p = eventRepoPath(data, runRepos);
-        return p !== undefined && repoInRoots(roots, p);
+        return p !== undefined && repos.has(p);
       };
     }
     eventBus.subscribe(req, res, visible);
@@ -582,7 +583,7 @@ async function handleRequest(
     if (user === undefined) return unauthorized();
     // The caller's identity rides on a per-request context: credential RPCs act on THIS user only. The
     // token holder is the owner (admin of every team); a session user is limited to their teams.
-    await handleRpcRequest({ ...ctx, user, actor: actorOf(user) }, req, res, pathname.slice('/rpc/'.length), { user, owner: tokenValid, hubAdmin: !tokenValid && ctx.userCredentials?.isAdmin(user) === true });
+    await handleRpcRequest({ ...ctx, user, actor: actorOf(user) }, req, res, pathname.slice('/rpc/'.length), callers.ofRequest(user, tokenValid));
     return;
   }
 
@@ -622,20 +623,6 @@ function recordRunRepo(runRepos: Map<string, string>, payload: unknown): void {
   if (typeof run?.runId !== 'string' || typeof run.event?.repoPath !== 'string' || runRepos.has(run.runId)) return;
   runRepos.set(run.runId, run.event.repoPath);
   if (runRepos.size > MAX_RUN_REPOS) runRepos.delete(runRepos.keys().next().value as string);
-}
-
-/**
- * The stored owner of a hub task is a snapshot: the user is re-read by id (current e-mail, verification and logins), and
- * the owner (token) flag holds only for the identity's owner user, so a stored `owner: true` stops counting once that id
- * is no longer the owner (a local/server mode switch, a recreated auth.sqlite).
- */
-export function callerRechecker(identity: Pick<HubIdentity, 'owner' | 'userById'>, credentials: { isAdmin(user: HubUser | undefined): boolean }): (c: Caller) => Promise<Caller | undefined> {
-  return async (c) => {
-    const user = await identity.userById(c.user.id);
-    if (user === undefined) return undefined;
-    const owner = c.owner && user.id === identity.owner.id;
-    return { user, owner, hubAdmin: !owner && credentials.isAdmin(user) };
-  };
 }
 
 /** Build (but do not start) the hub's HTTP server. `listen`/`close` drive its lifecycle. */
@@ -696,36 +683,36 @@ export function createHubServer(opts: HubServerOptions): HubServer {
   const scheduler = schedulerState();
   const workerMemory = localWorkerMemory();
   // The Local hub switch (src/hub/local-worker.ts): an explicit off stops a board's pick-ups; the GitHub-issue half runs in the same tick.
-  const recheckCaller = callerRechecker(identity, userCredentials);
+  const callers = createCallerResolver(identity, userCredentials);
   const sweepHubTasks = async (): Promise<void> => {
     await sweepHubBoards({
       ...ctx,
       scheduler,
       served: (p) => boardServed(opts.configDir, p),
       picked: (p, ids) => recordBoardPickup(opts.configDir, p, ids),
-      recheckCaller,
+      recheckCaller: callers.recheck,
     });
     await sweepLocalWorkers({ configDir: opts.configDir, runSession, allowlist, userCredentials, memory: workerMemory });
   };
   const sweeper = setInterval(() => void sweepHubTasks().catch((e: unknown) => console.error(`vanguard-hub: scheduler: ${(e as Error).message}`)), SCHEDULER_INTERVAL_MS);
   sweeper.unref();
   // Push notifications: one pass a minute, a no-op until a phone registers a token (src/hub/push.ts).
-  const ownerCaller: Caller = { user: identity.owner, owner: true };
   const pushAccessToken = readEnv('TASKCELL_EXPO_PUSH_TOKEN');
-  const pusher = setInterval(() => void notifyNewItems({
+  let pushing: Promise<void> = Promise.resolve();
+  const pusher = setInterval(() => void (pushing = notifyNewItems({
     configDir: opts.configDir,
-    listWaiting: async () => ((await dispatchRpc(ctx, 'list_needs_you_all', {}, ownerCaller)) as { items: WaitingItem[] }).items,
+    listWaiting: async () => ((await dispatchRpc(ctx, 'list_needs_you_all', {}, callers.owner())) as { items: WaitingItem[] }).items,
     // Every registration goes through the recheck: a stored owner flag stops counting after a mode switch or a new auth.sqlite.
-    callerOf: (reg) => recheckCaller({ user: { id: reg.userId, email: '', name: '' }, owner: reg.owner }),
+    callerOf: callers.ofRegistration,
     ...(opts.pushUrl !== undefined ? { url: opts.pushUrl } : {}),
     ...(pushAccessToken ? { accessToken: pushAccessToken } : {}),
-  }).catch((e: unknown) => console.error(`vanguard-hub: push: ${(e as Error).message}`)), opts.pushIntervalMs ?? PUSH_INTERVAL_MS);
+  }).then(() => undefined, (e: unknown) => console.error(`vanguard-hub: push: ${(e as Error).message}`))), opts.pushIntervalMs ?? PUSH_INTERVAL_MS);
   pusher.unref();
   // No run survives a restart: a task stored as running is marked failed before the first request is served.
   const reconciled = reconcileHubBoards(opts.configDir).catch((e: unknown) => console.error(`vanguard-hub: scheduler: ${(e as Error).message}`));
 
   const server = createServer((req, res) => {
-    void handleRequest(ctx, eventBus, opts, auth, identity, runRepos, req, res).catch(() => {
+    void handleRequest(ctx, callers, eventBus, opts, auth, identity, runRepos, req, res).catch(() => {
       if (res.headersSent) res.destroy();
       else jsonError(res, 500, 'internal server error', 'internal');
     });
@@ -753,9 +740,13 @@ export function createHubServer(opts: HubServerOptions): HubServer {
         spawnRegistry?.killAll();
         eventBus.close();
         server.closeAllConnections();
+        // An in-flight push pass writes into configDir and rechecks callers against the identity: let it finish
+        // before the identity closes and the hub reports closed.
         server.close(() => {
-          identity.close();
-          resolve();
+          void pushing.then(() => {
+            identity.close();
+            resolve();
+          });
         });
       }),
   };

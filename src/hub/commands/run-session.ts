@@ -1,7 +1,6 @@
 // Hub commands: starting, queueing and cancelling runs. One module per feature — contract, validation and handler live here;
 // `pnpm gen:wire` derives Commands, COMMAND_NAMES and dispatch from it (see CONTRIBUTING.md).
 import { invokeCoreMethod, validateCoreMethod, type CreateRunParams as CoreCreateRunParams } from '../../sidecar/sidecar.js';
-import * as teams from '../teams.js';
 import { auditActorOf, reportAuditFailure, type AuditAction, type AuditOutcome } from '../audit.js';
 import type { Capabilities, CreateRunParams, CreateRunResult } from '../../wire.js';
 import { defineCommands, requireString, optionalString, actorOf, outcomeOf } from '../command-kit.js';
@@ -60,18 +59,18 @@ export const commands = defineCommands<RunSessionCommands>({
       throw err;
     }
   },
-  api_active_run: async ({ ctx, roots }) => {
+  api_active_run: async ({ ctx, repos }) => {
     const active = ctx.runSession.activeRun();
-    return active !== null && teams.repoInRoots(await roots(), active.repoPath) ? active : null;
+    return active !== null && (await repos()).has(active.repoPath) ? active : null;
   },
   api_run_backlog: async ({ ctx, args, assertRunVisible }) => {
     const runId = requireString(args, 'runId');
     await assertRunVisible(runId, false);
     return ctx.runSession.backlog(runId);
   },
-  api_queue: async ({ ctx, roots }) => {
-    const visible = await roots();
-    return ctx.runSession.queued().filter((q) => teams.repoInRoots(visible, q.repoPath));
+  api_queue: async ({ ctx, repos }) => {
+    const visible = await repos();
+    return ctx.runSession.queued().filter((q) => visible.has(q.repoPath));
   },
   api_cancel: async ({ ctx, args, assertRunVisible }) => {
     // Required on the hub: with a queue, an id-less "cancel the active run" can hit another

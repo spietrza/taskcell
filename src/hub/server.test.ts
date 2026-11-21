@@ -7,7 +7,9 @@ import { request } from 'node:http';
 import { PassThrough } from 'node:stream';
 import type { ChildProcess } from 'node:child_process';
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
-import { callerRechecker, createHubServer, eventRepoPath, MAX_RPC_BODY_BYTES, type HubServer } from './server.js';
+import { callerRechecker } from './callers.js';
+import { createHubServer, eventRepoPath, MAX_RPC_BODY_BYTES, type HubServer } from './server.js';
+import { savePaths } from './projects.js';
 import { listRunSummaries, defaultRunsRoot } from './runs.js';
 import { MAX_CONCURRENT_COMPLETES } from './complete.js';
 import { localOnlyIdentity } from './auth.js';
@@ -86,16 +88,16 @@ test('uses a fixed token when given one, instead of minting per launch', () => {
 });
 
 /** `fetch` rewrites the `Host` header from the URL; node:http sends the one it is handed verbatim. */
-function withHost(path: string, host: string): Promise<{ status: number; body: string }> {
+function withHost(path: string, host: string, init: { method?: string; headers?: Record<string, string>; payload?: string } = {}): Promise<{ status: number; body: string }> {
   return new Promise((resolve, reject) => {
-    const req = request(baseUrl + path, { headers: { host } }, (res) => {
+    const req = request(baseUrl + path, { method: init.method, headers: { host, ...init.headers } }, (res) => {
       let body = '';
       res.setEncoding('utf8');
       res.on('data', (chunk: string) => { body += chunk; });
       res.on('end', () => resolve({ status: res.statusCode!, body }));
     });
     req.on('error', reject);
-    req.end();
+    req.end(init.payload);
   });
 }
 
@@ -108,6 +110,19 @@ describe('hub server', () => {
     }
     expect((await withHost('/', 'hub.example')).status).toBe(200);
     expect((await withHost('/', 'hub.example:1234')).status).toBe(403);
+  });
+
+  test('a tunnel Host with the matching https Origin is accepted only when allowed (--allowed-host)', async () => {
+    const rpc = (host: string, origin = `https://${host}`): Promise<{ status: number; body: string }> => withHost('/rpc/list_runs', host, {
+      method: 'POST',
+      headers: { origin, 'content-type': 'application/json', 'x-vanguard-hub-token': hub.token },
+      payload: JSON.stringify({ repoPath: repo }),
+    });
+    expect((await rpc('hub.example')).status).toBe(200);
+    const wrongOrigin = await rpc('hub.example', 'https://evil.example');
+    expect(wrongOrigin.status).toBe(400);
+    expect(wrongOrigin.body).toContain('cross-origin');
+    expect((await rpc('other.trycloudflare.com')).status).toBe(403);
   });
 
   test('an IP-literal or localhost Host needs no --allowed-host on any port (DNS rebinding cannot make one)', async () => {
@@ -520,5 +535,45 @@ describe('eventRepoPath', () => {
     expect(eventRepoPath({ runId: 'r1', event: { type: 'log' } }, runs)).toBe('/a');
     expect(eventRepoPath({ runId: 'r2', event: { type: 'log' } }, runs)).toBeUndefined();
     expect(eventRepoPath({ line: 'x' }, runs)).toBeUndefined();
+  });
+});
+
+describe('push wiring', () => {
+  test('a stored owner: true under an id that is not the identity owner receives no push; the real owner does', async () => {
+    const { createServer } = await import('node:http');
+    const { registerPushToken } = await import('./push.js');
+    const bodies: { to: string }[][] = [];
+    const expo = createServer((rq, rs) => {
+      let b = '';
+      rq.on('data', (c) => (b += c));
+      rq.on('end', () => {
+        bodies.push(JSON.parse(b) as { to: string }[]);
+        rs.writeHead(200, { 'content-type': 'application/json' });
+        rs.end('{}');
+      });
+    });
+    await new Promise<void>((r) => expo.listen(0, '127.0.0.1', r));
+    const pushUrl = `http://127.0.0.1:${(expo.address() as AddressInfo).port}`;
+    const base = localOnlyIdentity();
+    const identity = { ...base, userById: async (id: string) => (id === 'stale-owner' ? { id, email: 'x@x.test', name: 'X' } : base.userById(id)) };
+    const cfg = await mkdtemp(join(tmpdir(), 'vanguard-hub-push-cfg-'));
+    const h = createHubServer({ uiDir, configDir: cfg, browseRoot, bind: { isLoopback: true, allowAdd: false }, seedRepoPath: repo, deps: unimplementedDeps(), identity, pushUrl, pushIntervalMs: 50 });
+    try {
+      await savePaths(cfg, [repo]);
+      await registerPushToken(cfg, { token: 'ExponentPushToken[ghost]', platform: 'ios', userId: 'stale-owner', owner: true });
+      await registerPushToken(cfg, { token: 'ExponentPushToken[real]', platform: 'ios', userId: 'local-owner', owner: true });
+      await h.listen(0, '127.0.0.1');
+      await vi.waitFor(async () => expect(await readFile(join(cfg, 'push-notified.json'), 'utf8').catch(() => '')).not.toBe(''));
+      // A card that waits on a question appears after the first (record-only) pass.
+      await mkdir(join(repo, '.taskcell', 'runs', 'gh-27'), { recursive: true });
+      await writeFile(join(repo, '.taskcell', 'runs', 'gh-27', '2026-11-17T15-53-58-120Z-implementer.json'), JSON.stringify({ taskId: 'gh-27', timestamp: '2026-11-17T15:53:58.120Z', stage: 'implementer', turns: 1, durationMs: 1, worktreePath: '', worktreePreserved: false, completed: false, exitReason: 'incomplete', finalText: 'which file?' }));
+      await vi.waitFor(() => expect(bodies.length).toBeGreaterThan(0), { timeout: 5000 });
+      await new Promise((r) => setTimeout(r, 200));
+      expect(bodies.flat().map((m) => m.to)).toEqual(['ExponentPushToken[real]']);
+    } finally {
+      await h.close();
+      expo.close();
+      await rm(cfg, { recursive: true, force: true });
+    }
   });
 });

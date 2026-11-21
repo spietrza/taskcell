@@ -3,12 +3,13 @@
 // dir. The payload is a title ("<kind>: <title>"), the repository and the item's id — never a credential, a token
 // or diff text. See docs/hub.md "Push notifications".
 import { randomUUID } from 'node:crypto';
-import { mkdir, readFile, realpath, rename, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, rename, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { BadRequestError } from '../sidecar/sidecar.js';
 import { redactForPublish } from '../core/secret-scan.js';
 import type { NeedsYouItem, RepoStamp } from '../wire.js';
-import { callerRepoRoots, repoInRoots, type Caller } from './teams.js';
+import { repoVisibility, type RepoVisibility } from './callers.js';
+import type { Caller } from './teams.js';
 
 export const PUSH_PLATFORMS = ['ios', 'android'] as const;
 export type PushPlatform = (typeof PUSH_PLATFORMS)[number];
@@ -145,17 +146,16 @@ export async function notifyNewItems(deps: NotifierDeps): Promise<number> {
     await writeJson(notifiedFile(deps.configDir), [...seen, ...fresh.map(itemKey)].slice(-MAX_NOTIFIED));
     if (stored === undefined) return 0;
 
-    const roots = new Map<string, string[] | undefined>();
+    const visible = new Map<string, RepoVisibility | undefined>();
     const messages: Record<string, unknown>[] = [];
     for (const reg of regs) {
-      if (!roots.has(reg.userId)) {
+      if (!visible.has(reg.userId)) {
         const caller = await deps.callerOf(reg);
-        roots.set(reg.userId, caller === undefined ? [] : await callerRepoRoots(deps.configDir, caller));
+        visible.set(reg.userId, caller === undefined ? undefined : await repoVisibility(deps.configDir, caller));
       }
-      const mine = roots.get(reg.userId);
+      const mine = visible.get(reg.userId);
       for (const item of fresh) {
-        const path = item.repoPath === undefined ? undefined : await realpath(item.repoPath).catch(() => item.repoPath);
-        if (repoInRoots(mine, path ?? '') || (item.repoPath !== undefined && repoInRoots(mine, item.repoPath))) messages.push(pushMessage(reg.token, item));
+        if (mine !== undefined && (await mine.hasResolved(item.repoPath ?? ''))) messages.push(pushMessage(reg.token, item));
       }
     }
     return await send(deps, messages);
