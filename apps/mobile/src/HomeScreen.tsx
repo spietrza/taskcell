@@ -58,6 +58,7 @@ export function HomeScreen({ openItem }: {
       {open ? (
         <ItemSheet
           row={open}
+          gone={state.status === 'ready' && !state.rows.some((r) => r.id === open.id)}
           onClose={() => setOpen(null)}
           onDone={(text) => {
             setOpen(null);

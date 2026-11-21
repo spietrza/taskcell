@@ -1,6 +1,6 @@
 {
   "name": "taskcell-mobile",
-  "version": "0.0.0",
+  "version": "1.16.10",
   "private": true,
   "main": "expo-router/entry",
   "scripts": {
@@ -10,6 +10,7 @@
     "test": "jest"
   },
   "jest": {
+    "restoreMocks": true,
     "testTimeout": 20000,
     "preset": "jest-expo",
     "resolver": "<rootDir>/jest.resolver.js"

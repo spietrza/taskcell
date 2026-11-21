@@ -266,3 +266,12 @@ function HomeScreen({ credentials, fetchImpl, ...props }: { credentials: Credent
     </HubProvider>
   );
 }
+
+test('a skipped oversized frame that is not vanguard:changed triggers no reload', async () => {
+  const hub = streamingHub();
+  await renderHome(<HomeScreen credentials={creds} fetchImpl={hub.fetchImpl} />);
+  await screen.findByText('Add login');
+  hub.emit(`event: run-update\ndata: "${'x'.repeat(1024 * 1024 + 10)}"\n\n`);
+  await new Promise((r) => setTimeout(r, 200));
+  expect(hub.reads()).toBe(1);
+});

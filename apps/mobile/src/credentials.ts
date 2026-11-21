@@ -39,5 +39,16 @@ export async function saveCredentials({ url, token, kind, name }: Credentials): 
 export async function clearCredentials(): Promise<void> {
   // The token first: once it is gone the leftover URL alone is no credential, so a failed URL delete still ends disconnected.
   await SecureStore.deleteItemAsync(TOKEN_KEY);
-  await Promise.all([URL_KEY, KIND_KEY, NAME_KEY].map((k) => SecureStore.deleteItemAsync(k).catch(() => undefined)));
+  await Promise.all([URL_KEY, KIND_KEY, NAME_KEY].map(deleteQuietly));
+}
+
+/** A failed delete is logged (the key name only, never a value) and retried once; it never rejects. */
+async function deleteQuietly(key: string): Promise<void> {
+  for (let attempt = 1; attempt <= 2; attempt++) {
+    try {
+      return await SecureStore.deleteItemAsync(key);
+    } catch (err) {
+      console.warn(`Could not delete ${key} from the keychain (attempt ${attempt}): ${err instanceof Error ? err.message : 'unknown error'}`);
+    }
+  }
 }

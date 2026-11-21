@@ -23,8 +23,10 @@ async function confirmMerge(title: string): Promise<boolean> {
   );
 }
 
-export function ItemSheet({ row, onClose, onDone }: {
+export function ItemSheet({ row, gone = false, onClose, onDone }: {
   row: Row;
+  /** A reload no longer lists this item (merged, answered elsewhere): the actions are off. */
+  gone?: boolean;
   onClose: () => void;
   /** The action succeeded: the parent reloads and shows `message`. */
   onDone: (message: string) => void;
@@ -38,13 +40,13 @@ export function ItemSheet({ row, onClose, onDone }: {
   const [error, setError] = useState<string | null>(null);
   const caps = useCapabilities(item.repoPath);
   // Null caps (unread) leaves each action open: the hub still refuses what the caller may not do.
-  const canMerge = row.kind === 'PR ready' && item.kind === 'pr' && !item.mergeBlocked && caps?.canMerge.allowed !== false;
-  const replyAllowed = caps?.canReply.allowed !== false;
+  const canMerge = !gone && row.kind === 'PR ready' && item.kind === 'pr' && !item.mergeBlocked && caps?.canMerge.allowed !== false;
+  const replyAllowed = !gone && caps?.canReply.allowed !== false;
   const canReply = replyAllowed && (row.kind === 'Question' || row.kind === 'Too vague' || row.kind === 'Changes requested');
   // The desktop's "Ask for changes" is `reply_needs_you` on the PR: the hub comments and sets `needs revision`.
   const canRequest = replyAllowed && row.kind === 'PR ready' && item.kind === 'pr';
   // A hub card is listed only while its run failed (src/hub/asking.ts), so it can be retried as well as answered.
-  const rerunRepo = item.kind === 'card' && canRerun(item.id, 'failed') ? item.repoPath : undefined;
+  const rerunRepo = !gone && item.kind === 'card' && canRerun(item.id, 'failed') ? item.repoPath : undefined;
 
   const run = async (act: () => Promise<void>, done: string): Promise<void> => {
     if (inFlight.current) return;
@@ -101,6 +103,7 @@ export function ItemSheet({ row, onClose, onDone }: {
             style={[styles.input, { color: theme.foreground, borderColor: theme.border }]}
           />
         ) : null}
+        {gone ? <Text style={{ color: theme.destructive }}>This item is no longer waiting for you.</Text> : null}
         {error ? <Text accessibilityRole="alert" style={{ color: theme.destructive }}>{error}</Text> : null}
         {busy ? <ActivityIndicator /> : null}
         {canMerge ? button('Merge', merge) : null}
