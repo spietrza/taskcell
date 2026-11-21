@@ -1,6 +1,6 @@
 {
   "name": "taskcell-mobile",
-  "version": "1.16.10",
+  "version": "1.17.0",
   "private": true,
   "main": "expo-router/entry",
   "scripts": {
