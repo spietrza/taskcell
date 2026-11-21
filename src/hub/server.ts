@@ -740,10 +740,13 @@ export function createHubServer(opts: HubServerOptions): HubServer {
         spawnRegistry?.killAll();
         eventBus.close();
         server.closeAllConnections();
-        // An in-flight push pass writes into configDir: let it finish before the hub reports closed.
+        // An in-flight push pass writes into configDir and rechecks callers against the identity: let it finish
+        // before the identity closes and the hub reports closed.
         server.close(() => {
-          identity.close();
-          void pushing.then(resolve);
+          void pushing.then(() => {
+            identity.close();
+            resolve();
+          });
         });
       }),
   };

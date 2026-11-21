@@ -1,7 +1,7 @@
 import { realpath } from 'node:fs/promises';
 import type { IncomingMessage } from 'node:http';
 import type { HubIdentity, HubUser } from './auth.js';
-import { callerRepoRoots, repoInRoots, type Caller } from './teams.js';
+import { assertRepoInRoots, callerRepoRoots, repoInRoots, type Caller } from './teams.js';
 
 /** Whether a caller may see a repository path; the team roots are realpath'd once, when this is built. */
 export interface RepoVisibility {
@@ -9,6 +9,8 @@ export interface RepoVisibility {
   has(path: string): boolean;
   /** For a path that may be a symlink or relative to one: realpath'd first, the raw path also accepted. */
   hasResolved(path: string): Promise<boolean>;
+  /** Refuse (ForbiddenError) a path already in the stored form that none of the caller's teams holds. */
+  assert(path: string): void;
 }
 
 export async function repoVisibility(configDir: string, caller: Caller): Promise<RepoVisibility> {
@@ -16,6 +18,7 @@ export async function repoVisibility(configDir: string, caller: Caller): Promise
   return {
     has: (path) => repoInRoots(roots, path),
     hasResolved: async (path) => repoInRoots(roots, await realpath(path).catch(() => path)) || repoInRoots(roots, path),
+    assert: (path) => assertRepoInRoots(roots, path),
   };
 }
 

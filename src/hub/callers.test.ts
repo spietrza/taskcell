@@ -32,6 +32,18 @@ describe('request resolution', () => {
     expect(await r.userOf(req, 'dev', false)).toBe(ann);
   });
 
+  it('with no session, an offered device token resolves its user; an unknown one or none is no user', async () => {
+    const r = createCallerResolver(
+      { owner: ownerUser, userById: async (id) => users.get(id), sessionUser: async () => undefined, deviceSessionUser: async (t) => (t === 'dev' ? ann : undefined) },
+      { isAdmin: () => false },
+    );
+    const user = await r.userOf(req, 'dev', false);
+    expect(user).toBe(ann);
+    expect(r.ofRequest(user!, false)).toEqual({ user: ann, owner: false, hubAdmin: false });
+    expect(await r.userOf(req, 'nope', false)).toBeUndefined();
+    expect(await r.userOf(req, undefined, false)).toBeUndefined();
+  });
+
   it('a session hub admin is a hub admin, not the owner', async () => {
     expect(resolver(ownerUser, ['ann']).ofRequest(ann, false)).toEqual({ user: ann, owner: false, hubAdmin: true });
   });
@@ -71,6 +83,8 @@ describe('repoVisibility', () => {
     expect(v.has(outside)).toBe(false);
     expect(await v.hasResolved(outside)).toBe(false);
     expect(await v.hasResolved(join(inside, 'sub'))).toBe(true);
+    expect(() => v.assert(outside)).toThrow(/not in any of your teams/);
+    expect(() => v.assert(inside)).not.toThrow();
   });
 
   it('the owner sees everything', async () => {
