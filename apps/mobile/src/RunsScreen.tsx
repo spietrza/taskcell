@@ -134,6 +134,7 @@ function RunDetailView({ credentials, row, fetchImpl, onBack }: { credentials: C
       <Text style={[styles.heading, { color: theme.foreground, paddingHorizontal: 0 }]}>{row.title}</Text>
       <Text style={{ color: theme.mutedForeground }}>Repository: {row.repo || 'unknown'}</Text>
       <Text style={{ color: theme.foreground }}>Status: {row.active ? (live ? 'running' : 'ended') : row.status}</Text>
+      {row.issueUrl ? link('Open issue', row.issueUrl) : null}
       {error ? (
         <Text accessibilityRole="alert" style={{ color: theme.destructive }}>
           Could not read the run: {error}

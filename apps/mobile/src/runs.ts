@@ -7,6 +7,8 @@ import { ageOf } from './needsYou';
 
 /** The most transcript lines the run view holds; older ones are dropped as new ones arrive. */
 export const MAX_LINES = 50;
+/** Events per `read_run_events` page: the hub's MAX_EVENTS_LIMIT, so a long backlog takes few reads; only its tail is kept. */
+const EVENTS_PAGE = 2000;
 
 export interface RunRow {
   id: string;
@@ -22,6 +24,10 @@ export interface RunRow {
   age: string;
   /** The run record's time (finished runs); '' for an active one. */
   timestamp: string;
+  /** The task's issue page (https only), or null when the board has none. */
+  issueUrl: string | null;
+  /** An active run's last session activity (ms): a log whose run ended before it is an older run's. */
+  activeSince?: number;
   summary?: RunSummary;
 }
 
@@ -40,14 +46,16 @@ const costOf = (r: RunSummary): string => (r.costUnknown ? 'cost unknown' : `$${
 /** Active runs first (every project's `list_active`), then recent runs newest first (`list_runs_all`). */
 export async function loadRuns(c: Credentials, fetchImpl?: typeof fetch, now: number = Date.now()): Promise<RunsData> {
   const client = hubClient(c, fetchImpl);
-  const [{ runs }, projects, titles] = await Promise.all([
+  const [{ runs }, projects, tasks] = await Promise.all([
     client.call('list_runs_all'),
     client.call('list_projects').catch(() => []),
     client.call('list_tasks_all').then(
-      (r) => new Map(r.tasks.map((t) => [`${t.repoPath}|${t.id}`, t.title] as const)),
-      () => new Map<string, string>(),
+      (r) => new Map(r.tasks.map((t) => [`${t.repoPath}|${t.id}`, { title: t.title, issueUrl: https(t.url) }] as const)),
+      () => new Map<string, Pick<RunRow, 'title' | 'issueUrl'>>(),
     ),
   ]);
+  const taskOf = (repoPath: string, taskId: string): Pick<RunRow, 'title' | 'issueUrl'> =>
+    tasks.get(`${repoPath}|${taskId}`) ?? { title: taskId, issueUrl: null };
   const actives = await Promise.all(
     projects.map((p) =>
       client.call('list_active', { repoPath: p.path }).then(
@@ -55,13 +63,14 @@ export async function loadRuns(c: Credentials, fetchImpl?: typeof fetch, now: nu
           id: `active|${p.path}|${a.taskId}`,
           taskId: a.taskId,
           repoPath: p.path,
-          title: titles.get(`${p.path}|${a.taskId}`) ?? a.taskId,
+          ...taskOf(p.path, a.taskId),
           repo: p.name,
           status: 'running',
           active: true,
           cost: '',
           age: ageOf(new Date(a.lastActivityMs).toISOString(), now),
           timestamp: '',
+          activeSince: a.lastActivityMs,
         })),
         () => [] as RunRow[],
       ),
@@ -73,7 +82,7 @@ export async function loadRuns(c: Credentials, fetchImpl?: typeof fetch, now: nu
       id: `${r.repoPath}|${r.taskId}|${r.timestamp}`,
       taskId: r.taskId,
       repoPath: r.repoPath,
-      title: titles.get(`${r.repoPath}|${r.taskId}`) ?? r.taskId,
+      ...taskOf(r.repoPath, r.taskId),
       repo: r.repoName,
       status: runStateWord(r),
       active: false,
@@ -131,6 +140,11 @@ const text = (v: unknown): string => (typeof v === 'string' ? v : JSON.stringify
 
 const innerEvent = (e: LoggedEvent): { type?: string } | undefined => (e.data as { event?: { type?: string } } | null)?.event;
 
+const runIdOf = (data: unknown): string | undefined => {
+  const id = (data as { runId?: unknown } | null)?.runId;
+  return typeof id === 'string' ? id : undefined;
+};
+
 /** One event-log entry as a transcript line. */
 export function eventLine(e: LoggedEvent): string {
   const inner = innerEvent(e);
@@ -144,13 +158,15 @@ const isTerminal = (e: LoggedEvent): boolean =>
   TERMINAL.has(e.event) || TERMINAL.has(innerEvent(e)?.type ?? '');
 
 /**
- * Follow an active run's event log: each `/events` frame reads what the log gained since the last read.
+ * Follow an active run's event log: each `/events` frame for this run (its repository's `vanguard:changed`, or an
+ * `api:event` of its run) reads what the log gained since the last read.
  * `onLines` gets the whole bounded tail (at most MAX_LINES); `onEnd` fires once when the run ends, after which
- * the stream is closed and nothing more is read. Returns a function that stops it.
+ * the stream is closed and nothing more is read. A log that ended before `activeSince` is an older run's (the active
+ * run's own log is not written yet): it is ignored and read again from the start next time. Returns a function that stops it.
  */
 export function followRun(
   c: Credentials,
-  row: Pick<RunRow, 'repoPath' | 'taskId'>,
+  row: Pick<RunRow, 'repoPath' | 'taskId' | 'activeSince'>,
   handlers: { onLines: (lines: string[]) => void; onEnd: () => void; onError: (message: string) => void },
   fetchImpl?: typeof fetch,
 ): () => void {
@@ -160,6 +176,7 @@ export function followRun(
   let stopped = false;
   let busy = false;
   let again = false;
+  const runIds = new Set<string>();
   let closeStream: (() => void) | undefined;
 
   const stop = (): void => {
@@ -177,15 +194,26 @@ export function followRun(
         again = false;
         let more = true;
         while (more && !stopped) {
-          const r = await client.call('read_run_events', { repoPath: row.repoPath, taskId: row.taskId, after, limit: MAX_LINES });
+          const r = await client.call('read_run_events', { repoPath: row.repoPath, taskId: row.taskId, after, limit: EVENTS_PAGE });
           if (stopped) return;
+          const end = r.events.find(isTerminal);
+          if (end && row.activeSince !== undefined && Date.parse(end.ts) < row.activeSince) {
+            // An older run's log: drop what it showed and start over, so the active run's log is read from its first event.
+            after = 0;
+            if (lines.length > 0) handlers.onLines((lines = []));
+            break;
+          }
           after = r.nextAfter;
           more = r.hasMore;
+          for (const e of r.events) {
+            const id = runIdOf(e.data);
+            if (id !== undefined) runIds.add(id);
+          }
           if (r.events.length > 0) {
-            lines = [...lines, ...r.events.map(eventLine)].slice(-MAX_LINES);
+            lines = [...lines, ...r.events.slice(-MAX_LINES).map(eventLine)].slice(-MAX_LINES);
             handlers.onLines(lines);
           }
-          if (r.events.some(isTerminal)) {
+          if (end) {
             stop();
             handlers.onEnd();
             return;
@@ -199,9 +227,20 @@ export function followRun(
     }
   };
 
+  /** An `api:event` of this run: one whose runId its log named, or its `run-start` (which names the task). */
+  const isThisRun = (payload: unknown): boolean => {
+    const id = runIdOf(payload);
+    if (id === undefined) return false;
+    const inner = (payload as { event?: { type?: unknown; taskId?: unknown } }).event;
+    if (inner?.type === 'run-start' && inner.taskId === row.taskId) runIds.add(id);
+    return runIds.has(id);
+  };
+
   closeStream = client.subscribe({
     onOpen: () => void read(),
-    onEvent: () => void read(),
+    onEvent: (name, payload) => {
+      if (name === 'vanguard:changed' ? payload === row.repoPath : name === 'api:event' && isThisRun(payload)) void read();
+    },
     onReset: () => void read(),
     onError: (message, detail) => {
       if (!stopped && !detail?.streamOpen) handlers.onError(message);
