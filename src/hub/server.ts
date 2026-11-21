@@ -22,6 +22,7 @@ import { reconcileHubBoards, schedulerState, sweepHubBoards } from './task-sched
 import { createRunSession } from './run-session.js';
 import { CompleteBusyError, CompleteRegistry, type SpawnComplete } from './complete.js';
 import { loadPaths } from './projects.js';
+import { notifyNewItems, type WaitingItem } from './push.js';
 import { SpawnRegistry } from './spawn.js';
 import { productionDeps } from '../sidecar/deps.js';
 import type { SidecarDeps } from '../sidecar/sidecar.js';
@@ -30,6 +31,7 @@ import { esc, localOnlyIdentity, SIGNUP_REFUSED_MESSAGE, signInPage, type HubIde
 
 /** How often the hub-board scheduler looks for tasks that may start. */
 const SCHEDULER_INTERVAL_MS = 15_000;
+const PUSH_INTERVAL_MS = 60_000;
 
 /**
  * `write_draft_asset` ships an image's bytes as a JSON array of numbers (comma-separated decimal —
@@ -50,6 +52,9 @@ export interface HubServerOptions {
   /** The `--repo` seed, always allowed even before it reaches the persisted project store. */
   seedRepoPath?: string;
   watch?: WatchOptions;
+  /** Expo push endpoint and pass interval; the real endpoint and a minute by default (tests point them at a fake). */
+  pushUrl?: string;
+  pushIntervalMs?: number;
   deps?: SidecarDeps;
   spawnComplete?: SpawnComplete;
   /** Extra permitted `Host` header values (`host[:port]`, exact match, case-insensitive) beyond the
@@ -704,6 +709,17 @@ export function createHubServer(opts: HubServerOptions): HubServer {
   };
   const sweeper = setInterval(() => void sweepHubTasks().catch((e: unknown) => console.error(`vanguard-hub: scheduler: ${(e as Error).message}`)), SCHEDULER_INTERVAL_MS);
   sweeper.unref();
+  // Push notifications: one pass a minute, a no-op until a phone registers a token (src/hub/push.ts).
+  const ownerCaller: Caller = { user: identity.owner, owner: true };
+  const pushAccessToken = readEnv('TASKCELL_EXPO_PUSH_TOKEN');
+  const pusher = setInterval(() => void notifyNewItems({
+    configDir: opts.configDir,
+    listWaiting: async () => ((await dispatchRpc(ctx, 'list_needs_you_all', {}, ownerCaller)) as { items: WaitingItem[] }).items,
+    callerOf: async (reg) => (reg.owner ? ownerCaller : recheckCaller({ user: { id: reg.userId, email: '', name: '' }, owner: false })),
+    ...(opts.pushUrl !== undefined ? { url: opts.pushUrl } : {}),
+    ...(pushAccessToken ? { accessToken: pushAccessToken } : {}),
+  }).catch((e: unknown) => console.error(`vanguard-hub: push: ${(e as Error).message}`)), opts.pushIntervalMs ?? PUSH_INTERVAL_MS);
+  pusher.unref();
   // No run survives a restart: a task stored as running is marked failed before the first request is served.
   const reconciled = reconcileHubBoards(opts.configDir).catch((e: unknown) => console.error(`vanguard-hub: scheduler: ${(e as Error).message}`));
 
@@ -731,6 +747,7 @@ export function createHubServer(opts: HubServerOptions): HubServer {
     close: () =>
       new Promise<void>((resolve) => {
         clearInterval(sweeper);
+        clearInterval(pusher);
         watchRegistry.closeAll();
         spawnRegistry?.killAll();
         eventBus.close();

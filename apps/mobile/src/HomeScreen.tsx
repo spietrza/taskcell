@@ -13,7 +13,12 @@ type State =
   // `error`: the last background reload failed; the rows are the last good list.
   | { status: 'ready'; rows: Row[]; failures: RepoReadFailure[]; error: string | null };
 
-export function HomeScreen({ credentials, fetchImpl }: { credentials: Credentials; fetchImpl?: typeof fetch }): ReactNode {
+export function HomeScreen({ credentials, fetchImpl, openItem }: {
+  credentials: Credentials;
+  fetchImpl?: typeof fetch;
+  /** A tapped notification's item: its sheet opens once, when the list holds it. */
+  openItem?: { id: string; repoName: string; key: string };
+}): ReactNode {
   const theme = useTheme();
   // The tab stack hides its header, so Home keeps its heading clear of the status bar itself.
   const insets = useSafeAreaInsets();
@@ -23,6 +28,14 @@ export function HomeScreen({ credentials, fetchImpl }: { credentials: Credential
 
   const [open, setOpen] = useState<Row | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
+
+  const opened = useRef<string | null>(null);
+  useEffect(() => {
+    if (!openItem || opened.current === openItem.key || state.status !== 'ready') return;
+    const row = state.rows.find((r) => r.item.id === openItem.id && (!openItem.repoName || r.item.repoName === openItem.repoName));
+    opened.current = openItem.key;
+    if (row) setOpen(row);
+  }, [openItem, state]);
 
   const busy = useRef(false);
   const again = useRef(false); // a change arrived mid-read: one trailing read

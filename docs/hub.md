@@ -988,3 +988,10 @@ Cards from GitHub show the dependencies the issue body already reports (`Depends
 
 
 **Search.** The Board and Runs share one search box ("Search title, #issue or id"). It matches a card or run by its title, `#issue` number, task id and the tracker's labels (Taskcell's own routing labels such as `ready for agent` or `taskcell:*` are left out). A run record has no title or labels, so Runs takes them from the board's tasks the Runs screen already reads; a run whose task is no longer on the board matches by id and `#issue` only.
+## Push notifications
+
+The mobile app registers an Expo push token per hub user (`register_push_token { token, platform }`, `unregister_push_token { token }`; no RPC takes a user id, so a user only registers or removes their own tokens; each is audited as `push-register` / `push-unregister` without the token). Tokens live in `<config dir>/push-tokens.json`.
+
+Once a minute the hub lists "Needs you" across its repositories and, for each item that is new (PR ready, question, too vague, changes requested), sends one push per registered token of a user whose teams include the repository, through `https://exp.host/--/api/v2/push/send`. The title is `<kind>: <title>`, the body the repository; the data holds only the item id and repository name — no token, secret or diff text. Items already notified are remembered in `<config dir>/push-notified.json`, so a restart does not notify again. The first pass after a token is registered only records what already waits. A token Expo reports as `DeviceNotRegistered` is dropped.
+
+Optional: set `TASKCELL_EXPO_PUSH_TOKEN` to an Expo access token (sent as a bearer header, never logged); without it the hub sends unauthenticated, which Expo allows.

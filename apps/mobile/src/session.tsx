@@ -1,6 +1,7 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from 'react';
 import { revokeSession } from './connect';
 import { clearCredentials, loadCredentials, saveCredentials, type Credentials } from './credentials';
+import { disablePush, enablePush, pushWanted, setPushWanted } from './push';
 
 interface Session {
   /** False until the keychain has been read. */
@@ -23,14 +24,29 @@ export function SessionProvider({ children, fetchImpl }: { children: ReactNode; 
       .finally(() => setReady(true));
   }, []);
 
+  // Permission is asked once the app is connected (never at first launch), unless Notifications was switched off.
+  const connectedTo = credentials ? `${credentials.url}|${credentials.token}` : null;
+  useEffect(() => {
+    if (!credentials) return;
+    void pushWanted().then(async (wanted) => {
+      if (wanted && (await enablePush(credentials, fetchImpl)) === 'denied') await setPushWanted(false);
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [connectedTo]);
+
   const connect = useCallback(async (next: Credentials): Promise<void> => {
     await saveCredentials(next);
     setCredentials(next);
   }, []);
   const disconnect = useCallback(async (): Promise<void> => {
-    // Sign out on the hub first (a member session is revoked there), then clear the keychain.
-    if (credentials) await revokeSession(credentials, fetchImpl);
+    // The push token goes first, while the session can still name it; then sign out on the hub
+    // (a member session is revoked there), then clear the keychain.
+    if (credentials) {
+      await disablePush(credentials, fetchImpl);
+      await revokeSession(credentials, fetchImpl);
+    }
     await clearCredentials();
+    await setPushWanted(true);
     setCredentials(null);
   }, [credentials, fetchImpl]);
 
