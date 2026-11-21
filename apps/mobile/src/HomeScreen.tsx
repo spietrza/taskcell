@@ -1,30 +1,26 @@
-import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { FlatList, Pressable, RefreshControl, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import type { Credentials } from './credentials';
-import type { RepoReadFailure } from '../../../packages/hub-client/src/wire';
-import { loadWaiting, toRows, watchHub, type Row } from './needsYou';
+import { loadWaiting, toRows, type Row } from './needsYou';
+import { useHub } from './hubContext';
+import { useHubQuery } from './useHubQuery';
+import { RejectedNotice } from './RejectedNotice';
 import { ItemSheet } from './ItemSheet';
 import { useTheme } from './useTheme';
 
-type State =
-  | { status: 'loading' }
-  | { status: 'error'; error: string }
-  // `error`: the last background reload failed; the rows are the last good list.
-  | { status: 'ready'; rows: Row[]; failures: RepoReadFailure[]; error: string | null };
-
-export function HomeScreen({ credentials, fetchImpl, openItem }: {
-  credentials: Credentials;
-  fetchImpl?: typeof fetch;
+export function HomeScreen({ openItem }: {
   /** A tapped notification's item: its sheet opens once, when the list holds it. */
   openItem?: { id: string; repoName: string; key: string };
 }): ReactNode {
   const theme = useTheme();
   // The tab stack hides its header, so Home keeps its heading clear of the status bar itself.
   const insets = useSafeAreaInsets();
-  const [state, setState] = useState<State>({ status: 'loading' });
+  const { credentials } = useHub();
+  const { state, reload: load } = useHubQuery(async (client) => {
+    const { items, failures } = await loadWaiting(client);
+    return { rows: toRows(items), failures };
+  });
   const [refreshing, setRefreshing] = useState(false);
-  const [rejected, setRejected] = useState(false); // /events answered 401: the token is no longer valid
 
   const [open, setOpen] = useState<Row | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
@@ -36,53 +32,6 @@ export function HomeScreen({ credentials, fetchImpl, openItem }: {
     opened.current = openItem.key;
     if (row) setOpen(row);
   }, [openItem, state]);
-
-  const busy = useRef(false);
-  const again = useRef(false); // a change arrived mid-read: one trailing read
-  const running = useRef<Promise<void> | null>(null); // the read in flight, trailing read included
-  const generation = useRef(0); // a response for an older credentials/mount is dropped
-
-  const load = useCallback((): Promise<void> => {
-    if (busy.current) {
-      again.current = true;
-      return running.current ?? Promise.resolve(); // the pull waits for the trailing read too
-    }
-    busy.current = true;
-    const mine = generation.current;
-    const read = (async (): Promise<void> => {
-      try {
-        do {
-          again.current = false;
-          try {
-            const { items, failures } = await loadWaiting(credentials, fetchImpl);
-            if (mine !== generation.current) return;
-            setState({ status: 'ready', rows: toRows(items), failures, error: null });
-          } catch (err) {
-            if (mine !== generation.current) return;
-            // Keep a good list; only the first load has nothing to keep.
-            setState((prev) => (prev.status === 'ready' ? { ...prev, error: String(err) } : { status: 'error', error: String(err) }));
-          }
-        } while (again.current && mine === generation.current);
-      } finally {
-        if (mine === generation.current) busy.current = false;
-      }
-    })();
-    running.current = read;
-    return read;
-  }, [credentials, fetchImpl]);
-
-  useEffect(() => {
-    generation.current += 1;
-    busy.current = false;
-    setState({ status: 'loading' });
-    setRejected(false);
-    void load();
-    const close = watchHub(credentials, () => void load(), fetchImpl, () => setRejected(true));
-    return () => {
-      generation.current += 1;
-      close();
-    };
-  }, [credentials, fetchImpl, load]);
 
   const refresh = async (): Promise<void> => {
     setRefreshing(true);
@@ -104,17 +53,11 @@ export function HomeScreen({ credentials, fetchImpl, openItem }: {
     <View testID="home" style={[styles.root, { backgroundColor: theme.background, paddingTop: insets.top + 16 }]}>
       <Text style={[styles.heading, { color: theme.foreground }]}>Waiting for you</Text>
       {credentials.kind === 'member' && credentials.name ? <Text style={[styles.notice, { color: theme.mutedForeground }]}>Signed in as {credentials.name}</Text> : null}
-      {rejected ? (
-        <Text accessibilityRole="alert" style={[styles.notice, { color: theme.destructive }]}>
-          {credentials.kind === 'member' ? 'Session ended, sign in again in Settings.' : 'Token rejected, reconnect in Settings.'}
-        </Text>
-      ) : null}
+      <RejectedNotice />
       {notice ? <Text style={[styles.notice, { color: theme.primary }]}>{notice}</Text> : null}
       {open ? (
         <ItemSheet
           row={open}
-          credentials={credentials}
-          fetchImpl={fetchImpl}
           onClose={() => setOpen(null)}
           onDone={(text) => {
             setOpen(null);

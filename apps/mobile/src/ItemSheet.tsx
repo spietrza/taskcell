@@ -1,7 +1,7 @@
 import { useRef, useState, type ReactNode } from 'react';
 import { ActivityIndicator, Alert, Linking, Modal, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 import * as LocalAuthentication from 'expo-local-authentication';
-import type { Credentials } from './credentials';
+import { useHub } from './hubContext';
 import { mergeItem, replyItem, type Row } from './needsYou';
 import { RerunButton, canRerun, useCapabilities } from './Rerun';
 import { useTheme } from './useTheme';
@@ -23,21 +23,20 @@ async function confirmMerge(title: string): Promise<boolean> {
   );
 }
 
-export function ItemSheet({ row, credentials, fetchImpl, onClose, onDone }: {
+export function ItemSheet({ row, onClose, onDone }: {
   row: Row;
-  credentials: Credentials;
-  fetchImpl?: typeof fetch;
   onClose: () => void;
   /** The action succeeded: the parent reloads and shows `message`. */
   onDone: (message: string) => void;
 }): ReactNode {
   const theme = useTheme();
+  const { client } = useHub();
   const { item } = row;
   const [body, setBody] = useState('');
   const [busy, setBusy] = useState(false);
   const inFlight = useRef(false); // set synchronously: a second tap before `busy` renders sends nothing
   const [error, setError] = useState<string | null>(null);
-  const caps = useCapabilities(credentials, item.repoPath, fetchImpl);
+  const caps = useCapabilities(item.repoPath);
   // Null caps (unread) leaves each action open: the hub still refuses what the caller may not do.
   const canMerge = row.kind === 'PR ready' && item.kind === 'pr' && !item.mergeBlocked && caps?.canMerge.allowed !== false;
   const replyAllowed = caps?.canReply.allowed !== false;
@@ -64,11 +63,11 @@ export function ItemSheet({ row, credentials, fetchImpl, onClose, onDone }: {
   const merge = (): Promise<void> =>
     run(async () => {
       if (!(await confirmMerge(row.title))) throw new Error('Merge not confirmed.');
-      await mergeItem(credentials, item, fetchImpl);
+      await mergeItem(client, item);
     }, 'Merged.');
   const send = async (text: string, empty: string, done: string): Promise<void> => {
     if (!text.trim()) return setError(empty);
-    await run(() => replyItem(credentials, item, text, fetchImpl), done);
+    await run(() => replyItem(client, item, text), done);
   };
   const reply = (): Promise<void> => send(body, 'Write a reply first.', 'Reply sent.');
   const requestChanges = (): Promise<void> => send(body.trim(), 'Describe the changes you want first.', 'Changes requested.');
@@ -107,7 +106,7 @@ export function ItemSheet({ row, credentials, fetchImpl, onClose, onDone }: {
         {canMerge ? button('Merge', merge) : null}
         {canReply ? button('Send reply', reply) : null}
         {canRequest ? button('Request changes', requestChanges) : null}
-        {rerunRepo !== undefined ? <RerunButton credentials={credentials} repoPath={rerunRepo} taskId={item.id} title={row.title} fetchImpl={fetchImpl} /> : null}
+        {rerunRepo !== undefined ? <RerunButton repoPath={rerunRepo} taskId={item.id} title={row.title} /> : null}
         <Pressable accessibilityRole="button" onPress={onClose} style={styles.close}>
           <Text style={{ color: theme.primary }}>Close</Text>
         </Pressable>

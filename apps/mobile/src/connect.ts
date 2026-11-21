@@ -1,4 +1,5 @@
 import { createHubClient } from '../../../packages/hub-client/src/client';
+import { HUB_TOKEN_HEADER } from '../../../packages/hub-client/src/hub-wire';
 import type { Credentials } from './credentials';
 
 /** `host:port` or a full URL → the hub's origin, no trailing slash; null when it is not an http(s) URL. */
@@ -132,7 +133,7 @@ export async function pollDeviceSignIn(flow: DeviceSignIn, { fetchImpl, signal, 
         if (signal?.aborted) return drop('Sign-in cancelled.');
         let who: { name?: unknown };
         try {
-          const me = await withOrigin(flow.url, fetchImpl)(`${flow.url}/api/device/me`, { headers: { 'x-vanguard-hub-token': session.token } });
+          const me = await withOrigin(flow.url, fetchImpl)(`${flow.url}/api/device/me`, { headers: { [HUB_TOKEN_HEADER]: session.token } });
           if (me.status !== 200) return drop(`${flow.url} did not accept the new session (${me.status}). Start sign-in again.`);
           who = ((await me.json().catch(() => ({}))) ?? {}) as { name?: unknown };
         } catch (err) {
@@ -154,7 +155,7 @@ export async function pollDeviceSignIn(flow: DeviceSignIn, { fetchImpl, signal, 
 export async function revokeSession(credentials: Credentials, fetchImpl?: typeof fetch): Promise<void> {
   if (credentials.kind !== 'member') return;
   try {
-    await withOrigin(credentials.url, fetchImpl)(`${credentials.url}/api/device/revoke`, { method: 'POST', headers: { 'x-vanguard-hub-token': credentials.token } });
+    await withOrigin(credentials.url, fetchImpl)(`${credentials.url}/api/device/revoke`, { method: 'POST', headers: { [HUB_TOKEN_HEADER]: credentials.token } });
   } catch {
     // The hub is unreachable: the session still expires on its own; the keychain is cleared regardless.
   }

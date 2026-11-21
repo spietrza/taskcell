@@ -1,8 +1,10 @@
+import type { ReactElement } from 'react';
 import type { Credentials } from './credentials';
 import { fireEvent, render, screen, waitFor } from '@testing-library/react-native';
 import { Linking } from 'react-native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
-import { BoardScreen } from './BoardScreen';
+import { BoardScreen as Board } from './BoardScreen';
+import { HubProvider } from './hubContext';
 import { COLUMNS, toCards, type HubTask } from './board';
 
 const creds: Credentials = { url: 'http://hub.local:4317', token: 't', kind: 'owner' };
@@ -121,3 +123,12 @@ test('says so when the hub is unreachable', async () => {
   await renderBoard(f);
   expect(await screen.findByText('Hub unreachable')).toBeTruthy();
 });
+
+/** The screen inside the session's one hub connection, as the app provides it. */
+function BoardScreen({ credentials, fetchImpl }: { credentials: Credentials; fetchImpl?: typeof fetch }): ReactElement {
+  return (
+    <HubProvider credentials={credentials} fetchImpl={fetchImpl}>
+      <Board />
+    </HubProvider>
+  );
+}
