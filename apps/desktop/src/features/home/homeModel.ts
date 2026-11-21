@@ -25,16 +25,6 @@ export function stateCounts(tasks: readonly BoardTask[]): { moving: number; paus
   return { moving, paused };
 }
 
-export type InboxKind = { caption: string; action: 'Review' | 'Answer'; broken: boolean };
-
-/** The inbox caption and primary action of a waiting item (both `taskcell:` and `vanguard:` labels). */
-export function inboxKind(item: Pick<NeedsYouItem, 'kind' | 'reason' | 'ask'>): InboxKind {
-  if (item.kind === 'issue' || item.kind === 'card') return { caption: item.ask === 'too-vague' ? 'Too vague' : 'Question', action: 'Answer', broken: false };
-  if (item.reason.endsWith(':verify-failed')) return { caption: 'Verify failed', action: 'Review', broken: true };
-  if (item.reason === 'changes requested') return { caption: 'Changes requested', action: 'Review', broken: false };
-  return { caption: 'PR ready', action: 'Review', broken: false };
-}
-
 export interface MovingRow {
   key: string;
   title: string;

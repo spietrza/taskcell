@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'vitest';
 import type { ActivityEvent, BoardTask, FactoryState, LocalWorkerState, Project } from '../../wire';
-import { activityText, cantStart, floorRows, inboxKind, movingRows, stateCounts, thisWeek, type Card, type RunRow, type StampedActive, type StampedNeeds } from './homeModel';
+import { activityText, cantStart, floorRows, movingRows, stateCounts, thisWeek, type Card, type RunRow, type StampedActive, type StampedNeeds } from './homeModel';
 
 const NOW = Date.parse('2026-11-17T12:00:00Z');
 const DAY = 24 * 3600 * 1000;
@@ -12,22 +12,6 @@ describe('stateCounts', () => {
   test('moving is claimed or running; paused counts apart, so a paused card is not also moving', () => {
     const tasks = [card('gh-1', 'claimed'), card('gh-2', 'running'), card('gh-3', 'running', { paused: { reason: 'provider-limit' } }), card('gh-4', 'queued', { paused: { reason: 'provider-limit' } }), card('gh-5', 'review')];
     expect(stateCounts(tasks)).toEqual({ moving: 2, paused: 2 });
-  });
-});
-
-describe('inboxKind', () => {
-  test.each([
-    [{ kind: 'pr', reason: 'taskcell:needs-human-review' }, 'PR ready', 'Review', false],
-    [{ kind: 'pr', reason: 'vanguard:needs-human-review' }, 'PR ready', 'Review', false],
-    [{ kind: 'pr', reason: 'changes requested' }, 'Changes requested', 'Review', false],
-    [{ kind: 'pr', reason: 'taskcell:verify-failed' }, 'Verify failed', 'Review', true],
-    [{ kind: 'pr', reason: 'vanguard:verify-failed' }, 'Verify failed', 'Review', true],
-    [{ kind: 'issue', reason: 'needs info' }, 'Question', 'Answer', false],
-    [{ kind: 'issue', reason: 'needs info', ask: 'question' }, 'Question', 'Answer', false],
-    [{ kind: 'issue', reason: 'needs info', ask: 'too-vague' }, 'Too vague', 'Answer', false],
-    [{ kind: 'card', reason: 'asked', ask: 'question' }, 'Question', 'Answer', false],
-  ] as const)('%j', (item, caption, action, broken) => {
-    expect(inboxKind(item)).toEqual({ caption, action, broken });
   });
 });
 

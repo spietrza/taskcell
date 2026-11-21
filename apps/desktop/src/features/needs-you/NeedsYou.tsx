@@ -6,7 +6,7 @@ import { mergeNeedsYou, replyNeedsYou, type NeedsYouItem, type RepoReadFailure, 
 import { AgentQuestion } from '../../components/AgentQuestion';
 import { gateProps, useCallerCapabilities } from '../../hooks';
 import { RepoFailures } from '../../RepoViews';
-import { inboxKind } from '../home/homeModel';
+import { needsYouAlert, needsYouCaption } from '../../../../../packages/hub-client/src/needs-you-caption';
 import { isDemoLink } from '../../transport';
 import { ExternalLink } from '../../components/ExternalLink';
 
@@ -169,12 +169,13 @@ export function NeedsYou({
         <ul className="divide-y divide-border rounded-lg border border-border">
           {items.map((item) => {
             const key = `${item.repoPath ?? ''}:${item.id}`;
-            const kind = inboxKind(item);
+            const broken = needsYouAlert(item);
+            const action = item.kind === 'pr' ? 'Review' : 'Answer';
             const expanded = open === key;
             return (
               <li key={key} className="space-y-3 p-4">
                 <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
-                  <span className={`caption w-36 shrink-0 max-md:w-full ${kind.broken ? 'text-destructive-text' : 'text-warning-text'}`}>{kind.caption}</span>
+                  <span className={`caption w-36 shrink-0 max-md:w-full ${broken ? 'text-destructive-text' : 'text-warning-text'}`}>{needsYouCaption(item)}</span>
                   <div className="min-w-0 flex-1 max-md:basis-full">
                     {item.url && !isDemoLink(item.url) ? (
                       <a href={item.url} target="_blank" rel="noreferrer" className="block break-words font-medium hover:underline">
@@ -200,13 +201,13 @@ export function NeedsYou({
                   </div>
                   <div className="flex items-center gap-2 max-md:w-full">
                     <Button
-                      variant={kind.broken ? 'outlined' : 'contained'}
-                      color={kind.broken ? 'secondary' : 'primary'}
+                      variant={broken ? 'outlined' : 'contained'}
+                      color={broken ? 'secondary' : 'primary'}
                       aria-expanded={expanded}
-                      aria-label={`${kind.action} ${item.title}`}
+                      aria-label={`${action} ${item.title}`}
                       onClick={() => setOpen(expanded ? null : key)}
                     >
-                      {kind.action}
+                      {action}
                     </Button>
                     <ExternalLink href={item.url} label={`Open ${item.title} in GitHub`}>Open in GitHub</ExternalLink>
                   </div>

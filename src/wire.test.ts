@@ -97,3 +97,13 @@ describe('hub wire contract', () => {
     assertZeroImports('hub-wire.ts');
   });
 });
+
+describe('needs-you caption contract', () => {
+  it('hub-client copy is byte-identical to header + core source (codegen drift guard — run pnpm gen:wire)', () => {
+    assertByteIdenticalCopy('needs-you-caption.ts');
+  });
+
+  it('needs-you-caption.ts imports nothing (shared with the browser and React Native)', () => {
+    assertZeroImports('needs-you-caption.ts');
+  });
+});
