@@ -35,3 +35,17 @@ pnpm test         # jest-expo, connect flow against a fake hub
 When something new waits for you (PR ready, question, too vague, changes requested) the hub sends a push through Expo's push service (APNs on iOS). The app asks for notification permission right after you connect (never on first launch), registers its Expo push token with the hub (`register_push_token`), and unregisters it on **Disconnect** (`unregister_push_token`). Settings has a **Notifications** switch. If you deny permission the app works as before, without push. Tapping a notification opens Home with that item's sheet.
 
 Setup: nothing in the app beyond `expo-notifications` (already a dependency); the push token is issued for the EAS project in `app.json` (`extra.eas.projectId`, `@taskcell/taskcell-mobile`), so a fork that builds its own app runs `eas init` to replace it. Expo Go on an iPhone simulator can receive real pushes only on a physical device; on the simulator verify registration and the hub's log. The hub must be able to reach `https://exp.host`. See [docs/hub.md](../../docs/hub.md#push-notifications).
+
+## Release
+
+Profiles are in `eas.json`: `development` (dev client, simulator build), `preview` (internal distribution) and `production` (App Store / TestFlight, build number auto-increments remotely). The bundle id is `dev.taskcell.mobile`; the version comes from `package.json`. ATS is left at its default, so the hub must be served over HTTPS.
+
+```sh
+npx eas-cli login
+eas build -p ios --profile production
+eas submit -p ios            # uploads the build to App Store Connect / TestFlight
+```
+
+Needs a paid Apple Developer Program account: device and distribution builds, signing, TestFlight and push (APNs). Simulator builds (`development`) and Expo Go do not.
+
+Secrets live in EAS, not in the repo: the signing certificate and provisioning profile (managed by EAS credentials), the APNs key, and the App Store Connect API key used by `eas submit`. The repo holds no credentials, Apple team ids or API keys; `eas credentials` and `eas submit` prompt for them, or read them from EAS secrets. Forks run `eas init` to get their own project id (see Push notifications).

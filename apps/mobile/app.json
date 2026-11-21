@@ -4,17 +4,23 @@
     "slug": "taskcell-mobile",
     "owner": "taskcell",
     "scheme": "taskcell",
-    "version": "0.0.0",
     "orientation": "portrait",
     "userInterfaceStyle": "automatic",
     "platforms": ["ios"],
     "ios": {
       "supportsTablet": false,
       "bundleIdentifier": "dev.taskcell.mobile",
-      "infoPlist": { "NSFaceIDUsageDescription": "Confirm merging a pull request." }
+      "infoPlist": {
+        "NSFaceIDUsageDescription": "Confirm merging a pull request.",
+        "NSUserNotificationsUsageDescription": "Notify you when a pull request, question or change request is waiting for you."
+      },
+      "buildNumber": "1",
+      "config": { "usesNonExemptEncryption": false }
     },
     "plugins": ["expo-router", "expo-secure-store", "expo-local-authentication", "expo-notifications"],
     "experiments": { "typedRoutes": true },
-    "extra": { "eas": { "projectId": "67eb3622-8cf6-4640-a16e-c8a8e6987c3c" } }
+    "extra": { "eas": { "projectId": "67eb3622-8cf6-4640-a16e-c8a8e6987c3c" } },
+    "icon": "./assets/icon.png",
+    "splash": { "image": "./assets/splash.png", "resizeMode": "contain", "backgroundColor": "#ffffff" }
   }
 }
