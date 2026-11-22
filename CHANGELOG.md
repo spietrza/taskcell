@@ -1,5 +1,33 @@
 # Changelog
 
+## [1.17.0](https://github.com/spietrza/taskcell/compare/v1.16.10...v1.17.0) (2026-11-21)
+
+
+### Features
+
+* Hub: device-flow sign-in hardening (proxy-aware code cap, native-only endpoints, public URL note) (spietrza/taskcell[#1305](https://github.com/spietrza/taskcell/issues/1305)) ([#1319](https://github.com/spietrza/taskcell/issues/1319)) ([9e87d4a](https://github.com/spietrza/taskcell/commit/9e87d4a0ff6896f9efcdd342566f0dbda8f305cb))
+* Hub: move device sign-in routes next to the device-code state machine (spietrza/taskcell[#1310](https://github.com/spietrza/taskcell/issues/1310)) ([#1322](https://github.com/spietrza/taskcell/issues/1322)) ([81186f7](https://github.com/spietrza/taskcell/commit/81186f789de01adbf8405c09ae8ca5b9e0d33a00))
+* Hub: one caller-resolution module for RPC, events, push and the scheduler (spietrza/taskcell[#1311](https://github.com/spietrza/taskcell/issues/1311)) ([#1314](https://github.com/spietrza/taskcell/issues/1314)) ([62107c3](https://github.com/spietrza/taskcell/commit/62107c3f2aa5f6214f64352ae22608154364b9b7))
+* Mobile: act on Home items (merge with Face ID, reply) (spietrza/taskcell[#1289](https://github.com/spietrza/taskcell/issues/1289)) ([#1295](https://github.com/spietrza/taskcell/issues/1295)) ([fadc73d](https://github.com/spietrza/taskcell/commit/fadc73d19c39d9a40ecea16e149f55a7fe8a646d))
+* Mobile: ask for changes on a ready PR and re-run a failed task (spietrza/taskcell[#1298](https://github.com/spietrza/taskcell/issues/1298)) ([#1302](https://github.com/spietrza/taskcell/issues/1302)) ([dead4d6](https://github.com/spietrza/taskcell/commit/dead4d6f5b9e93d552ffed3a550233e5d29ae7cf))
+* Mobile: Board tab with cards across projects (read-only) (spietrza/taskcell[#1290](https://github.com/spietrza/taskcell/issues/1290)) ([#1296](https://github.com/spietrza/taskcell/issues/1296)) ([ff40564](https://github.com/spietrza/taskcell/commit/ff40564b033fcdb2d28179fb2bf3b341945f1ce5))
+* Mobile: EAS build profiles and TestFlight readiness (spietrza/taskcell[#1294](https://github.com/spietrza/taskcell/issues/1294)) ([#1317](https://github.com/spietrza/taskcell/issues/1317)) ([50edff0](https://github.com/spietrza/taskcell/commit/50edff038497707551c8eafeb5af3420edd67583))
+* Mobile: one hub connection per session (client, stream, rejected state, reload) (spietrza/taskcell[#1309](https://github.com/spietrza/taskcell/issues/1309)) ([#1316](https://github.com/spietrza/taskcell/issues/1316)) ([e8e1015](https://github.com/spietrza/taskcell/commit/e8e101543fd03bde77d1bd1397b359d042231082))
+* Mobile: push notifications when something waits for you (spietrza/taskcell[#1292](https://github.com/spietrza/taskcell/issues/1292)) ([#1306](https://github.com/spietrza/taskcell/issues/1306)) ([49ee803](https://github.com/spietrza/taskcell/commit/49ee803da784ee844130308e0bc415ed8d69e9f0))
+* Mobile: reach a hub on your Mac without a VPS (Tailscale, Cloudflare Tunnel) (spietrza/taskcell[#1293](https://github.com/spietrza/taskcell/issues/1293)) ([#1313](https://github.com/spietrza/taskcell/issues/1313)) ([3b7914a](https://github.com/spietrza/taskcell/commit/3b7914a558a9eaba45a294244ce79aab6848bd0a))
+* Mobile: review follow-ups (oversized-frame catch-up, stale item sheet, jest mock restore, URL delete) (spietrza/taskcell[#1300](https://github.com/spietrza/taskcell/issues/1300)) ([#1321](https://github.com/spietrza/taskcell/issues/1321)) ([9de26f4](https://github.com/spietrza/taskcell/commit/9de26f4f91abc0bd664e1aaa20394233a24914d8))
+* Mobile: Runs tab with live transcript tail and diff summary (spietrza/taskcell[#1291](https://github.com/spietrza/taskcell/issues/1291)) ([#1301](https://github.com/spietrza/taskcell/issues/1301)) ([24d09ce](https://github.com/spietrza/taskcell/commit/24d09ce973d059dceff3d0cf219e23e54648cae8))
+* Mobile: sign in to a server-mode hub (Better Auth) instead of the owner token only (spietrza/taskcell[#1299](https://github.com/spietrza/taskcell/issues/1299)) ([#1304](https://github.com/spietrza/taskcell/issues/1304)) ([451d949](https://github.com/spietrza/taskcell/commit/451d94950f12c2980a7c955c547c504e8f844a28))
+* Mobile: stop the reconnect reload loop, keep the stream on oversized frames, pull-to-refresh and disconnect edge cases (spietrza/taskcell[#1284](https://github.com/spietrza/taskcell/issues/1284)) ([#1288](https://github.com/spietrza/taskcell/issues/1288)) ([1f2c816](https://github.com/spietrza/taskcell/commit/1f2c81692ad1f5e19aa965fcbed8210e04371094))
+* One Needs-you caption rule for hub push, desktop and mobile (spietrza/taskcell[#1308](https://github.com/spietrza/taskcell/issues/1308)) ([#1318](https://github.com/spietrza/taskcell/issues/1318)) ([7a3d2fc](https://github.com/spietrza/taskcell/commit/7a3d2fca908a06982364473c398966b2c82b7f02))
+* Shared run tail in hub-client; desktop Inspector stops at 500 events (spietrza/taskcell[#1312](https://github.com/spietrza/taskcell/issues/1312)) ([#1315](https://github.com/spietrza/taskcell/issues/1315)) ([38782e0](https://github.com/spietrza/taskcell/commit/38782e0d0123655ab331a31a3bf7440d97c4d572))
+
+
+### Bug Fixes
+
+* **landing:** Hub preview shows the Board on phones and tablets ([#1286](https://github.com/spietrza/taskcell/issues/1286)) ([5447304](https://github.com/spietrza/taskcell/commit/54473049c36c186af0f6d29ab58075674d3f5f4a))
+* mobile board setup hint, drop settings placeholder ([#1323](https://github.com/spietrza/taskcell/issues/1323)) ([4cbf86d](https://github.com/spietrza/taskcell/commit/4cbf86d7383804548be2225df5703b26edb086dc))
+
 ## [1.16.10](https://github.com/spietrza/taskcell/compare/v1.16.9...v1.16.10) (2026-11-20)
 
 
