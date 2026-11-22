@@ -490,9 +490,9 @@ const index = [
   ['A Docker image for a VPS or a home server, Coolify or plain Compose.', 'Obraz Dockera na VPS albo domowy serwer, przez Coolify albo zwykły Compose.'],
   ['Behind Tailscale or an authenticating proxy, never a published port. Mounting the Docker socket gives the Hub root on that host.',
     'Za Tailscale albo proxy z uwierzytelnianiem, nigdy na publicznym porcie. Zamontowanie gniazda Dockera daje Hubowi roota na tym hoście.'],
-  ['<ul class="coming" aria-label="Coming">', '<ul class="coming" aria-label="Wkrótce">'],
+  ['<ul class="coming" aria-label="Beta and coming">', '<ul class="coming" aria-label="Beta i wkrótce">'],
   ['<b>Desktop app</b>The Hub as a native app, starting with macOS.', '<b>Aplikacja desktopowa</b>Hub jako natywna aplikacja, najpierw na macOS.'],
-  ['<b>Mobile app</b>Connects to your own instance.', '<b>Aplikacja mobilna</b>Łączy się z twoją własną instancją.'],
+  ['<b>iPhone app</b>New in 1.17, connects to your own Hub. Not in the App Store yet: <a href="mailto:support@taskcell.dev?subject=iPhone%20beta">write to us</a> and we\'ll invite you to test it.', '<b>Aplikacja na iPhone\'a</b>Nowość w 1.17, łączy się z twoim własnym Hubem. Nie ma jej jeszcze w App Store: <a href="mailto:support@taskcell.dev?subject=iPhone%20beta">napisz do nas</a>, a zaprosimy cię do testów.'],
   ['<b>Hosting</b>Not open yet. The <a href="#pricing">planned prices</a> are below.', '<b>Hosting</b>Jeszcze nie ruszył. <a href="#pricing">Planowane ceny</a> są niżej.'],
 
   // pricing

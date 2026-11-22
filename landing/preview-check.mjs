@@ -8,16 +8,17 @@ import { fileURLToPath } from 'node:url';
 
 const read = (p) => readFileSync(new URL(p, import.meta.url), 'utf8');
 const desktop = (p) => read(`../apps/desktop/src/${p}`);
+const shared = (p) => read(`../packages/hub-client/src/${p}`); // stations.ts moved here with the mobile app
 const pages = { en: read('./dist/index.html'), pl: read('./dist/pl/index.html') };
 const css = read('./dist/hub-app.css');
 const { JSDOM } = createRequire(fileURLToPath(new URL('../apps/desktop/package.json', import.meta.url)))('jsdom');
 const app = (html) => html.slice(html.indexOf('id="hub-app"'), html.indexOf('<ul class="hub-screens">'));
 
 // The app's names, from its own source.
-const stations = [...desktop('stations.ts').matchAll(/^\s+(card|spec|cell|gates|review|pr): '([^']+)',$/gm)];
+const stations = [...shared('stations.ts').matchAll(/^\s+(card|spec|cell|gates|review|pr): '([^']+)',$/gm)];
 const stageLabels = stations.map((m) => m[2]);
 // The Board's columns: the stations by their short names (STATION_SHORT), Review and PR sharing one, then Done.
-const shortOverrides = Object.fromEntries([...desktop('stations.ts').matchAll(/STATION_SHORT[^=]*= \{ \.\.\.STATION_LABEL, ([^}]+)\}/g)].flatMap((m) => [...m[1].matchAll(/(\w+): '([^']+)'/g)].map((o) => [o[1], o[2]])));
+const shortOverrides = Object.fromEntries([...shared('stations.ts').matchAll(/STATION_SHORT[^=]*= \{ \.\.\.STATION_LABEL, ([^}]+)\}/g)].flatMap((m) => [...m[1].matchAll(/(\w+): '([^']+)'/g)].map((o) => [o[1], o[2]])));
 const short = stations.map(([, key, label]) => shortOverrides[key] ?? label);
 const columnLabels = [...short.slice(0, 4), `${short[4]} / ${short[5]}`, 'Done'];
 assert.equal(stageLabels.length, 6, 'six stages in stations.ts');

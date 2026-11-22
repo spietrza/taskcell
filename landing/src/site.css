@@ -295,6 +295,7 @@ p { max-width: 62ch; }
 .coming li b { display: block; font-family: var(--font-display); }
 .coming li b::after { content: " · coming"; font-family: var(--font-mono); font-size: 12px; letter-spacing: 0.05em; text-transform: uppercase; color: var(--accent); }
 :lang(pl) .coming li b::after { content: " · wkrótce"; }
+.coming li.beta b::after { content: " · beta"; }
 
 /* ---------- Hub preview: the app's own markup and CSS (hub-app.css, built from apps/desktop), framed ---------- */
 .preview-note { grid-column: 1 / -1; margin-top: 16px; font-size: 16px; color: var(--muted); }
