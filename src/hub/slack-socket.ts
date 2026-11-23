@@ -1,12 +1,12 @@
 // Slack answers: a reply in the thread of a posted question becomes its answer, over Socket Mode (outbound websocket,
 // no public endpoint). A mapped Slack user acts as that hub user with a NON-owner caller, through the same dispatchRpc
 // call the UI makes (visibility, write gate, audit). Server mode only. See docs/hub.md "Slack".
-import { readFile } from 'node:fs/promises';
-import { join } from 'node:path';
 import type { Caller } from './teams.js';
 import { dispatchRpc, type RpcContext } from './rpc.js';
 import type { Actor } from './audit.js';
-import { slackEscape, type SlackThread } from './slack.js';
+import { redactForPublish } from '../core/secret-scan.js';
+import { classifyError } from './command-kit.js';
+import { findSlackThread, slackEscape } from './slack.js';
 
 const MAX_ANSWER = 10_000;
 const MAX_SEEN = 1000;
@@ -61,6 +61,7 @@ export function startSlackAnswers(cfg: SlackAnswerConfig): { close(): void } {
   const users = parseSlackUsers(cfg.users);
   const seen = new Set<string>();
   let stopped = false;
+  let chain: Promise<void> = Promise.resolve(); // one reply at a time: the next sees the previous answer
   let ws: WebSocket | undefined;
   let timer: NodeJS.Timeout | undefined;
   const start = cfg.backoffStartMs ?? BACKOFF_START_MS;
@@ -84,19 +85,9 @@ export function startSlackAnswers(cfg: SlackAnswerConfig): { close(): void } {
     if (ev.channel !== cfg.channel || typeof ev.thread_ts !== 'string' || typeof ev.text !== 'string') return;
     const text = ev.text.trim().slice(0, MAX_ANSWER);
     if (text === '') return;
-    let threads: Record<string, SlackThread>;
-    try {
-      threads = JSON.parse(await readFile(join(cfg.configDir, 'slack-threads.json'), 'utf8')) as Record<string, SlackThread>;
-    } catch {
-      return;
-    }
-    const key = Object.keys(threads).find((k) => threads[k]?.ts === ev.thread_ts && threads[k]?.channel === cfg.channel);
-    const kind = key === undefined ? undefined : threads[key]?.kind;
-    if (key === undefined || (kind !== 'issue' && kind !== 'pr' && kind !== 'card')) return;
-    const r = key.lastIndexOf('|');
-    const l = key.lastIndexOf('|', r - 1);
-    const repoPath = key.slice(0, l);
-    const id = key.slice(l + 1, r);
+    const thread = await findSlackThread(cfg.configDir, cfg.channel, ev.thread_ts);
+    if (thread === undefined || (thread.kind !== 'issue' && thread.kind !== 'pr' && thread.kind !== 'card')) return;
+    const { repoPath, id, kind } = thread;
     const hubUserId = typeof ev.user === 'string' ? users.get(ev.user) : undefined;
     const caller = hubUserId === undefined ? undefined : await cfg.ofRegistration({ userId: hubUserId, owner: false }).catch(() => undefined);
     if (caller === undefined) {
@@ -109,7 +100,9 @@ export function startSlackAnswers(cfg: SlackAnswerConfig): { close(): void } {
     try {
       await dispatchRpc({ ...cfg.ctx, user, actor }, 'reply_needs_you', { repoPath, id, kind, body: text }, { ...caller, owner: false });
     } catch (e) {
-      await note(cfg.channel, ev.thread_ts, e instanceof Error ? e.message : 'the hub refused this answer');
+      // Only a caller-correctable refusal (bad request, forbidden) shows the hub's words; an internal fault stays in the hub.
+      const { kind: errKind, message } = classifyError(e);
+      await note(cfg.channel, ev.thread_ts, errKind === 'bad-request' ? redactForPublish(message) : 'the hub could not take this answer');
     }
   };
 
@@ -130,7 +123,8 @@ export function startSlackAnswers(cfg: SlackAnswerConfig): { close(): void } {
         seen.add(eventId);
         if (seen.size > MAX_SEEN) seen.delete(seen.values().next().value as string);
       }
-      void handle(env.payload.event).catch(() => undefined);
+      const event = env.payload.event;
+      chain = chain.then(() => handle(event)).catch(() => undefined);
     }
   };
 
@@ -145,6 +139,7 @@ export function startSlackAnswers(cfg: SlackAnswerConfig): { close(): void } {
     try {
       const open = await api('apps.connections.open', cfg.appToken);
       if (open.ok !== true || typeof open.url !== 'string') throw new Error('rejected');
+      if (stopped) return;
       const sock = new WS(open.url);
       ws = sock;
       sock.addEventListener('message', (e) => onMessage(e.data));

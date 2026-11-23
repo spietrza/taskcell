@@ -34,7 +34,7 @@ describe('slack questions', () => {
     expect(body).toMatchObject({ channel: 'C1', mrkdwn: false, link_names: false });
     expect(body.text).toContain('&lt;!channel&gt; &lt;@U1&gt; &lt;http://x|y&gt; a&amp;b');
     expect(body.text).not.toContain('<');
-    expect(JSON.parse(await readFile(join(configDir, 'slack-threads.json'), 'utf8'))['/r|hub-1|asking']).toEqual({ channel: 'C1', ts: '1.2', kind: 'card' });
+    expect(JSON.parse(await readFile(join(configDir, 'slack-threads.json'), 'utf8'))['/r|hub-1|asking']).toEqual({ channel: 'C1', ts: '1.2', repoPath: '/r', id: 'hub-1', kind: 'card' });
   });
 
   test('a rejected call logs one warning without the token and does not throw', async () => {
@@ -44,6 +44,26 @@ describe('slack questions', () => {
     await expect(notifyNewItems({ configDir, listWaiting: async () => [q(1, 'x'), q(2, 'y')], callerOf: async () => undefined, slack: { token: 'xoxb-secret', channel: 'C1', fetchImpl: s.fetchImpl } })).resolves.toBe(0);
     expect(err).toHaveBeenCalledTimes(1);
     expect(String(err.mock.calls[0])).not.toContain('xoxb-secret');
+    err.mockRestore();
+  });
+
+  test('an ok:false reply is retried on the next pass; a timeout is not', async () => {
+    const configDir = await mkdtemp(join(tmpdir(), 'slack-'));
+    const err = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    const s = fakeSlack(false);
+    const deps = (fetchImpl: typeof fetch) => ({ configDir, listWaiting: async () => [q(1, 'x')], callerOf: async () => undefined, slack: { token: 't', channel: 'C1', fetchImpl } });
+    await notifyNewItems(deps(s.fetchImpl));
+    expect(String(err.mock.calls[0])).toContain('no');
+    await notifyNewItems(deps(s.fetchImpl));
+    expect(s.calls).toHaveLength(2);
+    const timeout = (async () => {
+      throw new DOMException('timeout', 'TimeoutError');
+    }) as unknown as typeof fetch;
+    const dir2 = await mkdtemp(join(tmpdir(), 'slack-'));
+    const d2 = (fetchImpl: typeof fetch) => ({ ...deps(fetchImpl), configDir: dir2 });
+    await notifyNewItems(d2(timeout));
+    await notifyNewItems(d2(fakeSlack().fetchImpl));
+    expect(JSON.parse(await readFile(join(dir2, 'slack-threads.json'), 'utf8'))['/r|hub-1|asking'].ts).toBe('');
     err.mockRestore();
   });
 
