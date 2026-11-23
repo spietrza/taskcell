@@ -2,6 +2,7 @@ import { failureReason } from '../core/errors.js';
 import { latestRateLimitedMarker } from '../core/rate-limit-marker.js';
 import { hasLabel, labelForms, resolveAdds, resolveRemovals, sameLabel } from '../core/labels.js';
 import { GITHUB_CLAIMED_LABEL, GITHUB_RATE_LIMITED_LABEL, GITHUB_REVIEW_LABEL, GITHUB_SPEC_CLAIMED_LABEL, GITHUB_WAITING_LABEL } from '../github-labels.js';
+import { watchCiFailures } from './ci-watch.js';
 import { classifyAuthor } from '../tasks/comment-trust.js';
 import { checkDependencies, WAITING_MARKER_RE } from '../tasks/dependencies.js';
 import { defaultGhRunner } from '../tasks/github.js';
@@ -29,6 +30,8 @@ export interface ResumeRateLimitedOptions {
   dependencyRepos?: readonly string[];
   /** Report what would be re-triggered and edit nothing. */
   dryRun?: boolean;
+  /** Revise factory PRs whose required checks failed (needs a user token). Default: true. */
+  ciWatch?: boolean;
   /** Clock for the `until` comparison (injected by tests). */
   now?: Date;
   gh?: GhRunner;
@@ -43,6 +46,8 @@ export interface ResumeRateLimitedReport {
   /** Items carrying the label with no usable marker — a human has to decide what to do with them. */
   skipped: string[];
   failed: string[];
+  /** Factory PRs a CI-failure comment was posted on (or would be, under --dry-run), one line each. */
+  ciFailed: string[];
 }
 
 export interface GhCommentBody {
@@ -222,7 +227,7 @@ export async function resumeRateLimited(opts: ResumeRateLimitedOptions): Promise
   const log = opts.log ?? console.log;
   const now = opts.now ?? new Date();
   const allowed = new Set(opts.triggerLabels !== undefined && opts.triggerLabels.length > 0 ? opts.triggerLabels : DEFAULT_TRIGGER_LABELS);
-  const report: ResumeRateLimitedReport = { resumed: [], waiting: [], skipped: [], failed: [] };
+  const report: ResumeRateLimitedReport = { resumed: [], waiting: [], skipped: [], failed: [], ciFailed: [] };
   for (const kind of ['issue', 'pr'] as const) {
     for (const number of await listParked(kind, opts.repoSlug, gh)) {
       const id = `${opts.repoSlug}#${number}`;
@@ -250,5 +255,11 @@ export async function resumeRateLimited(opts: ResumeRateLimitedOptions): Promise
     }
   }
   await resumeWaiting({ opts, gh, log, now, allowed, report });
+  if (opts.ciWatch !== false) {
+    await watchCiFailures({ repoSlug: opts.repoSlug, dryRun: opts.dryRun === true, gh, log, report }).catch((error: unknown) => {
+      log(`resume-rate-limited ci-watch: failed -> ${failureReason(error)}`);
+      report.failed.push(`${opts.repoSlug} (ci-watch)`);
+    });
+  }
   return report;
 }

@@ -23,7 +23,7 @@ export type Command = CommandKind & { usageCapPct?: string };
 type CommandKind =
   | { kind: 'gc'; repoPath: string; maxAgeMs: number; remoteRepo?: string; dryRun: boolean; abandoned: boolean }
   | { kind: 'migrate-labels'; repoSlug: string; apply: boolean }
-  | { kind: 'resume-rate-limited'; repoSlug: string; dryRun: boolean; triggerLabels?: string[]; dependencyRepos?: string[]; startedLabels?: string[] }
+  | { kind: 'resume-rate-limited'; repoSlug: string; dryRun: boolean; triggerLabels?: string[]; dependencyRepos?: string[]; startedLabels?: string[]; ciWatch?: boolean }
   | {
       kind: 'review-pr';
       prRef: string;
@@ -937,6 +937,7 @@ function parseCommand(argv: string[], cwd: string, cap: { pct?: string }): Comma
       kind: 'resume-rate-limited',
       repoSlug,
       dryRun: values['dry-run'] === true,
+      ...(values['no-ci-watch'] === true ? { ciWatch: false } : {}),
       ...(triggerLabels.length > 0 ? { triggerLabels } : {}),
       ...parseDependencyRepos(values['dependency-repos']),
       ...(startedLabels !== undefined ? { startedLabels } : {}),

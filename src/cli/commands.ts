@@ -217,7 +217,9 @@ export const COMMANDS: readonly CommandDecl[] = [
     'save-baseline': bool('Publish this result as the new baseline'),
   }),
   command('migrate-labels', 'Rename a repo\'s old vanguard:* labels to taskcell:* (dry-run by default).', ['github-repo'], { apply: bool('Rename the labels') }),
-  command('resume-rate-limited', 'Re-apply the trigger label on issues/PRs a provider limit or an unmet dependency parked, once clear.', ['github-repo', 'dry-run', 'trigger-labels', 'dependency-repos', 'claimed-state', 'review-state', 'spec-claimed-label'], {}, {
+  command('resume-rate-limited', 'Re-apply the trigger label on issues/PRs a provider limit or an unmet dependency parked, once clear.', ['github-repo', 'dry-run', 'trigger-labels', 'dependency-repos', 'claimed-state', 'review-state', 'spec-claimed-label'], {
+    'no-ci-watch': bool('Do not revise factory PRs whose required checks failed (default: on; needs a user token)'),
+  }, {
     'claimed-state': { help: 'As given to watch' },
     'review-state': { help: 'As given to watch' },
     'spec-claimed-label': { help: 'As given to watch' },
