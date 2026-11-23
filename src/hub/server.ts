@@ -23,6 +23,7 @@ import { reconcileHubBoards, schedulerState, sweepHubBoards } from './task-sched
 import { createRunSession } from './run-session.js';
 import { CompleteBusyError, CompleteRegistry, type SpawnComplete } from './complete.js';
 import { loadPaths } from './projects.js';
+import { takeSlackConfig } from './slack.js';
 import { notifyNewItems, type WaitingItem } from './push.js';
 import { SpawnRegistry } from './spawn.js';
 import { productionDeps } from '../sidecar/deps.js';
@@ -56,6 +57,8 @@ export interface HubServerOptions {
   watch?: WatchOptions;
   /** Expo push endpoint and pass interval; the real endpoint and a minute by default (tests point them at a fake). */
   pushUrl?: string;
+  /** Slack API base (tests); the real one by default. */
+  slackApiUrl?: string;
   pushIntervalMs?: number;
   deps?: SidecarDeps;
   spawnComplete?: SpawnComplete;
@@ -473,6 +476,9 @@ export function createHubServer(opts: HubServerOptions): HubServer {
   sweeper.unref();
   // Push notifications: one pass a minute, a no-op until a phone registers a token (src/hub/push.ts).
   const pushAccessToken = readEnv('TASKCELL_EXPO_PUSH_TOKEN');
+  const slackBase = takeSlackConfig();
+  const slackHubUrl = readEnv('TASKCELL_HUB_PUBLIC_URL')?.trim() || undefined;
+  const slack = slackBase && { ...slackBase, ...(slackHubUrl ? { hubUrl: slackHubUrl } : {}), ...(opts.slackApiUrl !== undefined ? { apiUrl: opts.slackApiUrl } : {}) };
   let pushing: Promise<void> = Promise.resolve();
   const pusher = setInterval(() => void (pushing = notifyNewItems({
     configDir: opts.configDir,
@@ -481,6 +487,7 @@ export function createHubServer(opts: HubServerOptions): HubServer {
     callerOf: callers.ofRegistration,
     ...(opts.pushUrl !== undefined ? { url: opts.pushUrl } : {}),
     ...(pushAccessToken ? { accessToken: pushAccessToken } : {}),
+    ...(slack !== undefined ? { slack } : {}),
   }).then(() => undefined, (e: unknown) => console.error(`vanguard-hub: push: ${(e as Error).message}`))), opts.pushIntervalMs ?? PUSH_INTERVAL_MS);
   pusher.unref();
   // No run survives a restart: a task stored as running is marked failed before the first request is served.

@@ -995,3 +995,18 @@ The mobile app registers an Expo push token per hub user (`register_push_token {
 Once a minute the hub lists "Needs you" across its repositories and, for each item that is new (PR ready, question, too vague, changes requested), sends one push per registered token of a user whose teams include the repository, through `https://exp.host/--/api/v2/push/send`. The title is `<kind>: <title>`, the body the repository; the data holds only the item id and repository name — no token, secret or diff text. Items already notified are remembered in `<config dir>/push-notified.json`, so a restart does not notify again. The first pass after a token is registered only records what already waits. A token Expo reports as `DeviceNotRegistered` is dropped.
 
 Optional: set `TASKCELL_EXPO_PUSH_TOKEN` to an Expo access token (sent as a bearer header, never logged); without it the hub sends unauthenticated, which Expo allows.
+
+## Slack: agent questions
+
+The hub can post each new agent question (a card whose agent stopped to ask, or a non-vague `needs info` issue) to one Slack channel, in addition to "Waiting for you" and push. Outbound only; answering from Slack is not supported yet.
+
+Setup:
+
+1. Create a Slack app (api.slack.com/apps, "From scratch") in your workspace.
+2. Under *OAuth & Permissions* add the bot token scope `chat:write` and install the app to the workspace.
+3. Copy the *Bot User OAuth Token* (`xoxb-…`) and invite the bot to the channel (`/invite @your-app`); copy the channel's ID (channel details → bottom).
+4. Start the hub with `TASKCELL_SLACK_BOT_TOKEN=xoxb-…` and `TASKCELL_SLACK_CHANNEL=<channel id>`. The feature is off unless both are set. Set `TASKCELL_HUB_PUBLIC_URL` so each message links to the hub.
+
+The hub reads the token once at start and removes it from its environment, so no child process (runs, doc-chat, Fleet) inherits it; it is never logged. On the push tick (once a minute) each question not yet posted is sent with `chat.postMessage`: project, title, the question (truncated to 3000 characters) and the hub link. Text is posted literally (`mrkdwn` off, `&`, `<`, `>` escaped, `link_names` off), so a question cannot mention people or `@channel` or inject links. Posted items are recorded in `<config dir>/slack-threads.json` (item key → channel and message `ts`, last 5000), so a restart does not repost. A failed Slack call logs one warning and is not retried.
+
+**Visibility:** the channel sees questions from every project on the hub, including projects a channel member cannot see in the hub. Use a channel whose members may read all of them.

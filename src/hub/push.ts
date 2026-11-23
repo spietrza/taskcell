@@ -11,6 +11,7 @@ import type { NeedsYouItem, RepoStamp } from '../wire.js';
 import { needsYouCaption } from '../needs-you-caption.js';
 import { repoVisibility, type RepoVisibility } from './callers.js';
 import type { Caller } from './teams.js';
+import { postQuestions, type SlackConfig } from './slack.js';
 
 export const PUSH_PLATFORMS = ['ios', 'android'] as const;
 export type PushPlatform = (typeof PUSH_PLATFORMS)[number];
@@ -115,6 +116,8 @@ export interface NotifierDeps {
   url?: string;
   /** Expo push access token, when the hub is configured with one. */
   accessToken?: string;
+  /** Post new agent questions to Slack from the same item list; off when absent. */
+  slack?: SlackConfig;
 }
 
 let running = false;
@@ -129,8 +132,10 @@ export async function notifyNewItems(deps: NotifierDeps): Promise<number> {
   running = true;
   try {
     const regs = await loadPushTokens(deps.configDir);
-    if (regs.length === 0) return 0;
+    if (regs.length === 0 && deps.slack === undefined) return 0;
     const items = await deps.listWaiting();
+    if (deps.slack !== undefined) await postQuestions(deps.configDir, items, deps.slack);
+    if (regs.length === 0) return 0;
     const stored = await readJson(notifiedFile(deps.configDir));
     const seen: string[] = Array.isArray(stored) ? stored.filter((k): k is string => typeof k === 'string') : [];
     const known = new Set(seen);
