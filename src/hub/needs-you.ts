@@ -231,7 +231,7 @@ export async function listNeedsYou(
  * allowlisted repo path, so an `id` naming another repo must be refused: the allowlist would
  * otherwise be bypassed by commenting on and relabelling an unregistered repo.
  */
-function itemNumber(repoSlug: string, id: string): string {
+export function itemNumber(repoSlug: string, id: string): string {
   const hash = id.lastIndexOf('#');
   const number = id.slice(hash + 1);
   if (hash === -1 || !/^\d+$/.test(number)) throw new TaskcellError(`Invalid item id: ${id}`);

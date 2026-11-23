@@ -41,7 +41,7 @@ import { beginRun, persistBaseMerge } from '../core/run-store.js';
 import { appendStepSummary } from '../core/step-summary.js';
 import type { StepSummary, StepSummaryExit } from '../core/step-summary.js';
 import type { StageOutcome } from '../pipeline/pipeline.js';
-import { GITHUB_GATE_CONFIG_LABEL, GITHUB_SECRET_BLOCKED_LABEL, GITHUB_RATE_LIMITED_LABEL } from '../github-labels.js';
+import { REVIEWED_LABEL, GITHUB_GATE_CONFIG_LABEL, GITHUB_SECRET_BLOCKED_LABEL, GITHUB_RATE_LIMITED_LABEL } from '../github-labels.js';
 import { isRateLimitHold, rateLimitHold } from '../core/rate-limit-marker.js';
 import { UsageCapError } from '../core/usage-cap.js';
 import { extractGateConfigBlock, loadGateConfigExtraGlobs } from '../context/gate-config.js';
@@ -88,8 +88,6 @@ import type { AgentProvider } from '../agents/provider.js';
 const NEEDS_REVISION_LABEL = 'needs revision';
 const TASKCELL_REVISING_LABEL = 'taskcell:revising';
 const DEFAULT_MAX_ROUNDS = 2;
-// The marker a finished review leaves; the trigger the PR-review workflow listens for is REVIEW_TRIGGER_LABEL (core/labels.ts).
-const REVIEWED_LABEL = 'taskcell:reviewed';
 // secret-blocked is removed too: a round that pushes cleanly after the human stripped the secret must
 // not leave the PR mapped to verify-failed on the board.
 // rate-limited too: a round that ran must not be re-triggered by the resume sweep.

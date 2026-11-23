@@ -224,6 +224,11 @@ export function mergeNeedsYou(repoPath: string, id: string): Promise<void> {
   return call('merge_needs_you', { repoPath, id });
 }
 
+/** Hub-only: put an open factory PR back through review (drops `taskcell:reviewed` and the review trigger, re-adds the trigger). */
+export function rereviewPr(repoPath: string, id: string): Promise<void> {
+  return call('rereview_pr', { repoPath, id });
+}
+
 /** Hub-only: apply a trigger label to a GitHub issue of the project (src/hub/start-task.ts). Throws
  *  on a non-trigger label, a closed or already-started issue, or a non-GitHub project. */
 export function startTask(repoPath: string, number: number, label: string): Promise<StartTaskResult> {
