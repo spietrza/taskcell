@@ -448,7 +448,7 @@ export async function runBudgetedStages(
       if (err instanceof AgentError && stage.fallback !== undefined && !onCapFallback) {
         // No `reason` here: AgentError carries the CLI's raw stderr, and an auth failure may echo the
         // credential it was handed — the redactor knows common token shapes, not every vendor's.
-        const authRefused = !rateLimited && isProviderAuthError(err);
+        const authRefused = isProviderAuthError(err);
         ctx.log.warn(
           { stage: stage.name, from: agent.name, to: stage.fallback.provider.name, rateLimited, authRefused },
           rateLimited

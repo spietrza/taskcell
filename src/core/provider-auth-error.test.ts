@@ -10,9 +10,7 @@ const AUTH = [
   'the ChatGPT sign-in was refused: the refresh token was revoked. Sign in again (codex login)',
   '{"error":{"code":"refresh_token_reused"}}',
   'cursor-agent: Not logged in. Run cursor-agent login',
-  'cursor-agent error: Unauthorized',
   'the Claude credential was refused (expired or revoked)',
-  'HTTP 403 Forbidden',
 ];
 const NOT_AUTH = [
   "You've hit your session limit · resets 9pm (UTC)",
@@ -21,6 +19,11 @@ const NOT_AUTH = [
   'ECONNRESET: socket hang up',
   'getaddrinfo ENOTFOUND api.anthropic.com',
   'the diff mentions 401 in a stack frame at line 403',
+  'AssertionError: expected status 401 to be 200',
+  'gh: HTTP 403: Resource not accessible by integration',
+  'the page hides drafts from users who are not logged in',
+  'error: unauthorized access is logged',
+  'fetch failed: 401 Unauthorized from the test server',
 ];
 
 describe('isProviderAuthError', () => {
@@ -41,5 +44,14 @@ describe('formatFailureComment auth headline', () => {
   });
   it('leaves limit wording unchanged', () => {
     expect(formatFailureComment('x', new AgentError("You've hit your session limit"))).toContain('usage/rate limit');
+  });
+});
+
+describe('limit takes precedence over auth', () => {
+  const limitPlus401 = "You've hit your session limit · resets 9pm (UTC)\nAPI Error: 401 {\"type\":\"error\",\"error\":{\"type\":\"authentication_error\"}}";
+  it('formats a limit message followed by a 401 line as a limit', () => {
+    const out = formatFailureComment('x', new AgentError(limitPlus401));
+    expect(out).toContain('usage/rate limit');
+    expect(out).not.toContain('was refused');
   });
 });

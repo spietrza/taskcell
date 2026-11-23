@@ -51,10 +51,10 @@ export function formatFailureComment(prefix: string, error: unknown): string {
   // instead of leaving the reader to parse it out of the raw CLI error text.
   const effectivePrefix = error instanceof FallbackFailedError
     ? `${prefix} — fallback provider ${error.fallback} failed (not a rate limit), so ${error.primary}'s failure was not covered`
-    : isProviderAuthError(error)
-      ? `${prefix} — ${authRefusalHeadline(error)}`
     : isProviderLimitError(error)
       ? `${prefix} — the AI provider hit a usage/rate limit (not a gate failure); re-apply the trigger label to retry once it clears`
+    : isProviderAuthError(error)
+      ? `${prefix} — ${authRefusalHeadline(error)}`
       : prefix;
   const headline = redactForPublish(`${effectivePrefix}: ${String(error)}`);
   const stack = error instanceof Error ? error.stack : undefined;
@@ -190,9 +190,9 @@ export function isProviderLimitError(error: unknown): boolean {
 
 /**
  * Provider auth refusals in the vendors' own fixed wording (Claude/Anthropic, Codex/OpenAI, Cursor, and
- * the LLM proxy's classified errors). Deliberately NOT a bare `401`/`403`/"unauthorized": the message
- * embeds raw CLI output, and agent-authored prose may mention those. A status counts only in an
- * API-error / HTTP-status / proxy-log frame. Never relay the matched text.
+ * the LLM proxy's classified errors). Deliberately NOT a generic `401`/`403`/"unauthorized"/"not logged in",
+ * even in an HTTP-status frame: the message embeds raw CLI output, where a test assertion, a `gh` call or
+ * agent prose may carry those. Only the provider's own refusal line counts. Never relay the matched text.
  */
 const AUTH_ERROR_PATTERNS: readonly RegExp[] = [
   /\bauthentication_error\b/i,
@@ -202,18 +202,18 @@ const AUTH_ERROR_PATTERNS: readonly RegExp[] = [
   /\brefresh_token_(?:reused|expired|invalidated|refused)\b/i,
   /\bcredential was refused\b/i,
   /\bsign-in was refused\b/i,
-  /\bnot logged in\b/i,
+  /\bnot logged in\b.{0,40}\b(?:cursor-agent|codex) login\b/i,
   /\bplease run \/login\b/i,
-  /\b(?:api error|http|status(?: code)?)[: ]+40[13]\b/i,
   /\bunexpected status 40[13]\b/i,
-  /\b40[13] (?:unauthorized|forbidden)\b/i,
-  /\bunauthorized \(40[13]\)/i,
-  /\berror: unauthorized\b/i,
   /\bPOST \/v1\/\S+ -> 40[13]\b/,
 ];
 
-/** True when `error` is a provider credential refusal (expired/revoked/invalid), not a limit or outage. */
+/**
+ * True when `error` is a provider credential refusal (expired/revoked/invalid), not a limit or outage.
+ * A limit wins: a limit message whose embedded CLI output also carries a 401 is still a limit.
+ */
 export function isProviderAuthError(error: unknown): boolean {
+  if (isProviderLimitError(error)) return false;
   const message = error instanceof Error ? error.message : String(error);
   return AUTH_ERROR_PATTERNS.some((re) => re.test(message));
 }

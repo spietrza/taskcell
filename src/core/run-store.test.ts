@@ -94,6 +94,19 @@ describe('beginRun — model pick', () => {
   });
 });
 
+describe('beginRun — primary auth refused', () => {
+  it('writes primaryAuthRefused to the stage record of a stage whose fallback ran it, and only there', async () => {
+    await beginRun(repo, 'TES-AR', TS).writeStages([
+      { name: 'implementer', result: { ...result, taskId: 'TES-AR' } },
+      { name: 'reviewer', result: { ...result, taskId: 'TES-AR' }, primaryAuthRefused: 'claude' },
+    ]);
+    const read = async (stage: string): Promise<{ primaryAuthRefused?: string }> =>
+      JSON.parse(await readFile(join(runsRoot(repo), 'TES-AR', `${PREFIX}-${stage}.json`), 'utf8'));
+    expect((await read('reviewer')).primaryAuthRefused).toBe('claude');
+    expect((await read('implementer')).primaryAuthRefused).toBeUndefined();
+  });
+});
+
 describe('beginRun — estimate', () => {
   const codex: RunResult = { ...result, taskId: 'TES-E', model: 'gpt-5', cachedInInput: true, usage: { inputTokens: 1_000_000, outputTokens: 0, cacheReadInputTokens: 0 } };
   delete (codex as { costUsd?: number }).costUsd;

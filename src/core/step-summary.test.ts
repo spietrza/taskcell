@@ -68,6 +68,17 @@ describe('renderStepSummary', () => {
     const noted = renderStepSummary({ ...summary, notes: ['ignored feedback from @mallory (NONE)'] });
     expect(noted.replace('- Note: ignored feedback from @mallory (NONE)\n', '')).toBe(plain);
   });
+
+  it('adds a Notice line for a stage that ran on its fallback because the primary credential was refused', () => {
+    const plain = renderStepSummary(summary);
+    const md = renderStepSummary({
+      ...summary,
+      outcomes: [summary.outcomes[0]!, { ...summary.outcomes[1]!, primaryAuthRefused: 'claude', providerName: 'codex' }],
+    });
+    expect(md).toContain("- Notice: ran on codex because claude's credential was refused — refresh it");
+    expect(md.split('\n').filter((l) => l.startsWith('- Notice:'))).toHaveLength(1);
+    expect(plain).not.toContain('- Notice:');
+  });
 });
 
 describe('appendStepSummary', () => {
