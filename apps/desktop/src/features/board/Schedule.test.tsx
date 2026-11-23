@@ -10,6 +10,9 @@ vi.mock('../../ipc', () => ({
   hubTaskAccept: vi.fn().mockResolvedValue({ id: 'hub-2' }),
   hubTaskArchive: vi.fn().mockResolvedValue({ id: 'hub-2' }),
   hubTaskDelete: vi.fn().mockResolvedValue({ id: 'hub-2' }),
+  callerCapabilities: vi.fn(async () => ({})),
+  apiCapabilitiesCached: vi.fn(async () => ({ flows: [{ name: 'plan', label: 'Plan' }] })),
+  apiListFlows: vi.fn(async () => ({ flows: [] })),
 }));
 import { hubTaskAccept, hubTaskArchive, hubTaskCreate, hubTaskDelete, hubTaskRetry, hubTaskSchedule } from '../../ipc';
 
@@ -126,4 +129,14 @@ test('the "Blocked by" example never suggests the card itself', () => {
   expect(blockedByExample('hub-1')).toBe('hub-2, hub-3');
   expect(blockedByExample('hub-7')).toBe('hub-1, hub-2');
   expect(blockedByExample()).toBe('hub-1, hub-2');
+});
+
+describe('Run with flow…', () => {
+  test('a failed task retries with the chosen flow', async () => {
+    vi.mocked(hubTaskRetry).mockClear();
+    render(<ScheduleEditor repoPath="/r" task={{ ...base, schedule: { state: 'failed', label: 'failed: boom', reason: 'boom' } }} onSaved={() => {}} />);
+    fireEvent.click(screen.getByRole('button', { name: 'Run with flow…' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Plan' }));
+    await waitFor(() => expect(hubTaskRetry).toHaveBeenCalledWith('/r', 'hub-2', 'plan'));
+  });
 });

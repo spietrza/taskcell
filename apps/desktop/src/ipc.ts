@@ -657,13 +657,13 @@ export function hubTaskCreate(repoPath: string, title: string, body: string, sch
 }
 
 /** HUB_ONLY: ask the hub scheduler to start a todo hub-board task (within ~15 s, even with auto-run off). */
-export function hubTaskStart(repoPath: string, id: string): Promise<{ id: string }> {
-  return call('hub_task_start', { repoPath, id });
+export function hubTaskStart(repoPath: string, id: string, flow?: string): Promise<{ id: string }> {
+  return call('hub_task_start', { repoPath, id, ...(flow !== undefined ? { flow } : {}) });
 }
 
 /** HUB_ONLY: put a failed hub-board task back to todo. */
-export function hubTaskRetry(repoPath: string, id: string): Promise<{ id: string }> {
-  return call('hub_task_retry', { repoPath, id });
+export function hubTaskRetry(repoPath: string, id: string, flow?: string): Promise<{ id: string }> {
+  return call('hub_task_retry', { repoPath, id, ...(flow !== undefined ? { flow } : {}) });
 }
 
 /** HUB_ONLY: accept the delivered result of a hub-board task that failed verification (it becomes done, no second run). */

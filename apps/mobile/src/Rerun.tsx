@@ -2,7 +2,7 @@ import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { Alert, Pressable, StyleSheet, Text } from 'react-native';
 import type { CallerCapabilities } from '../../../packages/hub-client/src/wire';
 import { useHub } from './hubContext';
-import { loadCapabilities, rerunTask } from './needsYou';
+import { listRunnableFlows, loadCapabilities, rerunTask } from './needsYou';
 import { useTheme } from './useTheme';
 
 /** The caller's capabilities on a project; null until read (every action then stays open and the hub's refusal shows). */
@@ -62,6 +62,49 @@ export function RerunButton({ repoPath, taskId, title }: {
       <Pressable accessibilityRole="button" disabled={state.busy} onPress={confirm} style={[styles.button, { backgroundColor: theme.primary }]}>
         <Text style={styles.buttonText}>Re-run</Text>
       </Pressable>
+      {state.message ? <Text style={{ color: theme.foreground }}>{state.message}</Text> : null}
+      {state.error ? <Text accessibilityRole="alert" style={{ color: theme.destructive }}>{state.error}</Text> : null}
+    </>
+  );
+}
+
+/** "Run with flow…" on a failed hub card: lists the repo's flows, then retries the card with the chosen one (`hub_task_retry` with `flow`). Hidden when the caller may not start tasks. */
+export function RunWithFlowButton({ repoPath, taskId }: { repoPath: string; taskId: string }): ReactNode {
+  const theme = useTheme();
+  const { client } = useHub();
+  const caps = useCapabilities(repoPath);
+  const [flows, setFlows] = useState<{ name: string; label: string }[] | null>(null);
+  const [state, setState] = useState<{ busy: boolean; message: string | null; error: string | null }>({ busy: false, message: null, error: null });
+  const inFlight = useRef(false);
+  if (caps?.canStartTask.allowed === false) return null;
+
+  const fail = (err: unknown): void => setState({ busy: false, message: null, error: String(err instanceof Error ? err.message : err) });
+  const open = (): void => void listRunnableFlows(client, repoPath).then(setFlows, fail);
+  const go = async (flow: string): Promise<void> => {
+    if (inFlight.current) return;
+    inFlight.current = true;
+    setState({ busy: true, message: null, error: null });
+    try {
+      await client.call('hub_task_retry', { repoPath, id: taskId, flow });
+      setFlows(null);
+      setState({ busy: false, message: `Re-run requested with ${flow}.`, error: null });
+    } catch (err) {
+      fail(err);
+    } finally {
+      inFlight.current = false;
+    }
+  };
+
+  return (
+    <>
+      <Pressable accessibilityRole="button" disabled={state.busy} onPress={open} style={[styles.button, { backgroundColor: theme.primary }]}>
+        <Text style={styles.buttonText}>Run with flow…</Text>
+      </Pressable>
+      {flows?.map((f) => (
+        <Pressable key={f.name} accessibilityRole="button" disabled={state.busy} onPress={() => void go(f.name)} style={[styles.button, { borderColor: theme.border, borderWidth: 1 }]}>
+          <Text style={{ color: theme.foreground }}>{f.label}</Text>
+        </Pressable>
+      ))}
       {state.message ? <Text style={{ color: theme.foreground }}>{state.message}</Text> : null}
       {state.error ? <Text accessibilityRole="alert" style={{ color: theme.destructive }}>{state.error}</Text> : null}
     </>

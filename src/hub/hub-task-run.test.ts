@@ -430,3 +430,33 @@ test('auto-run off: a new card waits and says so; Start run starts that one task
   expect((await board())['hub-1']).toMatchObject({ state: 'auto-run is off — start it by hand' });
   expect((await rpc(alice, 'hub_task_start', { repoPath: repo, id: 'hub-2' })).status).toBe(400); // already running
 });
+
+test('a card started or retried with a flow runs that flow; an unknown flow is refused before the card changes, naming the valid ones', async () => {
+  await writeFile(join(options.configDir, 'local-worker.json'), JSON.stringify({ [repo]: { enabled: false } }));
+  await useHubBoard();
+  await create('A');
+  await create('B');
+  const refused = await rpc(alice, 'hub_task_start', { repoPath: repo, id: 'hub-1', flow: 'nope' });
+  expect(refused.status).toBe(400);
+  expect(refused.body.error.message).toMatch(/unknown flow "nope".*default, plan/);
+  await hub.sweepHubTasks();
+  expect(runs).toHaveLength(0); // the card was not marked for a start
+  expect((await rpc(alice, 'hub_task_start', { repoPath: repo, id: 'hub-1', flow: 'plan' })).status).toBe(200);
+  await hub.sweepHubTasks();
+  expect(runs.map((r) => [r.params.issueRef, r.params.flow])).toEqual([['hub-1', 'plan']]);
+  expect(await audit()).toContainEqual(expect.objectContaining({ action: 'task-schedule', target: `${repo}:hub-1`, detail: ['flow.plan'] }));
+  runs[0]!.fail(new Error('boom'));
+  await vi.waitFor(async () => expect((await board())['hub-1']).toMatchObject({ schedule: { state: 'failed' } }));
+  expect((await rpc(alice, 'hub_task_start', { repoPath: repo, id: 'hub-2' })).status).toBe(200);
+  await hub.sweepHubTasks();
+  expect(runs[1]!.params).toMatchObject({ issueRef: 'hub-2' });
+  expect(runs[1]!.params.flow).toBeUndefined();
+  runs[1]!.fail(new Error('boom'));
+  await vi.waitFor(async () => expect((await board())['hub-2']).toMatchObject({ schedule: { state: 'failed' } }));
+  expect((await rpc(alice, 'hub_task_retry', { repoPath: repo, id: 'hub-1', flow: 'nope' })).status).toBe(400);
+  expect((await board())['hub-1']).toMatchObject({ schedule: { state: 'failed' } });
+  expect((await rpc(alice, 'hub_task_retry', { repoPath: repo, id: 'hub-1', flow: 'flow-b' })).status).toBe(200);
+  await writeFile(join(options.configDir, 'local-worker.json'), JSON.stringify({ [repo]: { enabled: true } })); // a retried card waits for auto-run
+  await hub.sweepHubTasks();
+  expect(runs[2]!.params).toMatchObject({ issueRef: 'hub-1', flow: 'flow-b' });
+});

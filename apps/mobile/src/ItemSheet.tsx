@@ -3,7 +3,7 @@ import { ActivityIndicator, Alert, Linking, Modal, Pressable, StyleSheet, Text, 
 import * as LocalAuthentication from 'expo-local-authentication';
 import { useHub } from './hubContext';
 import { mergeItem, replyItem, rereviewItem, type Row } from './needsYou';
-import { RerunButton, canRerun, useCapabilities } from './Rerun';
+import { RerunButton, RunWithFlowButton, canRerun, useCapabilities } from './Rerun';
 import { useTheme } from './useTheme';
 
 const openUrl = (url: string): void => void Linking.openURL(url).catch(() => undefined);
@@ -113,6 +113,7 @@ export function ItemSheet({ row, gone = false, onClose, onDone }: {
         {canRequest ? button('Request changes', requestChanges) : null}
         {canRereview ? button('Review again', rereview) : null}
         {rerunRepo !== undefined ? <RerunButton repoPath={rerunRepo} taskId={item.id} title={row.title} /> : null}
+        {rerunRepo !== undefined ? <RunWithFlowButton repoPath={rerunRepo} taskId={item.id} /> : null}
         <Pressable accessibilityRole="button" onPress={onClose} style={styles.close}>
           <Text style={{ color: theme.primary }}>Close</Text>
         </Pressable>

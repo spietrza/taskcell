@@ -28,6 +28,8 @@ export interface RunTimeline {
   endedAt?: number;
   terminal?: 'success' | 'no-changes' | 'secret-blocked' | 'error' | 'cancelled';
   message?: string;
+  /** The flow the run is running, from its `run-start` event. */
+  flow?: string;
 }
 export interface LoggedEvent {
   id: number;
@@ -71,6 +73,7 @@ export function foldRunEvents(events: LoggedEvent[]): RunTimeline {
       case 'run-start': {
         const early = t.stages[0]?.name === 'sandbox' ? t.stages[0] : undefined;
         if (!early) t.startedAt = at;
+        if (typeof e.flow === 'string') t.flow = e.flow;
         t.stages = (Array.isArray(e.stages) ? (e.stages as string[]) : []).map((name, n) => (n === 0 && early && name === 'sandbox' ? early : { name, phase: 'pending' as const }));
         break;
       }

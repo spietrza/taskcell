@@ -3,6 +3,7 @@ import { Button, cn } from '@/ui';
 import { hubTaskAccept, hubTaskArchive, hubTaskCreate, hubTaskDelete, hubTaskRetry, hubTaskSchedule } from '../../ipc';
 import { errorMessage } from '../../errors';
 import type { BoardTask } from '../../wire';
+import { RunWithFlow } from './RunWithFlow';
 
 const FIELD = 'mt-0.5 block w-full rounded border border-border/60 bg-background px-2 py-1 text-sm';
 
@@ -62,6 +63,7 @@ export function ScheduleEditor({ repoPath, task, onSaved }: { repoPath: string; 
         <Button variant="outlined" onClick={save}>Save schedule</Button>
         {task.schedule?.state === 'failed' && task.schedule.result !== undefined && <Button variant="outlined" onClick={() => done(hubTaskAccept(repoPath, task.id))}>Accept result</Button>}
         {task.schedule?.state === 'failed' && <Button variant="outlined" onClick={() => done(hubTaskRetry(repoPath, task.id))}>Retry</Button>}
+        {task.schedule?.state === 'failed' && <RunWithFlow repoPath={repoPath} taskId={task.id} mode="retry" onDone={onSaved} />}
         {task.schedule?.state === 'done' && <Button variant="outlined" onClick={() => done(hubTaskArchive(repoPath, task.id))}>Archive</Button>}
         {task.schedule?.state !== 'running' && <Button variant="text" color="destructive" className="ml-auto" onClick={() => done(hubTaskDelete(repoPath, task.id))}>Delete</Button>}
       </div>

@@ -180,6 +180,32 @@ describe('Re-run on a failed card', () => {
     expect(writes).toEqual([{ cmd: 'hub_task_retry', args: { repoPath: '/repo', id: 'hub-4' } }]);
   });
 
+  test('a failed hub card offers "Run with flow…", which retries it with the chosen flow', async () => {
+    const { fetchImpl, writes } = hub([card('hub-4')]);
+    const base = fetchImpl;
+    const withFlows = (async (input: string, init: { body: string }) => {
+      if (input.endsWith('/rpc/api_capabilities')) return { status: 200, json: async () => ({ result: { flows: [{ name: 'default', label: 'Default' }, { name: 'plan', label: 'Plan' }] } }) };
+      if (input.endsWith('/rpc/api_list_flows')) return { status: 200, json: async () => ({ result: { flows: [{ file: 'a.hcl', name: 'mine', label: 'Mine' }, { file: 'b.hcl', error: 'bad' }] } }) };
+      return base(input, init as never);
+    }) as unknown as typeof fetch;
+    await renderHome(withFlows);
+    await open('Board card');
+    await fireEvent.press(await screen.findByText('Run with flow…'));
+    expect(await screen.findByText('Mine')).toBeTruthy();
+    await fireEvent.press(screen.getByText('Plan'));
+    await screen.findByText('Re-run requested with plan.');
+    expect(writes).toEqual([{ cmd: 'hub_task_retry', args: { repoPath: '/repo', id: 'hub-4', flow: 'plan' } }]);
+  });
+
+  test('a read-only caller sees no "Run with flow…" on a failed hub card', async () => {
+    const { fetchImpl } = hub([card('hub-4')], undefined, caps(false));
+    await renderHome(fetchImpl);
+    await open('Board card');
+    await waitFor(() => expect(screen.queryByText('Send reply')).toBeNull());
+    await new Promise((r) => setTimeout(r, 50));
+    expect(screen.queryByText('Run with flow…')).toBeNull();
+  });
+
   test.each(['gh-27', 'gl-3', 'linear-ab12'])('a %s card offers no Re-run (it is not a failed hub card)', async (id) => {
     const { fetchImpl } = hub([card(id)]);
     await renderHome(fetchImpl);
