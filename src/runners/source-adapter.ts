@@ -28,7 +28,7 @@ import type { RunSkills } from '../core/run-store.js';
 import type { SecretBlock } from '../core/secret-scan.js';
 import { redactForPublish } from '../core/secret-scan.js';
 import { summarizeOutcomes } from '../core/run-summary.js';
-import { appendStepSummary } from '../core/step-summary.js';
+import { appendStepSummary, authFallbackNotice } from '../core/step-summary.js';
 import type { StepSummary, StepSummaryExit } from '../core/step-summary.js';
 import { loadLessonsForTask } from '../core/lessons.js';
 import { loadRetrospectiveMemory, refreshRetrospectiveMemory } from '../core/retrospective-memory.js';
@@ -1037,6 +1037,11 @@ async function runSourcedIssueAttempt(
       // its verdict describes a diff that no longer ships.
       // Not `findLast`: that needs lib ES2023, and apps/desktop compiles this file against ES2022.
       const reviewerOutcome = outcomes.filter((o) => o.name === STAGE.REVIEWER).at(-1);
+      // A stage that ran on its fallback because the primary's credential was refused: the green run must say so.
+      const authFallbackBlock = outcomes
+        .filter((o) => o.primaryAuthRefused !== undefined)
+        .map((o) => `> ⚠️ ${o.name} ${authFallbackNotice(o.primaryAuthRefused!, o.providerName)}`)
+        .join('\n') || undefined;
       const delivery = await deliverChange(ctx, {
         taskId: task.id,
         // Default and white-label share the same type/scope logic as the PR title (conventionalPrTitle):
@@ -1061,12 +1066,13 @@ async function runSourcedIssueAttempt(
           body: ({ commitLeaks, facts: { configBlock } }) => {
             // The PR-body gap block carries no branding, so white-label keeps it like the gate-config block.
             return whiteLabel
-              ? [baseBody, configBlock, prBodyGapBlock].filter(Boolean).join('\n\n')
+              ? [baseBody, configBlock, prBodyGapBlock, authFallbackBlock].filter(Boolean).join('\n\n')
               : [
                 configBlock,
                 baseBody,
                 commitLeaks.length > 0 ? commitLeakWarningBlock(commitLeaks) : undefined,
                 prBodyGapBlock,
+                authFallbackBlock,
                 verification !== undefined ? proofBlock(verification) : verifySkippedBlock(),
                 visualProof !== undefined ? visualProofBlock(visualProof) : undefined,
                 reviewerOutcome !== undefined ? reviewVerdictLine(reviewVerdictOf(reviewerOutcome.result.finalText)) : undefined,

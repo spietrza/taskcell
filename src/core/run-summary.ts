@@ -9,6 +9,9 @@ export interface SummaryOutcome {
   name: string;
   result: RunResult;
   model?: string;
+  /** The stage's own provider refused its credential and the fallback ran it. */
+  primaryAuthRefused?: string;
+  providerName?: string;
 }
 
 const HEADER = ['stage', 'exit', 'turns', 'in', 'out', 'cacheR', 'cache%', '$cost', '$or-est', 'time'];

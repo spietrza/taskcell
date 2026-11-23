@@ -570,7 +570,7 @@ export interface StageModelPick {
 export interface RunWriter {
   /** Persist one record per pipeline stage under the writer's timestamp, then mirror the run as one
    * OTLP trace when an exporter is configured (opt-in, best-effort — see otlp-sink). */
-  writeStages(outcomes: ReadonlyArray<{ name: string; result: RunResult; model?: string }>, opts?: WriteStagesOptions): Promise<void>;
+  writeStages(outcomes: ReadonlyArray<{ name: string; result: RunResult; model?: string; primaryAuthRefused?: string }>, opts?: WriteStagesOptions): Promise<void>;
   /** Persist a verification proof to `<ts>.proof.json` and append a `{ evt: 'verify', ... }` metric line. */
   writeProof(result: VerificationResult, opts?: { baseRed?: boolean }): Promise<string>;
   /** Persist a visual proof to `<ts>.visual-proof.json` and append a `{ evt: 'visual_proof', ... }` metric line. */
@@ -603,6 +603,8 @@ interface WriteRecordOptions {
   skills?: RunSkills;
   skillIds?: readonly string[];
   modelPick?: StageModelPick;
+  /** The stage's own provider refused its credential and the fallback ran it: the refused provider's name. */
+  primaryAuthRefused?: string;
 }
 
 /**
@@ -675,6 +677,7 @@ async function writeRecord(repoPath: string, taskId: string, timestamp: string, 
     ...(opts.lessonIds !== undefined && opts.lessonIds.length > 0 ? { lessonIds: [...opts.lessonIds] } : {}),
     ...(opts.skills !== undefined ? { skills: opts.skills } : {}),
     ...(opts.modelPick !== undefined ? { modelPick: opts.modelPick } : {}),
+    ...(opts.primaryAuthRefused !== undefined ? { primaryAuthRefused: opts.primaryAuthRefused } : {}),
   };
   const suffix = opts.label !== undefined ? `-${opts.label}` : '';
   const base = join(taskDir, `${sanitizeTimestamp(timestamp)}${suffix}`);
@@ -778,6 +781,7 @@ export function beginRun(
           ...(opts.skills !== undefined ? { skills: opts.skills } : {}),
           ...(opts.skillIds !== undefined ? { skillIds: opts.skillIds } : {}),
           ...(opts.modelPicks?.[outcome.name] !== undefined ? { modelPick: opts.modelPicks[outcome.name] } : {}),
+          ...(outcome.primaryAuthRefused !== undefined ? { primaryAuthRefused: outcome.primaryAuthRefused } : {}),
         });
       }
       const first = outcomes[0];

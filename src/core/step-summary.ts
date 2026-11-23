@@ -26,6 +26,11 @@ export interface StepSummary {
   notes?: string[];
 }
 
+/** Run-summary / PR-body notice for a stage that fell back because its credential was refused. Fixed wording. */
+export function authFallbackNotice(refusedProvider: string, fallbackProvider?: string): string {
+  return `ran on ${fallbackProvider ?? 'the fallback provider'} because ${refusedProvider}'s credential was refused — refresh it`;
+}
+
 const seconds = (ms: number): string => `${(ms / 1000).toFixed(1)}s`;
 /** A pipe would end the markdown table cell early. */
 const cell = (text: string): string => text.replace(/\|/g, '\\|');
@@ -46,6 +51,7 @@ export function renderStepSummary(summary: StepSummary): string {
     summary.prUrl !== undefined ? `- PR: ${summary.prUrl}` : undefined,
     summary.verdict !== undefined ? `- Verdict: ${summary.verdict}` : undefined,
     summary.risk !== undefined ? `- Risk: ${summary.risk}` : undefined,
+    ...summary.outcomes.filter((o) => o.primaryAuthRefused !== undefined).map((o) => `- Notice: ${authFallbackNotice(o.primaryAuthRefused!, o.providerName)}`),
     ...(summary.notes ?? []).map((note) => `- Note: ${redactForPublish(note)}`),
     // The job summary is public on a public repo, and a thrown agent error embeds raw CLI output.
     summary.error !== undefined ? `- Error: ${redactForPublish(summary.error)}` : undefined,
