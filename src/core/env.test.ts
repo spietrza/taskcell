@@ -43,7 +43,9 @@ describe('direct TASKCELL_* / VANGUARD_* environment access', () => {
     'core/push-token.ts: TASKCELL_APP_CLIENT_ID', // the GitHub App credentials are new: no old name
     'core/push-token.ts: TASKCELL_APP_PRIVATE_KEY',
     'core/secret-scan.ts: TASKCELL_APP_PRIVATE_KEY',
+    'hub/slack.ts: TASKCELL_SLACK_APP_TOKEN', // new: no old name
     'hub/slack.ts: TASKCELL_SLACK_BOT_TOKEN', // new: no old name
+    'hub/slack.ts: VANGUARD_SLACK_APP_TOKEN', // deleted only
     'hub/slack.ts: VANGUARD_SLACK_BOT_TOKEN', // deleted only, so a stray copy never reaches a child
   ];
 
