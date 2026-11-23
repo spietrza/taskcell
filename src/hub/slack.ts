@@ -30,9 +30,11 @@ const threadsFile = (configDir: string): string => join(configDir, 'slack-thread
 
 /** Both values, read once and then removed from `env`; undefined (feature off) when either is missing. */
 export function takeSlackConfig(env: NodeJS.ProcessEnv = process.env): Pick<SlackConfig, 'token' | 'channel'> | undefined {
-  const token = readEnv('TASKCELL_SLACK_BOT_TOKEN', env)?.trim();
+  // The token never had a VANGUARD_ name: read only the new one, and drop a stray legacy copy so no child inherits it.
+  const token = env.TASKCELL_SLACK_BOT_TOKEN?.trim();
   const channel = readEnv('TASKCELL_SLACK_CHANNEL', env)?.trim();
   delete env.TASKCELL_SLACK_BOT_TOKEN;
+  delete env.VANGUARD_SLACK_BOT_TOKEN;
   return token && channel ? { token, channel } : undefined;
 }
 

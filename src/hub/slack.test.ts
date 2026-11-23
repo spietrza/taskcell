@@ -54,6 +54,9 @@ describe('slack questions', () => {
     const both: NodeJS.ProcessEnv = { TASKCELL_SLACK_BOT_TOKEN: 't', TASKCELL_SLACK_CHANNEL: 'C' };
     expect(takeSlackConfig(both)).toEqual({ token: 't', channel: 'C' });
     expect(both.TASKCELL_SLACK_BOT_TOKEN).toBeUndefined();
+    const legacy: NodeJS.ProcessEnv = { VANGUARD_SLACK_BOT_TOKEN: 't', TASKCELL_SLACK_CHANNEL: 'C' };
+    expect(takeSlackConfig(legacy)).toBeUndefined();
+    expect(legacy.VANGUARD_SLACK_BOT_TOKEN).toBeUndefined();
   });
 
   test('truncates the question to 3000 characters', () => {
