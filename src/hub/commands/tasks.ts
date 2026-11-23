@@ -345,8 +345,8 @@ export const commands = defineCommands<TasksCommands>({
       if (t.status !== 'todo') throw new BadRequestError(`${id} is ${t.status}, not to do`);
       t.startRequested = true;
       t.owner = ownerOf(call);
+      // A plain start keeps a flow chosen on retry; only a retry without a flow clears it.
       if (flow !== undefined) t.flow = flow;
-      else delete t.flow;
     });
     if (task === undefined) throw new BadRequestError(`no hub task ${id}`);
     return { id };

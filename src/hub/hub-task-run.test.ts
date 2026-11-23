@@ -460,3 +460,17 @@ test('a card started or retried with a flow runs that flow; an unknown flow is r
   await hub.sweepHubTasks();
   expect(runs[2]!.params).toMatchObject({ issueRef: 'hub-1', flow: 'flow-b' });
 });
+
+test('a plain start after a retry with a flow keeps that flow', async () => {
+  await writeFile(join(options.configDir, 'local-worker.json'), JSON.stringify({ [repo]: { enabled: false } }));
+  await useHubBoard();
+  await create('A');
+  expect((await rpc(alice, 'hub_task_start', { repoPath: repo, id: 'hub-1' })).status).toBe(200);
+  await hub.sweepHubTasks();
+  runs[0]!.fail(new Error('boom'));
+  await vi.waitFor(async () => expect((await board())['hub-1']).toMatchObject({ schedule: { state: 'failed' } }));
+  expect((await rpc(alice, 'hub_task_retry', { repoPath: repo, id: 'hub-1', flow: 'plan' })).status).toBe(200);
+  expect((await rpc(alice, 'hub_task_start', { repoPath: repo, id: 'hub-1' })).status).toBe(200);
+  await hub.sweepHubTasks();
+  expect(runs[1]!.params).toMatchObject({ issueRef: 'hub-1', flow: 'plan' });
+});
