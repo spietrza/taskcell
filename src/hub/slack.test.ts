@@ -34,7 +34,7 @@ describe('slack questions', () => {
     expect(body).toMatchObject({ channel: 'C1', mrkdwn: false, link_names: false });
     expect(body.text).toContain('&lt;!channel&gt; &lt;@U1&gt; &lt;http://x|y&gt; a&amp;b');
     expect(body.text).not.toContain('<');
-    expect(JSON.parse(await readFile(join(configDir, 'slack-threads.json'), 'utf8'))['/r|hub-1|asking']).toEqual({ channel: 'C1', ts: '1.2' });
+    expect(JSON.parse(await readFile(join(configDir, 'slack-threads.json'), 'utf8'))['/r|hub-1|asking']).toEqual({ channel: 'C1', ts: '1.2', kind: 'card' });
   });
 
   test('a rejected call logs one warning without the token and does not throw', async () => {

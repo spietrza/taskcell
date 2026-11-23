@@ -21,6 +21,8 @@ export interface SlackConfig {
 export interface SlackThread {
   channel: string;
   ts: string;
+  /** The item's kind, so a reply can be dispatched without re-listing (absent on entries from before answering existed). */
+  kind?: string;
 }
 
 const MAX_THREADS = 5000;
@@ -36,6 +38,14 @@ export function takeSlackConfig(env: NodeJS.ProcessEnv = process.env): Pick<Slac
   delete env.TASKCELL_SLACK_BOT_TOKEN;
   delete env.VANGUARD_SLACK_BOT_TOKEN;
   return token && channel ? { token, channel } : undefined;
+}
+
+/** The Socket Mode app token, read once and removed from `env` (like the bot token); undefined when unset. */
+export function takeSlackAppToken(env: NodeJS.ProcessEnv = process.env): string | undefined {
+  const token = env.TASKCELL_SLACK_APP_TOKEN?.trim();
+  delete env.TASKCELL_SLACK_APP_TOKEN;
+  delete env.VANGUARD_SLACK_APP_TOKEN;
+  return token || undefined;
 }
 
 /** Slack's control-character escapes: nothing else makes `<...>` a mention or link. */
@@ -83,7 +93,7 @@ export async function postQuestions(configDir: string, items: WaitingItem[], cfg
     let failed = 0;
     for (const item of fresh) {
       const key = itemKey(item);
-      threads[key] = { channel: cfg.channel, ts: '' };
+      threads[key] = { channel: cfg.channel, ts: '', kind: item.kind };
       const entries = Object.entries(threads);
       for (const [k] of entries.slice(0, Math.max(0, entries.length - MAX_THREADS))) delete threads[k];
       await saveThreads(configDir, threads);
@@ -96,7 +106,7 @@ export async function postQuestions(configDir: string, items: WaitingItem[], cfg
         });
         const out = (await res.json().catch(() => undefined)) as { ok?: boolean; ts?: string; channel?: string } | undefined;
         if (!res.ok || out?.ok !== true || typeof out.ts !== 'string') throw new Error('rejected');
-        threads[key] = { channel: typeof out.channel === 'string' ? out.channel : cfg.channel, ts: out.ts };
+        threads[key] = { channel: typeof out.channel === 'string' ? out.channel : cfg.channel, ts: out.ts, kind: item.kind };
         await saveThreads(configDir, threads);
       } catch {
         failed += 1;

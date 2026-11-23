@@ -1004,7 +1004,7 @@ Optional: set `TASKCELL_EXPO_PUSH_TOKEN` to an Expo access token (sent as a bear
 
 ## Slack: agent questions
 
-The hub can post each new agent question (a card whose agent stopped to ask, or a non-vague `needs info` issue) to one Slack channel, in addition to "Waiting for you" and push. Outbound only; answering from Slack is not supported yet.
+The hub can post each new agent question (a card whose agent stopped to ask, or a non-vague `needs info` issue) to one Slack channel, in addition to "Waiting for you" and push. A reply in the question's Slack thread can answer it (see "Answering from Slack" below).
 
 Setup:
 
@@ -1016,3 +1016,15 @@ Setup:
 The hub reads the token once at start and removes it from its environment, so no child process (runs, doc-chat, Fleet) inherits it; it is never logged. On the push tick (once a minute) each question not yet posted is sent with `chat.postMessage`: project, title, the question (truncated to 3000 characters) and the hub link. Text is posted literally (`mrkdwn` off, `&`, `<`, `>` escaped, `link_names` off), so a question cannot mention people or `@channel` or inject links. Posted items are recorded in `<config dir>/slack-threads.json` (item key → channel and message `ts`, last 5000), so a restart does not repost. A failed Slack call logs one warning and is not retried.
 
 **Visibility:** the channel sees questions from every project on the hub, including projects a channel member cannot see in the hub. Use a channel whose members may read all of them.
+
+### Answering from Slack
+
+A reply in the Slack thread of a posted question becomes the answer. Server mode only (hub user ids exist only with Better Auth); in local/token mode the feature stays off and the hub logs one line.
+
+1. In the Slack app enable *Socket Mode* and create an app-level token (`xapp-…`, scope `connections:write`). The hub opens an outbound websocket, so a hub behind NAT needs no public endpoint.
+2. Add the bot scopes `channels:history` (public channel) and/or `groups:history` (private channel), subscribe to the `message.channels` / `message.groups` bot events, and reinstall the app.
+3. Start the hub with `TASKCELL_SLACK_APP_TOKEN=xapp-…` and `TASKCELL_SLACK_USERS=U123=<hubUserId>,U456=<hubUserId>` (Slack user id → hub user id). Like the bot token, the app token is read once and removed from the environment.
+
+Only a plain reply (no edit, delete or bot message) in the configured channel, in the thread of a posted question, counts; the text is capped at 10000 characters and handled like an answer typed in the hub. The mapping is the trust boundary: an unmapped Slack user gets one thread note and nothing is answered, and a mapped user always acts as that hub user with a non-owner caller, through the same `reply_needs_you` command the UI uses (repository visibility, the write gate and the `needs-reply` audit line apply). Any refusal (already answered, project not visible, writes disabled) is posted as one thread note. The client acknowledges each envelope, ignores a duplicate `event_id` and reconnects with a 1 s to 60 s backoff.
+
+**The answer is posted to GitHub as the hub's identity**, not as the Slack user: anyone mapped can write to GitHub issues and PRs they can see in the hub through the hub's credentials.

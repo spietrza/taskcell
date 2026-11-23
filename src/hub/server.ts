@@ -23,7 +23,8 @@ import { reconcileHubBoards, schedulerState, sweepHubBoards } from './task-sched
 import { createRunSession } from './run-session.js';
 import { CompleteBusyError, CompleteRegistry, type SpawnComplete } from './complete.js';
 import { loadPaths } from './projects.js';
-import { takeSlackConfig } from './slack.js';
+import { takeSlackAppToken, takeSlackConfig } from './slack.js';
+import { startSlackAnswers } from './slack-socket.js';
 import { notifyNewItems, type WaitingItem } from './push.js';
 import { SpawnRegistry } from './spawn.js';
 import { productionDeps } from '../sidecar/deps.js';
@@ -59,6 +60,8 @@ export interface HubServerOptions {
   pushUrl?: string;
   /** Slack API base (tests); the real one by default. */
   slackApiUrl?: string;
+  /** Fake Socket Mode websocket constructor (tests). */
+  slackWebSocket?: typeof WebSocket;
   pushIntervalMs?: number;
   deps?: SidecarDeps;
   spawnComplete?: SpawnComplete;
@@ -479,6 +482,25 @@ export function createHubServer(opts: HubServerOptions): HubServer {
   const slackBase = takeSlackConfig();
   const slackHubUrl = readEnv('TASKCELL_HUB_PUBLIC_URL')?.trim() || undefined;
   const slack = slackBase && { ...slackBase, ...(slackHubUrl ? { hubUrl: slackHubUrl } : {}), ...(opts.slackApiUrl !== undefined ? { apiUrl: opts.slackApiUrl } : {}) };
+  // Answers from a Slack thread need hub user ids: server mode (Better Auth) only.
+  const slackAppToken = takeSlackAppToken();
+  let slackAnswers: { close(): void } | undefined;
+  if (slackAppToken !== undefined && slack !== undefined) {
+    if (identity.handler === undefined) console.error('taskcell-hub: slack: answering from Slack needs server mode; off');
+    else {
+      slackAnswers = startSlackAnswers({
+        appToken: slackAppToken,
+        botToken: slack.token,
+        channel: slack.channel,
+        users: readEnv('TASKCELL_SLACK_USERS'),
+        configDir: opts.configDir,
+        ctx,
+        ofRegistration: callers.ofRegistration,
+        ...(opts.slackApiUrl !== undefined ? { apiUrl: opts.slackApiUrl } : {}),
+        ...(opts.slackWebSocket !== undefined ? { WebSocketImpl: opts.slackWebSocket } : {}),
+      });
+    }
+  }
   let pushing: Promise<void> = Promise.resolve();
   const pusher = setInterval(() => void (pushing = notifyNewItems({
     configDir: opts.configDir,
@@ -518,6 +540,7 @@ export function createHubServer(opts: HubServerOptions): HubServer {
       new Promise<void>((resolve) => {
         clearInterval(sweeper);
         clearInterval(pusher);
+        slackAnswers?.close();
         watchRegistry.closeAll();
         spawnRegistry?.killAll();
         eventBus.close();
