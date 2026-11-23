@@ -560,6 +560,12 @@ commit, else rebase). It refuses a PR that is not in the list and one whose requ
 all green, with a message the UI shows; the item leaves the list once merged. The UI's Merge button
 names the PR's base branch (`baseRef`) and asks for a second click to confirm. The merge is pinned to the checked head commit (`--match-head-commit`). A PR with no required checks passes the check gate. The button sits in the opened Waiting for you row and in the Board card's quick view (a side panel; a bottom drawer on phones). "Ask for changes" stays `reply_needs_you`.
 
+`rereview_pr` ("Review again" in the opened Waiting for you row and the phone's item sheet, shown with `canStartTask`) puts an open
+PR back through review: it removes `taskcell:reviewed` and the review trigger and re-adds the trigger, in the spelling the repo has. It
+refuses (no label change) a PR that is closed, from a fork, not on a factory branch, or carrying `taskcell:reviewing` or
+`taskcell:revising`. The label is added as the hub's `gh` identity, not the person's, and the review starts only if that user is an allowed actor of the
+repo's review workflow, which the hub cannot check. GitHub only; GitLab is out of scope. Audited as `pr-rereview`.
+
 Replies and merges are a remote mutation, gated like `clone_project`: loopback only, unless
 `TASKCELL_HUB_ALLOW_ADD=1`.
 
@@ -847,7 +853,7 @@ taskcell hub rotate-token --token-file <path>
 A missing or unbuilt `--ui-dir` fails at startup, naming `pnpm --dir apps/desktop build`
 (run `pnpm build:ui`) rather than failing on the first request. Binding a non-loopback host
 requires sign-in (warning at startup if no provider or allowlist is configured) and disables `add_project`/`browse_dirs`/`clone_project`,
-`enable_factory_apply`/`enable_factory_verify`/`enable_factory_start`, `reply_needs_you`, `merge_needs_you`, `set_task_skills`, `start_task` and `retry_paused_task` unless
+`enable_factory_apply`/`enable_factory_verify`/`enable_factory_start`, `reply_needs_you`, `merge_needs_you`, `rereview_pr`, `set_task_skills`, `start_task` and `retry_paused_task` unless
 `TASKCELL_HUB_ALLOW_ADD=1`. `SIGINT`/`SIGTERM` close the listener, every connected SSE client,
 and the project file watchers.
 

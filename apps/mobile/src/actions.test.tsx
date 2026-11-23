@@ -230,3 +230,20 @@ test('an item removed by a reload while its sheet is open can no longer be merge
   expect(screen.queryByText('Request changes')).toBeNull();
   expect(writes).toEqual([]);
 });
+
+test('Review again on a PR calls rereview_pr and reports it', async () => {
+  const { fetchImpl, writes } = hub([item({})]);
+  await renderHome(fetchImpl);
+  await open();
+  await fireEvent.press(await screen.findByText('Review again'));
+  await waitFor(() => expect(screen.getByText('Review requested.')).toBeTruthy());
+  expect(writes).toEqual([{ cmd: 'rereview_pr', args: { repoPath: '/repo', id: 'o/r#1' } }]);
+});
+
+test('a read-only caller sees no Review again, and a card has none', async () => {
+  const { fetchImpl } = hub([item({})], undefined, caps(false));
+  await renderHome(fetchImpl);
+  await open();
+  await waitFor(() => expect(screen.queryByText('Merge')).toBeNull());
+  expect(screen.queryByText('Review again')).toBeNull();
+});
