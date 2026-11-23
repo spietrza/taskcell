@@ -192,6 +192,7 @@ const commandHandlers = {
   reply_needs_you: (args: { id?: string } | undefined) => {
     waitingNeedsYou = waitingNeedsYou.filter((i) => i.id !== args?.id);
   },
+  rereview_pr: () => undefined,
   merge_needs_you: (args: { id?: string } | undefined) => {
     waitingNeedsYou = waitingNeedsYou.filter((i) => i.id !== args?.id);
   },

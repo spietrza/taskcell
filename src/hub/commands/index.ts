@@ -18,6 +18,7 @@ import { commands as needsYou, type NeedsYouCommands } from './needs-you.js';
 import { commands as projects, type ProjectsCommands } from './projects.js';
 import { commands as push, type PushCommands } from './push.js';
 import { commands as repoFiles, type RepoFilesCommands } from './repo-files.js';
+import { commands as rereview, type RereviewCommands } from './rereview.js';
 import { commands as runSession, type RunSessionCommands } from './run-session.js';
 import { commands as runs, type RunsCommands } from './runs.js';
 import { commands as setup, type SetupCommands } from './setup.js';
@@ -48,6 +49,7 @@ export interface Commands extends
   ProjectsCommands,
   PushCommands,
   RepoFilesCommands,
+  RereviewCommands,
   RunSessionCommands,
   RunsCommands,
   SetupCommands,
@@ -157,6 +159,7 @@ export const COMMAND_NAMES = [
   'remove_team_member',
   'remove_team_repository',
   'reply_needs_you',
+  'rereview_pr',
   'retry_paused_task',
   'save_instance_credential',
   'save_user_credential',
@@ -203,6 +206,7 @@ export const HUB_COMMANDS: { readonly [K in keyof Commands]: CommandHandler } = 
   ...projects.handlers,
   ...push.handlers,
   ...repoFiles.handlers,
+  ...rereview.handlers,
   ...runSession.handlers,
   ...runs.handlers,
   ...setup.handlers,
@@ -233,6 +237,7 @@ export const HUB_POLICY: { readonly [K in keyof Commands]: CommandPolicy } = {
   ...projects.policy,
   ...push.policy,
   ...repoFiles.policy,
+  ...rereview.policy,
   ...runSession.policy,
   ...runs.policy,
   ...setup.policy,
@@ -263,6 +268,7 @@ export const HUB_AUDITED: { readonly [K in keyof Commands]?: AuditSpec } = {
   ...projects.audit,
   ...push.audit,
   ...repoFiles.audit,
+  ...rereview.audit,
   ...runSession.audit,
   ...runs.audit,
   ...setup.audit,

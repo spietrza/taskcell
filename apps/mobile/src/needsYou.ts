@@ -63,6 +63,11 @@ export async function replyItem(client: HubClient, item: WaitingItem, body: stri
   await client.call('reply_needs_you', { repoPath: item.repoPath ?? '', id: item.id, kind: item.kind, body });
 }
 
+/** The hub's `rereview_pr`: puts an open factory PR back through review. Rejects with the hub's message. */
+export async function rereviewItem(client: HubClient, item: WaitingItem): Promise<void> {
+  await client.call('rereview_pr', { repoPath: item.repoPath ?? '', id: item.id });
+}
+
 /** What the hub says the caller may do on one project (`caller_capabilities`); null while unread or unreadable, which leaves every action open for the hub to refuse. */
 export async function loadCapabilities(client: HubClient, repoPath: string): Promise<CallerCapabilities['project'] | null> {
   try {

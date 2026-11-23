@@ -560,6 +560,12 @@ commit, else rebase). It refuses a PR that is not in the list and one whose requ
 all green, with a message the UI shows; the item leaves the list once merged. The UI's Merge button
 names the PR's base branch (`baseRef`) and asks for a second click to confirm. The merge is pinned to the checked head commit (`--match-head-commit`). A PR with no required checks passes the check gate. The button sits in the opened Waiting for you row and in the Board card's quick view (a side panel; a bottom drawer on phones). "Ask for changes" stays `reply_needs_you`.
 
+`rereview_pr` ("Review again" in the opened Waiting for you row and the phone's item sheet, shown with `canStartTask`) puts an open
+PR back through review: it removes `taskcell:reviewed` and the review trigger and re-adds the trigger, in the spelling the repo has. It
+refuses (no label change) a PR that is closed, from a fork, not on a factory branch, or carrying `taskcell:reviewing` or
+`taskcell:revising`. The label is added as the hub's `gh` identity, not the person's, and the review starts only if that user is an allowed actor of the
+repo's review workflow, which the hub cannot check. GitHub only; GitLab is out of scope. Audited as `pr-rereview`.
+
 Replies and merges are a remote mutation, gated like `clone_project`: loopback only, unless
 `TASKCELL_HUB_ALLOW_ADD=1`.
 
@@ -847,7 +853,7 @@ taskcell hub rotate-token --token-file <path>
 A missing or unbuilt `--ui-dir` fails at startup, naming `pnpm --dir apps/desktop build`
 (run `pnpm build:ui`) rather than failing on the first request. Binding a non-loopback host
 requires sign-in (warning at startup if no provider or allowlist is configured) and disables `add_project`/`browse_dirs`/`clone_project`,
-`enable_factory_apply`/`enable_factory_verify`/`enable_factory_start`, `reply_needs_you`, `merge_needs_you`, `set_task_skills`, `start_task` and `retry_paused_task` unless
+`enable_factory_apply`/`enable_factory_verify`/`enable_factory_start`, `reply_needs_you`, `merge_needs_you`, `rereview_pr`, `set_task_skills`, `start_task` and `retry_paused_task` unless
 `TASKCELL_HUB_ALLOW_ADD=1`. `SIGINT`/`SIGTERM` close the listener, every connected SSE client,
 and the project file watchers.
 
@@ -995,3 +1001,18 @@ The mobile app registers an Expo push token per hub user (`register_push_token {
 Once a minute the hub lists "Needs you" across its repositories and, for each item that is new (PR ready, question, too vague, changes requested), sends one push per registered token of a user whose teams include the repository, through `https://exp.host/--/api/v2/push/send`. The title is `<kind>: <title>`, the body the repository; the data holds only the item id and repository name — no token, secret or diff text. Items already notified are remembered in `<config dir>/push-notified.json`, so a restart does not notify again. The first pass after a token is registered only records what already waits. A token Expo reports as `DeviceNotRegistered` is dropped.
 
 Optional: set `TASKCELL_EXPO_PUSH_TOKEN` to an Expo access token (sent as a bearer header, never logged); without it the hub sends unauthenticated, which Expo allows.
+
+## Slack: agent questions
+
+The hub can post each new agent question (a card whose agent stopped to ask, or a non-vague `needs info` issue) to one Slack channel, in addition to "Waiting for you" and push. Outbound only; answering from Slack is not supported yet.
+
+Setup:
+
+1. Create a Slack app (api.slack.com/apps, "From scratch") in your workspace.
+2. Under *OAuth & Permissions* add the bot token scope `chat:write` and install the app to the workspace.
+3. Copy the *Bot User OAuth Token* (`xoxb-…`) and invite the bot to the channel (`/invite @your-app`); copy the channel's ID (channel details → bottom).
+4. Start the hub with `TASKCELL_SLACK_BOT_TOKEN=xoxb-…` and `TASKCELL_SLACK_CHANNEL=<channel id>`. The feature is off unless both are set. Set `TASKCELL_HUB_PUBLIC_URL` so each message links to the hub.
+
+The hub reads the token once at start and removes it from its environment, so no child process (runs, doc-chat, Fleet) inherits it; it is never logged. On the push tick (once a minute) each question not yet posted is sent with `chat.postMessage`: project, title, the question (truncated to 3000 characters) and the hub link. Text is posted literally (`mrkdwn` off, `&`, `<`, `>` escaped, `link_names` off), so a question cannot mention people or `@channel` or inject links. Posted items are recorded in `<config dir>/slack-threads.json` (item key → channel and message `ts`, last 5000), so a restart does not repost. A failed Slack call logs one warning and is not retried.
+
+**Visibility:** the channel sees questions from every project on the hub, including projects a channel member cannot see in the hub. Use a channel whose members may read all of them.
