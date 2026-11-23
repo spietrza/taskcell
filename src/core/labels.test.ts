@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { currentLabel, hasLabel, hasReviewHeading, labelForms, labelValue, legacyLabel, resolveAdds, resolveRemovals, sameLabel, withoutLabel } from './labels.js';
+import { currentLabel, hasInFlightLabel, hasLabel, hasReviewHeading, labelForms, labelValue, legacyLabel, resolveAdds, resolveRemovals, sameLabel, withoutLabel } from './labels.js';
 
 describe('label spellings (taskcell written, vanguard still read)', () => {
   it('maps between the current and legacy spelling, GitHub and GitLab scoped', () => {
@@ -129,5 +129,17 @@ describe('label spellings (taskcell written, vanguard still read)', () => {
       expect(plain.calls).toEqual([]);
       expect(await resolveAdds(['taskcell:waiting'], 'o/r', repo(new Error('gh down')).gh)).toEqual(['taskcell:waiting']);
     });
+  });
+});
+
+describe('hasInFlightLabel', () => {
+  it('matches in-flight labels in either spelling and any case', () => {
+    for (const l of ['taskcell:running', 'taskcell:revising', 'taskcell:reviewing', 'vanguard:running', 'vanguard:revising', 'vanguard:reviewing', 'Taskcell:Reviewing', 'VANGUARD:REVISING']) {
+      expect(hasInFlightLabel(['bug', l])).toBe(true);
+    }
+  });
+  it('is false for labels that are not in flight', () => {
+    expect(hasInFlightLabel([])).toBe(false);
+    expect(hasInFlightLabel(['taskcell:reviewed', 'needs revision', 'vanguard:waiting', 'reviewing'])).toBe(false);
   });
 });

@@ -49,6 +49,9 @@ test.each([
   ['a closed PR', { state: 'CLOSED' }],
   ['a PR being reviewed', { labels: ['taskcell:reviewing'] }],
   ['a PR being revised', { labels: ['taskcell:revising'] }],
+  ['a legacy-reviewing PR', { labels: ['vanguard:reviewing'] }],
+  ['a legacy-revising PR', { labels: ['vanguard:revising'] }],
+  ['a mixed-case reviewing PR', { labels: ['Taskcell:Reviewing'] }],
 ])('refuses %s without a label change', async (_n, pr: Pr) => {
   const { repo, ctx, edits } = await setup(pr);
   await expect(dispatchRpc(ctx, 'rereview_pr', { repoPath: repo, id: ID })).rejects.toThrow();

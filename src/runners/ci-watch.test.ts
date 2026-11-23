@@ -68,7 +68,7 @@ describe('ci-watch', () => {
     ['a draft', { number: 1, isDraft: true }],
     ['a fork PR', { number: 1, isCrossRepository: true }],
     ['a non-factory branch', { number: 1, headRefName: 'feat/1' }],
-    ...['needs revision', 'taskcell:revising', 'vanguard:reviewing', 'taskcell:rate-limited'].map((l): [string, Pr] => [`label ${l}`, { number: 1, labels: [l] }]),
+    ...['needs revision', 'taskcell:revising', 'vanguard:reviewing', 'vanguard:running', 'Taskcell:Reviewing', 'taskcell:rate-limited'].map((l): [string, Pr] => [`label ${l}`, { number: 1, labels: [l] }]),
   ];
   it.each(quiet)('leaves %s alone', async (_n, pr) => {
     expect(writes((await run([pr])).calls)).toEqual([]);

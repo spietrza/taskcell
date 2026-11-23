@@ -1,7 +1,7 @@
 // Hub command: have a factory PR reviewed again. One module per feature (see CONTRIBUTING.md). GitHub only; GitLab is out of scope.
 import { BadRequestError } from '../../sidecar/sidecar.js';
 import { defaultGhRunner } from '../../tasks/github.js';
-import { REVIEW_TRIGGER_LABEL, resolveAdds, resolveRemovals } from '../../core/labels.js';
+import { hasInFlightLabel, REVIEW_TRIGGER_LABEL, resolveAdds, resolveRemovals } from '../../core/labels.js';
 import { REVIEWED_LABEL } from '../../github-labels.js';
 import { isFactoryBranch } from '../../worktree/manager.js';
 import { assertRepoSlug, itemNumber } from '../needs-you.js';
@@ -13,8 +13,6 @@ export interface RereviewCommands {
    *  if that identity is an allowed actor of the repo's review workflow, which the hub cannot check. GitHub only. */
   rereview_pr: { args: { repoPath: string; id: string }; result: void };
 }
-
-const IN_FLIGHT = ['taskcell:reviewing', 'taskcell:revising'];
 
 export const commands = defineCommands<RereviewCommands>({
   rereview_pr: async ({ ctx, args, allow }) => {
@@ -35,7 +33,7 @@ export const commands = defineCommands<RereviewCommands>({
     if (pr.state !== 'OPEN') throw new BadRequestError(`${id} is not open`);
     if (pr.isCrossRepository) throw new BadRequestError(`${id} is from a fork`);
     if (!isFactoryBranch(pr.headRefName)) throw new BadRequestError(`${id} is not on a factory branch`);
-    if (have.some((n) => IN_FLIGHT.includes(n.toLowerCase()))) throw new BadRequestError(`${id} is being reviewed or revised`);
+    if (hasInFlightLabel(have)) throw new BadRequestError(`${id} is being reviewed or revised`);
     // The spelling the repo already has (a workflow may gate on the old name only); created only when it has neither.
     const [trigger = REVIEW_TRIGGER_LABEL] = await resolveAdds([REVIEW_TRIGGER_LABEL], repoSlug, gh, [REVIEW_TRIGGER_LABEL]);
     const remove = await resolveRemovals([REVIEWED_LABEL, trigger], async () => have);

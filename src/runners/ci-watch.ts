@@ -1,15 +1,15 @@
 import { failureReason } from '../core/errors.js';
-import { hasLabel, NEEDS_REVISION_LABEL, resolveAdds } from '../core/labels.js';
+import { hasInFlightLabel, hasLabel, NEEDS_REVISION_LABEL, resolveAdds } from '../core/labels.js';
 import { GITHUB_RATE_LIMITED_LABEL } from '../github-labels.js';
 import { commentOnce } from '../approver/publish.js';
-import { requiredChecks } from '../hub/needs-you.js';
 import { classifyAuthor, isBotLogin } from '../tasks/comment-trust.js';
 import { isFactoryBranch } from '../worktree/manager.js';
 import { ciFailedMarker, hasCiFailedMarker } from './pr-feedback.js';
+import { requiredChecks } from '../tasks/github.js';
 import type { GhRunner } from '../tasks/github.js';
 
-/** Labels meaning the PR is mid-revision, mid-review or parked: a CI-failure comment would pile on. */
-const SKIP_LABELS = [NEEDS_REVISION_LABEL, 'taskcell:revising', 'taskcell:reviewing', GITHUB_RATE_LIMITED_LABEL];
+/** Labels meaning the PR is parked (in-flight labels are checked separately): a CI-failure comment would pile on. */
+const SKIP_LABELS = [NEEDS_REVISION_LABEL, GITHUB_RATE_LIMITED_LABEL];
 /** CI-failure comments per PR; the next failing head is left to a human. */
 const MAX_CI_COMMENTS = 2;
 const MAX_LOG_LINES = 80;
@@ -91,7 +91,7 @@ export async function watchCiFailures(ctx: CiWatchContext): Promise<void> {
     const id = `${repoSlug}#${pr.number}`;
     const say = (line: string): void => log(`resume-rate-limited ${id}: ci-watch ${line}`);
     const labels = (pr.labels ?? []).flatMap((l) => (l.name === undefined ? [] : [l.name]));
-    if (pr.isDraft || SKIP_LABELS.some((l) => hasLabel(labels, l))) continue;
+    if (pr.isDraft || hasInFlightLabel(labels) || SKIP_LABELS.some((l) => hasLabel(labels, l))) continue;
     try {
       const checks = await requiredChecks(repoSlug, String(pr.number), gh).catch((e: unknown) => {
         say(`skip -> checks unreadable: ${failureReason(e)}`);
