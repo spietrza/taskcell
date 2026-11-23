@@ -25,7 +25,7 @@ function setup(opts: { labels?: string[]; comments?: object[]; blocker?: object;
   };
   return { gh, calls };
 }
-const run = (gh: GhRunner, extra = {}) => resumeRateLimited({ repoSlug: 'o/r', gh, log: vi.fn(), ...extra });
+const run = (gh: GhRunner, extra = {}) => resumeRateLimited({ repoSlug: 'o/r', gh, log: vi.fn(), ciWatch: false, ...extra });
 
 describe('resume of dependency-waiting issues', () => {
   it('re-applies the trigger once the blocker is closed', async () => {
