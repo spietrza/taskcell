@@ -7,6 +7,7 @@ import {
   buildRevisionPrompt,
   countRevisionRoundsFromFeedback,
   revisionBudgetResetAt,
+  ciFailedMarker,
   revisionCapMarker,
   revisionMarker,
   hasRevisionMarker,
@@ -1260,6 +1261,23 @@ describe('guardedPoint', () => {
     expect(guarded).toBe(candidate);
     expect(guarded).toContain('added `newThing`');
     expect(guarded).toContain('removed `oldThing`');
+  });
+});
+
+describe('CI-failure comments', () => {
+  const body = `## CI failed on abc1234\n\n\`\`\`\nboom\n\`\`\`\n\n${ciFailedMarker('abc123')}`;
+  it('is actionable from an OWNER after the head commit and passes the marker filters', () => {
+    const fb = makeFeedback({ headCommittedDate: '2024-01-01T00:00:00Z', items: [
+      commentItem({ author: 'alice', authorAssociation: 'OWNER', body, createdAt: '2024-01-02T00:00:00Z' }),
+    ] });
+    expect(partitionActionableFeedback(fb, { headRefOid: 'abc123' }).actionable).toHaveLength(1);
+  });
+  it('does not reset the revision budget after a cap notice', () => {
+    const fb = makeFeedback({ items: [
+      commentItem({ author: 'github-actions', body: revisionCapMarker(), createdAt: '2024-01-11T10:00:00Z' }),
+      commentItem({ author: 'alice', authorAssociation: 'OWNER', body, createdAt: '2024-01-11T11:00:00Z' }),
+    ] });
+    expect(revisionBudgetResetAt(fb)).toBeUndefined();
   });
 });
 

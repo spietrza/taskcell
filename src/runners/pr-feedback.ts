@@ -549,6 +549,12 @@ function hasRevisionCapMarker(body: string): boolean {
   return body.includes(REVISION_CAP_MARKER) || body.includes(REVISION_CAP_MARKER.replace('taskcell-', 'vanguard-'));
 }
 
+/** Hidden marker on a CI-failure comment (resume-rate-limited's ci-watch step); one per failing head SHA. */
+export const ciFailedMarker = (headSha: string): string => `<!-- taskcell-ci-failed: ${headSha} -->`;
+
+/** True for a CI-failure comment, under either spelling. Such a comment never resets the revision budget. */
+export const hasCiFailedMarker = (body: string): boolean => /<!--\s*(?:taskcell|vanguard)-ci-failed:/.test(body);
+
 type FeedbackTrustOptions = Pick<ActionableOptions, 'feedbackAuthors' | 'botLogins'>;
 
 function classifyFeedbackAuthor(item: FeedbackItem, opts: FeedbackTrustOptions) {
@@ -596,6 +602,7 @@ export function revisionBudgetResetAt(fb: PullRequestFeedback, opts: FeedbackTru
   for (const item of fb.items) {
     if (item.createdAt === '' || item.createdAt <= lastCapNoticeAt) continue;
     if (isBotLogin(item.author, opts.botLogins)) continue;
+    if (hasCiFailedMarker(item.body)) continue;
     const trust = classifyFeedbackAuthor(item, opts);
     if (trust !== 'association' && trust !== 'allowed') continue;
     if (resetAt === undefined || item.createdAt < resetAt) resetAt = item.createdAt;

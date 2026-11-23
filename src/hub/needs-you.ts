@@ -231,7 +231,7 @@ export async function listNeedsYou(
  * allowlisted repo path, so an `id` naming another repo must be refused: the allowlist would
  * otherwise be bypassed by commenting on and relabelling an unregistered repo.
  */
-function itemNumber(repoSlug: string, id: string): string {
+export function itemNumber(repoSlug: string, id: string): string {
   const hash = id.lastIndexOf('#');
   const number = id.slice(hash + 1);
   if (hash === -1 || !/^\d+$/.test(number)) throw new TaskcellError(`Invalid item id: ${id}`);
@@ -305,6 +305,25 @@ const MERGE_METHODS = [
   { flag: '--rebase', allowed: 'rebaseMergeAllowed' },
 ] as const;
 
+export interface RequiredCheck {
+  name: string;
+  bucket: string;
+  link?: string;
+}
+
+/**
+ * The required checks of a PR (`gh pr checks --required`). `gh` errors with "no (required) checks
+ * reported" when it has nothing to report: that is `[]`. Any other error (auth, network, old gh)
+ * is not a verdict on the checks and surfaces as itself.
+ */
+export async function requiredChecks(repoSlug: string, number: string, gh: GhRunner): Promise<RequiredCheck[]> {
+  const out = await gh(['pr', 'checks', number, '--repo', repoSlug, '--required', '--json', 'name,bucket,link']).catch((e: unknown) => {
+    if (/no (required )?checks reported/i.test(String(e))) return '[]';
+    throw e;
+  });
+  return JSON.parse(out) as RequiredCheck[];
+}
+
 /**
  * Merge PR `id` of `repoSlug` with the repository's allowed merge method. Refuses (nothing merged)
  * a PR that is not in the "Needs you" list, or whose required checks are not all green. The check
@@ -321,13 +340,8 @@ export async function mergeNeedsYou(repoSlug: string, id: string, gh: GhRunner =
   // `--required` limits to the required checks. With `--json` the buckets carry the verdict; `gh` only
   // errors when it has nothing to report (no checks at all, or none required) — nothing to wait for.
   // Any other error (auth, network, old gh) is not a verdict on the checks and surfaces as itself.
-  const notGreen = new TaskcellError(`${id} has failing or pending required checks.`);
-  const checks = await gh(['pr', 'checks', number, '--repo', repoSlug, '--required', '--json', 'bucket']).catch((e: unknown) => {
-    if (/no (required )?checks reported/i.test(String(e))) return '[]';
-    throw e;
-  });
-  if ((JSON.parse(checks) as { bucket: string }[]).some((c) => c.bucket !== 'pass' && c.bucket !== 'skipping')) {
-    throw notGreen;
+  if ((await requiredChecks(repoSlug, number, gh)).some((c) => c.bucket !== 'pass' && c.bucket !== 'skipping')) {
+    throw new TaskcellError(`${id} has failing or pending required checks.`);
   }
   const fields = MERGE_METHODS.map((m) => m.allowed).join(',');
   const repo = JSON.parse(await gh(['repo', 'view', repoSlug, '--json', fields])) as Record<string, boolean>;
