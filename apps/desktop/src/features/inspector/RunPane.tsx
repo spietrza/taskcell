@@ -229,7 +229,7 @@ export function RunPane({
           </div>
           <div className="shrink-0 @3xl:order-1 @3xl:h-full @3xl:min-h-0">
             {detail ? (
-              <RunDetail detail={detail} project={repo} prLink={false} steps={stages} />
+              <RunDetail detail={detail} project={repo} prLink={false} steps={stages} flow={timeline.flow} />
             ) : (
               <Tabs.Root value={tab} onValueChange={(v) => setTab(String(v))} className="flex h-full min-h-0 flex-col">
                 <Tabs.List className="shrink-0 overflow-x-auto">

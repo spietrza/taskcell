@@ -11,6 +11,7 @@ import { taskSourceLabel } from '../../platform';
 import { costLabel, estTitle } from '../../cost';
 import { ASKED_WORDS, NEEDS_YOU_CHIP, startedByLabel } from '../../runLabels';
 import { verdictWord } from '../../status';
+import { RunWithFlow } from './RunWithFlow';
 import { AgentText } from '../../components/AgentText';
 import { AgentQuestion } from '../../components/AgentQuestion';
 import { ExternalLink, hostName } from '../../components/ExternalLink';
@@ -345,6 +346,7 @@ export function QuickView({
             {starting ? 'Starting…' : 'Start run'}
           </Button>
         )}
+        {runnable && hubCard && task.column === 'queued' && <RunWithFlow repoPath={repoPath} taskId={task.id} mode="start" onDone={() => onChanged?.()} />}
         {startError !== null && <div role="alert" className="w-full break-words text-xs text-destructive-text">{startError}</div>}
         {(task.column === 'running' || task.column === 'claimed') && (
           <span role="status" className="flex items-center gap-2 text-sm">

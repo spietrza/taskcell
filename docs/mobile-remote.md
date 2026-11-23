@@ -55,3 +55,7 @@ TASKCELL_HUB_SERVER_MODE=1 TASKCELL_HUB_PUBLIC_URL=https://<name>.trycloudflare.
 The name changes every time the quick tunnel starts; update both values.
 
 Put **Cloudflare Access** in front of the hostname: the tunnel makes the hub publicly reachable, and the token is the only other gate. If Access challenges the phone, add a service token policy for the app.
+
+## Run with flow…
+
+A failed hub-board card in the item sheet offers **Run with flow…** next to **Re-run** (hidden when the hub says you may not start tasks). It lists the repository's flows (built-ins and valid repo flows); picking one retries the card with `hub_task_retry` and `flow`. An unknown flow is refused by the hub with the valid names. See [hub.md](hub.md).

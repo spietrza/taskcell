@@ -41,7 +41,7 @@ function Activity({ detail, steps = withGateSteps(stagesFromRecords(detail.stage
 }
 
 /** `prLink` off when the surrounding header already links the PR (the Runs split view); `steps` = the caller's own stage line (with the event log's timings). */
-export function RunDetail({ detail, project, prLink = true, steps }: { detail: RunDetailT; project: string; prLink?: boolean; steps?: PaneStage[] }) {
+export function RunDetail({ detail, project, prLink = true, steps, flow }: { detail: RunDetailT; project: string; prLink?: boolean; steps?: PaneStage[]; flow?: string | undefined }) {
   const [tab, setTab] = useState('activity');
   const baseBranch = detail.stages.find((s) => s.record.baseBranch !== undefined)?.record.baseBranch;
   const configPaths = detail.stages.find((s) => s.record.configPaths !== undefined)?.record.configPaths;
@@ -68,6 +68,11 @@ export function RunDetail({ detail, project, prLink = true, steps }: { detail: R
         {prLink && baseBranch && (
           <div className="text-sm text-muted-foreground">
             Target branch <code className="rounded bg-muted px-1 py-0.5">{baseBranch}</code>
+          </div>
+        )}
+        {flow !== undefined && (
+          <div className="text-sm text-muted-foreground">
+            Flow <code className="rounded bg-muted px-1 py-0.5">{flow}</code>
           </div>
         )}
         {configPaths !== undefined && configPaths.length > 0 && (

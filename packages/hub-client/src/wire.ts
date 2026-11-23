@@ -1473,10 +1473,10 @@ export interface Commands {
   hub_task_create: { args: { repoPath: string; title: string; body?: string; blockedBy?: string[]; startDate?: string }; result: { id: string } };
   /** HUB_ONLY: set a hub-board task's dependencies (ids of the project's other tasks) and/or start date (`null` clears it). The caller becomes its owner. */
   hub_task_schedule: { args: { repoPath: string; id: string; blockedBy?: string[]; startDate?: string | null }; result: { id: string } };
-  /** HUB_ONLY: put a failed hub-board task back to `todo`, to run as the caller; its old result is cleared. */
-  hub_task_retry: { args: { repoPath: string; id: string }; result: { id: string } };
-  /** Start one `todo` hub task now as the caller, even while the project's auto-run is off (the scheduler's next tick, same gates). */
-  hub_task_start: { args: { repoPath: string; id: string }; result: { id: string } };
+  /** HUB_ONLY: put a failed hub-board task back to `todo`, to run as the caller; its old result is cleared. `flow`: run it with that flow (a built-in or the repo's) instead of the configured one. */
+  hub_task_retry: { args: { repoPath: string; id: string; flow?: string }; result: { id: string } };
+  /** Start one `todo` hub task now as the caller, even while the project's auto-run is off (the scheduler's next tick, same gates). `flow`: run it with that flow instead of the configured one. */
+  hub_task_start: { args: { repoPath: string; id: string; flow?: string }; result: { id: string } };
   /** HUB_ONLY: accept the delivered result of a hub-board task that failed verification: it becomes done (its dependents may start) without a second run. */
   hub_task_accept: { args: { repoPath: string; id: string }; result: { id: string } };
   /** HUB_ONLY: move a done hub-board task to the project's archive file, freeing room on the board. */
