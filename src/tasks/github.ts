@@ -44,6 +44,25 @@ export type GhRunner = (args: string[], env?: Record<string, string>) => Promise
 export const defaultGhRunner: GhRunner = async (args, env): Promise<string> =>
   (await execa('gh', args, env !== undefined ? { env } : {})).stdout;
 
+export interface RequiredCheck {
+  name: string;
+  bucket: string;
+  link?: string;
+}
+
+/**
+ * The required checks of a PR (`gh pr checks --required`). `gh` errors with "no (required) checks
+ * reported" when it has nothing to report: that is `[]`. Any other error (auth, network, old gh)
+ * is not a verdict on the checks and surfaces as itself.
+ */
+export async function requiredChecks(repoSlug: string, number: string, gh: GhRunner): Promise<RequiredCheck[]> {
+  const out = await gh(['pr', 'checks', number, '--repo', repoSlug, '--required', '--json', 'name,bucket,link']).catch((e: unknown) => {
+    if (/no (required )?checks reported/i.test(String(e))) return '[]';
+    throw e;
+  });
+  return JSON.parse(out) as RequiredCheck[];
+}
+
 /** Strips an optional `owner/repo#` prefix, returning just the numeric part. */
 export function issueNumber(ref: string): string {
   const hash = ref.indexOf('#');

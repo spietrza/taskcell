@@ -1,7 +1,7 @@
 // The hub's "Needs you" read model + reply action (src/hub/ scope): lists GitHub issues/PRs that
 // wait on a human, using `gh` and labels only — no model call — and posts a human's reply back,
 // moving the item on to the factory's next trigger label. See docs/hub.md.
-import { defaultGhRunner, commentGithubIssue } from '../tasks/github.js';
+import { defaultGhRunner, commentGithubIssue, requiredChecks } from '../tasks/github.js';
 import type { GhRunner } from '../tasks/github.js';
 import { commentPullRequest } from '../runners/pr-review.js';
 import { redactForPublish } from '../core/secret-scan.js';
@@ -304,25 +304,6 @@ const MERGE_METHODS = [
   { flag: '--merge', allowed: 'mergeCommitAllowed' },
   { flag: '--rebase', allowed: 'rebaseMergeAllowed' },
 ] as const;
-
-export interface RequiredCheck {
-  name: string;
-  bucket: string;
-  link?: string;
-}
-
-/**
- * The required checks of a PR (`gh pr checks --required`). `gh` errors with "no (required) checks
- * reported" when it has nothing to report: that is `[]`. Any other error (auth, network, old gh)
- * is not a verdict on the checks and surfaces as itself.
- */
-export async function requiredChecks(repoSlug: string, number: string, gh: GhRunner): Promise<RequiredCheck[]> {
-  const out = await gh(['pr', 'checks', number, '--repo', repoSlug, '--required', '--json', 'name,bucket,link']).catch((e: unknown) => {
-    if (/no (required )?checks reported/i.test(String(e))) return '[]';
-    throw e;
-  });
-  return JSON.parse(out) as RequiredCheck[];
-}
 
 /**
  * Merge PR `id` of `repoSlug` with the repository's allowed merge method. Refuses (nothing merged)

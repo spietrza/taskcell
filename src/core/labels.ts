@@ -58,6 +58,11 @@ export const MARKER_PREFIX_RE = '(?:taskcell|vanguard)';
 
 const IN_FLIGHT: ReadonlySet<string> = new Set(['taskcell:running', 'taskcell:revising', 'taskcell:reviewing']);
 
+/** True when `labels` carries an in-flight label (running, revising, reviewing) in either spelling, any case. */
+export function hasInFlightLabel(labels: ReadonlyArray<string>): boolean {
+  return labels.some((l) => IN_FLIGHT.has(currentLabel(l.toLowerCase())));
+}
+
 /**
  * What to pass to `--remove-label` for `remove`: a label with a legacy twin is removed under whichever spelling
  * the item actually carries (`present`, fetched lazily — only when needed; GitHub label names are
