@@ -2,7 +2,7 @@ import { useRef, useState, type ReactNode } from 'react';
 import { ActivityIndicator, Alert, Linking, Modal, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 import * as LocalAuthentication from 'expo-local-authentication';
 import { useHub } from './hubContext';
-import { mergeItem, replyItem, type Row } from './needsYou';
+import { mergeItem, replyItem, rereviewItem, type Row } from './needsYou';
 import { RerunButton, canRerun, useCapabilities } from './Rerun';
 import { useTheme } from './useTheme';
 
@@ -45,6 +45,7 @@ export function ItemSheet({ row, gone = false, onClose, onDone }: {
   const canReply = replyAllowed && (row.kind === 'Question' || row.kind === 'Too vague' || row.kind === 'Changes requested');
   // The desktop's "Ask for changes" is `reply_needs_you` on the PR: the hub comments and sets `needs revision`.
   const canRequest = replyAllowed && row.kind === 'PR ready' && item.kind === 'pr';
+  const canRereview = !gone && item.kind === 'pr' && caps?.canStartTask.allowed !== false;
   // A hub card is listed only while its run failed (src/hub/asking.ts), so it can be retried as well as answered.
   const rerunRepo = !gone && item.kind === 'card' && canRerun(item.id, 'failed') ? item.repoPath : undefined;
 
@@ -72,6 +73,7 @@ export function ItemSheet({ row, gone = false, onClose, onDone }: {
     await run(() => replyItem(client, item, text), done);
   };
   const reply = (): Promise<void> => send(body, 'Write a reply first.', 'Reply sent.');
+  const rereview = (): Promise<void> => run(() => rereviewItem(client, item), 'Review requested.');
   const requestChanges = (): Promise<void> => send(body.trim(), 'Describe the changes you want first.', 'Changes requested.');
 
   const button = (label: string, onPress: () => Promise<void>): ReactNode => (
@@ -109,6 +111,7 @@ export function ItemSheet({ row, gone = false, onClose, onDone }: {
         {canMerge ? button('Merge', merge) : null}
         {canReply ? button('Send reply', reply) : null}
         {canRequest ? button('Request changes', requestChanges) : null}
+        {canRereview ? button('Review again', rereview) : null}
         {rerunRepo !== undefined ? <RerunButton repoPath={rerunRepo} taskId={item.id} title={row.title} /> : null}
         <Pressable accessibilityRole="button" onPress={onClose} style={styles.close}>
           <Text style={{ color: theme.primary }}>Close</Text>

@@ -19,3 +19,6 @@ export function githubFailureLabel(kind: ProofFailureKind): string {
 
 /** Parks an issue whose dependencies are unmet or whose `Start:` date is in the future; the resume sweep swaps the trigger label back. */
 export const GITHUB_WAITING_LABEL = 'taskcell:waiting';
+
+/** The marker a finished PR review leaves; the trigger the PR-review workflow listens for is REVIEW_TRIGGER_LABEL (core/labels.ts). */
+export const REVIEWED_LABEL = 'taskcell:reviewed';

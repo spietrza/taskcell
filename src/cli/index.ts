@@ -92,8 +92,8 @@ async function main(): Promise<void> {
     return;
   }
   if (command.kind === 'resume-rate-limited') {
-    const report = await resumeRateLimited({ repoSlug: command.repoSlug, dryRun: command.dryRun, ...(command.triggerLabels !== undefined ? { triggerLabels: command.triggerLabels } : {}), ...(command.dependencyRepos !== undefined ? { dependencyRepos: command.dependencyRepos } : {}), ...(command.startedLabels !== undefined ? { startedLabels: command.startedLabels } : {}) });
-    console.log(`resume-rate-limited: ${report.resumed.length} resumed, ${report.waiting.length} waiting, ${report.skipped.length} skipped, ${report.failed.length} failed`);
+    const report = await resumeRateLimited({ repoSlug: command.repoSlug, dryRun: command.dryRun, ...(command.ciWatch === false ? { ciWatch: false } : {}), ...(command.triggerLabels !== undefined ? { triggerLabels: command.triggerLabels } : {}), ...(command.dependencyRepos !== undefined ? { dependencyRepos: command.dependencyRepos } : {}), ...(command.startedLabels !== undefined ? { startedLabels: command.startedLabels } : {}) });
+    console.log(`resume-rate-limited: ${report.resumed.length} resumed, ${report.waiting.length} waiting, ${report.skipped.length} skipped, ${report.failed.length} failed, ${report.ciFailed.length} ci-failed`);
     if (report.failed.length > 0) process.exitCode = 1;
     return;
   }

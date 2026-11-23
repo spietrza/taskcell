@@ -9,7 +9,7 @@ import type { LessonsCommand } from './lessons.js';
 import { assertSafeBaseBranch } from '../core/base-branch.js';
 import { parseUsageCap } from '../core/usage-cap.js';
 import { namedSkillsProblem, normalizeSkillNames } from '../context/named-skills.js';
-import { GITHUB_CLAIMED_LABEL, GITHUB_REVIEW_LABEL, GITHUB_SPEC_CLAIMED_LABEL } from '../github-labels.js';
+import { REVIEWED_LABEL, GITHUB_CLAIMED_LABEL, GITHUB_REVIEW_LABEL, GITHUB_SPEC_CLAIMED_LABEL } from '../github-labels.js';
 import { readEnv } from '../core/env.js';
 import { parseSince } from '../core/skill-stats.js';
 import { KNOWN_OPTIONS, GLOBAL_OPTION_TYPES, findCommand } from './commands.js';
@@ -23,7 +23,7 @@ export type Command = CommandKind & { usageCapPct?: string };
 type CommandKind =
   | { kind: 'gc'; repoPath: string; maxAgeMs: number; remoteRepo?: string; dryRun: boolean; abandoned: boolean }
   | { kind: 'migrate-labels'; repoSlug: string; apply: boolean }
-  | { kind: 'resume-rate-limited'; repoSlug: string; dryRun: boolean; triggerLabels?: string[]; dependencyRepos?: string[]; startedLabels?: string[] }
+  | { kind: 'resume-rate-limited'; repoSlug: string; dryRun: boolean; triggerLabels?: string[]; dependencyRepos?: string[]; startedLabels?: string[]; ciWatch?: boolean }
   | {
       kind: 'review-pr';
       prRef: string;
@@ -498,7 +498,7 @@ export const DEFAULT_LINEAR_AGENT_STATE = 'Todo';
 /** First-attempt turn cap of a review-pr or review-mr run without --max-turns; the retry gets 1.5x. */
 export const DEFAULT_REVIEW_MAX_TURNS = 30; // Opus 5.5 hit 16 (then 24 on retry) on large PRs with no verdict (#1136, #1154)
 const DEFAULT_PR_REVIEWING_LABEL = 'taskcell:reviewing';
-const DEFAULT_PR_REVIEWED_LABEL = 'taskcell:reviewed';
+const DEFAULT_PR_REVIEWED_LABEL = REVIEWED_LABEL;
 const DEFAULT_GITLAB_MR_REVIEWING_LABEL = 'taskcell::reviewing';
 const DEFAULT_GITLAB_MR_REVIEWED_LABEL = 'taskcell::reviewed';
 /** TASKCELL_HUB_HOST default (spec §2.10) — loopback-only, so a fresh install binds nothing reachable off-box. */
@@ -937,6 +937,7 @@ function parseCommand(argv: string[], cwd: string, cap: { pct?: string }): Comma
       kind: 'resume-rate-limited',
       repoSlug,
       dryRun: values['dry-run'] === true,
+      ...(values['no-ci-watch'] === true ? { ciWatch: false } : {}),
       ...(triggerLabels.length > 0 ? { triggerLabels } : {}),
       ...parseDependencyRepos(values['dependency-repos']),
       ...(startedLabels !== undefined ? { startedLabels } : {}),
