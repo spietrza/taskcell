@@ -265,6 +265,30 @@ describe('runBudgetedStages', () => {
     await disposeContext(ctx);
   });
 
+  it('flags a stage whose primary credential was refused and whose fallback succeeded', async () => {
+    const wm = new WorktreeManager(repo);
+    const primary: AgentProvider = {
+      name: 'claude',
+      async *run(): AsyncGenerator<AgentTurn, AgentRunOutput, void> {
+        throw new AgentError('API Error: 401 authentication_error');
+      },
+    };
+    const ctx = await prepareContext({ taskId: 'auth-fallback', localRepoPath: repo, baseBranch: 'main', start: 'base', sandbox: makeSandbox() }, { worktrees: wm });
+    const stages = withStageFallback(
+      [{ name: 'reviewer', promptTemplate: 'review', provider: primary, model: 'opus' }],
+      { provider: recordingAgent([]), model: 'sonnet' },
+    );
+
+    const result = await runBudgetedStages(ctx, stages, { agent: recordingAgent([]), maxCostUsd: 1 });
+
+    expect(result.status).toBe('completed');
+    if (result.status === 'completed') {
+      expect(result.outcomes[0]?.primaryAuthRefused).toBe('claude');
+      expect(result.outcomes[0]?.primaryLimitResetAt).toBeUndefined();
+    }
+    await disposeContext(ctx);
+  });
+
   it('names a fallback that fails for a non-limit reason, keeping the primary limit', async () => {
     const failing = (name: string, message: string): AgentProvider => ({
       name,

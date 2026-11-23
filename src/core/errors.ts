@@ -53,6 +53,8 @@ export function formatFailureComment(prefix: string, error: unknown): string {
     ? `${prefix} — fallback provider ${error.fallback} failed (not a rate limit), so ${error.primary}'s failure was not covered`
     : isProviderLimitError(error)
       ? `${prefix} — the AI provider hit a usage/rate limit (not a gate failure); re-apply the trigger label to retry once it clears`
+    : isProviderAuthError(error)
+      ? `${prefix} — ${authRefusalHeadline(error)}`
       : prefix;
   const headline = redactForPublish(`${effectivePrefix}: ${String(error)}`);
   const stack = error instanceof Error ? error.stack : undefined;
@@ -184,4 +186,52 @@ const SESSION_LIMIT_PATTERNS: readonly RegExp[] = [
 export function isProviderLimitError(error: unknown): boolean {
   const message = error instanceof Error ? error.message : String(error);
   return isRateLimitError(error) || SESSION_LIMIT_PATTERNS.some((re) => re.test(message));
+}
+
+/**
+ * Provider auth refusals in the vendors' own fixed wording (Claude/Anthropic, Codex/OpenAI, Cursor, and
+ * the LLM proxy's classified errors). Deliberately NOT a generic `401`/`403`/"unauthorized"/"not logged in",
+ * even in an HTTP-status frame: the message embeds raw CLI output, where a test assertion, a `gh` call or
+ * agent prose may carry those. Only the provider's own refusal line counts. Never relay the matched text.
+ */
+const AUTH_ERROR_PATTERNS: readonly RegExp[] = [
+  /\bauthentication_error\b/i,
+  /\binvalid x-api-key\b/i,
+  /\bOAuth token has expired\b/i,
+  /\binvalid_api_key\b/i,
+  /\brefresh_token_(?:reused|expired|invalidated|refused)\b/i,
+  /\bcredential was refused\b/i,
+  /\bsign-in was refused\b/i,
+  /\bnot logged in\b.{0,40}\b(?:cursor-agent|codex) login\b/i,
+  /\bplease run \/login\b/i,
+  /\bunexpected status 40[13]\b/i,
+  /\bPOST \/v1\/\S+ -> 40[13]\b/,
+];
+
+/**
+ * True when `error` is a provider credential refusal (expired/revoked/invalid), not a limit or outage.
+ * A limit wins: a limit message whose embedded CLI output also carries a 401 is still a limit.
+ */
+export function isProviderAuthError(error: unknown): boolean {
+  if (isProviderLimitError(error)) return false;
+  const message = error instanceof Error ? error.message : String(error);
+  return AUTH_ERROR_PATTERNS.some((re) => re.test(message));
+}
+
+/** Provider and credential secret a refused credential belongs to, guessed from fixed vendor wording. */
+function authRefusalTarget(error: unknown): { provider: string; secret: string } | undefined {
+  const message = error instanceof Error ? error.message : String(error);
+  if (/\bclaude\b|x-api-key|authentication_error|OAuth token has expired|\/v1\/messages/i.test(message)) {
+    return { provider: 'Claude', secret: 'CLAUDE_CODE_OAUTH_TOKEN' };
+  }
+  if (/\bcodex\b|chatgpt|refresh_token_|invalid_api_key/i.test(message)) return { provider: 'Codex', secret: 'CODEX_AUTH_JSON' };
+  if (/\bcursor\b/i.test(message)) return { provider: 'Cursor', secret: 'CURSOR_API_KEY' };
+  return undefined;
+}
+
+/** Fixed-wording headline for an auth refusal; names the provider and secret when they can be told. */
+function authRefusalHeadline(error: unknown): string {
+  const target = authRefusalTarget(error);
+  const what = target !== undefined ? `the ${target.provider} credential (${target.secret})` : 'the AI provider credential';
+  return `${what} was refused — expired or revoked; refresh the secret and re-apply the trigger label`;
 }

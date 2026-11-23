@@ -818,6 +818,37 @@ describe('llm-proxy-server chatgpt auth kind (in-process factory, fake IdP/upstr
     });
     expect(unauthorized.status).toBe(401);
   });
+
+  it.each([401, 403])('an anthropic upstream %i is answered with a fixed classified error, never the upstream body', async (status) => {
+    const fakeUpstream = createServer((req, res) => {
+      req.resume();
+      res.writeHead(status, { 'content-type': 'application/json' });
+      res.end('{"error":"UPSTREAM-BODY-sk-ant-leak"}');
+    });
+    const upstreamPort = await listenOn(fakeUpstream);
+    cleanups.push(async () => { await closeServer(fakeUpstream); });
+    const server = createLlmProxyServer('UPSTREAM=anthropic\nMODE=api\nSECRET=sk-ant-test\nNONCE=real-nonce\n', {
+      forwardTo: { host: '127.0.0.1', port: upstreamPort, protocol: 'http' },
+    });
+    const port = await listenOn(server);
+    cleanups.push(async () => { await closeServer(server); });
+    const logged = vi.spyOn(console, 'log').mockImplementation(() => {});
+
+    const res = await fetch(`http://127.0.0.1:${port}/v1/messages`, {
+      method: 'POST',
+      headers: { authorization: 'Bearer real-nonce', 'content-type': 'application/json' },
+      body: '{}',
+    });
+    const text = await res.text();
+    expect(res.status).toBe(401);
+    expect(text).toContain('the Claude credential was refused');
+    expect(text).not.toContain('UPSTREAM-BODY');
+    expect(JSON.parse(text).error.type).toBe('authentication_error');
+    const lines = logged.mock.calls.map((c) => String(c[0]));
+    logged.mockRestore();
+    expect(lines.some((l) => l.startsWith(`POST /v1/messages -> ${status} `))).toBe(true);
+    expect(lines.join('\n')).not.toContain('UPSTREAM-BODY');
+  });
 });
 
 
