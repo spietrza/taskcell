@@ -182,3 +182,17 @@ test('a PR whose verify failed keeps its Merge button, disabled, with the reason
   expect(screen.queryByRole('button', { name: /^Confirm merge/ })).toBeNull();
   expect(calls.some((c) => c.cmd === 'merge_needs_you')).toBe(false);
 });
+
+test('Review again shows on a PR only, calls the hub and says "Review requested"', async () => {
+  const [issue, pr] = [needsYouItems[0], needsYouItems[1]];
+  const calls = stubHub([issue, pr]);
+  render(<Host />);
+  await screen.findByText(pr.title);
+  open(issue);
+  expect(screen.queryByRole('button', { name: 'Review again' })).toBeNull();
+  open(issue);
+  open(pr);
+  fireEvent.click(await screen.findByRole('button', { name: 'Review again' }));
+  expect(await screen.findByText('Review requested')).toBeInTheDocument();
+  expect(calls.find((c) => c.cmd === 'rereview_pr')?.body).toEqual({ repoPath: '/repo', id: pr.id });
+});

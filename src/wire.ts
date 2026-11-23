@@ -755,6 +755,7 @@ export type AuditAction =
   | 'settings-change'
   | 'needs-reply'
   | 'needs-merge'
+  | 'pr-rereview'
   | 'task-create'
   | 'task-edit'
   | 'task-schedule'

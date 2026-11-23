@@ -756,6 +756,7 @@ export type AuditAction =
   | 'settings-change'
   | 'needs-reply'
   | 'needs-merge'
+  | 'pr-rereview'
   | 'task-create'
   | 'task-edit'
   | 'task-schedule'
@@ -1402,6 +1403,10 @@ export interface Commands {
   api_list_repo_files: { args: { repoPath: string }; result: { files: string[]; capped: boolean } };
   api_read_repo_file: { args: { repoPath: string; path: string }; result: { path: string; content: string; truncated: boolean } };
   api_repo_ok: { args: { repoPath: string }; result: boolean };
+  /** HUB_ONLY: put an open factory PR (same-repo, factory branch, no review or revise in flight) back through review: drops
+   *  `taskcell:reviewed` and the review trigger and re-adds the trigger, as the hub's `gh` identity. The review starts only
+   *  if that identity is an allowed actor of the repo's review workflow, which the hub cannot check. GitHub only. */
+  rereview_pr: { args: { repoPath: string; id: string }; result: void };
   api_capabilities: { args: undefined; result: Capabilities };
   api_create_run: { args: { params: CreateRunParams }; result: CreateRunResult };
   api_active_run: { args: undefined; result: { runId: string; repoPath: string } | null };
@@ -1605,6 +1610,7 @@ export const COMMAND_NAMES = [
   'remove_team_member',
   'remove_team_repository',
   'reply_needs_you',
+  'rereview_pr',
   'retry_paused_task',
   'save_instance_credential',
   'save_user_credential',
@@ -1672,6 +1678,7 @@ export const WRITE_COMMAND_NAMES: readonly (typeof COMMAND_NAMES)[number][] = [
   'remove_team_member',
   'remove_team_repository',
   'reply_needs_you',
+  'rereview_pr',
   'retry_paused_task',
   'save_instance_credential',
   'save_user_credential',
