@@ -1,5 +1,30 @@
 # Changelog
 
+## [1.17.1](https://github.com/spietrza/taskcell/compare/v1.17.0...v1.17.1) (2026-11-23)
+
+
+### Features
+
+* Factory: name an expired or revoked provider credential instead of failing silently (spietrza/taskcell[#1334](https://github.com/spietrza/taskcell/issues/1334)) ([#1336](https://github.com/spietrza/taskcell/issues/1336)) ([0f55ea5](https://github.com/spietrza/taskcell/commit/0f55ea5f61db64e6a91a340c3222b25b46f2c4ce))
+* Factory: revise a factory PR when its required CI checks fail (spietrza/taskcell[#1337](https://github.com/spietrza/taskcell/issues/1337)) ([#1343](https://github.com/spietrza/taskcell/issues/1343)) ([1268daa](https://github.com/spietrza/taskcell/commit/1268daa6472deb85b07e09cbd5441ec4d76c1601))
+* Hub: "Review again" on a factory PR from the hub and the phone (spietrza/taskcell[#1338](https://github.com/spietrza/taskcell/issues/1338)) ([#1342](https://github.com/spietrza/taskcell/issues/1342)) ([058a8ac](https://github.com/spietrza/taskcell/commit/058a8ac4519e40d04409090bca2b19c00706b684))
+* Hub: answer agent questions from a Slack thread (spietrza/taskcell[#1341](https://github.com/spietrza/taskcell/issues/1341)) ([#1347](https://github.com/spietrza/taskcell/issues/1347)) ([db766b2](https://github.com/spietrza/taskcell/commit/db766b2939b33173e7c57172c8d313138b89568a))
+* Hub: post agent questions to a Slack channel (spietrza/taskcell[#1340](https://github.com/spietrza/taskcell/issues/1340)) ([#1344](https://github.com/spietrza/taskcell/issues/1344)) ([f09a606](https://github.com/spietrza/taskcell/commit/f09a606d286ebe6a16077a46e57d1b5a7496dda0))
+* Hub: run a hub-board card with a chosen flow (spietrza/taskcell[#1339](https://github.com/spietrza/taskcell/issues/1339)) ([#1350](https://github.com/spietrza/taskcell/issues/1350)) ([0fb500c](https://github.com/spietrza/taskcell/commit/0fb500ce1a1df2b02aec4b669daa8efc8e912fce))
+* Labels: one in-flight check for re-review and CI watch; move requiredChecks out of the hub (spietrza/taskcell[#1348](https://github.com/spietrza/taskcell/issues/1348)) ([#1352](https://github.com/spietrza/taskcell/issues/1352)) ([b0e1afc](https://github.com/spietrza/taskcell/commit/b0e1afc62c060236ddd70594e1bc4f5608e3aee3))
+* landing lists the iPhone beta ([#1324](https://github.com/spietrza/taskcell/issues/1324)) ([5c29b4f](https://github.com/spietrza/taskcell/commit/5c29b4f9588bdf758739ffb6f9f5797813c91e47))
+* Slack: thread lookup owned by the store, one reply at a time, retry on rejection (spietrza/taskcell[#1349](https://github.com/spietrza/taskcell/issues/1349)) ([#1353](https://github.com/spietrza/taskcell/issues/1353)) ([a3550cb](https://github.com/spietrza/taskcell/commit/a3550cb690d57ccfb6abaf7ab83468c2b54d07b4))
+
+
+### Bug Fixes
+
+* **mobile:** EAS iOS build installs and bundles under pnpm 11 ([#1333](https://github.com/spietrza/taskcell/issues/1333)) ([6519e92](https://github.com/spietrza/taskcell/commit/6519e92bd24013b0e5f01d2e9e309984d45f888c))
+
+
+### Miscellaneous
+
+* release 1.17.1 ([#1346](https://github.com/spietrza/taskcell/issues/1346)) ([ea2ace9](https://github.com/spietrza/taskcell/commit/ea2ace9d1aff9e2cb936d9d564b19d6069be5c72))
+
 ## [1.17.0](https://github.com/spietrza/taskcell/compare/v1.16.10...v1.17.0) (2026-11-21)
 
 
