@@ -2,7 +2,8 @@ import { mkdtemp, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
-import { createCredentialService } from './credentials.js';
+import { createCredentialService, ForbiddenError } from './credentials.js';
+import { BadRequestError } from '../sidecar/sidecar.js';
 import { startSlackAnswers } from './slack-socket.js';
 import { takeSlackAppToken } from './slack.js';
 import type { RpcContext } from './rpc.js';
@@ -62,7 +63,7 @@ beforeEach(async () => {
   dispatch.mockReset();
   dispatch.mockResolvedValue(null);
   configDir = await mkdtemp(join(tmpdir(), 'slack-sock-'));
-  await writeFile(join(configDir, 'slack-threads.json'), JSON.stringify({ '/r|hub-1|asking': { channel: 'C1', ts: '1.2', kind: 'card' } }));
+  await writeFile(join(configDir, 'slack-threads.json'), JSON.stringify({ '/r|hub-1|asking': { channel: 'C1', ts: '1.2', repoPath: '/r', id: 'hub-1', kind: 'card' }, '/r|hub-2|a|b|c': { channel: 'C1', ts: '5.6', repoPath: '/r', id: 'hub-2', kind: 'card' } }));
 });
 afterEach(() => vi.restoreAllMocks());
 
@@ -103,7 +104,7 @@ describe('slack answers', () => {
   });
 
   test.each(['repository is not visible to you', 'this hub does not accept writes', 'hub-1 is not waiting for an answer'])('a refusal (%s) becomes one thread note', async (msg) => {
-    dispatch.mockRejectedValue(new Error(msg));
+    dispatch.mockRejectedValue(new BadRequestError(msg));
     const h = start();
     await tick();
     FakeWS.all[0]!.push(ev());
@@ -114,14 +115,68 @@ describe('slack answers', () => {
   });
 
   test('a second reply after the item was answered gets the refusal and answers nothing more', async () => {
-    dispatch.mockResolvedValueOnce(null).mockRejectedValueOnce(new Error('already answered'));
+    let answered = false;
+    dispatch.mockImplementation(async () => {
+      await tick(5);
+      if (answered) throw new BadRequestError('already answered');
+      answered = true;
+      return null;
+    });
     const h = start();
     await tick();
     FakeWS.all[0]!.push(ev({}, 'A'));
     FakeWS.all[0]!.push(ev({ text: 'again' }, 'B'));
-    await tick();
+    await tick(60);
+    expect(dispatch).toHaveBeenCalledTimes(2);
     expect(notes()).toEqual(['already answered']);
     h.close();
+  });
+
+  test('a reason containing | still resolves to the right repoPath and id', async () => {
+    const h = start();
+    await tick();
+    FakeWS.all[0]!.push(ev({ thread_ts: '5.6' }));
+    await tick();
+    expect(dispatch.mock.calls[0]![2]).toMatchObject({ repoPath: '/r', id: 'hub-2' });
+    h.close();
+  });
+
+  test('an internal error is not posted to the channel', async () => {
+    dispatch.mockRejectedValue(new Error('ENOENT /secret/path'));
+    const h = start();
+    await tick();
+    FakeWS.all[0]!.push(ev());
+    await tick();
+    expect(notes()).toHaveLength(1);
+    expect(notes()[0]).not.toContain('secret');
+    h.close();
+  });
+
+  test('a forbidden refusal posts the hub message, redacted', async () => {
+    dispatch.mockRejectedValue(new ForbiddenError('no access, token ghp_' + 'a'.repeat(36)));
+    const h = start();
+    await tick();
+    FakeWS.all[0]!.push(ev());
+    await tick();
+    expect(notes()).toHaveLength(1);
+    expect(notes()[0]).toContain('no access');
+    expect(notes()[0]).not.toContain('ghp_aaaa');
+    h.close();
+  });
+
+  test('close() during a pending connect opens no socket', async () => {
+    let release!: () => void;
+    const gate = new Promise<void>((r) => (release = r));
+    const slow = (async (url: string, init: RequestInit) => {
+      await gate;
+      return fetchImpl(url, init);
+    }) as unknown as typeof fetch;
+    const h = start({ fetchImpl: slow });
+    await tick();
+    h.close();
+    release();
+    await tick();
+    expect(FakeWS.all).toHaveLength(0);
   });
 
   test.each([

@@ -21,8 +21,11 @@ export interface SlackConfig {
 export interface SlackThread {
   channel: string;
   ts: string;
-  /** The item's kind, so a reply can be dispatched without re-listing (absent on entries from before answering existed). */
-  kind?: string;
+  /** The item's repo and id, so a reply can be dispatched without parsing the key. */
+  repoPath: string;
+  id: string;
+  /** The item's kind, so a reply can be dispatched without re-listing. */
+  kind: string;
 }
 
 const MAX_THREADS = 5000;
@@ -63,6 +66,15 @@ async function loadThreads(configDir: string): Promise<Record<string, SlackThrea
   }
 }
 
+/** The posted thread record for a Slack `channel` and message `ts`; undefined when none, or the file is unreadable. */
+export async function findSlackThread(configDir: string, channel: string, ts: string): Promise<SlackThread | undefined> {
+  if (ts === '') return undefined;
+  const threads = await loadThreads(configDir).catch(() => ({}) as Record<string, SlackThread>);
+  return Object.values(threads).find(
+    (t) => t !== null && typeof t === 'object' && t.ts === ts && t.channel === channel && typeof t.repoPath === 'string' && typeof t.id === 'string' && typeof t.kind === 'string',
+  );
+}
+
 async function saveThreads(configDir: string, threads: Record<string, SlackThread>): Promise<void> {
   await mkdir(configDir, { recursive: true });
   const tmp = `${threadsFile(configDir)}.${randomUUID()}.tmp`;
@@ -82,7 +94,8 @@ let running = false;
 
 /**
  * Post each `ask: 'question'` item not posted before. The key is stored BEFORE the post (a crash never posts twice);
- * a rejected call logs one warning (the failure class only) and is swallowed. Never throws.
+ * a definite rejection (`ok: false`) drops the key so the next pass retries; a timeout or network error keeps it (the
+ * message may have been posted). One warning is logged per pass (Slack's `error` code, never the token). Never throws.
  */
 export async function postQuestions(configDir: string, items: WaitingItem[], cfg: SlackConfig): Promise<void> {
   if (running) return;
@@ -91,9 +104,11 @@ export async function postQuestions(configDir: string, items: WaitingItem[], cfg
     const threads = await loadThreads(configDir);
     const fresh = items.filter((i) => i.ask === 'question' && !(itemKey(i) in threads));
     let failed = 0;
+    const reasons: string[] = [];
     for (const item of fresh) {
       const key = itemKey(item);
-      threads[key] = { channel: cfg.channel, ts: '', kind: item.kind };
+      const ref = { repoPath: item.repoPath ?? '', id: item.id, kind: item.kind };
+      threads[key] = { channel: cfg.channel, ts: '', ...ref };
       const entries = Object.entries(threads);
       for (const [k] of entries.slice(0, Math.max(0, entries.length - MAX_THREADS))) delete threads[k];
       await saveThreads(configDir, threads);
@@ -104,15 +119,23 @@ export async function postQuestions(configDir: string, items: WaitingItem[], cfg
           body: JSON.stringify({ channel: cfg.channel, text: slackText(item, cfg.hubUrl), mrkdwn: false, link_names: false, unfurl_links: false, unfurl_media: false }),
           signal: AbortSignal.timeout(TIMEOUT_MS),
         });
-        const out = (await res.json().catch(() => undefined)) as { ok?: boolean; ts?: string; channel?: string } | undefined;
-        if (!res.ok || out?.ok !== true || typeof out.ts !== 'string') throw new Error('rejected');
-        threads[key] = { channel: typeof out.channel === 'string' ? out.channel : cfg.channel, ts: out.ts, kind: item.kind };
+        const out = (await res.json().catch(() => undefined)) as { ok?: boolean; ts?: string; channel?: string; error?: unknown } | undefined;
+        if (out?.ok === false) {
+          delete threads[key];
+          await saveThreads(configDir, threads);
+          failed += 1;
+          reasons.push(typeof out.error === 'string' ? out.error.slice(0, 100) : 'rejected');
+          continue;
+        }
+        if (!res.ok || out?.ok !== true || typeof out.ts !== 'string') throw new Error('unexpected response');
+        threads[key] = { channel: typeof out.channel === 'string' ? out.channel : cfg.channel, ts: out.ts, ...ref };
         await saveThreads(configDir, threads);
       } catch {
         failed += 1;
+        reasons.push('no answer');
       }
     }
-    if (failed > 0) console.error(`taskcell-hub: slack: ${failed} question post(s) failed`);
+    if (failed > 0) console.error(`taskcell-hub: slack: ${failed} question post(s) failed (${[...new Set(reasons)].join(', ')})`);
   } catch (e) {
     console.error(`taskcell-hub: slack: ${e instanceof Error ? e.name : 'error'}`);
   } finally {
