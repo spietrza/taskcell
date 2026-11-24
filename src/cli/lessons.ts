@@ -1,3 +1,4 @@
+import { readEnv } from '../core/env.js';
 import { appendLessonRecords, countLessonRuns, readLessons } from '../core/lessons.js';
 import { defaultGhRunner } from '../tasks/github.js';
 import type { GhRunner } from '../tasks/github.js';
@@ -70,10 +71,12 @@ export async function lessonsCommand(cmd: LessonsCommand, deps: LessonsDeps = {}
   const gh = deps.gh ?? defaultGhRunner;
   const glab = deps.glab ?? defaultGlabRunner;
   const authorOpt = cmd.feedbackAuthors !== undefined ? { allowedAuthors: cmd.feedbackAuthors } : {};
+  // A white-label App's lesson marker must still dedupe, but its comments are not lesson input (hasAppLessonComment).
+  const appSlug = readEnv('TASKCELL_APP_SLUG');
   const history =
     cmd.gitlab === true
       ? await fetchMrHistory(cmd.repoSlug, cmd.prNumber, { glab, ...authorOpt })
-      : await fetchPrHistory(cmd.repoSlug, cmd.prNumber, { gh, ...authorOpt });
+      : await fetchPrHistory(cmd.repoSlug, cmd.prNumber, { gh, appSlug, ...authorOpt });
   // A fork or human MR's reviews quote text its author controls; only factory MRs may teach later runs.
   if ('factory' in history && !history.factory) {
     console.log(`MR !${history.number}: not a same-project ${FACTORY_BRANCH_PREFIXES.map((p) => `${p}*`).join(' / ')} MR, no lesson.`);
