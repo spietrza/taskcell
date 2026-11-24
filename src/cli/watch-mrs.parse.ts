@@ -2,10 +2,14 @@ import { DEFAULT_CONCURRENCY, DEFAULT_GITLAB_MR_REVIEWING_LABEL, DEFAULT_GITLAB_
 import type { ParseCtx } from './flags.js';
 import type { Command } from './args.js';
 
-/** Parse `watch-mrs` and `doctor-mrs`'s flags into its command; the generic checks (parseCli) have already run. */
-export function parseWatchMrsCommand(ctx: ParseCtx): Command {
-  const { values, positionals, repoPath, builtinProvider, maxTurns } = ctx;
-  const commandKind = positionals[0];
+/** Parse `watch-mrs`'s flags into its command; the generic checks (parseCli) have already run. */
+export const parseWatchMrsCommand = (ctx: ParseCtx): Command => parseWatchMrsFlags(ctx, 'watch-mrs');
+
+/** Parse `doctor-mrs`'s flags into its command. */
+export const parseDoctorMrsCommand = (ctx: ParseCtx): Command => parseWatchMrsFlags(ctx, 'doctor-mrs');
+
+function parseWatchMrsFlags(ctx: ParseCtx, commandKind: 'watch-mrs' | 'doctor-mrs'): Command {
+  const { values, repoPath, builtinProvider, maxTurns } = ctx;
   const project = typeof values['gitlab-project'] === 'string' ? values['gitlab-project'] : undefined;
   const label = typeof values.label === 'string' ? values.label : undefined;
   if (project === undefined || label === undefined) return { kind: 'help' };

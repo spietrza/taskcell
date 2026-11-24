@@ -4,10 +4,14 @@ import { DEFAULT_GITHUB_SPEC_LABEL, DEFAULT_GITHUB_AGENT_LABEL, DEFAULT_GITHUB_N
 import type { ParseCtx } from './flags.js';
 import type { Command } from './args.js';
 
-/** Parse `watch` and `doctor`'s flags into its command; the generic checks (parseCli) have already run. */
-export function parseWatchCommand(ctx: ParseCtx): Command {
-  const { values, positionals, repoPath, proxyMode, runOptions } = ctx;
-  const commandKind = positionals[0];
+/** Parse `watch`'s flags into its command; the generic checks (parseCli) have already run. */
+export const parseWatchCommand = (ctx: ParseCtx): Command => parseWatchFlags(ctx, 'watch');
+
+/** Parse `doctor`'s flags (the watch flags, minus the stage-only knobs) into its command. */
+export const parseDoctorCommand = (ctx: ParseCtx): Command => parseWatchFlags(ctx, 'doctor');
+
+function parseWatchFlags(ctx: ParseCtx, commandKind: 'watch' | 'doctor'): Command {
+  const { values, repoPath, proxyMode, runOptions } = ctx;
   const source: WatchSource =
     values.source === 'github' || (values.source === undefined && typeof values['github-repo'] === 'string')
       ? 'github'
