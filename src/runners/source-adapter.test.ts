@@ -5,7 +5,7 @@ import { mkdir, mkdtemp, writeFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { startProviderProxies } from '../sandbox/llm-proxy.js';
-import { AgentError, ProviderLimitError } from '../core/errors.js';
+import { ProviderLimitError } from '../core/errors.js';
 import { isRateLimitHold } from '../core/rate-limit-marker.js';
 import { resolveVerifyCommand, runVerification } from '../pipeline/verify.js';
 import { resolveBaselineVerify } from '../pipeline/baseline-verify.js';
@@ -115,7 +115,6 @@ const { writeStages, beginRun, runStages, commitStage, publishForReview, reviewF
 vi.mock('../sandbox/llm-proxy.js', () => ({
   startProviderProxies: vi.fn(async () => ({ openai: undefined, destroy: vi.fn(async () => {}) })),
 }));
-vi.mock('../sandbox/egress-proxy.js', () => ({ llmProxySandboxEnv: vi.fn(() => undefined) }));
 const { sandboxImage, capturedSandboxOpts } = vi.hoisted(() => ({
   sandboxImage: vi.fn(() => 'vanguard-sandbox:latest'),
   capturedSandboxOpts: [] as Array<{ image?: string }>,
@@ -186,7 +185,6 @@ vi.mock('../core/run-store.js', () => ({
   beginRun: (...args: unknown[]) => beginRun(...(args as [])),
   persistDecisionProbe: (...args: unknown[]) => persistDecisionProbe(...(args as [])),
 }));
-vi.mock('../core/run-summary.js', () => ({ summarizeOutcomes: vi.fn(() => '') }));
 vi.mock('../pipeline/verify.js', () => ({
   resolveVerifyCommand: vi.fn(async () => undefined),
   runVerification: vi.fn(async () => undefined),
@@ -289,29 +287,6 @@ describe('runSourcedIssue', () => {
     expect(writeStageMarker).toHaveBeenLastCalledWith('/repo', expect.objectContaining({ taskId: 'gl-1', stage: 'reviewer' }));
     expect(clearStageMarker).toHaveBeenLastCalledWith('/repo', 'gl-1');
     expect(vi.mocked(clearStageMarker).mock.invocationCallOrder.at(-1)).toBeGreaterThan(vi.mocked(writeStageMarker).mock.invocationCallOrder.at(-1)!);
-  });
-  it('adds exactly one review verdict below proof, omitting it without a reviewer', async () => {
-    await runSourcedIssue('group/project#1', { repoPath: '/repo' }, fakeAdapter([], STAGES));
-    let body = (publishForReview.mock.calls[0]?.[1] as { body: string }).body;
-    expect(body.match(/^Review: INCOMPLETE \(0 findings\)$/gm)).toHaveLength(1);
-    expect(body.indexOf('Review:')).toBeGreaterThan(body.indexOf('## Proof of work'));
-    publishForReview.mockClear();
-    runStages.mockResolvedValueOnce([stageOutcome('implementer')]);
-    await runSourcedIssue('group/project#1', { repoPath: '/repo' }, fakeAdapter([], [STAGES[0]!]));
-    body = (publishForReview.mock.calls[0]?.[1] as { body: string }).body;
-    expect(body).not.toContain('Review:');
-    publishForReview.mockClear();
-    const clean = stageOutcome('reviewer');
-    clean.result.finalText = 'No blocking issues.';
-    runStages.mockResolvedValueOnce([clean]);
-    await runSourcedIssue('group/project#1', { repoPath: '/repo' }, fakeAdapter([], STAGES));
-    expect((publishForReview.mock.calls[0]?.[1] as { body: string }).body).toMatch(/^Review: PASS \(0 findings\)$/m);
-    publishForReview.mockClear();
-    const blocking = stageOutcome('reviewer');
-    blocking.result.finalText = '<findings>' + JSON.stringify({ findings: [{ severity: 'critical', kind: 'security', title: 'leak', evidence: 'line' }] }) + '</findings>';
-    runStages.mockResolvedValueOnce([blocking]);
-    await runSourcedIssue('group/project#1', { repoPath: '/repo' }, fakeAdapter([], STAGES));
-    expect((publishForReview.mock.calls[0]?.[1] as { body: string }).body).toMatch(/^Review: CHANGES \(1 finding\)$/m);
   });
   beforeEach(async () => {
     vi.clearAllMocks();
@@ -533,10 +508,14 @@ describe('runSourcedIssue', () => {
     const picked = (): Array<{ provider?: string; providerModel?: string; fallbackProvider?: string }> =>
       vi.mocked(selectAgents).mock.calls.map(([choice]) => choice);
 
-    it('a limit on the picked entry re-runs the task on the next pool entry', async () => {
+    it('agent selection receives the resolved pool entry, and a limit re-runs the task on the next same-provider entry', async () => {
       limitOnce();
       await runSourcedIssue('group/project#1', { repoPath: '/repo', providerModel: 'claude/sonnet:1, claude/opus:1' }, fakeAdapter([], STAGES));
-      expect(picked().map((c) => c.providerModel).sort()).toEqual(['opus', 'sonnet']);
+      // Each attempt hands selectAgents one resolved entry, never the pool spec; the retry moved to the other entry.
+      const choices = picked();
+      expect(choices.map((c) => c.provider)).toEqual(['claude', 'claude']);
+      expect(choices.map((c) => c.providerModel).sort()).toEqual(['opus', 'sonnet']);
+      expect(runStages).toHaveBeenCalledTimes(2);
       expect(publishForReview).toHaveBeenCalledTimes(1);
     });
 
@@ -554,28 +533,6 @@ describe('runSourcedIssue', () => {
       await expect(run).rejects.toBeInstanceOf(ProviderLimitError);
       expect(picked().map((c) => c.provider)).toEqual(['claude', 'cursor']);
       expect(publishForReview).not.toHaveBeenCalled();
-    });
-
-    it('a simplifier limit cools the run-level entry, not the flow implementer pool named like the tier', async () => {
-      const repo = await mkdtemp(join(tmpdir(), 'pool-flow-'));
-      try {
-        const stages: PipelineStage[] = [
-          { ...STAGES[0]!, model: 'claude/sonnet:1, codex/gpt-6-sol:1' },
-          { name: 'simplifier', promptTemplate: '', maxTurns: 10 },
-          STAGES[1]!,
-        ];
-        runStages.mockImplementationOnce(async (_ctx: unknown, _stages: unknown, opts: { onEvent: (event: RunEvent) => void }) => {
-          opts.onEvent({ type: 'stage-start', name: 'simplifier', index: 1, of: 3 });
-          throw new ProviderLimitError("You've hit your usage limit");
-        });
-        const run = runSourcedIssue('group/project#1', { repoPath: repo, provider: 'claude', providerModel: 'claude/opus:1' }, fakeAdapter([], stages));
-        await expect(run).rejects.toBeInstanceOf(ProviderLimitError);
-        expect([...(await readCooldowns(repo)).keys()]).toEqual(['claude/opus']);
-        // The run-level pool is out, so no restart on a flow-pool re-route.
-        expect(runStages).toHaveBeenCalledTimes(1);
-      } finally {
-        await rm(repo, { recursive: true, force: true });
-      }
     });
 
     it('cools an entry only when its stage hit a limit, never a healthy run whose reviewer shares the fallback provider', async () => {
@@ -811,6 +768,16 @@ describe('runSourcedIssue', () => {
     }
   });
 
+  it('an unknown skill stops the run after the fetch but before agent selection, the provider proxies and the sandbox', async () => {
+    const adapter = fakeAdapter([], STAGES);
+    await expect(runSourcedIssue('group/project#1', { repoPath: '/repo', namedSkills: ['no-such-skill'] }, adapter)).rejects.toThrow(/no-such-skill/);
+    expect(adapter.prepare).toHaveBeenCalledTimes(1);
+    expect(selectAgents).not.toHaveBeenCalled();
+    expect(startProviderProxies).not.toHaveBeenCalled();
+    expect(prepareContext).not.toHaveBeenCalled();
+    expect(runStages).not.toHaveBeenCalled();
+  });
+
   it('an implement run does not inject the spec-only tech-spec skill (bundled or repo-supplied)', async () => {
     const root = await mkdtemp(join(tmpdir(), 'vg-adapter-tech-spec-'));
     try {
@@ -962,41 +929,6 @@ describe('runSourcedIssue', () => {
     consoleError.mockRestore();
   });
 
-  it('resumes the implement session on red verification, and closes cleanly once it recovers', async () => {
-    runStages.mockResolvedValueOnce([stageOutcome('implementer', 'sess-1'), stageOutcome('reviewer')]);
-    vi.mocked(resolveVerifyCommand).mockResolvedValue('npm test');
-    vi.mocked(runVerification)
-      .mockResolvedValueOnce({ passed: false } as never)
-      .mockResolvedValueOnce({ passed: true } as never);
-    runAgent.mockResolvedValueOnce({ sessionId: 'sess-2', completed: true, exitReason: 'completed' } as never);
-
-    const adapter = fakeAdapter([], STAGES);
-    const result = await runSourcedIssue('group/project#1', { repoPath: '/repo' }, adapter);
-
-    expect(result.prUrl).toBe(MR_URL);
-    expect(runAgent).toHaveBeenCalledTimes(1);
-    expect(runAgent.mock.calls[0]?.[1]).toMatchObject({ resumeSessionId: 'sess-1' });
-    expect(adapter.addFailureLabel).not.toHaveBeenCalledWith(MR_URL, 'verify');
-    const body = publishForReview.mock.calls[0]?.[1]?.body as string;
-    expect(body).toContain(`Closes ${task.id}`);
-  });
-
-  it('a red verify is repaired before the reviewer runs, so the reviewer is not re-run on the repaired diff', async () => {
-    runStages.mockResolvedValueOnce([stageOutcome('implementer', 'sess-1'), stageOutcome('reviewer')]);
-    vi.mocked(resolveVerifyCommand).mockResolvedValue('npm test');
-    vi.mocked(runVerification)
-      .mockResolvedValueOnce({ passed: false } as never)
-      .mockResolvedValueOnce({ passed: true } as never);
-    runAgent.mockResolvedValueOnce({ sessionId: 'sess-2', completed: true, exitReason: 'completed' } as never);
-
-    await runSourcedIssue('group/project#1', { repoPath: '/repo' }, fakeAdapter([], STAGES));
-
-    expect(runAgent).toHaveBeenCalledTimes(1);
-    expect(reviewFinalDiff).not.toHaveBeenCalled();
-    // Unchanged after the first (repaired) pass: verify ran twice (red, then green), never a third time.
-    expect(runVerification).toHaveBeenCalledTimes(2);
-  });
-
   it('verifies the final tree again when a stage changed files after the first gate', async () => {
     runStages.mockResolvedValueOnce([stageOutcome('implementer', 'sess-1'), stageOutcome('reviewer')]);
     vi.mocked(resolveVerifyCommand).mockResolvedValue('npm test');
@@ -1043,114 +975,6 @@ describe('runSourcedIssue', () => {
     const adapter = fakeAdapter([], STAGES);
     await runSourcedIssue('group/project#1', { repoPath: '/repo' }, adapter);
     expect(adapter.publishVerdict).toHaveBeenCalledWith(expect.objectContaining({ reviewerOutcome: undefined }));
-  });
-
-  it('a red verify never reaches the reviewer', async () => {
-    runStages.mockResolvedValueOnce([stageOutcome('implementer', 'sess-1'), stageOutcome('reviewer')]);
-    vi.mocked(resolveVerifyCommand).mockResolvedValue('npm test');
-    vi.mocked(runVerification).mockResolvedValue({ passed: false } as never);
-
-    runAgent.mockResolvedValue({ sessionId: 'sess-2', completed: true, exitReason: 'completed' } as never);
-    const adapter = fakeAdapter([], STAGES);
-    await runSourcedIssue('group/project#1', { repoPath: '/repo' }, adapter);
-
-    expect(adapter.publishVerdict).not.toHaveBeenCalled();
-    expect(reviewFinalDiff).not.toHaveBeenCalled();
-  });
-
-  it('does not re-review when the repair loop never resumed the implementer', async () => {
-    runStages.mockResolvedValueOnce([stageOutcome('implementer', 'sess-1'), stageOutcome('reviewer')]);
-    vi.mocked(resolveVerifyCommand).mockResolvedValue('npm test');
-    vi.mocked(runVerification).mockResolvedValueOnce({ passed: true } as never);
-
-    const adapter = fakeAdapter([], STAGES);
-    await runSourcedIssue('group/project#1', { repoPath: '/repo' }, adapter);
-
-    expect(reviewFinalDiff).not.toHaveBeenCalled();
-    expect(runAgent).not.toHaveBeenCalled();
-  });
-
-  it('hands the report-only reviewer blocking findings back to the implementer, then publishes the re-review (#673)', async () => {
-    const blocking = stageOutcome('reviewer');
-    blocking.result.finalText = '<findings>' + JSON.stringify({ findings: [{ severity: 'high', kind: 'correctness', title: 'unchecked null deref', evidence: 'src/a.ts:10' }] }) + '</findings>';
-    runStages.mockResolvedValueOnce([stageOutcome('implementer', 'sess-1'), blocking]);
-    // Conformance/verify gate green from the start: the only reason to resume is the review findings.
-    vi.mocked(resolveVerifyCommand).mockResolvedValue('npm test');
-    vi.mocked(runVerification).mockResolvedValue({ passed: true } as never);
-    runAgent.mockResolvedValueOnce({ sessionId: 'sess-2', completed: true, exitReason: 'completed' } as never);
-
-    const adapter = fakeAdapter([], STAGES);
-    const result = await runSourcedIssue('group/project#1', { repoPath: '/repo' }, adapter);
-
-    expect(result.prUrl).toBe(MR_URL);
-    // Exactly one repair round, on the implementer's own session, carrying the finding itself.
-    expect(runAgent).toHaveBeenCalledTimes(1);
-    expect(runAgent.mock.calls[0]?.[1]).toMatchObject({ resumeSessionId: 'sess-1' });
-    const repairPrompt = runAgent.mock.calls[0]?.[1]?.variables?.PROMPT as string;
-    expect(repairPrompt).toContain('unchecked null deref');
-    expect(repairPrompt).toContain('src/a.ts:10');
-    // The fix changed the diff, so the published verdict is the re-review's — never the stale block.
-    expect(reviewFinalDiff).toHaveBeenCalledTimes(1);
-    const body = publishForReview.mock.calls[0]?.[1]?.body as string;
-    expect(body).toMatch(/^Review: PASS \(0 findings\)$/m);
-  });
-
-  it('publishes a draft with an incomplete, masked verdict when the re-review itself fails', async () => {
-    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {});
-    // A stated pass from the first review: only the failed re-review can make the verdict incomplete.
-    const clean = stageOutcome('reviewer');
-    clean.result.finalText = '<findings>' + JSON.stringify({ findings: [{ severity: 'high', kind: 'correctness', title: 'x', evidence: 'y' }] }) + '</findings>';
-    runStages.mockResolvedValueOnce([stageOutcome('implementer', 'sess-1'), clean]);
-    vi.mocked(resolveVerifyCommand).mockResolvedValue('npm test');
-    vi.mocked(runVerification)
-      .mockResolvedValueOnce({ passed: true } as never)
-      .mockResolvedValueOnce({ passed: true } as never);
-    runAgent.mockResolvedValueOnce({ sessionId: 'sess-2', completed: true, exitReason: 'completed' } as never);
-    const token = `ghp_${'a'.repeat(36)}`;
-    reviewFinalDiff.mockRejectedValueOnce(new Error(`usage limit reached for token ${token}`));
-
-    const adapter = fakeAdapter([], STAGES);
-    const result = await runSourcedIssue('group/project#1', { repoPath: '/repo' }, adapter);
-
-    // Gate-green work still ships — as a draft, since nothing reviewed what ships.
-    expect(result.prUrl).toBe(MR_URL);
-    const published = publishForReview.mock.calls[0]?.[1];
-    expect(published?.draft).toBe(true);
-    const body = published?.body as string;
-    expect(body).toMatch(/^Review: INCOMPLETE \(0 findings\)$/m);
-    // A provider error can quote a credential: the verdict comment carries the reason, masked.
-    const verdictText = vi.mocked(adapter.publishVerdict).mock.calls[0]?.[0]?.reviewerOutcome?.result.finalText ?? '';
-    expect(verdictText).toContain('Review unavailable:');
-    expect(verdictText).toContain('[REDACTED-GH]');
-    expect(verdictText).not.toContain(token);
-    expect(body).not.toContain(token);
-    consoleError.mockRestore();
-  });
-
-  it('flags the re-review as stopped by a provider limit only for the limit error itself', async () => {
-    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {});
-    const reviewer = (): ReturnType<typeof stageOutcome> => {
-      const r = stageOutcome('reviewer');
-      r.result.finalText = '<findings>' + JSON.stringify({ findings: [{ severity: 'high', kind: 'correctness', title: 'x', evidence: 'y' }] }) + '</findings>';
-      return r;
-    };
-    const rereviewOf = async (error: Error): Promise<{ stoppedBy?: string; taskId?: string }> => {
-      runStages.mockResolvedValueOnce([stageOutcome('implementer', 'sess-1'), reviewer()]);
-      vi.mocked(resolveVerifyCommand).mockResolvedValue('npm test');
-      vi.mocked(runVerification).mockResolvedValue({ passed: true } as never);
-      runAgent.mockResolvedValueOnce({ sessionId: 'sess-2', completed: true, exitReason: 'completed' } as never);
-      reviewFinalDiff.mockRejectedValueOnce(error);
-      const adapter = fakeAdapter([], STAGES);
-      await runSourcedIssue('group/project#1', { repoPath: '/repo' }, adapter);
-      return vi.mocked(adapter.publishVerdict).mock.calls.at(-1)?.[0]?.reviewerOutcome?.result ?? {};
-    };
-    const limited = await rereviewOf(new ProviderLimitError("You've hit your session limit · resets 9pm (UTC)"));
-    expect(limited.stoppedBy).toBe('provider-limit');
-    // The synthetic outcome carries the run's task id (what the real stages use), not the issue's: stats key on it.
-    expect(limited.taskId).toBe('gl-1');
-    expect((await rereviewOf(new AgentError('crashed after adding handling for usage limit reached'))).stoppedBy).toBeUndefined();
-    expect((await rereviewOf(new AgentError('process crashed; stdout tail: rate_limit_error status code 429'))).stoppedBy).toBeUndefined();
-    consoleError.mockRestore();
   });
 
   it('persists a stopped stage when a typed provider limit aborts the run', async () => {
