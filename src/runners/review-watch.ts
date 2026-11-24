@@ -1,3 +1,5 @@
+import { incompleteAttempts } from '../core/comment-ledger.js';
+import type { Forge, LedgerComment } from '../core/comment-ledger.js';
 import { fanOut } from '../pipeline/fan-out.js';
 import { failureReason } from '../core/errors.js';
 
@@ -50,19 +52,16 @@ export function delay(ms: number, signal?: AbortSignal): Promise<void> {
 }
 
 /**
- * The incomplete-review cap policy. `trustedBodies` are the bodies of notes whose author the host
- * adapter classified as trusted (an untrusted author's marker never counts); `pending` is 1 when the
- * current failure's own marker is posted after this check, else 0.
+ * The incomplete-review cap policy over the ledger: `comments` carry each author's class, so a forged attempt or cap
+ * marker never counts; `pending` is 1 when the current failure's own marker is posted after this check, else 0.
  */
 export function incompleteCapState(
-  trustedBodies: readonly string[],
+  comments: readonly LedgerComment[],
   head: string,
-  isAttemptMarker: (body: string, head: string) => boolean,
-  capMarkerRe: RegExp,
+  forge: Forge,
   pending = 0,
 ): { attempts: number; capPosted: boolean; stop: boolean } {
-  const attempts = trustedBodies.filter((body) => isAttemptMarker(body, head)).length;
-  const capPosted = trustedBodies.some((body) => Array.from(body.matchAll(capMarkerRe)).some((match) => match[1] === head));
+  const { attempts, capPosted } = incompleteAttempts(comments, head, forge);
   return { attempts, capPosted, stop: capPosted || attempts + pending >= INCOMPLETE_RETRY_LIMIT };
 }
 

@@ -1,7 +1,8 @@
 import { describe, it, expect, vi } from 'vitest';
 import { getEventListeners } from 'node:events';
+import { writeMarker } from '../core/comment-ledger.js';
+import type { LedgerComment } from '../core/comment-ledger.js';
 import { INCOMPLETE_RETRY_LIMIT, incompleteCapState, reviewWatchLoop, reviewWatchOnce } from './review-watch.js';
-import { classifyAuthor } from '../tasks/comment-trust.js';
 import type { ReviewWatchPrimitives } from './review-watch.js';
 
 interface Item {
@@ -68,7 +69,7 @@ describe('reviewWatchOnce (fake adapter)', () => {
   });
 
   it('stops restoring the trigger label once the incomplete cap is reached', async () => {
-    const bodies = Array.from({ length: INCOMPLETE_RETRY_LIMIT }, () => 'attempt abc');
+    const bodies = Array.from({ length: INCOMPLETE_RETRY_LIMIT }, () => attempt());
     const relabelled: number[] = [];
     const tick = await reviewWatchOnce(
       quiet({
@@ -77,7 +78,7 @@ describe('reviewWatchOnce (fake adapter)', () => {
           throw new Error('incomplete');
         },
         onFailure: async (i) => {
-          if (!incompleteCapState(bodies, 'abc', (b, h) => b.endsWith(h), CAP_RE).stop) relabelled.push(i.id);
+          if (!incompleteCapState(bodies, 'abc', 'pr').stop) relabelled.push(i.id);
         },
       }),
       idOf,
@@ -87,34 +88,29 @@ describe('reviewWatchOnce (fake adapter)', () => {
   });
 });
 
-const CAP_RE = /^<!-- cap: ([a-f0-9]+) -->$/gm;
-const isAttempt = (body: string, head: string): boolean => body === `attempt ${head}`;
+const attempt = (author: LedgerComment['author'] = 'trusted'): LedgerComment => ({ body: writeMarker('pr-review-incomplete', 'abc'), author });
+const cap = (head: string, author: LedgerComment['author'] = 'trusted'): LedgerComment => ({ body: writeMarker('pr-review-incomplete-cap', head), author });
 
 describe('incompleteCapState', () => {
   it('is below the cap with fewer attempts, and stops at the limit', () => {
-    expect(incompleteCapState(['attempt abc'], 'abc', isAttempt, CAP_RE).stop).toBe(false);
-    const full = Array.from({ length: INCOMPLETE_RETRY_LIMIT }, () => 'attempt abc');
-    expect(incompleteCapState(full, 'abc', isAttempt, CAP_RE)).toMatchObject({ attempts: 3, stop: true });
+    expect(incompleteCapState([attempt()], 'abc', 'pr').stop).toBe(false);
+    const full = Array.from({ length: INCOMPLETE_RETRY_LIMIT }, () => attempt());
+    expect(incompleteCapState(full, 'abc', 'pr')).toMatchObject({ attempts: 3, stop: true });
   });
 
   it('counts the pending attempt when asked', () => {
-    const two = ['attempt abc', 'attempt abc'];
-    expect(incompleteCapState(two, 'abc', isAttempt, CAP_RE).stop).toBe(false);
-    expect(incompleteCapState(two, 'abc', isAttempt, CAP_RE, 1).stop).toBe(true);
+    const two = [attempt(), attempt()];
+    expect(incompleteCapState(two, 'abc', 'pr').stop).toBe(false);
+    expect(incompleteCapState(two, 'abc', 'pr', 1).stop).toBe(true);
   });
 
   it('stops once a cap marker for this head exists, and ignores one for another head', () => {
-    expect(incompleteCapState(['<!-- cap: abc -->'], 'abc', isAttempt, CAP_RE)).toMatchObject({ capPosted: true, stop: true });
-    expect(incompleteCapState(['<!-- cap: def -->'], 'abc', isAttempt, CAP_RE).stop).toBe(false);
+    expect(incompleteCapState([cap('abc')], 'abc', 'pr')).toMatchObject({ capPosted: true, stop: true });
+    expect(incompleteCapState([cap('def')], 'abc', 'pr').stop).toBe(false);
   });
 
-  it('ignores a cap marker from an untrusted author once the adapter filters by trust', () => {
-    const notes = [
-      { author: 'mallory', body: '<!-- cap: abc -->' },
-      { author: 'taskcell-bot', body: 'attempt abc' },
-    ];
-    const trusted = notes.filter((n) => classifyAuthor(n.author, undefined, { botLogins: ['taskcell-bot'] }) !== 'untrusted').map((n) => n.body);
-    expect(incompleteCapState(trusted, 'abc', isAttempt, CAP_RE)).toMatchObject({ capPosted: false, attempts: 1, stop: false });
+  it('ignores a cap marker from an untrusted author', () => {
+    expect(incompleteCapState([cap('abc', 'untrusted'), attempt()], 'abc', 'pr')).toMatchObject({ capPosted: false, attempts: 1, stop: false });
   });
 });
 

@@ -2,6 +2,7 @@
  * Shared by the PR and MR review paths: prompt text, the verdict/completion contract, and the
  * blocking-finding detector the merge gate and the external reviewers agree on.
  */
+import { stripAllMarkers } from '../core/comment-ledger.js';
 import { neutralizePromptTags } from '../context/escape.js';
 import { extractFindings } from '../structured/findings.js';
 
@@ -162,35 +163,14 @@ export function outputTail(text: string, maxChars = 1200): string {
 
 export { neutralizePromptTags } from '../context/escape.js';
 
-// Both forges' dedupe markers and the PR incomplete-review marker, in the line-anchored shape their detectors
-// accept, padded with any whitespace `.trim()` or GitLab's rstrip could remove, so stripping covers everything
-// detection could count once the note is built and saved. The padding excludes line breaks: `\s*` would
-// rescan every following blank line from each line start, which is quadratic on a long blank run.
-export const MARKER_PAD = String.raw`[^\S\n\r\u2028\u2029]*`;
-const REVIEW_MARKER_LINE_RE = new RegExp(
-  String.raw`^${MARKER_PAD}<!--[ \t]*(?:taskcell|vanguard)-(?:(?:mr|pr)-review:[ \t]*[a-fA-F0-9]+|pr-review-run:[ \t]*[a-fA-F0-9]+:\d+|(?:mr|pr)-review-incomplete(?:-cap)?:[ \t]*[a-fA-F0-9]+|pr-review-incomplete)[ \t]*-->${MARKER_PAD}$`,
-  'gm',
-);
-
-// Same opener as pr-feedback.ts REVISION_MARKER_PRESENT_RE, plus the rest of a well-formed marker when present.
-const REVISION_MARKER_OPEN_RE = /<!--\s*(?:(?:taskcell|vanguard)-)?revision:(?:[^>]*-->)?/g;
-
 /**
- * Remove review dedupe markers and revise-pr's revision marker from text the bot posts but did not write (verdicts, conformance sections,
- * error text). The agent can quote one from the MR or PR content, and in the bot's own note it would mark
- * that head as reviewed, or make revise-pr skip the note as an incomplete review. `\r` goes first: GitLab
- * drops it when it saves a note, which would rejoin a marker split by one.
+ * Remove every declared comment-ledger marker (review dedupe markers, revise-pr's revision marker, approver stamps...)
+ * from text the bot posts but did not write (verdicts, conformance sections, error text). The agent can quote one from
+ * the MR or PR content, and in the bot's own note it would mark that head as reviewed, or make revise-pr skip the note
+ * as an incomplete review. The set of markers comes from the ledger's declarations (core/comment-ledger.ts).
  */
 export function stripReviewMarkers(text: string): string {
-  let out = text.replaceAll('\r', '');
-  // revise-pr's round marker (pr-feedback.ts) is detected anywhere in a body, closed or not, so drop every
-  // opener; repeat until stable, as removing one can join the pieces around it into a new opener, or leave a
-  // review marker or run stamp alone on its line (one spliced with a revision marker), which goes too.
-  for (let prev = ''; prev !== out; ) {
-    prev = out;
-    out = out.replace(REVIEW_MARKER_LINE_RE, '').replace(REVISION_MARKER_OPEN_RE, '');
-  }
-  return out;
+  return stripAllMarkers(text);
 }
 
 /** Verdict header text for a reviewer stage that ended incomplete; such a verdict carries no head marker. */

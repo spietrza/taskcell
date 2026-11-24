@@ -1,3 +1,5 @@
+import { parseMarkers, reviewedAtHead, writeMarker } from '../core/comment-ledger.js';
+import type { LedgerComment } from '../core/comment-ledger.js';
 import { REVIEW_HEADING } from '../core/labels.js';
 import { hasLabel } from '../core/labels.js';
 import type { InstructionOverlay } from '../context/instruction-files.js';
@@ -66,7 +68,6 @@ export interface ReviewMergeRequestResult {
 
 const MR_URL_RE = /^https?:\/\/[^/]+\/(.+?)\/-\/merge_requests\/(\d+)(?:[/?#].*)?$/;
 const NUMBER_RE = /^\d+$/;
-const MR_REVIEW_MARKER_RE = /^<!--[ \t]*(?:taskcell|vanguard)-mr-review:[ \t]*([a-fA-F0-9]+)[ \t]*-->$/gm;
 const PROMISE_RE = /<promise>\s*COMPLETE\s*<\/promise>/gi;
 const NOTES_PER_PAGE = 100;
 /** The dedupe reads at most this many pages of notes, newest first. */
@@ -85,7 +86,7 @@ export function parseMergeRequestRef(ref: string, project?: string): MergeReques
   throw new Error(`Unsupported MR ref: ${ref}`);
 }
 
-interface GlabMrNoteItem {
+export interface GlabMrNoteItem {
   body?: string | null;
   system?: boolean;
   author?: { username?: string } | null;
@@ -173,22 +174,25 @@ export function buildMergeRequestReviewPrompt(mr: MergeRequestForReview, opts: {
 }
 
 export function mergeRequestReviewMarker(sha: string): string {
-  return `<!-- taskcell-mr-review: ${sha} -->`;
+  return writeMarker('mr-review', sha);
 }
-
-const MR_REVIEW_INCOMPLETE_MARKER_RE = /^<!--[ \t]*taskcell-mr-review-incomplete:[ \t]*([a-fA-F0-9]+)[ \t]*-->$/gm;
 
 /** Head-specific marker used by watch-mrs to count incomplete review attempts across sweeps. */
 export function mergeRequestReviewIncompleteMarker(sha: string): string {
-  return `<!-- taskcell-mr-review-incomplete: ${sha} -->`;
+  return writeMarker('mr-review-incomplete', sha);
 }
 
 export function hasMergeRequestReviewIncompleteMarker(body: string, sha: string): boolean {
-  return Array.from(body.matchAll(MR_REVIEW_INCOMPLETE_MARKER_RE)).some((match) => match[1] === sha);
+  return parseMarkers<string>('mr-review-incomplete', body).includes(sha);
+}
+
+/** A GitLab note as the ledger reads it: only the glab user's own (non-system) notes are the factory's, any other author is untrusted. */
+export function glabNoteComment(note: GlabMrNoteItem, self: string): LedgerComment {
+  return { body: note.body ?? '', author: note.system !== true && note.author?.username === self ? 'self' : 'untrusted' };
 }
 
 export function hasMergeRequestReviewMarker(body: string, sha: string): boolean {
-  return Array.from(body.matchAll(MR_REVIEW_MARKER_RE)).some((m) => m[1] === sha);
+  return parseMarkers<string>('mr-review', body).includes(sha);
 }
 
 /**
@@ -216,11 +220,7 @@ export async function hasMergeRequestReviewForHead(
     } catch (error) {
       throw new Error(`cannot read the MR notes (${errorText(error)})`, { cause: error });
     }
-    const found = notes.some(
-      (n) =>
-        !n.system && n.author?.username === self && n.body !== undefined && n.body !== null && hasMergeRequestReviewMarker(n.body, sha),
-    );
-    if (found) return true;
+    if (reviewedAtHead(notes.map((n) => glabNoteComment(n, self)), sha, 'mr')) return true;
     if (notes.length < NOTES_PER_PAGE) return false;
   }
   return false;
