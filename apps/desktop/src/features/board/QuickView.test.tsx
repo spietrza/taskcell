@@ -283,3 +283,19 @@ describe('QuickView run with flow', () => {
     await waitFor(() => expect(screen.queryByRole('button', { name: 'Run with flow…' })).toBeNull());
   });
 });
+
+describe('QuickView last-good and refetch', () => {
+  test('hints that a shown item may be out of date', async () => {
+    open({ ...task, view: { place: { at: 5, failed: false }, waiting: item({}), waitingUnchecked: true } });
+    expect(await screen.findByText('Could not check GitHub; this may be out of date.')).toBeInTheDocument();
+  });
+
+  test('refetches the last comment when the item\'s update time changes', async () => {
+    vi.mocked(needsYouComment).mockResolvedValueOnce({ lastComment: { author: 'bot', body: 'First?' } }).mockResolvedValueOnce({ lastComment: { author: 'bot', body: 'Second?' } });
+    const view = (updatedAt: string): QuickTask => ({ ...task, view: { place: { at: 5, failed: false }, waiting: item({ updatedAt }) } });
+    const { rerender } = open(view('1'));
+    expect(await screen.findByText('First?')).toBeInTheDocument();
+    rerender(<QuickView task={view('2')} project="/repo" onClose={() => {}} onFullPage={() => {}} />);
+    expect(await screen.findByText('Second?')).toBeInTheDocument();
+  });
+});

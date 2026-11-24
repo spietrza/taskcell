@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { mkdtemp, rm, mkdir, writeFile, symlink } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
+import { createServer, type Socket } from 'node:net';
 import { join } from 'node:path';
 import { execa } from 'execa';
 import { pushMetrics, readBranchMetrics, appendBranchLines, readBranchFile, tipLockKey, METRICS_BRANCH_DEFAULT, METRICS_BRANCH_LEGACY } from './metrics-branch.js';
@@ -224,6 +225,38 @@ describe('tip fetch', () => {
       await appendBranchLines(other, [`{"id":${n}}`], { file: 'decisions.jsonl' });
       const texts = await Promise.all([1, 2, 3].map(() => readBranchFile(repo, { file: 'decisions.jsonl' })));
       for (const text of texts) expect(text).toContain(`{"id":${n}}`);
+    }
+  });
+});
+
+describe('aborted tip fetch', () => {
+  it('settles at once, kills the transport helper and frees the tip lock, against a remote that never answers', async () => {
+    await appendBranchLines(repo, ['{"id":0}'], { file: 'decisions.jsonl' });
+    // Accepts the connection and never answers: `git fetch` hangs in its `git remote-http` helper.
+    const sockets: Socket[] = [];
+    const server = createServer((s) => sockets.push(s.resume()));
+    await new Promise<void>((r) => server.listen(0, '127.0.0.1', r));
+    const { port } = server.address() as { port: number };
+    try {
+      await execa('git', ['-C', repo, 'remote', 'set-url', 'origin', `http://127.0.0.1:${port}/r.git`]);
+      const controller = new AbortController();
+      const read = readBranchFile(repo, { file: 'decisions.jsonl', signal: controller.signal });
+      while (sockets.length === 0) await new Promise((r) => setTimeout(r, 20));
+      const closed = new Promise((r) => sockets[0]?.once('close', r));
+      const t = Date.now();
+      controller.abort(new Error('timed out'));
+      await expect(read).rejects.toThrow('timed out');
+      expect(Date.now() - t).toBeLessThan(1000);
+      // The helper holding the connection died with git's process group.
+      await closed;
+      // The tip lock is free: a read of the same tip runs (and reads the real remote) instead of queueing forever.
+      await execa('git', ['-C', repo, 'remote', 'set-url', 'origin', origin]);
+      const next = readBranchFile(repo, { file: 'decisions.jsonl' });
+      const stuck = new Promise<string>((r) => setTimeout(() => r('lock still held'), 3000));
+      expect((await Promise.race([next, stuck])).trim()).toBe('{"id":0}');
+    } finally {
+      for (const s of sockets) s.destroy();
+      await new Promise((r) => server.close(r));
     }
   });
 });
