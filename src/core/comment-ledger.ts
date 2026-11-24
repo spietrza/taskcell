@@ -132,7 +132,7 @@ function stripPatterns(): { lines: RegExp; openers: RegExp } {
   if (compiled !== undefined) return compiled;
   const lines = DECLARATIONS.filter((d) => d.anchor === 'line').map((d) => `<!--${ws(d)}(?:${alt(d)})${d.tail}${ws(d)}-->`);
   // An opener is dropped with the rest of its marker when well-formed, closed or not: a half marker may still count (`hasOpener`).
-  const openers = DECLARATIONS.filter((d) => d.anchor === 'anywhere').map((d) => `<!--\\s*(?:${alt(d)})(?![\\w-])(?:[^>]*-->)?`);
+  const openers = DECLARATIONS.filter((d) => d.anchor === 'anywhere').map((d) => `<!--\\s*(?:${alt(d)})(?!\\w|-(?!->))(?:[^>]*-->)?`);
   compiled = {
     lines: new RegExp(`^${MARKER_PAD}(?:${lines.join('|') || '(?!)'})${MARKER_PAD}$`, 'gm'),
     openers: new RegExp(openers.join('|') || '(?!)', 'g'),
@@ -370,6 +370,19 @@ declareMarker({
   render: (names: readonly string[]) => `: ${names.join(',')}`,
   parse: (g) => (g[0] ?? '').split(',').map((n) => n.trim()),
 });
+
+// Block delimiters in PR bodies and AGENTS.md, written inline by their owners (gate-config.ts, conformance-gate.ts,
+// skill-registry.ts). Declared so a model-authored text cannot forge one: stripAllMarkers drops them.
+for (const [kind, name] of [
+  ['gate-config-start', 'vanguard:gate-config:start'],
+  ['gate-config-end', 'vanguard:gate-config:end'],
+  ['skills-block-start', 'vanguard-skills:start'],
+  ['skills-block-end', 'vanguard-skills:end'],
+  ['pr-body-items-start', 'vanguard:pr-body-items:start'],
+  ['pr-body-items-end', 'vanguard:pr-body-items:end'],
+] as const) {
+  declareMarker({ kind, current: name, legacy: [], anchor: 'anywhere', authors: 'anyone', tail: '', render: () => '', parse: () => true });
+}
 
 // ---------------------------------------------------------------------------------------------------------------
 // Questions
