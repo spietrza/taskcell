@@ -77,6 +77,15 @@ describe('comment ledger, one row per marker kind', () => {
   });
 });
 
+describe('merge-only payload', () => {
+  it('escapes both HTML comment end forms in file names, and still round-trips', () => {
+    const payload = { from: 'a1', to: 'b2', files: ['a-->.ts', 'b--!>.ts'] };
+    const text = writeMarker('merge-only', payload);
+    expect(text.slice(4, -3)).not.toMatch(/--!?>/);
+    expect(parseMarkers('merge-only', text)).toEqual([payload]);
+  });
+});
+
 describe('stripAllMarkers', () => {
   it('strips a declaration added later, with no other change', () => {
     const text = '<!-- taskcell-brand-new: 7 -->';

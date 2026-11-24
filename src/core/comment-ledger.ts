@@ -310,7 +310,7 @@ declareMarker({
   anchor: 'line',
   authors: 'trusted',
   tail: ':[ \\t]*(\\{.*\\})',
-  render: (p: MergeOnlyPayload) => `: ${JSON.stringify({ from: p.from, to: p.to, files: p.files }).replace(/-->/g, '--\\u003e')}`,
+  render: (p: MergeOnlyPayload) => `: ${JSON.stringify({ from: p.from, to: p.to, files: p.files }).replace(/--(!?)>/g, '--$1\\u003e')}`,
   parse: (g) => {
     try {
       const parsed = mergeOnlySchema.safeParse(JSON.parse(g[0] ?? ''));
