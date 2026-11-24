@@ -338,3 +338,17 @@ test('the address names the open run: a reload of ?screen=runs&run=<taskId>@<tim
   expect(crumbs()).not.toHaveTextContent(`RUN${p.path}`);
   expect(new URLSearchParams(window.location.search).get('run')).toBe(ref);
 });
+
+test('the connection-lost banner clears once the stream is live again', async () => {
+  stubHub(() => []);
+  const rpc = vi.mocked(fetch);
+  const opens: (() => void)[] = [];
+  vi.stubGlobal('EventSource', class { addEventListener(name: string, cb: () => void): void { if (name === 'open') opens.push(cb); } removeEventListener(): void {} close(): void {} });
+  let sessions = 0;
+  vi.stubGlobal('fetch', vi.fn(async (url: string, init?: RequestInit) => (url === '/events/session' ? new Response('{}', { status: ++sessions === 1 ? 502 : 200 }) : rpc(url, init))));
+  render(<App />);
+  expect(await screen.findByText(/Lost connection to the hub/)).toBeInTheDocument();
+  await waitFor(() => expect(opens.length).toBeGreaterThan(0), { timeout: 3000 });
+  opens.forEach((open) => open());
+  await waitFor(() => expect(screen.queryByText(/Lost connection to the hub/)).toBeNull());
+});

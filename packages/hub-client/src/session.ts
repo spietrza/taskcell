@@ -23,6 +23,8 @@ export interface HubSessionOptions {
   onRefused?: (reason: RefusedReason) => void;
   /** Called when the stream fails for a reason other than a refusal (it is retried with backoff). */
   onConnectionIssue?: () => void;
+  /** Called when the stream is live again (a frame or a re-open) after a connection issue was reported. */
+  onConnectionRecovered?: () => void;
   /** Starts a trigger for an immediate reconnect (the app returning to the foreground); returns its stop. */
   wake?: (reconnect: () => void) => () => void;
   minBackoffMs?: number;
@@ -39,11 +41,14 @@ export interface LiveReadOptions<T> {
   changed?: (payload: unknown) => boolean;
   /** Re-run every `pollMs` too, for data the hub raises no event for; `shouldPoll` gates a tick (hidden page). */
   pollMs?: number;
+  /** Minimum gap between a read's start and a re-read triggered by a stream reset or reconnect (default 0); a
+   *  trigger inside it waits out the rest, so a flapping stream does not repeat a costly (forge-backed) read. */
+  reconnectMinMs?: number;
   shouldPoll?: () => boolean;
 }
 
 export interface LiveRead {
-  /** Read now; a read in flight gets one trailing read, and the promise waits for it. */
+  /** Read now; a read in flight gets one trailing read (a poll tick during one is dropped instead), and the promise waits for it. */
   reload: () => Promise<void>;
   stop: () => void;
 }
@@ -58,6 +63,7 @@ export interface HubSession extends HubClient {
   resume(): void;
   onRefused(handler: (reason: RefusedReason) => void): () => void;
   onConnectionIssue(handler: () => void): () => void;
+  onConnectionRecovered(handler: () => void): () => void;
   /** Drop every subscriber and close the stream. */
   close(): void;
 }
@@ -79,8 +85,16 @@ export function createHubSession(options: HubSessionOptions): HubSession {
   const subs = new Set<HubStreamHandlers>();
   const refusedHandlers = new Set<(reason: RefusedReason) => void>();
   const issueHandlers = new Set<() => void>();
+  const recoveredHandlers = new Set<() => void>();
+  let issueReported = false;
+  const recovered = (): void => {
+    if (!issueReported) return;
+    issueReported = false;
+    recoveredHandlers.forEach((h) => h());
+  };
   if (options.onRefused) refusedHandlers.add(options.onRefused);
   if (options.onConnectionIssue) issueHandlers.add(options.onConnectionIssue);
+  if (options.onConnectionRecovered) recoveredHandlers.add(options.onConnectionRecovered);
   let stream: HubSubscription | undefined;
   let generation = 0; // a superseded stream's callbacks are ignored
   let refused: RefusedReason | undefined;
@@ -110,11 +124,13 @@ export function createHubSession(options: HubSessionOptions): HubSession {
         const again = catchUp || opened;
         opened = true;
         catchUp = false;
+        recovered();
         if (again) each((h) => h.onOpen?.());
       },
       onEvent: (name, payload) => {
         if (mine !== generation) return;
         delay = minDelay;
+        recovered();
         each((h) => h.onEvent(name, payload));
       },
       onReset: () => {
@@ -136,6 +152,7 @@ export function createHubSession(options: HubSessionOptions): HubSession {
           each((h) => h.onError?.(message, detail));
           return;
         }
+        issueReported = true;
         issueHandlers.forEach((h) => h());
         clearTimeout(timer);
         timer = setTimeout(reconnect, delay);
@@ -209,6 +226,18 @@ export function createHubSession(options: HubSessionOptions): HubSession {
     let busy = false;
     let again = false; // a trigger arrived mid-read: one trailing read
     let running: Promise<void> | undefined;
+    let lastStart = -Infinity;
+    let deferred: ReturnType<typeof setTimeout> | undefined;
+    const minGap = o.reconnectMinMs ?? 0;
+    // A reset or re-open re-reads at once unless the last read started inside `reconnectMinMs`: then once, when it has passed.
+    const reloadAfterGap = (): void => {
+      const wait = lastStart + minGap - Date.now();
+      if (wait <= 0) return void reload();
+      deferred ??= setTimeout(() => {
+        deferred = undefined;
+        void reload();
+      }, wait);
+    };
     const reload = (): Promise<void> => {
       if (stopped) return Promise.resolve();
       if (busy) {
@@ -220,6 +249,7 @@ export function createHubSession(options: HubSessionOptions): HubSession {
         try {
           do {
             again = false;
+            lastStart = Date.now();
             try {
               const data = await read();
               if (stopped) return;
@@ -237,12 +267,21 @@ export function createHubSession(options: HubSessionOptions): HubSession {
     };
     const sub = subscribe({
       onEvent: (name, payload) => {
-        if (name === CHANGED_EVENT && (o.changed?.(payload) ?? true)) void reload();
+        if (name !== CHANGED_EVENT || !(o.changed?.(payload) ?? true)) return;
+        void reload();
+        startPoll(); // the event-driven read stands in for the next tick
       },
-      onReset: () => void reload(),
-      onOpen: () => void reload(),
+      onReset: reloadAfterGap,
+      onOpen: reloadAfterGap,
     });
-    const poll = o.pollMs === undefined ? undefined : setInterval(() => (o.shouldPoll?.() ?? true) && void reload(), o.pollMs);
+    let poll: ReturnType<typeof setInterval> | undefined;
+    // A tick while a read is in flight is dropped (no trailing read): a read slower than `pollMs` does not run back to back.
+    function startPoll(): void {
+      if (o.pollMs === undefined) return;
+      clearInterval(poll);
+      poll = setInterval(() => (o.shouldPoll?.() ?? true) && !busy && void reload(), o.pollMs);
+    }
+    startPoll();
     if (o.initial !== false) void reload();
     return {
       reload,
@@ -250,6 +289,7 @@ export function createHubSession(options: HubSessionOptions): HubSession {
         if (stopped) return;
         stopped = true;
         clearInterval(poll);
+        clearTimeout(deferred);
         sub();
       },
     };
@@ -271,6 +311,10 @@ export function createHubSession(options: HubSessionOptions): HubSession {
     onConnectionIssue: (h) => {
       issueHandlers.add(h);
       return () => void issueHandlers.delete(h);
+    },
+    onConnectionRecovered: (h) => {
+      recoveredHandlers.add(h);
+      return () => void recoveredHandlers.delete(h);
     },
     close: () => {
       subs.clear();

@@ -26,7 +26,7 @@ import { ProjectCombobox } from './ProjectCombobox';
 import { inRepos } from './repoFilter';
 import { loadFilter, saveFilter, type HubFilter } from './filterState';
 import { resolveScreen, screenFromUrl, setUrlParam, settingsSectionFromUrl, urlForScreen } from './screenUrl';
-import { hub, hubSignedIn, isDemoMode, hubSignOut, onHubRestart, onHubConnectionIssue } from './transport';
+import { hub, hubSignedIn, isDemoMode, hubSignOut, onHubRestart, onHubConnectionIssue, onHubConnectionRecovered, RECONNECT_READ_MIN_MS } from './transport';
 import { applyTheme, initialTheme, saveTheme } from './theme';
 import type { Project, ActiveRun } from './taskcell-output';
 import type { StampedNeeds } from './features/home/homeModel';
@@ -279,7 +279,12 @@ export default function App() {
   // 502 — is not fixed by reloading, so it gets its own neutral banner instead of "the hub restarted".
   useEffect(() => {
     const un = onHubConnectionIssue(() => setHubConnectionIssue(true));
-    return () => void un.then((f) => f());
+    // The session reconnects by itself: once the stream is live again the banner has nothing left to say.
+    const ok = onHubConnectionRecovered(() => setHubConnectionIssue(false));
+    return () => {
+      void un.then((f) => f());
+      void ok.then((f) => f());
+    };
   }, []);
 
   useEffect(() => {
@@ -449,6 +454,7 @@ export default function App() {
       },
       onError: setNeedsError,
       pollMs: 30000,
+      reconnectMinMs: RECONNECT_READ_MIN_MS,
       changed: () => false, // forge-backed read: only the timer, a reset or a reconnect re-runs it, not every file change
     }).stop;
   }, [needsYou, activeProject, scopeId, repoKey, needsNonce]);

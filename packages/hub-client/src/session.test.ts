@@ -290,4 +290,58 @@ describe('hub session live read', () => {
     await vi.advanceTimersByTimeAsync(300);
     expect(read).toHaveBeenCalledTimes(3);
   });
+
+  it('drops a poll tick during a slow read, and an event-driven read replaces the next tick', async () => {
+    const { adapter, opens } = fakeStream();
+    const s = session(adapter);
+    const releases: (() => void)[] = [];
+    const read = vi.fn(() => new Promise<number>((resolve) => releases.push(() => resolve(1))));
+    s.liveRead(read, { onData: () => {}, pollMs: 100 });
+    await vi.advanceTimersByTimeAsync(350); // three ticks while the first read is in flight
+    expect(read).toHaveBeenCalledTimes(1);
+    releases[0]!();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(read).toHaveBeenCalledTimes(1); // no trailing read
+    await vi.advanceTimersByTimeAsync(20);
+    opens[0]!.handlers.onEvent('vanguard:changed', 'r');
+    expect(read).toHaveBeenCalledTimes(2);
+    releases[1]!();
+    await vi.advanceTimersByTimeAsync(99); // the old tick (due at +30) is gone
+    expect(read).toHaveBeenCalledTimes(2);
+    await vi.advanceTimersByTimeAsync(1);
+    expect(read).toHaveBeenCalledTimes(3);
+  });
+
+  it('holds a reset or re-open re-read until reconnectMinMs has passed since the last read began', async () => {
+    const { adapter, opens } = fakeStream();
+    const s = session(adapter);
+    const read = vi.fn(async () => 1);
+    s.liveRead(read, { onData: () => {}, reconnectMinMs: 10000 });
+    await vi.advanceTimersByTimeAsync(0);
+    opens[0]!.handlers.onReset?.();
+    opens[0]!.handlers.onOpen?.();
+    await vi.advanceTimersByTimeAsync(9000);
+    expect(read).toHaveBeenCalledTimes(1);
+    await vi.advanceTimersByTimeAsync(1000);
+    expect(read).toHaveBeenCalledTimes(2); // once, for both triggers
+    opens[0]!.handlers.onEvent('vanguard:changed', 'r'); // a change is not rate-limited
+    expect(read).toHaveBeenCalledTimes(3);
+  });
+});
+
+describe('hub session recovery', () => {
+  it('reports recovery once, when the stream re-opens after a connection issue', () => {
+    const { adapter, opens } = fakeStream();
+    const recovered = vi.fn();
+    const s = session(adapter, { onConnectionRecovered: recovered });
+    s.subscribe({ onEvent: vi.fn() });
+    opens[0]!.handlers.onOpen?.();
+    expect(recovered).not.toHaveBeenCalled(); // never down
+    opens[0]!.handlers.onError?.('down');
+    vi.advanceTimersByTime(1000);
+    expect(recovered).not.toHaveBeenCalled();
+    opens[1]!.handlers.onOpen?.();
+    opens[1]!.handlers.onEvent('x', 1);
+    expect(recovered).toHaveBeenCalledOnce();
+  });
 });
