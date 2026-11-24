@@ -1,6 +1,6 @@
 import { taskRefKey } from './features/board/taskref';
-import type { RunOutcome } from './wire';
-import { ASKED_WORDS } from '../../../packages/hub-client/src/run-labels';
+import type { RunOutcome, RunSummary } from './wire';
+import { ASKED_WORDS, runStateWord } from '../../../packages/hub-client/src/run-labels';
 
 // Shared with the mobile app: lives in packages/hub-client.
 export { ASKED_WORDS };
@@ -65,5 +65,5 @@ export function askedOf(
   return r?.finalText?.trim() || undefined;
 }
 
-/** A run's outcome as the hub derived it (list_runs / read_run); "unknown" when a hub did not send one. */
-export const outcomeOf = (r: { outcome?: RunOutcome }): RunOutcome => r.outcome ?? { state: 'unknown', place: { at: 5, failed: false } };
+/** A run's outcome as the hub derived it (list_runs / read_run); an older hub sends none: its state word from the row itself. */
+export const outcomeOf = (r: RunSummary): RunOutcome => r.outcome ?? { state: runStateWord(r), place: { at: 5, failed: false } };

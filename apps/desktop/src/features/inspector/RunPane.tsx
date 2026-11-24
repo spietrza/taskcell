@@ -5,7 +5,7 @@ import { readSession, tailRunEvents } from '../../ipc';
 import type { RunTail } from '../../../../../packages/hub-client/src/runTail';
 import { ExternalLink, hostName, issueUrl } from '../../components/ExternalLink';
 import { AgentQuestion } from '../../components/AgentQuestion';
-import { askedOf, cardIdOf, repoInitials, runStateTone, startedByLabel } from '../../runLabels';
+import { askedOf, cardIdOf, outcomeOf, repoInitials, runStateTone, startedByLabel } from '../../runLabels';
 import { costLabel, estLabel } from '../../cost';
 import { liveStage, liveStations, stepsAt } from '../board/stageLine';
 import { StreamView } from './StreamView';
@@ -130,7 +130,7 @@ export function RunPane({
         : undefined;
 
   // One state for the chip's word and its colour: the hub's outcome, the same for the Runs row and the run page.
-  const outcome = summary?.outcome ?? detail?.outcome;
+  const outcome = summary?.outcome ?? detail?.outcome ?? (summary !== undefined ? outcomeOf(summary) : undefined);
   const word = running ? 'running' : timeline.terminal === 'cancelled' ? 'cancelled' : timeline.terminal === 'error' ? 'failed' : outcome !== undefined ? outcome.state : 'passed';
   const status = (
     <Chip color={runStateTone(word)} variant="outlined">

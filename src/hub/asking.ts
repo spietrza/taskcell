@@ -93,18 +93,13 @@ const boardWaitingCache = new Map<string, { at: number; items: Promise<NeedsYouI
 /**
  * What waits on the person in one repository, for the cards' views (`list_tasks`). Kept briefly and shared by
  * concurrent reads (failures too: an empty list); a reply, a merge or a card change forgets it (`forgetBoardWaiting`).
- * GitHub is read only for a project whose task source is GitHub; any other project gets its asking cards (run records only).
+ * GitHub is read for every project with a GitHub remote, whatever its task source (hub board, Linear, GitLab), as `list_needs_you`.
  * `commentBudget` caps the comment fetches across every repository of one listing.
  */
 export function boardWaiting(configDir: string, repoPath: string, opts: { commentBudget?: { remaining: number }; gh?: GhRunner } = {}): Promise<NeedsYouItem[]> {
   const held = boardWaitingCache.get(repoPath);
   if (held !== undefined && Date.now() - held.at < BOARD_WAITING_TTL_MS) return held.items;
-  const items = (async () => {
-    const cfg = await readAppConfig(repoPath);
-    const github = cfg.taskSource !== 'hub' && (cfg.source ?? 'github') === 'github';
-    if (!github) return askingCards(configDir, repoPath);
-    return repoNeedsYou(configDir, repoPath, opts.commentBudget !== undefined ? { commentBudget: opts.commentBudget } : {}, opts.gh);
-  })().catch(() => []);
+  const items = repoNeedsYou(configDir, repoPath, opts.commentBudget !== undefined ? { commentBudget: opts.commentBudget } : {}, opts.gh).catch(() => []);
   boardWaitingCache.set(repoPath, { at: Date.now(), items });
   return items;
 }

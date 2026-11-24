@@ -1,5 +1,6 @@
 import { expect, test } from 'vitest';
 import { markDone, newestRuns, runOutcome, withCardViews } from './card-view.js';
+import { stationOf } from '../stations.js';
 import type { BoardTask, NeedsYouItem, RunSummary } from '../wire.js';
 
 const run = (taskId: string, timestamp: string, extra: Partial<RunSummary> = {}): RunSummary => ({ taskId, timestamp, stages: [], totalCostUsd: 0, anyFailed: false, ...extra });
@@ -17,6 +18,9 @@ interface Case {
   state?: string;
   prUrl?: string;
   waiting?: boolean;
+  /** Gate repairs a running card's live record shows, and the place the clients' live mapping (`stationOf`) gives it then. */
+  repairs?: number;
+  live?: { at: number; failed: boolean };
 }
 
 const T1 = '2026-01-01T00:00:00.000Z';
@@ -35,7 +39,10 @@ const cases: Case[] = [
   { name: 'merged: the card is done, past the line', tasks: [card('gh-1', 'done')], runs: [run('gh-1', T1, { prUrl: PR })], place: { at: 6, failed: false }, state: 'merged', prUrl: PR },
   { name: 'done without a PR (local branch)', tasks: [card('hub-1', 'done')], runs: [run('hub-1', T1)], place: { at: 6, failed: false }, state: 'done, no PR' },
   { name: 'done card whose run asked: history, not waiting', tasks: [card('hub-1', 'done')], runs: [run('hub-1', T1, { anyFailed: true, asked: 'q' })], place: { at: 6, failed: false }, state: 'stopped to ask' },
-  { name: 'CI-sourced runs are ignored', tasks: [card('gh-1', 'review')], runs: [run('gh-1', T2, { source: 'ci', prUrl: PR })], place: { at: 4, failed: false } },
+  { name: 'a CI-sourced run is never the card\'s run', tasks: [card('gh-1', 'review')], runs: [run('gh-1', T2, { source: 'ci', anyFailed: true, failedStage: 'reviewer' })], place: { at: 4, failed: false } },
+  { name: 'a CI run with a PR: its PR item waits on the card, on the PR station', tasks: [card('gh-1', 'review')], runs: [run('gh-1', T2, { source: 'ci', prUrl: PR })], needs: [item({})], place: { at: 5, failed: false }, waiting: true },
+  { name: 'running with repairs: placed by its stage (the client lifts it to Gates by its live record)', tasks: [card('gh-1', 'running', { stage: 'implementer' })], runs: [run('gh-1', T1, { extraAttempts: 2 })], place: { at: 2, failed: false }, state: 'passed', repairs: 1, live: { at: 3, failed: false } },
+  { name: 'running with repairs at the reviewer: stays at Review', tasks: [card('gh-1', 'running', { stage: 'reviewer' })], place: { at: 4, failed: false }, repairs: 2, live: { at: 4, failed: false } },
   { name: 'newest run by timestamp, whatever the input order', tasks: [card('gh-1', 'review')], runs: [run('gh-1', T1, { anyFailed: true, failedStage: 'implementer' }), run('gh-1', T2, { prUrl: PR }), run('gh-1', '2025-12-01T00:00:00.000Z', { anyFailed: true })], place: { at: 5, failed: false }, state: 'PR open', prUrl: PR },
   { name: 'a runner-minted GitHub task id folds onto the board id', tasks: [card('gh-904', 'review')], runs: [run('gh-owner-repo-904', T1, { prUrl: PR })], place: { at: 5, failed: false }, state: 'PR open', prUrl: PR },
   { name: 'a GitLab task id folds the same way', tasks: [card('gl-12', 'review')], runs: [run('gl-group-proj-12', T1)], place: { at: 5, failed: false }, state: 'passed' },
@@ -47,12 +54,13 @@ const cases: Case[] = [
   { name: 'a card item matches by board id', tasks: [card('hub-4', 'verify-failed', { asked: true })], runs: [run('hub-4', T1, { asked: 'q' })], needs: [item({ kind: 'card', id: 'hub-4', number: 4 })], place: { at: 2, failed: false }, state: 'Waiting for your answer', waiting: true },
 ];
 
-test.each(cases)('$name', ({ tasks, runs, needs, place, state, prUrl, waiting }) => {
+test.each(cases)('$name', ({ tasks, runs, needs, place, state, prUrl, waiting, repairs, live }) => {
   const [view] = withCardViews(tasks, runs ?? [], needs ?? []).map((t) => t.view);
   expect(view?.place).toEqual(place);
   expect(view?.run?.state).toBe(state);
   expect(view?.run?.prUrl).toBe(prUrl);
   expect(view?.waiting !== undefined).toBe(waiting === true);
+  if (repairs !== undefined) expect(stationOf(tasks[0]!, { repairs })).toEqual(live);
 });
 
 test('newestRuns keys by board id, skips CI runs and keeps the newest', () => {

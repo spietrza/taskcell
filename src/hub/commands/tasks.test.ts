@@ -42,13 +42,13 @@ describe('tasks', () => {
     expect(await dispatchRpc(ctx, 'list_tasks', { repoPath: repo })).toEqual({ tasks: [], capped: false });
     // The paused reads (two `pr list`) and the cards' waiting items (needs-you: one `issue list`, two `pr list`).
     expect(calls.map((c) => c.slice(0, 2).join(' ')).sort()).toEqual(['issue list', 'pr list', 'pr list', 'pr list', 'pr list']);
-    // A project whose task source is not GitHub spawns nothing, github.com origin or not.
+    // A project whose task source is not GitHub reads no paused pull requests, github.com origin or not.
     calls.length = 0;
     await writeAppConfig(repo, { source: 'linear' });
-    // Not even the cards' waiting items: with the kept read dropped, a Linear project reads its run records only.
+    // Its cards' waiting items still come from GitHub (its remote's PRs and issues), as list_needs_you reads them.
     forgetBoardWaiting(repo);
     await dispatchRpc(ctx, 'list_tasks', { repoPath: repo });
-    expect(calls).toEqual([]);
+    expect(calls.map((c) => c.slice(0, 2).join(' ')).sort()).toEqual(['issue list', 'pr list', 'pr list']);
   });
 
   test('the cards\' waiting items are kept briefly, shared, and dropped by a reply or a merge', async () => {

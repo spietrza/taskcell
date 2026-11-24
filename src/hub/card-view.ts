@@ -65,20 +65,36 @@ function waitingItem(items: readonly NeedsYouItem[], task: BoardTask, prUrl: str
     : task.source === 'github' && number !== undefined && i.number === number);
 }
 
+/** Each card's newest pull request address from any of its runs, CI-imported ones too (a run in GitHub Actions opens PRs). */
+function newestPrUrls(runs: readonly RunSummary[]): Map<string, { timestamp: string; prUrl: string }> {
+  const out = new Map<string, { timestamp: string; prUrl: string }>();
+  for (const r of runs) {
+    if (r.prUrl === undefined) continue;
+    const key = taskRefKey(r.taskId);
+    const held = out.get(key);
+    if (held === undefined || held.timestamp < r.timestamp) out.set(key, { timestamp: r.timestamp, prUrl: r.prUrl });
+  }
+  return out;
+}
+
 /**
- * Each card of one repository with its view. `runs`: every run record of the repository (CI imports are ignored; a done
- * card's runs are marked from the board itself); `needsYou`: the repository's waiting items.
- * A card in Review or failed sits where its newest run left it; any other card by its column.
+ * Each card of one repository with its view. `runs`: every run record of the repository, CI imports included (they never
+ * place a card or are its run, they only give its pull request address); a done card's runs are marked from the board
+ * itself. `needsYou`: the repository's waiting items.
+ * A card in Review or failed sits where its newest local run left it; any other card by its column.
  */
 export function withCardViews<T extends BoardTask>(tasks: readonly T[], runs: readonly RunSummary[], needsYou: readonly NeedsYouItem[]): T[] {
   const done = new Set(tasks.filter((t) => t.column === 'done').map((t) => taskRefKey(t.id)));
   const newest = newestRuns(markDone(runs, done));
+  const prUrls = newestPrUrls(runs);
   return tasks.map((task) => {
-    const run = newest.get(taskRefKey(task.id));
+    const key = taskRefKey(task.id);
+    const run = newest.get(key);
     const finished = task.column === 'review' || task.column === 'verify-failed';
     const outcome = run === undefined ? undefined : runOutcome(run);
-    const place = finished && outcome !== undefined ? outcome.place : stationOf(task, { prExists: run?.prUrl !== undefined });
-    const waiting = waitingItem(needsYou, task, run?.prUrl);
+    const prUrl = run?.prUrl ?? prUrls.get(key)?.prUrl;
+    const place = finished && outcome !== undefined ? outcome.place : stationOf(task, { prExists: prUrl !== undefined });
+    const waiting = waitingItem(needsYou, task, prUrl);
     const view: CardView = {
       place,
       ...(run !== undefined && outcome !== undefined ? { run: { ...outcome, timestamp: run.timestamp, ...(run.prUrl !== undefined ? { prUrl: run.prUrl } : {}) } } : {}),

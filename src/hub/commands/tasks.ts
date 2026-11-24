@@ -18,6 +18,7 @@ import { withCardViews } from '../card-view.js';
 import { boardWaiting, forgetBoardWaiting } from '../asking.js';
 import { MAX_COMMENT_FETCHES } from '../needs-you.js';
 import { defaultRunsRoot, listRunSummaries } from '../runs.js';
+import { withCiRuns } from '../ci-metrics.js';
 import { startGithubTask, triggerLabelsFor } from '../start-task.js';
 import { markerReadBudget, retryPausedTask, withPausedTasks, type MarkerReadBudget } from '../paused.js';
 import type { BoardTask, CreatedTask, RepoReadFailure, RepoStamp, RetryPausedResult, StartTaskResult } from '../../wire.js';
@@ -75,7 +76,8 @@ async function withPaused(ctx: RpcContext, real: string, tasks: BoardTask[], bud
 /** Each card with its view: where it sits, its newest run and its waiting item (src/hub/card-view.ts). Local state is best effort: a run list that cannot be read leaves the cards placed by their column. */
 async function withViews<T extends BoardTask>(ctx: RpcContext, real: string, tasks: T[], commentBudget?: { remaining: number }): Promise<T[]> {
   const [runs, needsYou] = await Promise.all([
-    listRunSummaries(defaultRunsRoot(real)).catch(() => []),
+    // CI-imported runs too (as list_runs): a run in GitHub Actions gives its card the PR address, never its place or its run.
+    listRunSummaries(defaultRunsRoot(real)).then((local) => withCiRuns(real, local)).catch(() => []),
     boardWaiting(ctx.configDir, real, { ...(commentBudget !== undefined ? { commentBudget } : {}), ...(ctx.gh !== undefined ? { gh: ctx.gh } : {}) }),
   ]);
   return withCardViews(tasks, runs, needsYou);
