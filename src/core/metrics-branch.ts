@@ -41,8 +41,39 @@ export interface PushMetricsResult {
   total: number;
 }
 
-const git = (cwd: string, args: string[], signal?: AbortSignal): Promise<string> =>
-  execa('git', args, { cwd, ...(signal !== undefined ? { cancelSignal: signal } : {}) }).then((r) => r.stdout);
+/** Kill a detached child's whole process group (its transport helpers too); the child alone where groups do not exist. */
+function killGroup(pid: number | undefined): void {
+  if (pid === undefined) return;
+  try {
+    process.kill(process.platform === 'win32' ? pid : -pid, 'SIGKILL');
+  } catch {
+    // already gone
+  }
+}
+
+/**
+ * Run git. With a signal, aborting settles the call at once and kills git's whole process group: killing
+ * only `git fetch` leaves `git remote-http` alive holding the stderr pipe, so the child never settles
+ * (and the tip lock its caller holds is never released).
+ */
+function git(cwd: string, args: string[], signal?: AbortSignal): Promise<string> {
+  if (signal === undefined) return execa('git', args, { cwd }).then((r) => r.stdout);
+  signal.throwIfAborted();
+  const child = execa('git', args, {
+    cwd,
+    detached: process.platform !== 'win32',
+    // Never wait on a credential prompt nobody can answer.
+    env: { GIT_TERMINAL_PROMPT: '0' },
+  });
+  return new Promise<string>((resolve, reject) => {
+    const onAbort = (): void => {
+      killGroup(child.pid);
+      reject(signal.reason);
+    };
+    signal.addEventListener('abort', onAbort, { once: true });
+    child.then((r) => resolve(r.stdout), reject).finally(() => signal.removeEventListener('abort', onAbort));
+  });
+}
 
 /** The named ref a branch's tip is fetched into: unlike FETCH_HEAD, a concurrent fetch of another branch cannot overwrite it. */
 export const tipRef = (remote: string, branch: string): string => `refs/taskcell/tips/${remote}/${branch}`;
