@@ -1,8 +1,7 @@
 #!/usr/bin/env node
 import { parseCli, USAGE } from './args.js';
 import { commandUsage, findCommand } from './commands.js';
-import { runGc } from './gc.js';
-import { RUNNERS } from './registry.js';
+import { dispatch } from './registry.js';
 import { CliUsageError } from '../core/errors.js';
 import { takeAppKey } from '../core/push-token.js';
 
@@ -22,19 +21,7 @@ async function main(): Promise<void> {
     process.exitCode = 1;
     return;
   }
-  const run = RUNNERS[command.kind];
-  if (run !== undefined) {
-    await run(command);
-    return;
-  }
-  if (command.kind !== 'gc') return;
-  const report = await runGc(command);
-  const tag = command.dryRun ? ' (dry-run)' : '';
-  const remote = command.remoteRepo !== undefined ? `, ${report.branches.length} merged remote branch(es)` : '';
-  console.log(`Reaped ${report.containers.length} container(s), ${report.networks.length} egress network(s)${remote}${tag}.`);
-  if (report.containers.length > 0) console.log(`  containers: ${report.containers.join(', ')}`);
-  if (report.networks.length > 0) console.log(`  networks: ${report.networks.join(', ')}`);
-  if (report.branches.length > 0) console.log(`  branches: ${report.branches.join(', ')}`);
+  await dispatch(command.kind, command);
 }
 
 main().catch((error: unknown) => {

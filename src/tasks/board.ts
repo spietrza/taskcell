@@ -26,8 +26,8 @@ function hasWord(t: string, word: string): boolean {
 
 /**
  * The human-applied triggers a watch loop polls for (`--spec-label` / `--agent-label` defaults,
- * src/cli/args.ts:362-363). Separator-tolerant so `ready-for-spec` reads the same; bounded both
- * sides so `ready for speccing` is NOT a trigger.
+ * DEFAULT_GITHUB_SPEC_LABEL / DEFAULT_GITHUB_AGENT_LABEL in src/core/labels.ts). Separator-tolerant so
+ * `ready-for-spec` reads the same; bounded both sides so `ready for speccing` is NOT a trigger.
  */
 const TRIGGER_SOURCE = String.raw`(?<![a-z0-9])ready[^a-z0-9]+for[^a-z0-9]+(?:spec|agent)(?![a-z0-9])`;
 const TRIGGER_STRIP = new RegExp(TRIGGER_SOURCE, 'g'); // replace() — never .test() (lastIndex)

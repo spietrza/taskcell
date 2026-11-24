@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { USAGE } from './args.js';
 import { COMMANDS, commandUsage } from './commands.js';
-import { PARSERS } from './registry.js';
+import { parserFor } from './parsers.js';
 
 describe('--help output', () => {
   it('top-level usage is unchanged', () => {
@@ -13,6 +13,6 @@ describe('--help output', () => {
   });
 
   it('every declared command has a parser', () => {
-    expect(COMMANDS.filter((c) => PARSERS[c.name] === undefined).map((c) => c.name)).toEqual([]);
+    expect(COMMANDS.filter((c) => parserFor(c.name) === undefined).map((c) => c.name)).toEqual([]);
   });
 });

@@ -7,7 +7,7 @@ import { readAppConfig } from './app-config.js';
 import { editHubTask, listHubTasks, MAX_BODY_LENGTH, type HubTaskOwner } from './hub-tasks.js';
 import { defaultRunsRoot, listRunSummaries } from './runs.js';
 import { newestRuns } from './card-view.js';
-import { ensureLabel, listNeedsYou, type NeedsYouOptions } from './needs-you.js';
+import { ensureLabel, listNeedsYou, withLastComments, type CommentMemo } from './needs-you.js';
 import { DEFAULT_GITHUB_AGENT_LABEL } from '../core/labels.js';
 import type { NeedsYouItem } from '../wire.js';
 
@@ -73,40 +73,93 @@ export async function askingCards(configDir: string, repoPath: string, github?: 
 }
 
 /** A GitHub card's answer target: the repository and its configured trigger label (app.json `label`). */
-async function answerTarget(repoPath: string, repoSlug: string | undefined): Promise<GithubAnswerTarget | undefined> {
+async function answerTarget(repoPath: string, repoSlug: string | undefined, gh?: GhRunner): Promise<GithubAnswerTarget | undefined> {
   if (repoSlug === undefined) return undefined;
   const { label } = await readAppConfig(repoPath);
-  return { repoSlug, ...(label?.trim() ? { agentLabel: label } : {}) };
+  return { repoSlug, ...(label?.trim() ? { agentLabel: label } : {}), ...(gh !== undefined ? { gh } : {}) };
 }
 
-/** Everything of one repository that waits on the person: GitHub's needs-info issues and PRs, and the cards whose run stopped to ask. */
-export async function repoNeedsYou(configDir: string, repoPath: string, opts: NeedsYouOptions = {}, gh?: GhRunner): Promise<NeedsYouItem[]> {
-  const repoSlug = await githubSlug(repoPath);
-  // Cards whose run stopped to ask come from run records; a repository without a GitHub remote has only those.
-  return [...(repoSlug === undefined ? [] : await listNeedsYou(repoSlug, gh, opts)), ...(await askingCards(configDir, repoPath, await answerTarget(repoPath, repoSlug)))];
+/** How long a repository's read of GitHub's waiting items is kept: the board polls every 5-20 s, the read is tracker calls. */
+const NEEDS_YOU_TTL_MS = 60_000;
+
+/** What waits in one repository. `unchecked`: GitHub could not be read; its items are the last good ones (none yet: none). */
+export interface NeedsYouRead {
+  items: NeedsYouItem[];
+  unchecked?: true;
 }
 
-/** How long the board's read of what waits is kept per repository: a board polls every few seconds, the read is tracker calls. */
-const BOARD_WAITING_TTL_MS = 15_000;
-const boardWaitingCache = new Map<string, { at: number; items: Promise<NeedsYouItem[]> }>();
+interface GithubRead {
+  at: number;
+  /** GitHub's needs-info issues and PRs. */
+  items: Promise<NeedsYouItem[]>;
+  /** Last comments fetched for Home's lists, kept per item for the life of this read. */
+  comments: CommentMemo;
+  /** The read failed: kept (as a failure) for FAILED_TTL_MS only. */
+  failed?: true;
+  /** The `gh issue view` answers of this read's cards, shared until it expires. */
+  views: Map<string, Promise<string>>;
+}
+/** How long a failed read is kept: long enough that a rate-limited poll does not retry every few seconds. */
+const FAILED_TTL_MS = 15_000;
+const githubCache = new Map<string, GithubRead>();
+const lastGood = new Map<string, NeedsYouItem[]>();
 
 /**
- * What waits on the person in one repository, for the cards' views (`list_tasks`). Kept briefly and shared by
- * concurrent reads (failures too: an empty list); a reply, a merge or a card change forgets it (`forgetBoardWaiting`).
- * GitHub is read for every project with a GitHub remote, whatever its task source (hub board, Linear, GitLab), as `list_needs_you`.
- * `commentBudget` caps the comment fetches across every repository of one listing.
+ * What waits on the person in one repository, shared by the board (`list_tasks`) and Home (`list_needs_you`).
+ * GitHub's side (for every project with a GitHub remote, whatever its task source) is kept for NEEDS_YOU_TTL_MS and shared
+ * by concurrent reads; the board gets no per-item comments, Home's lists fetch them once per item (`withLastComments`); a reply, a merge or a card change forgets it
+ * (`forgetBoardWaiting`). The cards whose run stopped to ask come from run records and are read on each call. A failed
+ * GitHub read is kept for FAILED_TTL_MS: it returns the last good items flagged `unchecked`.
  */
-export function boardWaiting(configDir: string, repoPath: string, opts: { commentBudget?: { remaining: number }; gh?: GhRunner } = {}): Promise<NeedsYouItem[]> {
-  const held = boardWaitingCache.get(repoPath);
-  if (held !== undefined && Date.now() - held.at < BOARD_WAITING_TTL_MS) return held.items;
-  const items = repoNeedsYou(configDir, repoPath, opts.commentBudget !== undefined ? { commentBudget: opts.commentBudget } : {}, opts.gh).catch(() => []);
-  boardWaitingCache.set(repoPath, { at: Date.now(), items });
-  return items;
+export async function cachedNeedsYou(
+  configDir: string,
+  repoPath: string,
+  gh?: GhRunner,
+  /** Home's lists pass the comment-fetch budget (shared across repositories); the board passes none and gets no comments. */
+  commentBudget?: { remaining: number },
+): Promise<NeedsYouRead> {
+  const repoSlug = await githubSlug(repoPath);
+  const held = githubCache.get(repoPath);
+  const entry: GithubRead = held !== undefined && Date.now() - held.at < (held.failed ? FAILED_TTL_MS : NEEDS_YOU_TTL_MS)
+    ? held
+    : {
+      at: Date.now(),
+      items: repoSlug === undefined ? Promise.resolve([]) : listNeedsYou(repoSlug, gh, { commentBudget: { remaining: 0 } }),
+      comments: new Map(),
+      views: new Map(),
+    };
+  githubCache.set(repoPath, entry);
+  let unchecked = false;
+  const github = await entry.items.then(
+    (items) => {
+      if (githubCache.get(repoPath) === entry) lastGood.set(repoPath, items);
+      return items;
+    },
+    () => {
+      unchecked = true;
+      entry.failed = true;
+      return lastGood.get(repoPath) ?? [];
+    },
+  );
+  const run = gh ?? defaultGhRunner;
+  const memo: GhRunner = (args) => {
+    const key = args.join('\0');
+    const kept = entry.views.get(key);
+    if (kept !== undefined) return kept;
+    const read = run(args);
+    entry.views.set(key, read);
+    read.catch(() => entry.views.delete(key));
+    return read;
+  };
+  const target = await answerTarget(repoPath, repoSlug, memo);
+  const waiting = commentBudget !== undefined && repoSlug !== undefined ? await withLastComments(repoSlug, github, run, entry.comments, commentBudget) : github;
+  return { items: [...waiting, ...(await askingCards(configDir, repoPath, target))], ...(unchecked ? { unchecked: true as const } : {}) };
 }
 
 /** Drop a repository's kept read of what waits: something was answered, merged or moved on. */
 export function forgetBoardWaiting(repoPath: string): void {
-  boardWaitingCache.delete(repoPath);
+  githubCache.delete(repoPath);
+  lastGood.delete(repoPath);
 }
 
 /**

@@ -1,5 +1,3 @@
-import { fail } from './flags.js';
-import type { ParseCtx } from './flags.js';
 import { pushMetrics } from '../core/metrics-branch.js';
 import type { Command } from './args.js';
 
@@ -13,11 +11,4 @@ export async function metricsCommand(cmd: MetricsCommand): Promise<void> {
       ? `taskcell metrics: nothing new to push (${result.branch} holds ${result.total} lines)`
       : `taskcell metrics: pushed ${result.pushed} line${result.pushed === 1 ? '' : 's'} to ${result.branch} (${result.total} total)`,
   );
-}
-
-/** Parse `metrics`'s flags into its command; the generic checks (parseCli) have already run. */
-export function parseMetricsCommand(ctx: ParseCtx): Command {
-  const { values, positionals, repoPath } = ctx;
-  if (positionals[1] !== 'push') return fail('metrics expects a subcommand: taskcell metrics push [--repo <path>] [--branch <name>].');
-  return { kind: 'metrics', action: 'push', repoPath, ...(typeof values.branch === 'string' ? { branch: values.branch } : {}) };
 }

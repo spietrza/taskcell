@@ -10,7 +10,7 @@ import { CUSTOM_NAME_RE, fail, parseCommitAuthor, parseLimit, parseNamedSkills, 
 import type { SharedRunOptions, StageOnlyKey, RunOnlyKey } from './flags.js';
 import type { RunOptions } from '../runners/source-adapter.js';
 import type { LessonsCommand } from './lessons.js';
-import { PARSERS } from './registry.js';
+import { parserFor } from './parsers.js';
 
 /** A parsed command; `usageCapPct` is the validated `--usage-cap` value, applied to the environment by the CLI entry (parseCli stays pure). */
 export type Command = CommandKind & { usageCapPct?: string };
@@ -543,7 +543,7 @@ function parseCommand(argv: string[], cwd: string, cap: { pct?: string }): Comma
   const maxTurns = parseLimit(values['max-turns']);
   const maxRepairIterations = parseLimit(values['max-repair-iterations']);
   const proxyMode = values['llm-proxy'] === true;
-  const entry = PARSERS[decl.name];
+  const entry = parserFor(decl.name);
   if (entry === undefined) return { kind: 'help' };
   // Skipped when the provider is a (possible) custom name: this call dereferences the built-in
   // table and the customs live on disk, invisible to the sync parser. The dispatch entry point
