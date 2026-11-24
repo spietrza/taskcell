@@ -40,21 +40,22 @@ test('removes reviewed and the trigger, then re-adds the trigger in the spelling
     ['pr', 'edit', '7', '--repo', 'allowed/repo', '--remove-label', 'taskcell:reviewed', '--remove-label', 'ready for vanguard review'],
     ['pr', 'edit', '7', '--repo', 'allowed/repo', '--add-label', 'ready for vanguard review'],
   ]);
-  expect(await ctx.audit!.read()).toEqual([expect.objectContaining({ action: 'pr-rereview', target: expect.stringContaining(ID), outcome: 'ok' })]);
+  expect(await ctx.audit!.read()).toEqual([expect.objectContaining({ action: 'pr-rereview', actor: { kind: 'token', name: 'token' }, login: 'token', target: expect.stringContaining(ID), outcome: 'ok' })]);
 });
 
 test.each([
-  ['a non-factory branch', { headRefName: 'feature/x' }],
-  ['a fork PR', { isCrossRepository: true }],
-  ['a closed PR', { state: 'CLOSED' }],
-  ['a PR being reviewed', { labels: ['taskcell:reviewing'] }],
-  ['a PR being revised', { labels: ['taskcell:revising'] }],
-  ['a legacy-reviewing PR', { labels: ['vanguard:reviewing'] }],
-  ['a legacy-revising PR', { labels: ['vanguard:revising'] }],
-  ['a mixed-case reviewing PR', { labels: ['Taskcell:Reviewing'] }],
-])('refuses %s without a label change', async (_n, pr: Pr) => {
+  ['a non-factory branch', { headRefName: 'feature/x' }, 'not on a factory branch'],
+  ['a fork PR', { isCrossRepository: true }, 'from a fork'],
+  ['a closed PR', { state: 'CLOSED' }, 'not open'],
+  ['a PR being reviewed', { labels: ['taskcell:reviewing'] }, 'is being reviewed, revised or run'],
+  ['a running PR', { labels: ['taskcell:running'] }, 'is being reviewed, revised or run'],
+  ['a PR being revised', { labels: ['taskcell:revising'] }, 'is being reviewed, revised or run'],
+  ['a legacy-reviewing PR', { labels: ['vanguard:reviewing'] }, 'is being reviewed, revised or run'],
+  ['a legacy-revising PR', { labels: ['vanguard:revising'] }, 'is being reviewed, revised or run'],
+  ['a mixed-case reviewing PR', { labels: ['Taskcell:Reviewing'] }, 'is being reviewed, revised or run'],
+])('refuses %s without a label change', async (_n, pr: Pr, reason: string) => {
   const { repo, ctx, edits } = await setup(pr);
-  await expect(dispatchRpc(ctx, 'rereview_pr', { repoPath: repo, id: ID })).rejects.toThrow();
+  await expect(dispatchRpc(ctx, 'rereview_pr', { repoPath: repo, id: ID })).rejects.toThrow(reason);
   expect(edits).toEqual([]);
 });
 
