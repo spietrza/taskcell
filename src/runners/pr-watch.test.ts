@@ -745,7 +745,7 @@ describe('githubPullRequestWatchPrimitives trust', () => {
   const listed = JSON.stringify([
     { number: 12, title: 'Fix', isDraft: false, author: { login: 'alice' }, headRefOid: 'abc123', labels: [{ name: 'ready for taskcell review' }] },
   ]);
-  const primitivesFor = (gh: GhRunner, extra: { allowedAuthors?: string[]; log?: (line: string) => void; hintPr?: number } = {}): PullRequestWatchPrimitives =>
+  const primitivesFor = (gh: GhRunner, extra: { allowedAuthors?: string[]; log?: (line: string) => void; hintPr?: number; reviewOne?: () => Promise<void> } = {}): PullRequestWatchPrimitives =>
     githubPullRequestWatchPrimitives({
       repoSlug: 'o/r',
       label: 'ready for taskcell review',
@@ -810,5 +810,17 @@ describe('githubPullRequestWatchPrimitives trust', () => {
 
     const pinned = await watchPullRequestsOnce(primitivesFor(broken, { hintPr: 12 }));
     expect(pinned).toEqual({ reviewed: [], failed: ['o/r#12'], skipped: [] });
+  });
+
+  it('a usage-cap pause is not a failed item, a real review failure is', async () => {
+    const gh: GhRunner = async (args) => {
+      if (args[1] === 'list') return listed;
+      if (args[1] === 'view') return JSON.stringify({ comments: [], reviews: [] });
+      return trustedAuthorApi(args);
+    };
+    const paused = await watchPullRequestsOnce(primitivesFor(gh, { reviewOne: async () => { throw new UsageCapError('claude', 95, 90, new Date('2026-11-09T05:00:00Z')); } }));
+    expect(paused).toEqual({ reviewed: [], failed: [], skipped: [] });
+    const failed = await watchPullRequestsOnce(primitivesFor(gh, { reviewOne: async () => { throw new Error('boom'); } }));
+    expect(failed.failed).toEqual(['o/r#12']);
   });
 });
