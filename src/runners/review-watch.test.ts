@@ -2,6 +2,7 @@ import { describe, it, expect, vi } from 'vitest';
 import { getEventListeners } from 'node:events';
 import { writeMarker } from '../core/comment-ledger.js';
 import type { LedgerComment } from '../core/comment-ledger.js';
+import { UsageCapError } from '../core/usage-cap.js';
 import { INCOMPLETE_RETRY_LIMIT, incompleteCapState, reviewWatchLoop, reviewWatchOnce } from './review-watch.js';
 import type { ReviewWatchPrimitives } from './review-watch.js';
 
@@ -17,6 +18,9 @@ const quiet = (over: Partial<ReviewWatchPrimitives<Item>> = {}): ReviewWatchPrim
   onFailure: async () => {},
   ...over,
 });
+
+const attempt = (author: LedgerComment['author'] = 'trusted'): LedgerComment => ({ body: writeMarker('pr-review-incomplete', 'abc'), author });
+const cap = (head: string, author: LedgerComment['author'] = 'trusted'): LedgerComment => ({ body: writeMarker('pr-review-incomplete-cap', head), author });
 
 describe('reviewWatchOnce (fake adapter)', () => {
   it('claims, reviews, and marks each ready item in order', async () => {
@@ -68,28 +72,39 @@ describe('reviewWatchOnce (fake adapter)', () => {
     expect(tick.failed).toEqual(['h#9']);
   });
 
-  it('stops restoring the trigger label once the incomplete cap is reached', async () => {
-    const bodies = Array.from({ length: INCOMPLETE_RETRY_LIMIT }, () => attempt());
-    const relabelled: number[] = [];
+  it('does not count a usage-cap pause as failed, but still calls onFailure', async () => {
+    const restored: number[] = [];
+    const tick = await reviewWatchOnce(
+      quiet({
+        listReady: async () => [{ id: 1 }, { id: 2 }],
+        review: async (i) => {
+          throw i.id === 1 ? new UsageCapError('claude', 95, 90, new Date('2026-11-09T05:00:00Z')) : new Error('boom');
+        },
+        onFailure: async (i) => void restored.push(i.id),
+      }),
+      idOf,
+      { concurrency: 1 },
+    );
+    expect(tick).toEqual({ reviewed: [], failed: ['h#2'], skipped: [] });
+    expect(restored).toEqual([1, 2]);
+  });
+
+  it('counts a usage-cap pause as failed when parking it failed', async () => {
     const tick = await reviewWatchOnce(
       quiet({
         listReady: async () => [{ id: 1 }],
         review: async () => {
-          throw new Error('incomplete');
+          throw new UsageCapError('claude', 95, 90, new Date('2026-11-09T05:00:00Z'));
         },
-        onFailure: async (i) => {
-          if (!incompleteCapState(bodies, 'abc', 'pr').stop) relabelled.push(i.id);
+        onFailure: async () => {
+          throw new Error('label edit refused');
         },
       }),
       idOf,
     );
     expect(tick.failed).toEqual(['h#1']);
-    expect(relabelled).toEqual([]);
   });
 });
-
-const attempt = (author: LedgerComment['author'] = 'trusted'): LedgerComment => ({ body: writeMarker('pr-review-incomplete', 'abc'), author });
-const cap = (head: string, author: LedgerComment['author'] = 'trusted'): LedgerComment => ({ body: writeMarker('pr-review-incomplete-cap', head), author });
 
 describe('incompleteCapState', () => {
   it('is below the cap with fewer attempts, and stops at the limit', () => {
