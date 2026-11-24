@@ -3,7 +3,9 @@ import { render, screen, fireEvent, waitFor, cleanup, within } from '@testing-li
 import App from '../App';
 import { Dashboard } from '../features/dashboard/Dashboard';
 import { handleDemo } from './mockBackend';
-import { isDemoMode, invoke } from '../transport';
+import { hub, isDemoMode } from '../transport';
+
+const invoke = (cmd: string, args?: Record<string, unknown>): Promise<unknown> => hub().call(cmd as 'list_runs', args as never);
 import { WRITE_COMMAND_NAMES } from '../wire';
 import { DEMO_REPO_PATH, DEMO_LOCAL_WRITES, demoActiveRuns, demoBoardTasks, demoNeedsYou, demoProject, demoRunDetails, demoRuns } from './demoData';
 

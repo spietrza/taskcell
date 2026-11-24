@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { Button, Input } from '@/ui';
-import { listChatModels } from '../../ipc';
+import { hub } from '../../transport';
 import { errorClause, errorMessage } from '../../errors';
 import { CHAT_MODELS } from '../../wire';
 import { Field, SELECT_CLASS } from './fields';
@@ -17,7 +17,7 @@ export function ChatModelField({ project, value, onChange }: { project: string; 
   const fetchModels = (): void => {
     setFetching(true);
     setNote(null);
-    listChatModels(project)
+    hub().call('list_chat_models', { repoPath: project })
       .then(
         (r) => {
           if (r.error !== undefined) return setNote({ text: `Models could not be listed: ${errorClause(r.error)}.`, error: true });

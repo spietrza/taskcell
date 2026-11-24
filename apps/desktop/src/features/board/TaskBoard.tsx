@@ -1,10 +1,11 @@
-import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { Button, Card, ErrorNote, LINK_CLASS, cn } from '@/ui';
 import { FilePlus } from 'lucide-react';
-import { listTasks, listTasksAll } from '../../ipc';
+import { listTasksAll } from '../../ipc';
+import { hub } from '../../transport';
 import { inRepos } from '../../repoFilter';
 import { isNoTaskSource, RepoFailures, RepoLabel, TaskSourceHint } from '../../RepoViews';
-import type { BoardTask, RepoReadFailure, RepoStamp, RunSummary } from '../../wire';
+import type { BoardTask, CardPlace, RepoReadFailure, RepoStamp } from '../../wire';
 import { useAsync, usePhone } from '../../hooks';
 import { setUrlParam, urlParam } from '../../screenUrl';
 import { publishCards, type PaletteCard } from '../../paletteIndex';
@@ -15,11 +16,10 @@ import { CHIP_TONE, QuickView, TRACKER_NAME, type QuickTask } from './QuickView'
 import { NewHubTask, ScheduleLines } from './Schedule';
 import { FactoryLabelChips, isFactoryLabel } from './factoryLabels';
 import { boardCountLabels } from './counts';
-import { taskRefKey } from './taskref';
 import { PausedBanner, PausedLine } from './paused';
 import { ExternalLink } from '../../components/ExternalLink';
 import { StationMark } from '../../components/StationMark';
-import { STATION_SHORT, cardStationOf, type RunOutcome } from '../../stations';
+import { STATION_SHORT, stationOf } from '../../stations';
 import { FilterBar, NoMatch } from '../../FilterBar';
 import { DEFAULT_FILTER, canClearFilters, cardKeys, cardSource, clearFilters, effectiveFilter, filterCards, filterNames, groupRows, inRepoScope, offeredSources, saveChange, type CardSource, type HubFilter } from '../../filterState';
 
@@ -50,16 +50,11 @@ const COLUMNS: Column[] = [
   { key: 'done', label: 'Done', dot: 'bg-success', pill: 'bg-success/15 text-success-text', cardHover: 'hover:border-success' },
 ];
 
-/** The Board column of a station index (`cardStationOf(...).at`; 6 is past the line). */
+/** The Board column of a station index (the card's `view.place.at`; 6 is past the line). */
 const COLUMN_OF_STATION = ['card', 'spec', 'cell', 'gates', 'review', 'review', 'done'] as const;
-export const boardColumn = (t: Pick<BoardTask, 'column' | 'stage' | 'asked'>, run?: RunOutcome): string => COLUMN_OF_STATION[cardStationOf(t, run).at] ?? 'done';
-
-/** Each card's newest local run (runs come newest first), keyed by card id: what `cardStationOf` reads. */
-export function newestRuns(runs: readonly RunSummary[]): Map<string, RunSummary> {
-  const out = new Map<string, RunSummary>();
-  for (const r of runs) if (r.source !== 'ci' && !out.has(taskRefKey(r.taskId))) out.set(taskRefKey(r.taskId), r);
-  return out;
-}
+/** The card's place: the hub's answer (every view places a card the same way), by its column alone when a hub sent none. */
+const placeOf = (t: BoardTask): CardPlace => t.view?.place ?? stationOf(t);
+export const boardColumn = (t: BoardTask): string => COLUMN_OF_STATION[placeOf(t).at] ?? 'done';
 
 /** How often an open hub board re-reads its tasks: their statuses change in the hub's store, not here. */
 const HUB_POLL_MS = 5000;
@@ -128,9 +123,9 @@ export function TaskBoard({
   const [reloads, setReloads] = useState(0);
   const reposKey = repos.join('\n');
   const read = (): Promise<BoardList> =>
-    allRepos ? listTasksAll(teamId).then((l) => ({ ...l, tasks: inRepos(l.tasks, repos), failures: inRepos(l.failures, repos) })) : listTasks(project).then((r) => ({ ...r, failures: [] }));
+    allRepos ? listTasksAll(teamId).then((l) => ({ ...l, tasks: inRepos(l.tasks, repos), failures: inRepos(l.failures, repos) })) : hub().call('list_tasks', { repoPath: project }).then((r) => ({ ...r, failures: [] }));
   const { data: loaded, error, loading } = useAsync(read, [project, allRepos, teamId, reposKey, reloads]);
-  // Every board is re-read quietly, one read at a time, while the window is visible, so a card follows its task without
+  // Every board is live-read quietly, one read at a time, polling while the window is visible, so a card follows its task without
   // a reload: a hub board fast, a tracker board and the all-repositories view slower. A fresh load supersedes the last
   // poll. A failed poll keeps the cards on screen (nothing unmounts, a typed draft survives), marks them stale and is
   // tried again on the next interval. So is a repository the all-repositories poll could not read: its last good cards
@@ -146,27 +141,22 @@ export function TaskBoard({
   const pollMs = !allRepos && data?.hubBoard === true ? HUB_POLL_MS : TRACKER_POLL_MS;
   useEffect(() => {
     if (!polling) return;
-    let alive = true;
-    let busy = false;
-    const id = setInterval(() => {
-      if (busy || document.hidden) return;
-      busy = true;
-      read().then(
-        (r) => {
-          if (!alive) return;
-          setPolled(keepUnread(shownRef.current, r));
-          setStale(r.failures.some((f) => !isNoTaskSource(f.error)));
-        },
-        () => { if (alive) setStale(true); },
-      ).finally(() => { busy = false; });
-    }, pollMs);
-    return () => { alive = false; clearInterval(id); };
+    // The first read is the load's own; a stream gap or a reconnect re-reads at once.
+    return hub().liveRead(read, {
+      initial: false,
+      pollMs,
+      shouldPoll: () => !document.hidden,
+      // Only a hub board follows file changes; a tracker board and the all-repositories view keep their slower poll (they read a forge).
+      changed: (path) => !allRepos && shownRef.current?.hubBoard === true && path === project,
+      onData: (r) => {
+        setPolled(keepUnread(shownRef.current, r));
+        setStale(r.failures.some((f) => !isNoTaskSource(f.error)));
+      },
+      onError: () => setStale(true),
+    }).stop;
     // `read` changes only with these deps, as for the load above.
   }, [polling, pollMs, project, allRepos, teamId, reposKey, reloads]);
   const approver = useApproverDecisions(project, !allRepos);
-  // One repository's runs place its cards (all repositories: by column, as no run list is read for them).
-  const lastRuns = useMemo(() => newestRuns(approver.runs), [approver.runs]);
-  const columnOf = (t: BoardTask): string => boardColumn(t, lastRuns.get(t.id));
   // Skills saved from a card's quick view, shown at once: the tracker is not re-read for it.
   const [savedSkills, setSavedSkills] = useState<Record<string, string[]>>({});
   const cardKey = (t: Pick<QuickTask, 'id' | 'repoPath'>): string => `${t.repoPath ?? ''}:${t.id}`;
@@ -347,7 +337,7 @@ export function TaskBoard({
                             {allRepos && <RepoLabel name={t.repoName} />}
                           </div>
                           <div className="text-sm leading-snug">{t.title}</div>
-                          <StationMark {...cardStationOf(t, lastRuns.get(t.id))} />
+                          <StationMark {...placeOf(t)} />
                           <FactoryLabelChips labels={t.factoryLabels} />
                           {t.column === 'running' && t.stage && <div className="font-mono text-[11px]">stage: {t.stage}</div>}
                           {(t.column === 'review' || t.column === 'done') && !!t.chips?.length && (
@@ -385,7 +375,7 @@ export function TaskBoard({
   const stageRow = phone && (
     <div ref={stageRowRef} role="group" aria-label="Stage" className="scroll-cue-x flex shrink-0 gap-1 overflow-x-auto">
       {[{ key: 'all', label: 'All stages' }, ...COLUMNS].map((c) => {
-        const n = c.key === 'all' ? (tasks?.length ?? 0) : (tasks ?? []).filter((t) => columnOf(t) === c.key).length;
+        const n = c.key === 'all' ? (tasks?.length ?? 0) : (tasks ?? []).filter((t) => boardColumn(t) === c.key).length;
         return (
           <button key={c.key} type="button" aria-pressed={stage === c.key} title={'title' in c ? c.title : undefined} onClick={() => setStage(c.key)} className={cn('shrink-0 whitespace-nowrap rounded px-2 py-1 text-xs transition-colors', stage === c.key ? 'bg-muted font-medium text-foreground' : 'text-muted-foreground hover:bg-muted')}>
             {c.label} <span className="tabular-nums opacity-70">{n}</span>
@@ -397,7 +387,7 @@ export function TaskBoard({
   const COLUMN_ORDER = COLUMNS.map((c) => c.key);
   // The desktop's order, left to right: Card first, Done last.
   const phoneRows = (rows: BoardList['tasks']): BoardList['tasks'] =>
-    rows.filter((t) => stage === 'all' || columnOf(t) === stage).sort((x, y) => COLUMN_ORDER.indexOf(columnOf(x)) - COLUMN_ORDER.indexOf(columnOf(y)));
+    rows.filter((t) => stage === 'all' || boardColumn(t) === stage).sort((x, y) => COLUMN_ORDER.indexOf(boardColumn(x)) - COLUMN_ORDER.indexOf(boardColumn(y)));
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
@@ -440,7 +430,7 @@ export function TaskBoard({
               {rows.length === 0 ? (
                 <div className="rounded-lg border border-dashed border-border/60 px-3 py-6 text-center text-xs text-muted-foreground">No cards</div>
               ) : (
-                rows.map((t) => boardCard(t, COLUMNS.find((c) => c.key === columnOf(t))?.cardHover ?? ''))
+                rows.map((t) => boardCard(t, COLUMNS.find((c) => c.key === boardColumn(t))?.cardHover ?? ''))
               )}
             </section>
           );
@@ -453,7 +443,7 @@ export function TaskBoard({
         )}
         <div className="flex min-h-0 min-w-0 flex-1 gap-3 overflow-x-auto">
         {COLUMNS.map((col) => {
-          const items = lane.rows.filter((t) => columnOf(t) === col.key);
+          const items = lane.rows.filter((t) => boardColumn(t) === col.key);
           return (
             <div
               key={col.key}

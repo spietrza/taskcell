@@ -8,6 +8,10 @@
 </p>
 
 <p align="center">
+  <a href="https://www.producthunt.com/products/taskcell?embed=true&amp;utm_source=badge-featured&amp;utm_medium=badge&amp;utm_campaign=badge-taskcell"><img src="https://api.producthunt.com/widgets/embed-image/v1/featured.svg?post_id=1323310&amp;theme=neutral" alt="Taskcell on Product Hunt" width="250" height="54"></a>
+</p>
+
+<p align="center">
   <a href="https://github.com/spietrza/taskcell/actions/workflows/ci.yml"><img src="https://github.com/spietrza/taskcell/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-8B5CF6.svg" alt="License: MIT"></a>
   <a href="https://www.bestpractices.dev/projects/16734"><img src="https://www.bestpractices.dev/projects/16734/badge" alt="OpenSSF Best Practices"></a>
@@ -135,7 +139,7 @@ The flags work on `run` and `watch`; in the GitHub Actions workflows the same na
 
 ```bash
 --spec-model opus --provider claude --provider-model sonnet \
---review-provider codex --review-model gpt-5.6-sol \
+--review-provider codex --review-model gpt-6-sol \
 --escalate-model claude-fable-5-2
 ```
 
@@ -169,7 +173,7 @@ Taskcell runs coding agents on untrusted input and treats the agent as hostile. 
 - **Trust gates on input.** The GitHub Actions workflows only start for allowlisted senders, and `watch` / `watch-prs` skip issues and PRs whose author is neither a repository member nor allowlisted. On GitHub, comments count as instructions only from repository owners, members and collaborators, the issue author, or logins you allowlist with `--feedback-authors`. On Linear, only workspace members count. GitLab has no association model, so set `--feedback-authors` there to make comment trust a boundary; once it is set, comments from unlisted authors are ignored.
 - **Humans merge.** Taskcell opens pull requests and never merges them. The approver runs in shadow mode and only records what it would decide.
 
-How these fit together: [docs/security/boundaries.md](docs/security/boundaries.md). How they map to the OWASP Top 10 for Agentic Applications and the OWASP Top 10 for LLM Applications: [docs/security/owasp-mapping.md](docs/security/owasp-mapping.md) (a self-assessment, not a certification). Our own multi-agent security review in November 2026 confirmed 14 findings (2 high); 13 shipped in 1.13.0 and the last (a low) in 1.16.1, so all 14 are fixed: [docs/security/review-2026-11.md](docs/security/review-2026-11.md). To report a vulnerability, see [SECURITY.md](SECURITY.md).
+How these fit together: [docs/security/boundaries.md](docs/security/boundaries.md). How they map to the OWASP Top 10 for Agentic Applications and the OWASP Top 10 for LLM Applications: [docs/security/owasp-mapping.md](docs/security/owasp-mapping.md) (a self-assessment, not a certification). Our own multi-agent security review in November 2026 confirmed 14 findings (2 high); 13 shipped in 1.13.0 and the last (a low) in 1.16.1, so all 14 are fixed: [docs/security/review-2026-11.md](docs/security/review-2026-11.md). On 19 November 2026 a second review ran five adversarial agents at once (Hub, desktop app, factory core, website, sandbox), and a finding counted only with a proof of concept that runs. It found 2 high-severity issues, which Taskcell fixed in its own factory and shipped in 1.16.9 the same evening; 5 medium issues are fixed too, and 6 lower ones are open as public issues. To report a vulnerability, see [SECURITY.md](SECURITY.md).
 
 ## Documentation
 

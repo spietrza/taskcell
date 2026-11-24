@@ -63,6 +63,11 @@ export async function replyItem(client: HubClient, item: WaitingItem, body: stri
   await client.call('reply_needs_you', { repoPath: item.repoPath ?? '', id: item.id, kind: item.kind, body });
 }
 
+/** The hub's `rereview_pr`: puts an open factory PR back through review. Rejects with the hub's message. */
+export async function rereviewItem(client: HubClient, item: WaitingItem): Promise<void> {
+  await client.call('rereview_pr', { repoPath: item.repoPath ?? '', id: item.id });
+}
+
 /** What the hub says the caller may do on one project (`caller_capabilities`); null while unread or unreadable, which leaves every action open for the hub to refuse. */
 export async function loadCapabilities(client: HubClient, repoPath: string): Promise<CallerCapabilities['project'] | null> {
   try {
@@ -70,6 +75,14 @@ export async function loadCapabilities(client: HubClient, repoPath: string): Pro
   } catch {
     return null;
   }
+}
+
+/** The flows a card of `repoPath` can run: the built-ins, then the repo's valid flows (a broken or shadowing one is not offered). */
+export async function listRunnableFlows(client: HubClient, repoPath: string): Promise<{ name: string; label: string }[]> {
+  const [caps, repo] = await Promise.all([client.call('api_capabilities', undefined), client.call('api_list_flows', { repoPath }).catch(() => ({ flows: [] }))]);
+  const out = caps.flows.map((f) => ({ name: f.name, label: f.label }));
+  for (const f of repo.flows) if (f.name !== undefined && f.error === undefined && !out.some((o) => o.name === f.name)) out.push({ name: f.name, label: f.label ?? f.name });
+  return out;
 }
 
 /** The hub's retry for a failed or paused task: `hub_task_retry` for a hub card, `retry_paused_task` for a GitHub issue (`gh-N`). Rejects with the hub's message. */

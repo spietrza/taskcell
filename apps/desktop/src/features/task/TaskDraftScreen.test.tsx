@@ -3,15 +3,17 @@ import { render, screen, fireEvent, waitFor, act } from '@testing-library/react'
 import { EditorView } from '@uiw/react-codemirror';
 import { TaskDraftScreen } from './TaskDraftScreen.js';
 import type { DraftData } from './draftStore.js';
+import type { AppConfig } from '../../taskcell-output.js';
 import * as ipc from '../../ipc.js';
+import { stubHubCalls } from '../../testHub.js';
 
 // In-memory draft store: the mocks behave like the Rust seam (write lands, read returns what was
 // written, delete removes), so id-keyed read-modify-writes are exercised for real.
 const files = new Map<string, string>();
 
-vi.mock('../../ipc.js', () => ({
-  callerCapabilities: vi.fn(async () => ({})),
-  listDrafts: vi.fn(async () => [...files.keys()]),
+// The screen's hub commands (`hub().call`), as positional fakes the hub stub forwards to.
+const api = {
+  listDrafts: vi.fn(async (_p: string) => [...files.keys()]),
   readDraft: vi.fn(async (_p: string, id: string) => {
     const f = files.get(id);
     if (f === undefined) throw new Error('missing');
@@ -23,15 +25,19 @@ vi.mock('../../ipc.js', () => ({
   deleteDraft: vi.fn(async (_p: string, id: string) => {
     files.delete(id);
   }),
-  readAppConfig: vi.fn(async () => ({ source: 'github' })),
-  apiComplete: vi.fn(async () => ({ text: 'ok' })),
-  apiCancelComplete: vi.fn(async () => {}),
-  apiCreateTask: vi.fn(async () => ({ id: 'gh-7', url: 'https://github.com/o/r/issues/7' })),
-  apiListBranches: vi.fn(async () => ({ branches: [] })),
-  apiListRepoFiles: vi.fn(async () => ({ files: ['src/app.ts', 'README.md'], capped: false })),
+  readAppConfig: vi.fn(async (_p: string): Promise<AppConfig> => ({ source: 'github' })),
+  apiCancelComplete: vi.fn(async (_callId: string) => {}),
+  apiListBranches: vi.fn(async (_p: string): Promise<{ branches: string[]; default?: string }> => ({ branches: [] })),
+  apiListRepoFiles: vi.fn(async (_p: string) => ({ files: ['src/app.ts', 'README.md'], capped: false })),
   apiReadRepoFile: vi.fn(async (_p: string, path: string) => ({ path, content: `content of ${path}`, truncated: false })),
+  clearDraftAssets: vi.fn(async (_p: string, _id: string) => {}),
+};
+
+vi.mock('../../ipc.js', () => ({
+  callerCapabilities: vi.fn(async () => ({})),
+  apiComplete: vi.fn(async () => ({ text: 'ok' })),
+  apiCreateTask: vi.fn(async () => ({ id: 'gh-7', url: 'https://github.com/o/r/issues/7' })),
   writeDraftAsset: vi.fn(async (_p: string, id: string, name: string) => `/assets/${id}/${name}`),
-  clearDraftAssets: vi.fn(async () => {}),
 }));
 
 vi.mock('./DocEditor.js', () => ({
@@ -59,9 +65,24 @@ const seed = (id: string, data: Partial<DraftData>): void => {
 beforeEach(() => {
   vi.clearAllMocks();
   files.clear();
+  stubHubCalls({
+    list_drafts: ({ repoPath }) => api.listDrafts(repoPath),
+    read_draft: ({ repoPath, id }) => api.readDraft(repoPath, id),
+    write_draft: ({ repoPath, id, content }) => api.writeDraft(repoPath, id, content),
+    delete_draft: ({ repoPath, id }) => api.deleteDraft(repoPath, id),
+    read_app_config: ({ repoPath }) => api.readAppConfig(repoPath),
+    api_cancel_complete: ({ callId }) => api.apiCancelComplete(callId),
+    list_branches: ({ repoPath }) => api.apiListBranches(repoPath),
+    api_list_repo_files: ({ repoPath }) => api.apiListRepoFiles(repoPath),
+    api_read_repo_file: ({ repoPath, path }) => api.apiReadRepoFile(repoPath, path),
+    clear_draft_assets: ({ repoPath, id }) => api.clearDraftAssets(repoPath, id),
+  });
   vi.useFakeTimers({ shouldAdvanceTime: true });
 });
-afterEach(() => vi.useRealTimers());
+afterEach(() => {
+  vi.useRealTimers();
+  vi.restoreAllMocks();
+});
 
 // A fresh nonce ⇒ the loader treats the mount as a New Task click: fresh conversation, drawer
 // open on the chat panel — so the composer and the strip are immediately reachable.
@@ -125,7 +146,7 @@ test('opening the screen and clicking [+] N times writes ZERO files (the 29-note
   fireEvent.click(plus);
   fireEvent.click(plus);
   await settle();
-  expect(ipc.writeDraft).not.toHaveBeenCalled();
+  expect(api.writeDraft).not.toHaveBeenCalled();
   expect(files.size).toBe(0);
 });
 
@@ -413,8 +434,8 @@ test('Stop cancels the in-flight turn: kills by call id, discards the exchange, 
   // Stop replaces Send while the turn is in flight.
   const stop = screen.getByRole('button', { name: /^stop$/i });
   fireEvent.click(stop);
-  expect(ipc.apiCancelComplete).toHaveBeenCalledTimes(1);
-  expect(typeof vi.mocked(ipc.apiCancelComplete).mock.calls[0]![0]).toBe('string'); // kill-by-call-id
+  expect(api.apiCancelComplete).toHaveBeenCalledTimes(1);
+  expect(typeof vi.mocked(api.apiCancelComplete).mock.calls[0]![0]).toBe('string'); // kill-by-call-id
   await settle();
   // The partial exchange is discarded — from the transcript AND the persisted file — and no error shows.
   expect((JSON.parse(files.get(draftId)!) as DraftData).chat).toEqual([]);
@@ -505,7 +526,7 @@ test('a fast retry BEFORE the stopped promise settles keeps its own slot — the
   // B is still stoppable: Stop is rendered and clicking it kills B (a second cancel IPC call).
   const stopB = screen.getByRole('button', { name: /^stop$/i });
   fireEvent.click(stopB);
-  expect(ipc.apiCancelComplete).toHaveBeenCalledTimes(2);
+  expect(api.apiCancelComplete).toHaveBeenCalledTimes(2);
   resolveB({ text: 'late B' });
   await settle();
   // Both exchanges discarded; the draft transcript is clean.
@@ -594,7 +615,7 @@ test('New Task on a REMOUNT lands on a fresh draft even with a remembered select
 test('typing before the mount loader resolves is not clobbered by it (review #349 r7)', async () => {
   seed('draft-b', { body: '# Existing\n' });
   let resolveList: (v: string[]) => void = () => {};
-  vi.mocked(ipc.listDrafts).mockReturnValueOnce(new Promise((r) => (resolveList = r)));
+  vi.mocked(api.listDrafts).mockReturnValueOnce(new Promise((r) => (resolveList = r)));
   renderFresh();
   // The editor is live before the drafts load — start typing immediately.
   type('# Early bird');
@@ -683,9 +704,9 @@ test('the editor is read-only while a create is confirming/in flight — a keyst
 
 test('the outbound completion carries the body of the draft it was issued FOR, not the draft now open (review #349 r5 blocking)', async () => {
   seed('draft-b', { body: '# Secret B contents\n' });
-  vi.mocked(ipc.readAppConfig).mockResolvedValueOnce({ source: 'github' }); // the mount read
+  vi.mocked(api.readAppConfig).mockResolvedValueOnce({ source: 'github' }); // the mount read
   let resolveCfg: (v: { chatModel?: string }) => void = () => {};
-  vi.mocked(ipc.readAppConfig).mockReturnValueOnce(new Promise((r) => (resolveCfg = r))); // the send-path read
+  vi.mocked(api.readAppConfig).mockReturnValueOnce(new Promise((r) => (resolveCfg = r))); // the send-path read
   renderFresh();
   await drawerReady();
   type('# A private body\n');
@@ -706,7 +727,7 @@ test('a transient failure of the archive write shows the do-not-re-file warning 
   type('# Fragile\n');
   await settle();
   // The archive step is a read-modify-write; fail its read once (transient IO — NOT a delete).
-  vi.mocked(ipc.readDraft).mockRejectedValueOnce(new Error('EIO'));
+  vi.mocked(api.readDraft).mockRejectedValueOnce(new Error('EIO'));
   fireEvent.click(screen.getByRole('button', { name: /create card/i }));
   await confirmCreate();
   await settle();
@@ -928,7 +949,7 @@ test('the conversation crumb publishes the name and renames through it — minti
 // ── model selection (handoff §4) ───────────────────────────────────────────────────────────────
 
 test('model options come from the vanguard config; a choice persists per draft and is sent', async () => {
-  vi.mocked(ipc.readAppConfig).mockResolvedValue({
+  vi.mocked(api.readAppConfig).mockResolvedValue({
     source: 'github',
     chatModel: 'claude-sonnet-5',
     customProviders: [
@@ -950,9 +971,9 @@ test('model options come from the vanguard config; a choice persists per draft a
 
 test('the model is snapshotted at send — a draft switch mid-flight cannot swap it (review #349 r5 discipline)', async () => {
   seed('draft-b', { body: '# B\n', chatModel: 'other-model' });
-  vi.mocked(ipc.readAppConfig).mockResolvedValueOnce({ source: 'github' }); // mount
+  vi.mocked(api.readAppConfig).mockResolvedValueOnce({ source: 'github' }); // mount
   let resolveCfg: (v: Record<string, never>) => void = () => {};
-  vi.mocked(ipc.readAppConfig).mockReturnValueOnce(new Promise((r) => (resolveCfg = r))); // send-path
+  vi.mocked(api.readAppConfig).mockReturnValueOnce(new Promise((r) => (resolveCfg = r))); // send-path
   renderFresh();
   await drawerReady();
   sendMsg('question'); // fresh draft, default model
@@ -987,7 +1008,7 @@ test('attachment resolution failing (over the inline ceiling) errors inline BEFO
   // A TRACKED mention (src/app.ts is in the mocked file list) whose content blows the 256KB
   // ceiling: the turn must fail locally — no apiComplete call — with the text restored to the
   // composer and no dangling user turn persisted.
-  vi.mocked(ipc.apiReadRepoFile).mockResolvedValueOnce({
+  vi.mocked(api.apiReadRepoFile).mockResolvedValueOnce({
     path: 'src/app.ts',
     content: 'x'.repeat(300_000),
     truncated: false,
@@ -1009,7 +1030,7 @@ test('an @token that is not a tracked file is not read (no git spawn per prose @
   // @someone/@channel style tokens: not in the tracked-file list, so apiReadRepoFile is never called.
   sendMsg('hey @someone and @channel, see @not/a/file.ts');
   await settle();
-  expect(ipc.apiReadRepoFile).not.toHaveBeenCalled();
+  expect(api.apiReadRepoFile).not.toHaveBeenCalled();
   // The plain turn still went through with no attachments.
   const call = vi.mocked(ipc.apiComplete).mock.calls.at(-1);
   const req = call![1] as { attachments?: unknown[] };
@@ -1021,7 +1042,7 @@ test('an attachment failure that lands AFTER a draft switch corrupts neither dra
   // The failure must strip A's dangling user turn from A's FILE and leave B (active) untouched.
   seed('draft-b', { body: '# Beta\n', chat: [{ role: 'user', content: 'b-user' }, { role: 'assistant', content: 'b-reply' }] });
   let resolveRead: (v: { path: string; content: string; truncated: boolean }) => void = () => {};
-  vi.mocked(ipc.apiReadRepoFile).mockImplementationOnce(
+  vi.mocked(api.apiReadRepoFile).mockImplementationOnce(
     () => new Promise((res) => (resolveRead = res)),
   );
   seed('draft-a', { body: '# Alpha\n' });

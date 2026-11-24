@@ -5,7 +5,7 @@ import { join } from 'node:path';
 import { execa } from 'execa';
 import { appendBranchLines, readBranchMetrics } from '../core/metrics-branch.js';
 import { aggregateMetrics, parseMetrics } from '../core/stats.js';
-import { clearCiMetricsCache, costBreakdown, withCiRuns, NO_BRANCH_HINT } from './ci-metrics.js';
+import { clearCiMetricsCache, costBreakdown, readCiRecords, withCiRuns, NO_BRANCH_HINT } from './ci-metrics.js';
 import * as projects from './projects.js';
 import type { RunSummary } from '../wire.js';
 
@@ -214,5 +214,15 @@ describe('withCiRuns / projects.aggregate', () => {
     await writeFile(join(root, 'cfg', 'projects.json'), JSON.stringify([repo]));
     const [p] = await projects.list(join(root, 'cfg'));
     expect(p).toMatchObject({ runCount: 4, ciRunCount: 4, taskCount: 4, totalCostUsd: 7.75, failedCount: 1 });
+  });
+});
+
+describe('readCiRecords timeout', () => {
+  it('a hanging metrics-branch fetch holds the read only until the timeout', async () => {
+    clearCiMetricsCache();
+    const start = Date.now();
+    const records = await readCiRecords('/nowhere', Date.now(), () => new Promise<string>(() => {}), 50);
+    expect(records).toBeUndefined();
+    expect(Date.now() - start).toBeLessThan(2000);
   });
 });

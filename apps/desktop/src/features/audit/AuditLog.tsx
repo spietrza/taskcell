@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { Table, Chip, Input, ScrollTable, Timestamp } from '@/ui';
-import { callerCapabilities, readAudit } from '../../ipc';
+import { callerCapabilities } from '../../ipc';
+import { hub } from '../../transport';
 import { useAsync, usePhone } from '../../hooks';
 
 /** `token` is whoever holds the hub's own token (its owner); `unknown`, a refused sign-in (no valid token or session). */
@@ -10,7 +11,7 @@ export const loginLabel = (login: string): string => (login === 'token' ? 'hub t
 export function AuditLog() {
   const [login, setLogin] = useState('');
   const phone = usePhone();
-  const { data, error, loading } = useAsync(async () => ((await callerCapabilities()).admin ? readAudit(login.trim() || undefined) : 'not-admin' as const), [login]);
+  const { data, error, loading } = useAsync(async () => ((await callerCapabilities()).admin ? hub().call('read_audit', { login: login.trim() || undefined }) : 'not-admin' as const), [login]);
   if (data === 'not-admin') return <div className="py-8 text-center text-sm text-muted-foreground">The audit log is for hub admins.</div>;
 
   return (

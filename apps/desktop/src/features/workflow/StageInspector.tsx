@@ -50,7 +50,7 @@ export function StageInspector({
   // Draft for an in-progress invalid max_turns. The PARENT must key this component by the
   // selected index (WorkflowEditor does) so a lingering draft never displays on another stage.
   const [maxTurnsDraft, setMaxTurnsDraft] = useState<string | null>(null);
-  // Model pool (entries + weights), stored in the flow as the stage's `model`: `claude/sonnet:3, codex/gpt-5.6-sol:1`.
+  // Model pool (entries + weights), stored in the flow as the stage's `model`: `claude/sonnet:3, codex/gpt-6-sol:1`.
   const [poolMode, setPoolMode] = useState(isPoolValue(o.model));
   const [poolRows, setPoolRows] = useState<PoolRow[]>(isPoolValue(o.model) ? parsePoolRows(o.model ?? '') : []);
   const setRows = (rows: PoolRow[]): void => {

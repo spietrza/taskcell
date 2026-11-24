@@ -1,3 +1,4 @@
+import type { Command } from './args.js';
 import { homedir, tmpdir } from 'node:os';
 import { isIP } from 'node:net';
 import { resolve, join } from 'node:path';
@@ -14,7 +15,6 @@ import { acquireHubLock } from '../hub/instance-lock.js';
 import { defaultHubConfigDir } from '../hub/audit.js';
 import { loadPaths, add as addProject } from '../hub/projects.js';
 import { loadOrCreateToken, rotateToken } from '../hub/token-file.js';
-import type { Command } from './args.js';
 import { readEnv } from '../core/env.js';
 
 const LOOPBACK_HOSTS = ['127.0.0.1', '::1', 'localhost'];

@@ -1,5 +1,5 @@
 import { Chip, Timestamp } from '@/ui';
-import { localWorkerState } from '../../ipc';
+import { hub } from '../../transport';
 import { useAsync } from '../../hooks';
 import type { LocalWorkerState } from '../../wire';
 
@@ -11,7 +11,7 @@ export function localRunnerState(s: LocalWorkerState): { word: string; on: boole
 
 /** Settings → Runners: the local hub as a runner (its local worker switch and last pick-up). Hidden where the hub cannot say (no hub). */
 export function LocalRunner({ project }: { project: string }) {
-  const { data } = useAsync(() => localWorkerState(project), [project]);
+  const { data } = useAsync(() => hub().call('local_worker_state', { repoPath: project }), [project]);
   if (!data) return null;
   const { word, on } = localRunnerState(data);
   return (

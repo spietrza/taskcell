@@ -1,5 +1,7 @@
 allowBuilds:
   esbuild: true
+  # Metro's optional file watcher; the build never needs its native addon, and pnpm 11 (EAS) fails on unlisted builds.
+  "@parcel/watcher": false
 
 # Security overrides (pnpm audit): bounded to the advisory's major so a future install cannot pull an
 # unvetted major into the PostCSS/Vite toolchain. Drop an entry once the dependent itself moves past it.

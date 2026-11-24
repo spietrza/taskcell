@@ -1,4 +1,4 @@
-import { test, expect, vi, beforeEach } from 'vitest';
+import { test, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { LineEditor } from './LineEditor';
 import { Settings } from '../settings/Settings';
@@ -6,17 +6,11 @@ import { NavGuardContext, createNavGuardRegistry, useDiscardGuard } from '../../
 import * as ipc from '../../ipc';
 import { asCode } from './asCode';
 import { STATIONS, STATION_SHORT } from '../../stations';
+import { stubHubCalls, type HubCall } from '../../testHub';
 
 vi.mock('../../ipc.js', () => ({
-  readAppConfigStrict: vi.fn(async () => ({})),
-  writeAppConfig: vi.fn(async () => {}),
   callerCapabilities: vi.fn(async () => ({ mutationsAllowed: true })),
   apiCapabilitiesCached: vi.fn(async () => ({ flows: [{ name: 'plan' }] })),
-  apiListFlows: vi.fn(async () => ({ flows: [] })),
-  readSettingsHistory: vi.fn(async () => []),
-  factoryState: vi.fn(async () => ({ state: 'none', steps: [] })),
-  localWorkerState: vi.fn(async () => ({ enabled: false, source: 'hub', credentials: { names: [], present: true } })),
-  enableFactoryHost: vi.fn(async () => ({ host: 'none' })),
 }));
 vi.mock('../settings/AutoMerge', () => ({ AutoMerge: () => <div>auto-merge panel</div> }));
 vi.mock('../settings/CredentialsPanel', async (importOriginal) => ({ ...(await importOriginal<typeof import('../settings/CredentialsPanel')>()), CredentialsPanel: () => null }));
@@ -28,14 +22,24 @@ vi.mock('../workflow/WorkflowEditor', () => ({
   },
 }));
 
-const read = vi.mocked(ipc.readAppConfigStrict);
-const write = vi.mocked(ipc.writeAppConfig);
-const history = vi.mocked(ipc.readSettingsHistory);
+const read = vi.fn<HubCall<'read_app_config_strict'>>();
+const write = vi.fn<HubCall<'write_app_config'>>(async () => undefined);
+const history = vi.fn<HubCall<'read_settings_history'>>(async () => []);
 
 beforeEach(() => {
   write.mockClear();
   read.mockResolvedValue({});
+  stubHubCalls({
+    read_app_config_strict: read,
+    write_app_config: write,
+    read_settings_history: history,
+    api_list_flows: async () => ({ flows: [] }),
+    factory_state: async () => ({ state: 'none', steps: [] }),
+    local_worker_state: async () => ({ enabled: false, source: 'hub', credentials: { names: [], present: true } }),
+    enable_factory_host: async () => ({ host: 'none' }),
+  });
 });
+afterEach(() => vi.restoreAllMocks());
 
 const open = async (cfg: Record<string, unknown> = {}) => {
   read.mockResolvedValueOnce(cfg);
@@ -67,7 +71,7 @@ test('editing Gates and pressing Publish writes the whole config; Discard puts i
   fireEvent.change(screen.getByPlaceholderText('pnpm typecheck && pnpm test'), { target: { value: 'pnpm verify' } });
   history.mockClear();
   fireEvent.click(screen.getByRole('button', { name: 'Publish' }));
-  await waitFor(() => expect(write).toHaveBeenCalledWith('/repo', { label: 'go', color: '#123456', verifyCmd: 'pnpm verify' }));
+  await waitFor(() => expect(write).toHaveBeenCalledWith({ repoPath: '/repo', config: { label: 'go', color: '#123456', verifyCmd: 'pnpm verify' } }));
   await waitFor(() => expect(history).toHaveBeenCalled()); // history re-reads after a publish
 });
 

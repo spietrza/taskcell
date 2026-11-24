@@ -5,12 +5,12 @@ import { assertStatePath, ensureStateDir } from './state-path.js';
 import { parseProviderRateLimitReset } from './rate-limit-marker.js';
 
 /**
- * Model pools per stage: `--provider-model claude/sonnet:3, codex/gpt-5.6-sol:1`. Each entry is
+ * Model pools per stage: `--provider-model claude/sonnet:3, codex/gpt-6-sol:1`. Each entry is
  * `provider/model[:weight]`; a run picks one by weight from a stable hash of its task id, skips
  * entries that are cooling down after a provider limit, and falls back to the next entry, then to
  * the `--fallback-provider` list. A value with no comma and no `:<weight>` suffix is NOT a pool:
  * it is the single model it always was (so `openrouter/auto` or `anthropic/claude-sonnet-4.6` keep
- * meaning a model id). Write `codex/gpt-5.6-sol:1` to pin one entry to a provider.
+ * meaning a model id). Write `codex/gpt-6-sol:1` to pin one entry to a provider.
  */
 export interface PoolEntry {
   provider: string;
@@ -24,7 +24,7 @@ export type ModelPick = 'config' | 'rotation' | 'skip-limit' | 'fallback' | 'lab
 export class ModelPoolError extends Error {}
 
 const WEIGHT_RE = /:(\d+)\s*$/;
-// Same shape as a repo custom provider name (args.ts CUSTOM_NAME_RE), so every valid custom can join a pool.
+// Same shape as a repo custom provider name (cli/flags.ts CUSTOM_NAME_RE), so every valid custom can join a pool.
 const PROVIDER_RE = /^[a-z0-9][a-z0-9._-]*$/;
 const MODEL_RE = /^[A-Za-z0-9][A-Za-z0-9._:/-]{0,79}$/;
 
@@ -157,7 +157,7 @@ export async function recordCooldown(repoPath: string, entry: { provider: string
   await rename(tmp, file);
 }
 
-/** `--fallback-provider codex,cursor` + `--fallback-model gpt-5.6-sol,` → ordered list (an empty model slot = that provider's default). */
+/** `--fallback-provider codex,cursor` + `--fallback-model gpt-6-sol,` → ordered list (an empty model slot = that provider's default). */
 export function parseFallbackList(providers: string | undefined, models: string | undefined): Array<{ provider: string; model?: string }> {
   if (providers === undefined) return [];
   const names = providers.split(',').map((s) => s.trim());

@@ -1,3 +1,5 @@
+import { parseMarkers, writeMarker } from '../core/comment-ledger.js';
+import type { WaitingKind } from '../core/comment-ledger.js';
 import { hasLabel, withoutLabel } from '../core/labels.js';
 import { failureReason, NoRetryError } from '../core/errors.js';
 import { classifyAuthor } from './comment-trust.js';
@@ -160,9 +162,10 @@ export async function checkDependencies(repo: string, task: Task, gh: GhRunner =
  * lookup that failed again right after such a resume (the sweep may read with a token `watch` lacks):
  * the sweep leaves that park alone until a human re-applies the trigger, so it cannot loop.
  */
-export type WaitingKind = 'error' | 'error-repeat';
-export const waitingMarker = (trigger: string, kind?: WaitingKind): string => `<!-- taskcell:waiting trigger="${trigger}"${kind !== undefined ? ` kind="${kind}"` : ''} -->`;
-export const WAITING_MARKER_RE = /<!-- (?:taskcell|vanguard):waiting trigger="([^"]+)"(?: kind="(error|error-repeat)")? -->/;
+export type { WaitingKind };
+export const waitingMarker = (trigger: string, kind?: WaitingKind): string => writeMarker('waiting', { trigger, ...(kind !== undefined ? { kind } : {}) });
+/** The first waiting marker in a (trusted) comment body: the trigger it names and, for a failed-lookup park, its kind. */
+export const parseWaitingMarker = (body: string): { trigger: string; kind?: WaitingKind } | undefined => parseMarkers<{ trigger: string; kind?: WaitingKind }>('waiting', body)[0];
 
 export interface DependencyGateOptions {
   repo: string;
@@ -246,7 +249,7 @@ export async function applyDependencyGate(tasks: Task[], opts: DependencyGateOpt
           await park(opts.needsInfoLabel, `Taskcell cannot start this issue: ${verdict.reason}. Fix it and re-apply \`${opts.trigger}\`.`, waitingBefore ? [GITHUB_WAITING_LABEL] : []);
         } else if (verdict.status === 'error') {
           // Resumed from an earlier failed-lookup park and failing again: mark it so the sweep stops re-triggering it.
-          const repeat = WAITING_MARKER_RE.exec(comments[0] ?? '')?.[2] !== undefined;
+          const repeat = parseWaitingMarker(comments[0] ?? '')?.kind !== undefined;
           const note = repeat ? REPEAT_NOTE(opts.trigger) : RESUME_NOTE(opts.trigger, 'error');
           await park(GITHUB_WAITING_LABEL, waitingBefore ? undefined : `Taskcell could not check this issue's dependencies: ${verdict.reason}. It is labelled \`${GITHUB_WAITING_LABEL}\` and will not start until the check succeeds and its dependencies are met. ${note}`, []);
         } else if (verdict.status === 'waiting') {

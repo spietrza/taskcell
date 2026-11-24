@@ -8,7 +8,7 @@ import { buildXmlPrompt } from '../context/xml-prompt.js';
 import { diffForPrompt } from '../context/escape.js';
 import { extractJson } from '../structured/extract.js';
 import { verdictSchema } from '../evals/judges.js';
-import { AgentError, FallbackFailedError, isProviderLimitError, isRateLimitError, rateLimitResetDelayMs } from '../core/errors.js';
+import { AgentError, FallbackFailedError, isProviderAuthError, isProviderLimitError, isRateLimitError, rateLimitResetDelayMs } from '../core/errors.js';
 import { parseProviderRateLimitReset } from '../core/rate-limit-marker.js';
 import { enforceUsageCap, UsageCapError } from '../core/usage-cap.js';
 import { roundUsd } from '../core/usd.js';
@@ -121,6 +121,8 @@ export interface StageOutcome {
   model?: string;
   /** Set when the stage's own provider hit a usage/rate limit and its fallback ran it: when that limit resets (ISO). */
   primaryLimitResetAt?: string;
+  /** Set when the stage's own provider refused its credential (expired/revoked) and its fallback ran it: that provider's name. */
+  primaryAuthRefused?: string;
 }
 
 export interface FrozenRun {
@@ -416,6 +418,7 @@ export async function runBudgetedStages(
     // A cap fallback already moved to the fallback: a failure there is rethrown, not retried on the fallback again.
     let onCapFallback = false;
     let primaryLimitResetAt: string | undefined;
+    let primaryAuthRefused: string | undefined;
     try {
       enforceUsageCap(effectiveAgent.name, ctx.log);
     } catch (capErr) {
@@ -445,12 +448,16 @@ export async function runBudgetedStages(
       if (err instanceof AgentError && stage.fallback !== undefined && !onCapFallback) {
         // No `reason` here: AgentError carries the CLI's raw stderr, and an auth failure may echo the
         // credential it was handed — the redactor knows common token shapes, not every vendor's.
+        const authRefused = isProviderAuthError(err);
         ctx.log.warn(
-          { stage: stage.name, from: agent.name, to: stage.fallback.provider.name, rateLimited },
+          { stage: stage.name, from: agent.name, to: stage.fallback.provider.name, rateLimited, authRefused },
           rateLimited
             ? `${stage.name} provider rate-limited or overloaded — falling back to ${stage.fallback.provider.name}`
-            : `${stage.name} provider unavailable — falling back to ${stage.fallback.provider.name}`,
+            : authRefused
+              ? `${stage.name} provider credential refused — falling back to ${stage.fallback.provider.name}`
+              : `${stage.name} provider unavailable — falling back to ${stage.fallback.provider.name}`,
         );
+        if (authRefused) primaryAuthRefused = effectiveAgent.name;
         // A fallback on the SAME provider (the --review-model shape: a reviewer degrading to the
         // primary agent on the same transport) draws on the account that just refused, so an
         // immediate retry only fails again. When the refusal names its reset, wait for it first.
@@ -536,6 +543,7 @@ export async function runBudgetedStages(
       providerName: effectiveAgent.name,
       ...(effectiveModel !== undefined ? { model: effectiveModel } : {}),
       ...(primaryLimitResetAt !== undefined ? { primaryLimitResetAt } : {}),
+      ...(primaryAuthRefused !== undefined ? { primaryAuthRefused } : {}),
     });
     previous = result;
     if (stage.copyBack !== false) previousDiff = result.diff ?? '';

@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Button, Card, Chip, CodeBlock } from '@/ui';
-import { setupStatus } from '../../ipc';
+import { hub } from '../../transport';
 import type { SetupStatus, SetupToolState } from '../../wire';
 import {
   RESTART_NOTE,
@@ -68,7 +68,7 @@ export function Onboarding({
   const [nonce, setNonce] = useState(0);
   useEffect(() => {
     let alive = true;
-    setupStatus()
+    hub().call('setup_status')
       .then((s) => {
         if (alive) {
           setStatus(s);

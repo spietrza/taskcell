@@ -1,11 +1,11 @@
-import { test, expect, vi } from 'vitest';
+import { afterEach, beforeEach, test, expect, vi } from 'vitest';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { Settings } from './Settings';
 import * as ipc from '../../ipc';
+import { stubHubCalls } from '../../testHub';
+import type { AppConfig } from '../../taskcell-output';
 
 vi.mock('../../ipc.js', () => ({
-  readAppConfigStrict: vi.fn(async () => ({})),
-  writeAppConfig: vi.fn(async () => {}),
   callerCapabilities: vi.fn(async () => ({})),
 }));
 
@@ -13,8 +13,16 @@ vi.mock('../../ipc.js', () => ({
 vi.mock('./AutoMerge', () => ({ AutoMerge: () => null }));
 vi.mock('./CredentialsPanel', async (importOriginal) => ({ ...(await importOriginal<typeof import('./CredentialsPanel')>()), CredentialsPanel: () => null }));
 
-const read = vi.mocked(ipc.readAppConfigStrict);
-const write = vi.mocked(ipc.writeAppConfig);
+// The hub's app.json read and write, answered through the page session.
+const read = vi.fn(async (_repoPath: string): Promise<AppConfig> => ({}));
+const write = vi.fn(async (_repoPath: string, _config: AppConfig): Promise<void> => {});
+beforeEach(() => {
+  stubHubCalls({
+    read_app_config_strict: ({ repoPath }) => read(repoPath),
+    write_app_config: ({ repoPath, config }) => write(repoPath, config),
+  });
+});
+afterEach(() => vi.restoreAllMocks());
 
 function deferred<T>(): { promise: Promise<T>; resolve: (v: T) => void } {
   let resolve!: (v: T) => void;

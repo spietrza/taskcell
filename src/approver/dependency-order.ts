@@ -6,6 +6,7 @@ import type { GhRunner } from '../tasks/github.js';
 import { hardExclusions, escapeForComment, OPEN_PRS_FIELDS } from './act.js';
 import { collectDiffFacts } from './diff-facts.js';
 import { isFactoryPr } from './facts.js';
+import { writeMarker } from '../core/comment-ledger.js';
 import { commentOnce } from './publish.js';
 import type { ApproverFacts, ApproverPolicy, PrFacts } from './types.js';
 
@@ -170,7 +171,7 @@ export async function rebaseDependents(input: RebaseDependentsInput): Promise<Re
           done('skipped', PENDING);
           return;
         }
-        const marker = `<!-- taskcell-approver-act: ${pr.headSha}:revise:dependent-conflict -->`;
+        const marker = writeMarker('approver-act', `${pr.headSha}:revise:dependent-conflict`);
         const why = `this PR conflicts with the base after its dependency #${merged} merged`;
         const posted = await commentOnce(gh, repo, candidate.pr, marker, `## Taskcell Approver (act mode)\n\nSending this PR to a revise round: ${escapeForComment(why)}.\n\n${marker}`, policy.approverLogins);
         const labelled = hasLabel(fresh, NEEDS_REVISION_LABEL);

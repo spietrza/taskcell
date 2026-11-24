@@ -1,12 +1,12 @@
 import { useEffect, useRef, useState } from 'react';
 import { Button, Chip, Tabs } from '@/ui';
 import { ArrowLeft, Clock, GitBranch, RefreshCw, Square } from 'lucide-react';
-import { readSession, tailRunEvents } from '../../ipc';
+import { tailRunEvents } from '../../ipc';
+import { hub } from '../../transport';
 import type { RunTail } from '../../../../../packages/hub-client/src/runTail';
 import { ExternalLink, hostName, issueUrl } from '../../components/ExternalLink';
 import { AgentQuestion } from '../../components/AgentQuestion';
-import { askedOf, cardIdOf, repoInitials, runStateTone, runStateWord, startedByLabel } from '../../runLabels';
-import { detailOutcome, runStationOf } from '../../stations';
+import { askedOf, cardIdOf, outcomeOf, repoInitials, runStateTone, startedByLabel } from '../../runLabels';
 import { costLabel, estLabel } from '../../cost';
 import { liveStage, liveStations, stepsAt } from '../board/stageLine';
 import { StreamView } from './StreamView';
@@ -91,7 +91,7 @@ export function RunPane({
     // A run listed from its launch has no session file yet: its stage line comes from the event log alone.
     if (!active || active.sessionFile === '') return;
     let alive = true;
-    readSession(active.sessionFile)
+    hub().call('read_session', { sessionFile: active.sessionFile })
       .then((d) => alive && setSession(d))
       .catch(() => {});
     return () => {
@@ -130,10 +130,9 @@ export function RunPane({
         ? stages.reduce((n, s) => n + (s.ms ?? 0), 0)
         : undefined;
 
-  // One state for the chip's word and its colour: the Runs row's (its summary), else the record read the same way.
-  // The Runs row carries the outcome; only the record says the gates passed (the receipt reads the same proof).
-  const outcome = summary !== undefined ? { ...summary, ...(detail?.proof?.passed === true ? { verifyPassed: true as const } : {}) } : detail !== undefined ? detailOutcome(detail) : undefined;
-  const word = running ? 'running' : timeline.terminal === 'cancelled' ? 'cancelled' : timeline.terminal === 'error' ? 'failed' : outcome !== undefined ? runStateWord(outcome) : 'passed';
+  // One state for the chip's word and its colour: the hub's outcome, the same for the Runs row and the run page.
+  const outcome = summary?.outcome ?? detail?.outcome ?? (summary !== undefined ? outcomeOf(summary) : undefined);
+  const word = running ? 'running' : timeline.terminal === 'cancelled' ? 'cancelled' : timeline.terminal === 'error' ? 'failed' : outcome !== undefined ? outcome.state : 'passed';
   const status = (
     <Chip color={runStateTone(word)} variant="outlined">
       {running ? (
@@ -213,7 +212,7 @@ export function RunPane({
         </div>
       )}
       <StationTrack
-        steps={detail && outcome !== undefined ? stepsAt(runStationOf(outcome)) : liveStations(liveAt, timeline.terminal === 'error')}
+        steps={detail && outcome !== undefined ? stepsAt(outcome.place) : liveStations(liveAt, timeline.terminal === 'error')}
         ctx={detail ? { task: { column: merged ? 'done' : 'review' }, detail, merged, ...(detail.prUrl !== undefined ? { prUrl: detail.prUrl } : {}) } : { task: { column: 'running', ...(liveAt !== undefined ? { stage: liveAt } : {}) } }}
       />
       {/* Two columns only when the pane itself is wide enough (a container query, not the window): beside the run list
@@ -229,7 +228,7 @@ export function RunPane({
           </div>
           <div className="shrink-0 @3xl:order-1 @3xl:h-full @3xl:min-h-0">
             {detail ? (
-              <RunDetail detail={detail} project={repo} prLink={false} steps={stages} />
+              <RunDetail detail={detail} project={repo} prLink={false} steps={stages} flow={timeline.flow} />
             ) : (
               <Tabs.Root value={tab} onValueChange={(v) => setTab(String(v))} className="flex h-full min-h-0 flex-col">
                 <Tabs.List className="shrink-0 overflow-x-auto">

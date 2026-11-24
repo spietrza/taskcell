@@ -16,6 +16,7 @@ describe('watchMrsCommand', () => {
     const reviewMr: ReviewMrCommandRunner = vi.fn(async () => {});
     const watchMergeRequests = vi.fn(async (primitives: MergeRequestWatchPrimitives) => {
       capturedPrimitives = primitives;
+      return undefined;
     });
     // watchMrsCommand registers SIGINT/SIGTERM handlers; keep them off the test worker.
     const once = vi.spyOn(process, 'once').mockImplementation(() => process);
@@ -52,5 +53,32 @@ describe('watchMrsCommand', () => {
       reviewModel: 'claude-opus-5-5',
       maxTurns: 48,
     });
+  });
+
+  it('--once exits non-zero when the tick reports a failure, as watch-prs does', async () => {
+    const once = vi.spyOn(process, 'once').mockImplementation(() => process);
+    const saved = process.exitCode;
+    const cmd: Extract<Command, { kind: 'watch-mrs' }> = {
+      kind: 'watch-mrs',
+      project: 'g/p',
+      repoPath: '/repo',
+      label: 'l',
+      reviewingLabel: 'r',
+      reviewedLabel: 'd',
+      concurrency: 1,
+      intervalMs: 1000,
+      once: true,
+      egress: true,
+    };
+    try {
+      await watchMrsCommand(cmd, { watchMergeRequests: async () => ({ reviewed: [], failed: ['g/p!7'], skipped: [] }), log: () => undefined });
+      expect(process.exitCode).toBe(1);
+      process.exitCode = undefined;
+      await watchMrsCommand(cmd, { watchMergeRequests: async () => ({ reviewed: [], failed: [], skipped: [] }), log: () => undefined });
+      expect(process.exitCode).toBeUndefined();
+    } finally {
+      process.exitCode = saved;
+      once.mockRestore();
+    }
   });
 });

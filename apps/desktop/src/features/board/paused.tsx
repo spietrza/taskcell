@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { Button } from '@/ui';
-import { listTasks, retryPausedTask } from '../../ipc';
+import { hub } from '../../transport';
 import { gateProps, useAsync, useCallerCapabilities } from '../../hooks';
 import type { BoardTask, PausedState } from '../../wire';
 
@@ -65,7 +65,7 @@ export function RetryNowButton({ repoPath, task, onRetried }: { repoPath: string
     setBusy(true);
     setError(null);
     try {
-      await retryPausedTask(repoPath, Number(number));
+      await hub().call('retry_paused_task', { repoPath, number: Number(number) });
       setDone(true);
       onRetried?.();
     } catch (e) {
@@ -105,6 +105,6 @@ export function PausedPanel({ repoPath, task, onRetried }: { repoPath: string; t
 /** The full-page detail has only the task id: read its card to show the paused state. */
 export function TaskDetailPaused({ project, taskId }: { project: string; taskId: string }) {
   const [nonce, setNonce] = useState(0);
-  const { data } = useAsync(async (): Promise<BoardTask | undefined> => (await listTasks(project).catch(() => ({ tasks: [] as BoardTask[] }))).tasks.find((t) => t.id === taskId), [project, taskId, nonce]);
+  const { data } = useAsync(async (): Promise<BoardTask | undefined> => (await hub().call('list_tasks', { repoPath: project }).catch(() => ({ tasks: [] as BoardTask[] }))).tasks.find((t) => t.id === taskId), [project, taskId, nonce]);
   return data == null ? null : <PausedPanel repoPath={project} task={data} onRetried={() => setNonce((n) => n + 1)} />;
 }

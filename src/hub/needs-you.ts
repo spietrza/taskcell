@@ -1,15 +1,15 @@
 // The hub's "Needs you" read model + reply action (src/hub/ scope): lists GitHub issues/PRs that
 // wait on a human, using `gh` and labels only — no model call — and posts a human's reply back,
 // moving the item on to the factory's next trigger label. See docs/hub.md.
-import { defaultGhRunner, commentGithubIssue } from '../tasks/github.js';
+import { defaultGhRunner, commentGithubIssue, requiredChecks } from '../tasks/github.js';
 import type { GhRunner } from '../tasks/github.js';
 import { commentPullRequest } from '../runners/pr-review.js';
 import { redactForPublish } from '../core/secret-scan.js';
-import { DEFAULT_GITHUB_AGENT_LABEL, DEFAULT_GITHUB_NEEDS_INFO_LABEL } from '../cli/args.js';
-import { hasLabel, labelForms, NEEDS_REVISION_LABEL } from '../core/labels.js';
+import { hasLabel, labelForms, NEEDS_REVISION_LABEL, DEFAULT_GITHUB_AGENT_LABEL, DEFAULT_GITHUB_NEEDS_INFO_LABEL } from '../core/labels.js';
 import { GITHUB_REVIEW_LABEL, GITHUB_VERIFY_FAILED_LABEL } from '../github-labels.js';
 import { shownBaseFromLabels } from '../core/base-branch.js';
 import { TaskcellError } from '../core/errors.js';
+import type { NeedsYouItem as WireNeedsYouItem } from '../wire.js';
 import { fanOut } from '../pipeline/fan-out.js';
 import { httpsUrl } from '../core/links.js';
 import { clarifyMessage } from '../runners/watch-shared.js';
@@ -116,6 +116,52 @@ async function lastOwnComment(
   const last = comments.filter((c) => own.has((c.author?.login ?? '').toLowerCase())).at(-1);
   if (last === undefined) return undefined;
   return { author: last.author?.login ?? '', body: redactForPublish(last.body ?? '') };
+}
+
+/** One item's fetched comment (or none), kept per item by `withLastComments`. */
+export type CommentMemo = Map<string, Promise<{ author: string; body: string } | undefined>>;
+
+/**
+ * `items` with the factory's last comment (and, for an issue, the `ask` it implies), for the lists that show it (Home,
+ * push, Slack). Fetches only what `memo` lacks, at most MAX_COMMENT_FETCHES and what `budget` still allows, and keeps each
+ * result in `memo` (a failed fetch as none), so a repeated read within the cache's life costs nothing.
+ */
+export async function withLastComments(
+  repoSlug: string,
+  items: readonly WireNeedsYouItem[],
+  gh: GhRunner,
+  memo: CommentMemo,
+  budget: { remaining: number },
+): Promise<WireNeedsYouItem[]> {
+  const todo = items.filter((i) => i.kind !== 'card' && !memo.has(i.id)).slice(0, Math.max(0, Math.min(MAX_COMMENT_FETCHES, budget.remaining)));
+  budget.remaining -= todo.length;
+  if (todo.length > 0) {
+    const own = ownLogins(gh, []);
+    const batch = fanOut(todo, (i) => own.then((logins) => lastOwnComment(repoSlug, i.kind as 'issue' | 'pr', i.number, logins, gh)), { concurrency: COMMENT_FETCH_CONCURRENCY });
+    todo.forEach((i, n) => memo.set(i.id, batch.then((o) => (o[n]?.status === 'fulfilled' ? o[n].value : undefined), () => undefined)));
+  }
+  return Promise.all(items.map(async (i) => {
+    const lastComment = i.kind === 'card' ? undefined : await memo.get(i.id);
+    if (lastComment === undefined) return i;
+    return { ...i, lastComment, ...(i.kind === 'issue' ? { ask: isTooVague(lastComment.body) ? ('too-vague' as const) : ('question' as const) } : {}) };
+  }));
+}
+
+/**
+ * The factory's last comment on one waiting item (and the `ask` it implies for an issue), for the view of the item the
+ * person opened: the lists carry no comments. `id` must name an item of `repoSlug`.
+ */
+export async function needsYouComment(
+  repoSlug: string,
+  id: string,
+  kind: 'issue' | 'pr',
+  gh: GhRunner = defaultGhRunner,
+): Promise<{ lastComment?: { author: string; body: string }; ask?: 'question' | 'too-vague' }> {
+  assertRepoSlug(repoSlug);
+  const number = Number(itemNumber(repoSlug, id));
+  const lastComment = await lastOwnComment(repoSlug, kind, number, await ownLogins(gh, []), gh);
+  if (lastComment === undefined) return {};
+  return { lastComment, ...(kind === 'issue' ? { ask: isTooVague(lastComment.body) ? ('too-vague' as const) : ('question' as const) } : {}) };
 }
 
 /**
@@ -231,7 +277,7 @@ export async function listNeedsYou(
  * allowlisted repo path, so an `id` naming another repo must be refused: the allowlist would
  * otherwise be bypassed by commenting on and relabelling an unregistered repo.
  */
-function itemNumber(repoSlug: string, id: string): string {
+export function itemNumber(repoSlug: string, id: string): string {
   const hash = id.lastIndexOf('#');
   const number = id.slice(hash + 1);
   if (hash === -1 || !/^\d+$/.test(number)) throw new TaskcellError(`Invalid item id: ${id}`);
@@ -321,13 +367,8 @@ export async function mergeNeedsYou(repoSlug: string, id: string, gh: GhRunner =
   // `--required` limits to the required checks. With `--json` the buckets carry the verdict; `gh` only
   // errors when it has nothing to report (no checks at all, or none required) — nothing to wait for.
   // Any other error (auth, network, old gh) is not a verdict on the checks and surfaces as itself.
-  const notGreen = new TaskcellError(`${id} has failing or pending required checks.`);
-  const checks = await gh(['pr', 'checks', number, '--repo', repoSlug, '--required', '--json', 'bucket']).catch((e: unknown) => {
-    if (/no (required )?checks reported/i.test(String(e))) return '[]';
-    throw e;
-  });
-  if ((JSON.parse(checks) as { bucket: string }[]).some((c) => c.bucket !== 'pass' && c.bucket !== 'skipping')) {
-    throw notGreen;
+  if ((await requiredChecks(repoSlug, number, gh)).some((c) => c.bucket !== 'pass' && c.bucket !== 'skipping')) {
+    throw new TaskcellError(`${id} has failing or pending required checks.`);
   }
   const fields = MERGE_METHODS.map((m) => m.allowed).join(',');
   const repo = JSON.parse(await gh(['repo', 'view', repoSlug, '--json', fields])) as Record<string, boolean>;

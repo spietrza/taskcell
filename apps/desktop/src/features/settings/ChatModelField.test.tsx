@@ -1,12 +1,16 @@
-import { test, expect, vi } from 'vitest';
+import { afterEach, beforeEach, test, expect, vi } from 'vitest';
 import { useState } from 'react';
 import { render, screen, fireEvent } from '@testing-library/react';
 import { ChatModelField } from './ChatModelField';
-import * as ipc from '../../ipc';
-import { CHAT_MODELS } from '../../wire';
+import { stubHubCalls } from '../../testHub';
+import { CHAT_MODELS, type Commands } from '../../wire';
 
-vi.mock('../../ipc.js', () => ({ listChatModels: vi.fn() }));
-const list = vi.mocked(ipc.listChatModels);
+const list = vi.fn<(repoPath: string) => Promise<Commands['list_chat_models']['result']>>();
+let spy: ReturnType<typeof stubHubCalls>;
+beforeEach(() => {
+  spy = stubHubCalls({ list_chat_models: ({ repoPath }) => list(repoPath) });
+});
+afterEach(() => vi.restoreAllMocks());
 
 function Harness({ initial = '' }: { initial?: string }) {
   const [v, setV] = useState(initial);
@@ -30,7 +34,7 @@ test('Fetch models replaces the list with what the hub read, and names where fro
   render(<Harness />);
   fireEvent.click(screen.getByRole('button', { name: 'Fetch models' }));
   expect(await screen.findByRole('status')).toHaveTextContent('2 models from https://llm.example.com.');
-  expect(list).toHaveBeenCalledWith('/repo');
+  expect(spy).toHaveBeenCalledWith('list_chat_models', { repoPath: '/repo' });
   const known = screen.getByRole('combobox', { name: 'Known models' }) as HTMLSelectElement;
   expect([...known.options].slice(1).map((o) => o.value)).toEqual(['glm-5.2', 'glm-5.2-air']);
 });

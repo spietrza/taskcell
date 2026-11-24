@@ -11,17 +11,17 @@ const creds: Credentials = { url: 'http://hub.local:4317', token: 't', kind: 'ow
 const METRICS = { frame: { x: 0, y: 0, width: 390, height: 844 }, insets: { top: 47, left: 0, right: 0, bottom: 34 } };
 const NOW = Date.parse('2026-07-06T12:00:00Z');
 const task = (o: Partial<HubTask>): HubTask => ({ id: 'gh-1', title: 'T', column: 'queued', state: 'ready', repoPath: '/r', repoName: 'o/r', ...o });
-const run = { repoPath: '/r', taskId: 'gh-3', timestamp: '2026-07-06T09:00:00Z', stages: [], totalCostUsd: 0, anyFailed: false, prUrl: 'https://github.com/o/r/pull/3' };
+const view = (at: number, run?: { state: string; prUrl?: string }) => ({ place: { at, failed: false }, ...(run ? { run: { ...run, place: { at, failed: false }, timestamp: '2026-07-06T09:00:00Z' } } : {}) });
 const TASKS: HubTask[] = [
-  task({ id: 'gh-6', title: 'Merged one', column: 'done' }),
-  task({ id: 'gh-3', title: 'In review', column: 'review', url: 'https://github.com/o/r/issues/3', labels: ['bug'] }),
-  task({ id: 'gh-2', title: 'Building', column: 'running', stage: 'implementer' }),
-  task({ id: 'gh-1', title: 'Queued one', column: 'queued' }),
+  task({ id: 'gh-6', title: 'Merged one', column: 'done', view: view(6) }),
+  task({ id: 'gh-3', title: 'In review', column: 'review', url: 'https://github.com/o/r/issues/3', labels: ['bug'], view: view(5, { state: 'PR open', prUrl: 'https://github.com/o/r/pull/3' }) }),
+  task({ id: 'gh-2', title: 'Building', column: 'running', stage: 'implementer', view: view(2) }),
+  task({ id: 'gh-1', title: 'Queued one', column: 'queued', view: view(0) }),
 ];
 
-test('columns match the desktop Board, in order, for the same data', () => {
+test('cards sit in the column of the place the hub sent, in the desktop\'s order', () => {
   expect(COLUMNS.map((c) => c.label)).toEqual(['Card', 'Spec', 'Cell', 'Gates', 'Review / PR', 'Done']);
-  const cards = toCards([...TASKS, task({ id: 'gh-4', column: 'claimed' }), task({ id: 'gh-5', column: 'verify-failed', stage: 'verify' })], [run], NOW);
+  const cards = toCards([...TASKS, task({ id: 'gh-4', column: 'claimed', view: view(1) }), task({ id: 'gh-5', column: 'verify-failed', stage: 'verify', view: view(3) })], NOW);
   expect(cards.map((c) => [c.task.id, c.column])).toEqual([
     ['gh-1', 'card'], ['gh-4', 'spec'], ['gh-2', 'cell'], ['gh-5', 'gates'], ['gh-3', 'review'], ['gh-6', 'done'],
   ]);
@@ -30,19 +30,14 @@ test('columns match the desktop Board, in order, for the same data', () => {
   expect(review.age).toBe('3h ago');
 });
 
-test('a run of another repository with the same task id is not matched', () => {
-  const other = { ...run, repoPath: '/other', prUrl: 'https://github.com/o/other/pull/3', prState: 'merged' as const };
-  const [c] = toCards([task({ id: 'gh-3', column: 'review', repoPath: '/r' })], [other], NOW);
-  expect(c!.column).toBe('review');
-  expect(c!.prUrl).toBeNull();
-  expect(c!.runStatus).toBeNull();
-  const [d] = toCards([task({ id: 'gh-3', column: 'review', repoPath: '/other' })], [other], NOW);
-  expect(d!.column).toBe('done');
-  expect(d!.prUrl).toBe('https://github.com/o/other/pull/3');
+test('a card without a run shows its tracker state; one with a run shows the hub\'s state word', () => {
+  const [a, b] = toCards([task({ id: 'gh-3', column: 'review', view: view(4) }), task({ id: 'gh-4', column: 'done', view: view(6, { state: 'merged', prUrl: 'https://github.com/o/r/pull/4' }) })], NOW);
+  expect([a!.status, a!.runStatus, a!.prUrl]).toEqual(['ready', null, null]);
+  expect([b!.status, b!.runStatus, b!.prUrl]).toEqual(['merged', 'merged', 'https://github.com/o/r/pull/4']);
 });
 
 test('non-https links are dropped', () => {
-  const [c] = toCards([task({ url: 'javascript:alert(1)', column: 'review' })], [{ ...run, taskId: 'gh-1', prUrl: 'http://x' }], NOW);
+  const [c] = toCards([task({ url: 'javascript:alert(1)', column: 'review', view: view(5, { state: 'PR open', prUrl: 'http://x' }) })], NOW);
   expect(c!.issueUrl).toBeNull();
   expect(c!.prUrl).toBeNull();
 });
@@ -59,7 +54,7 @@ function hub(): { fetchImpl: typeof fetch; reads: () => number; emit: (f: string
       if (fail) throw new Error('Network request failed');
       return { status: 200, json: async () => ({ result: { tasks: TASKS, capped: false, failures: [] } }) };
     }
-    return { status: 200, json: async () => ({ result: { runs: [run], failures: [] } }) };
+    return { status: 200, json: async () => ({ result: {} }) };
   }) as unknown as typeof fetch;
   return { fetchImpl, reads: () => reads, emit: (f) => controller.enqueue(new TextEncoder().encode(f)), failNext: () => void (fail = true) };
 }

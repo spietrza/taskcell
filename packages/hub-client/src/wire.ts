@@ -347,6 +347,45 @@ export interface BoardTask {
   schedule?: TaskSchedule;
   /** The hub's time zone, for dates shown on the card. */
   timeZone?: string;
+  /** Where the card sits and what its newest run and its waiting item say; set by the hub's `list_tasks` / `list_tasks_all` (src/hub/card-view.ts), the one place that decides it. */
+  view?: CardView;
+}
+
+/**
+ * A place on the line: `at` is the station index (0 card … 5 pull request; 6 = past the line, done); `failed` marks that
+ * station red. `passed`: stations after `at` the records show passed all the same (a run that stopped to ask after its gates ran green).
+ */
+export interface CardPlace {
+  at: number;
+  failed: boolean;
+  passed?: number[];
+}
+
+/** A run's outcome, derived once by the hub: the Runs row, the run page and the card read the same. */
+export interface RunOutcome {
+  /** The state word ("PR open", "failed", "Waiting for your answer"...). */
+  state: string;
+  /** Where the run left its card on the line. */
+  place: CardPlace;
+}
+
+/** A card's newest local run (CI-imported runs are never it). */
+export interface CardRun extends RunOutcome {
+  timestamp: string;
+  /** The run's pull request / merge request address. Absent when it opened none. */
+  prUrl?: string;
+}
+
+/** One card as the line shows it: the join of the card, its newest local run and its waiting needs-you item. */
+export interface CardView {
+  /** The station the card sits at: its newest run's place once it is in Review or failed, else its column's. */
+  place: CardPlace;
+  /** Absent ⇒ the card has no local run. */
+  run?: CardRun;
+  /** The card's Needs-you item (its pull request, its question, its issue), if one waits. */
+  waiting?: NeedsYouItem;
+  /** The hub could not check GitHub for what waits (rate limit, offline): `waiting` is the last good read, if any. */
+  waitingUnchecked?: true;
 }
 
 /** The scheduler's answer for one hub-board task; `label` is pre-rendered ("waits until Tue 18.11 (Europe/Berlin)"). */
@@ -574,6 +613,10 @@ export interface RunSummary {
   failedStage?: string;
   /** The run's own proof says its verify command failed. */
   verifyFailed?: true;
+  /** The run's own proof says its verify command passed. */
+  verifyPassed?: true;
+  /** The run's outcome (state word and place on the line), set by the hub's list commands once it knows the card is done. */
+  outcome?: RunOutcome;
   /** The implementer stopped on its own before finishing (`exitReason: 'incomplete'`): the end of its last reply, which
    *  holds what it asks the person. Untrusted agent text, render as plain text. */
   asked?: string;
@@ -695,6 +738,8 @@ export interface RunDetail {
   /** The pull/merge request's diff page ("Files changed" / "Changes"). */
   diffUrl?: string;
   ciUrl?: string;
+  /** The outcome the run's Runs row shows (one derivation, src/hub/card-view.ts); set by the hub's `read_run`. */
+  outcome?: RunOutcome;
 }
 
 /** A CI run, as returned by `gh run list` (src/hub/remote.ts) / Tauri's `list_remote_runs`. */
@@ -756,6 +801,7 @@ export type AuditAction =
   | 'settings-change'
   | 'needs-reply'
   | 'needs-merge'
+  | 'pr-rereview'
   | 'task-create'
   | 'task-edit'
   | 'task-schedule'
@@ -1379,7 +1425,9 @@ export interface Commands {
   /** HUB_ONLY: rename the repo's old `vanguard:*` labels to `taskcell:*` (as `taskcell migrate-labels`). Dry-run unless `apply`. */
   migrate_labels: { args: { repoPath: string; apply?: boolean }; result: MigrateLabelsReport };
   /** HUB_ONLY: the hub "Needs you" read model (src/hub/needs-you.ts) — `gh` and labels only, no model call. */
-  list_needs_you: { args: { repoPath: string }; result: { items: NeedsYouItem[] } };
+  list_needs_you: { args: { repoPath: string }; result: { items: NeedsYouItem[]; unchecked?: true } };
+  /** HUB_ONLY: the factory's last comment on one waiting issue or PR (the lists carry none), for the view of the item that is opened. */
+  needs_you_comment: { args: { repoPath: string; id: string; kind: 'issue' | 'pr' }; result: { lastComment?: { author: string; body: string }; ask?: 'question' | 'too-vague' } };
   /** HUB_ONLY: `list_needs_you` across every hub repository, each item stamped with its repository. */
   list_needs_you_all: { args: { teamId?: string } | undefined; result: { items: (NeedsYouItem & RepoStamp)[]; failures: RepoReadFailure[] } };
   /** HUB_ONLY: post a reply with the caller's own `gh` identity and move the item on. `card`: answer a card whose run stopped
@@ -1402,6 +1450,10 @@ export interface Commands {
   api_list_repo_files: { args: { repoPath: string }; result: { files: string[]; capped: boolean } };
   api_read_repo_file: { args: { repoPath: string; path: string }; result: { path: string; content: string; truncated: boolean } };
   api_repo_ok: { args: { repoPath: string }; result: boolean };
+  /** HUB_ONLY: put an open factory PR (same-repo, factory branch, no review or revise in flight) back through review: drops
+   *  `taskcell:reviewed` and the review trigger and re-adds the trigger, as the hub's `gh` identity. The review starts only
+   *  if that identity is an allowed actor of the repo's review workflow, which the hub cannot check. GitHub only. */
+  rereview_pr: { args: { repoPath: string; id: string }; result: void };
   api_capabilities: { args: undefined; result: Capabilities };
   api_create_run: { args: { params: CreateRunParams }; result: CreateRunResult };
   api_active_run: { args: undefined; result: { runId: string; repoPath: string } | null };
@@ -1451,6 +1503,7 @@ export interface Commands {
   remove_skill_pr: { args: { repoPath: string; name: string }; result: { prUrl: string } };
   /** `hubBoard`: the project's task source is the hub's own board (its cards are created and scheduled in the hub). */
   list_tasks: { args: { repoPath: string }; result: { tasks: BoardTask[]; capped: boolean; hubBoard?: true } };
+  // Every card in both lists carries its `view` (src/hub/card-view.ts): its place on the line, its newest run, its waiting item.
   /** HUB_ONLY: `list_tasks` across every hub repository, each card stamped with its repository. `hubBoards`: the repositories whose task source is the hub board. */
   list_tasks_all: { args: { teamId?: string } | undefined; result: { tasks: (BoardTask & RepoStamp)[]; capped: boolean; failures: RepoReadFailure[]; hubBoards?: string[] } };
   fetch_spec: { args: { repoPath: string; taskId: string }; result: { spec: string } };
@@ -1468,10 +1521,10 @@ export interface Commands {
   hub_task_create: { args: { repoPath: string; title: string; body?: string; blockedBy?: string[]; startDate?: string }; result: { id: string } };
   /** HUB_ONLY: set a hub-board task's dependencies (ids of the project's other tasks) and/or start date (`null` clears it). The caller becomes its owner. */
   hub_task_schedule: { args: { repoPath: string; id: string; blockedBy?: string[]; startDate?: string | null }; result: { id: string } };
-  /** HUB_ONLY: put a failed hub-board task back to `todo`, to run as the caller; its old result is cleared. */
-  hub_task_retry: { args: { repoPath: string; id: string }; result: { id: string } };
-  /** Start one `todo` hub task now as the caller, even while the project's auto-run is off (the scheduler's next tick, same gates). */
-  hub_task_start: { args: { repoPath: string; id: string }; result: { id: string } };
+  /** HUB_ONLY: put a failed hub-board task back to `todo`, to run as the caller; its old result is cleared. `flow`: run it with that flow (a built-in or the repo's) instead of the configured one. */
+  hub_task_retry: { args: { repoPath: string; id: string; flow?: string }; result: { id: string } };
+  /** Start one `todo` hub task now as the caller, even while the project's auto-run is off (the scheduler's next tick, same gates). `flow`: run it with that flow instead of the configured one. */
+  hub_task_start: { args: { repoPath: string; id: string; flow?: string }; result: { id: string } };
   /** HUB_ONLY: accept the delivered result of a hub-board task that failed verification: it becomes done (its dependents may start) without a second run. */
   hub_task_accept: { args: { repoPath: string; id: string }; result: { id: string } };
   /** HUB_ONLY: move a done hub-board task to the project's archive file, freeing room on the board. */
@@ -1586,6 +1639,7 @@ export const COMMAND_NAMES = [
   'local_worker_state',
   'merge_needs_you',
   'migrate_labels',
+  'needs_you_comment',
   'pull_checkout',
   'read_app_config',
   'read_app_config_strict',
@@ -1605,6 +1659,7 @@ export const COMMAND_NAMES = [
   'remove_team_member',
   'remove_team_repository',
   'reply_needs_you',
+  'rereview_pr',
   'retry_paused_task',
   'save_instance_credential',
   'save_user_credential',
@@ -1672,6 +1727,7 @@ export const WRITE_COMMAND_NAMES: readonly (typeof COMMAND_NAMES)[number][] = [
   'remove_team_member',
   'remove_team_repository',
   'reply_needs_you',
+  'rereview_pr',
   'retry_paused_task',
   'save_instance_credential',
   'save_user_credential',

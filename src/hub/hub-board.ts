@@ -6,7 +6,9 @@ import { ASKED_REASON, hubTimeZone, readHubTasks, type HubTask } from './hub-tas
 import { MAX_CONCURRENT_RUNS } from './run-session.js';
 import { planSchedule } from './schedule.js';
 import { defaultRunsRoot, listRunSummaries } from './runs.js';
-import type { BoardChip, BoardTask, RunSummary } from '../wire.js';
+import { newestRuns } from './card-view.js';
+import { taskRefKey } from '../tasks/board.js';
+import type { BoardChip, BoardTask } from '../wire.js';
 
 /**
  * How many of a project's tasks may be with the run session at once: what the session can hold for one project — its
@@ -23,14 +25,6 @@ const shownSkills = (t: HubTask): string[] => t.skills ?? parseSkillsLine(t.body
 
 const COLUMN: Record<HubTask['status'], BoardTask['column']> = { todo: 'queued', running: 'running', done: 'done', failed: 'verify-failed' };
 
-/** Each task's newest run record; empty when the records cannot be read (the board still shows the store). */
-async function latestRuns(repoPath: string): Promise<Map<string, RunSummary>> {
-  const runs = await listRunSummaries(defaultRunsRoot(repoPath)).catch(() => []);
-  const out = new Map<string, RunSummary>();
-  for (const r of runs) if (!out.has(r.taskId) || out.get(r.taskId)!.timestamp < r.timestamp) out.set(r.taskId, r);
-  return out;
-}
-
 /** The chip of a `done` card whose newest run had a failed stage (a re-review that never answered, a draft PR): the
  *  store's `done` stands (it delivered, dependents start); the chip only says to look. A person's Accept clears it. */
 const DELIVERED_WITH_FAILURE: BoardChip = { key: 'warning', label: 'delivered, but a stage failed (see Runs)', tone: 'changes' };
@@ -42,9 +36,10 @@ export async function listHubBoard(configDir: string, repoPath: string, queued: 
   const served = await boardServed(configDir, repoPath);
   // The sweep's own filter (task-scheduler.ts): with auto-run off only a requested task takes a slot, so it reads "starts next".
   const plan = planSchedule(tasks, { now, limit: await parallelLimit(repoPath), timeZone, queued, ...(served ? {} : { only: (t: HubTask) => t.startRequested === true }) });
-  const lastRun = await latestRuns(repoPath);
+  // Each task's newest run record; empty when the records cannot be read (the board still shows the store).
+  const lastRun = newestRuns(await listRunSummaries(defaultRunsRoot(repoPath)).catch(() => []));
   const cards: BoardTask[] = tasks.map((t) => {
-    const run = lastRun.get(t.id);
+    const run = lastRun.get(taskRefKey(t.id));
     // Only the run record says the agent asked (`exitReason: 'incomplete'`, never a turn cap or a timeout); Home's inbox reads the same.
     const asked = t.status === 'failed' && run?.asked !== undefined;
     const planned = plan.byId.get(t.id)!;

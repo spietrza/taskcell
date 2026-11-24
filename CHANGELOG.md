@@ -1,5 +1,54 @@
 # Changelog
 
+## [1.17.2](https://github.com/spietrza/taskcell/compare/v1.17.1...v1.17.2) (2026-11-24)
+
+
+### Features
+
+* Card view: the hub decides where a card sits, once, for every client (spietrza/taskcell[#1357](https://github.com/spietrza/taskcell/issues/1357)) ([#1365](https://github.com/spietrza/taskcell/issues/1365)) ([59e03dc](https://github.com/spietrza/taskcell/commit/59e03dc19dd6eafe4d2cb6c92727ee42532e691d))
+* CLI: each command module owns its flags, parse and run (spietrza/taskcell[#1362](https://github.com/spietrza/taskcell/issues/1362)) ([#1371](https://github.com/spietrza/taskcell/issues/1371)) ([a4ed078](https://github.com/spietrza/taskcell/commit/a4ed0785a58d1853f0a5a1f39045fab36d928b8e))
+* Comment ledger: declare each hidden factory marker once, with its trust rule (spietrza/taskcell[#1360](https://github.com/spietrza/taskcell/issues/1360)) ([#1366](https://github.com/spietrza/taskcell/issues/1366)) ([130c838](https://github.com/spietrza/taskcell/commit/130c838db77bb61c4e72092b88bbe6072e9d5613))
+* Hub session: move reconnect, catch-up and live reads into hub-client (spietrza/taskcell[#1359](https://github.com/spietrza/taskcell/issues/1359)) ([#1370](https://github.com/spietrza/taskcell/issues/1370)) ([2baaaf3](https://github.com/spietrza/taskcell/commit/2baaaf3877b72763673cbe05e20d14b7f2c3eb51))
+* Hub: share the needs-you cache and stop reading GitHub on every board poll (spietrza/taskcell[#1367](https://github.com/spietrza/taskcell/issues/1367)) ([#1369](https://github.com/spietrza/taskcell/issues/1369)) ([4b99b3a](https://github.com/spietrza/taskcell/commit/4b99b3ac70ba289d8571717e37e4caea12615bcc))
+* Review watch: one loop for gh and glab behind the host adapters (spietrza/taskcell[#1358](https://github.com/spietrza/taskcell/issues/1358)) ([#1364](https://github.com/spietrza/taskcell/issues/1364)) ([07a3b5f](https://github.com/spietrza/taskcell/commit/07a3b5f4a62b56cac5359507f2182f9ed0348fd9))
+* Run plan: split the issue run into a decided plan and its execution (spietrza/taskcell[#1361](https://github.com/spietrza/taskcell/issues/1361)) ([#1368](https://github.com/spietrza/taskcell/issues/1368)) ([aed866e](https://github.com/spietrza/taskcell/commit/aed866ea5614102c3df64d161f2162b66a1c8e55))
+
+
+### Documentation
+
+* README cites the 19 November security review ([#1363](https://github.com/spietrza/taskcell/issues/1363)) ([a35dd89](https://github.com/spietrza/taskcell/commit/a35dd8936edd8d7b3607c63c890c863b13dfaf2b))
+* README shows the Product Hunt badge ([#1355](https://github.com/spietrza/taskcell/issues/1355)) ([81cab9c](https://github.com/spietrza/taskcell/commit/81cab9cd7ea1054212cdfe1c7c1787ec6bb30bc5))
+
+
+### Miscellaneous
+
+* release 1.17.2 ([#1372](https://github.com/spietrza/taskcell/issues/1372)) ([110fe1e](https://github.com/spietrza/taskcell/commit/110fe1e8396a54873bf5da91c6eda910de66d737))
+
+## [1.17.1](https://github.com/spietrza/taskcell/compare/v1.17.0...v1.17.1) (2026-11-23)
+
+
+### Features
+
+* Factory: name an expired or revoked provider credential instead of failing silently (spietrza/taskcell[#1334](https://github.com/spietrza/taskcell/issues/1334)) ([#1336](https://github.com/spietrza/taskcell/issues/1336)) ([0f55ea5](https://github.com/spietrza/taskcell/commit/0f55ea5f61db64e6a91a340c3222b25b46f2c4ce))
+* Factory: revise a factory PR when its required CI checks fail (spietrza/taskcell[#1337](https://github.com/spietrza/taskcell/issues/1337)) ([#1343](https://github.com/spietrza/taskcell/issues/1343)) ([1268daa](https://github.com/spietrza/taskcell/commit/1268daa6472deb85b07e09cbd5441ec4d76c1601))
+* Hub: "Review again" on a factory PR from the hub and the phone (spietrza/taskcell[#1338](https://github.com/spietrza/taskcell/issues/1338)) ([#1342](https://github.com/spietrza/taskcell/issues/1342)) ([058a8ac](https://github.com/spietrza/taskcell/commit/058a8ac4519e40d04409090bca2b19c00706b684))
+* Hub: answer agent questions from a Slack thread (spietrza/taskcell[#1341](https://github.com/spietrza/taskcell/issues/1341)) ([#1347](https://github.com/spietrza/taskcell/issues/1347)) ([db766b2](https://github.com/spietrza/taskcell/commit/db766b2939b33173e7c57172c8d313138b89568a))
+* Hub: post agent questions to a Slack channel (spietrza/taskcell[#1340](https://github.com/spietrza/taskcell/issues/1340)) ([#1344](https://github.com/spietrza/taskcell/issues/1344)) ([f09a606](https://github.com/spietrza/taskcell/commit/f09a606d286ebe6a16077a46e57d1b5a7496dda0))
+* Hub: run a hub-board card with a chosen flow (spietrza/taskcell[#1339](https://github.com/spietrza/taskcell/issues/1339)) ([#1350](https://github.com/spietrza/taskcell/issues/1350)) ([0fb500c](https://github.com/spietrza/taskcell/commit/0fb500ce1a1df2b02aec4b669daa8efc8e912fce))
+* Labels: one in-flight check for re-review and CI watch; move requiredChecks out of the hub (spietrza/taskcell[#1348](https://github.com/spietrza/taskcell/issues/1348)) ([#1352](https://github.com/spietrza/taskcell/issues/1352)) ([b0e1afc](https://github.com/spietrza/taskcell/commit/b0e1afc62c060236ddd70594e1bc4f5608e3aee3))
+* landing lists the iPhone beta ([#1324](https://github.com/spietrza/taskcell/issues/1324)) ([5c29b4f](https://github.com/spietrza/taskcell/commit/5c29b4f9588bdf758739ffb6f9f5797813c91e47))
+* Slack: thread lookup owned by the store, one reply at a time, retry on rejection (spietrza/taskcell[#1349](https://github.com/spietrza/taskcell/issues/1349)) ([#1353](https://github.com/spietrza/taskcell/issues/1353)) ([a3550cb](https://github.com/spietrza/taskcell/commit/a3550cb690d57ccfb6abaf7ab83468c2b54d07b4))
+
+
+### Bug Fixes
+
+* **mobile:** EAS iOS build installs and bundles under pnpm 11 ([#1333](https://github.com/spietrza/taskcell/issues/1333)) ([6519e92](https://github.com/spietrza/taskcell/commit/6519e92bd24013b0e5f01d2e9e309984d45f888c))
+
+
+### Miscellaneous
+
+* release 1.17.1 ([#1346](https://github.com/spietrza/taskcell/issues/1346)) ([ea2ace9](https://github.com/spietrza/taskcell/commit/ea2ace9d1aff9e2cb936d9d564b19d6069be5c72))
+
 ## [1.17.0](https://github.com/spietrza/taskcell/compare/v1.16.10...v1.17.0) (2026-11-21)
 
 

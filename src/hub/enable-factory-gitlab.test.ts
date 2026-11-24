@@ -533,7 +533,7 @@ describe('templates/gitlab/taskcell.yml', () => {
     expect(yml).not.toMatch(/watch-mrs .*--feedback-authors/);
   });
   it('runs commands the CLI accepts, only in pipelines started with a variable', async () => {
-    const { parseCli } = await import('../cli/args.js');
+    const { parseCli } = await import('../cli/parse.js');
     const yml = await readFile(new URL('../../templates/gitlab/taskcell.yml', import.meta.url), 'utf8');
     const lines = yml.split('\n').filter((l) => l.includes('/dist/cli/index.js '));
     expect(lines).toHaveLength(3);

@@ -1,6 +1,5 @@
 import { describe, expect, test } from 'vitest';
 import { liveStage, liveStations, repairAttempts, stageLine, stepsAt } from './stageLine';
-import { detailOutcome, runStationOf } from '../../stations';
 import type { RunDetail } from '../../wire';
 
 const statuses = (column: Parameters<typeof stageLine>[0]['column'], stage?: string, opts?: Parameters<typeof stageLine>[1]): string =>
@@ -53,22 +52,16 @@ describe('repairAttempts', () => {
   });
 });
 
-describe('a finished run on the line (runStationOf, the one mapping)', () => {
-  const rec = (stage: string, completed = true) => ({ record: { stage, completed } as never });
-  const status = (run: Parameters<typeof detailOutcome>[0], card?: Parameters<typeof detailOutcome>[1]): string =>
-    stepsAt(runStationOf(detailOutcome(run, card))).map((s) => s.status[0]).join('');
-  test('merged, or done without a PR: every station done', () => {
-    expect(status({ stages: [rec('implementer')], prUrl: 'u' }, { prState: 'merged' })).toBe('dddddd');
-    expect(status({ stages: [rec('implementer')] }, { cardDone: true })).toBe('dddddd');
+describe('a place the hub sent, on the line', () => {
+  const status = (place: Parameters<typeof stepsAt>[0]): string => stepsAt(place).map((s) => s.status[0]).join('');
+  test('past the line: every station done; at the PR station: it is current', () => {
+    expect(status({ at: 6, failed: false })).toBe('dddddd');
+    expect(status({ at: 5, failed: false })).toBe('dddddc');
   });
-  test('a pass waits on the PR station, with or without a PR', () => {
-    expect(status({ stages: [rec('implementer')], prUrl: 'u' })).toBe('dddddc');
-    expect(status({ stages: [rec('implementer')] })).toBe('dddddc');
-  });
-  test('a failed gate or stage marks its station, even with a PR or a done card', () => {
-    expect(status({ stages: [rec('implementer')], proof: { passed: false } as never })).toBe('dddfww');
-    expect(status({ stages: [rec('implementer'), rec('reviewer', false)], prUrl: 'u' })).toBe('ddddfw');
-    expect(status({ stages: [rec('implementer', false)] }, { cardDone: true })).toBe('ddfwww');
+  test('a failed place marks its station', () => {
+    expect(status({ at: 3, failed: true })).toBe('dddfww');
+    expect(status({ at: 4, failed: true })).toBe('ddddfw');
+    expect(status({ at: 2, failed: true })).toBe('ddfwww');
   });
 });
 

@@ -1,42 +1,68 @@
-import { beforeEach, describe, expect, test, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
-import { QuickView, matchNeedsYou, waitingWhy, type QuickTask } from './QuickView';
+import { QuickView, waitingWhy, type QuickTask } from './QuickView';
 import type { NeedsYouItem, RunDetail, RunSummary } from '../../wire';
+import { stubHubCalls, type HubCall } from '../../testHub';
 
 vi.mock('../../ipc', () => ({
   callerCapabilities: vi.fn(async () => ({ mutationsAllowed: true, owner: true, admin: true, canAddProject: { allowed: true }, teamRoles: {} })),
-  listRuns: vi.fn(),
   readRun: vi.fn(),
-  listNeedsYou: vi.fn(),
-  replyNeedsYou: vi.fn(),
-  mergeNeedsYou: vi.fn(),
-  apiListSkills: vi.fn(async () => ({ skills: ['db', 'release'] })),
-  apiSetTaskSkills: vi.fn(async (_repo: string, _id: string, skills: string[]) => ({ skills })),
-  readAppConfigStrict: vi.fn(async () => ({})),
   hubTaskStart: vi.fn(async (_repo: string, id: string) => ({ id })),
   fetchSpec: vi.fn(async () => 'The issue body.'),
 }));
-import { hubTaskStart, apiListSkills, apiSetTaskSkills, listNeedsYou, listRuns, readAppConfigStrict, readRun } from '../../ipc';
+import { hubTaskStart, readRun } from '../../ipc';
+
+const listRuns = vi.fn<HubCall<'list_runs'>>();
+const listNeedsYou = vi.fn<HubCall<'list_needs_you'>>();
+const apiListSkills = vi.fn<HubCall<'list_skills'>>(async () => ({ skills: ['db', 'release'] }));
+const apiSetTaskSkills = vi.fn<HubCall<'set_task_skills'>>(async ({ skills }) => ({ skills }));
+const readAppConfigStrict = vi.fn<HubCall<'read_app_config_strict'>>(async () => ({}));
+const needsYouComment = vi.fn<HubCall<'needs_you_comment'>>(async () => ({}));
+let hubCall: ReturnType<typeof stubHubCalls>;
 
 const PR = 'https://github.com/o/r/pull/9';
 const item = (over: Partial<NeedsYouItem>): NeedsYouItem => ({ id: 'o/r#9', kind: 'pr', number: 9, repoSlug: 'o/r', title: 'T', url: PR, reason: 'taskcell:needs-human-review', baseRef: 'main', ...over });
 const summary: RunSummary = { taskId: 'gh-7', timestamp: 'ts', stages: ['implementer'], totalCostUsd: 1.5, anyFailed: false, prUrl: PR };
 const detail: RunDetail = { taskId: 'gh-7', timestamp: 'ts', prUrl: PR, stages: [{ record: { stage: 'reviewer', verdict: 'pass' } as never }] };
-const task: QuickTask = { id: 'gh-7', title: 'Seven', column: 'review', state: 'review', source: 'github', url: 'https://github.com/o/r/issues/7' };
+// The hub's answer rides on the card: its place, its newest run and the item that waits on the person.
+const task: QuickTask = { id: 'gh-7', title: 'Seven', column: 'review', state: 'review', source: 'github', url: 'https://github.com/o/r/issues/7', view: { place: { at: 5, failed: false }, waiting: item({}) } };
 const open = (t: QuickTask = task): ReturnType<typeof render> => render(<QuickView task={t} project="/repo" onClose={() => {}} onFullPage={() => {}} />);
 
 beforeEach(() => {
   window.__TASKCELL_HUB__ = true;
+  hubCall = stubHubCalls({
+    list_runs: listRuns,
+    list_needs_you: listNeedsYou,
+    needs_you_comment: needsYouComment,
+    reply_needs_you: async () => undefined,
+    merge_needs_you: async () => undefined,
+    list_skills: apiListSkills,
+    set_task_skills: apiSetTaskSkills,
+    read_app_config_strict: readAppConfigStrict,
+  });
   vi.mocked(listRuns).mockResolvedValue([summary]);
   vi.mocked(readRun).mockResolvedValue(detail);
   vi.mocked(listNeedsYou).mockResolvedValue({ items: [item({})] });
 });
+afterEach(() => vi.restoreAllMocks());
 
 describe('QuickView', () => {
+  test('the opened item\'s last comment is fetched, as the list carries none', async () => {
+    vi.mocked(needsYouComment).mockResolvedValueOnce({ lastComment: { author: 'bot', body: 'Which branch?' } });
+    open();
+    expect(await screen.findByText('Which branch?')).toBeInTheDocument();
+    expect(hubCall).toHaveBeenCalledWith('needs_you_comment', { repoPath: '/repo', id: 'o/r#9', kind: 'pr' });
+  });
+
+  test('says it could not check when the hub could not read what waits', async () => {
+    open({ ...task, view: { place: { at: 5, failed: false }, waitingUnchecked: true } });
+    expect(await screen.findByText('Could not check whether this card waits for you.')).toBeInTheDocument();
+  });
+
   test('a delivered card whose run stopped to ask: Done with the Board\'s warning, the stop station marked, the run "stopped to ask"', async () => {
     vi.mocked(listRuns).mockResolvedValue([{ ...summary, taskId: 'hub-4', anyFailed: true, asked: 'Which file?', prUrl: undefined } as RunSummary]);
     vi.mocked(listNeedsYou).mockResolvedValue({ items: [] });
-    open({ id: 'hub-4', title: 'Validate', column: 'done', state: 'done', chips: [{ key: 'warning', label: 'delivered, but a stage failed (see Runs)', tone: 'changes' }] });
+    open({ id: 'hub-4', title: 'Validate', column: 'done', state: 'done', chips: [{ key: 'warning', label: 'delivered, but a stage failed (see Runs)', tone: 'changes' }], view: { place: { at: 6, failed: false }, run: { state: 'stopped to ask', place: { at: 2, failed: true }, timestamp: 'ts' } } });
     expect(await screen.findByText('Done · delivered, but a stage failed (see Runs)')).toBeInTheDocument();
     await waitFor(() => expect(screen.getByRole('list', { name: 'Stage line' }).querySelector('[data-status="failed"]')).not.toBeNull());
     expect([...screen.getByRole('list', { name: 'Stage line' }).querySelectorAll('li')].map((l) => l.getAttribute('data-status'))).toEqual(['done', 'done', 'failed', 'done', 'done', 'done']);
@@ -54,7 +80,7 @@ describe('QuickView', () => {
   test('a tracker comment is plain text: markdown images and links stay literal', async () => {
     const body = 'see ![x](http://evil/img) and [a](javascript:alert(1))';
     vi.mocked(listNeedsYou).mockResolvedValue({ items: [item({ kind: 'issue', id: 'o/r#7', number: 7, url: 'https://github.com/o/r/issues/7', lastComment: { author: 'someone', body } })] });
-    const { container } = open({ ...task, column: 'queued' });
+    const { container } = open({ ...task, column: 'queued', view: { place: { at: 0, failed: false }, waiting: item({ kind: 'issue', id: 'o/r#7', number: 7, url: 'https://github.com/o/r/issues/7', lastComment: { author: 'someone', body } }) } });
     expect(await screen.findByText(body)).toBeInTheDocument();
     expect(container.querySelector('img')).toBeNull();
     expect(container.querySelector('a[href^="javascript"]')).toBeNull();
@@ -87,7 +113,7 @@ describe('QuickView', () => {
     vi.mocked(listRuns).mockResolvedValue([]);
     vi.mocked(readAppConfigStrict).mockResolvedValueOnce({ verifyCmd: 'pnpm verify', reviewProvider: 'codex' });
     const onStartRun = vi.fn();
-    render(<QuickView task={{ ...task, column: 'queued', waiting: true }} project="/repo" onClose={() => {}} onFullPage={() => {}} onStartRun={onStartRun} />);
+    render(<QuickView task={{ ...task, column: 'queued', waiting: true, view: { place: { at: 0, failed: false } } }} project="/repo" onClose={() => {}} onFullPage={() => {}} onStartRun={onStartRun} />);
     fireEvent.click(screen.getByRole('button', { name: 'Start run' }));
     expect(onStartRun).toHaveBeenCalled();
     expect(await screen.findByText('No runs yet.')).toBeInTheDocument();
@@ -183,7 +209,7 @@ describe('QuickView skills', () => {
     fireEvent.click(within(section).getByLabelText('db'));
     fireEvent.click(within(section).getByRole('button', { name: 'Save skills' }));
     await vi.waitFor(() => expect(onSkillsSaved).toHaveBeenCalledWith(['release']));
-    expect(apiSetTaskSkills).toHaveBeenCalledWith('/repo', 'gh-7', ['release']);
+    expect(hubCall).toHaveBeenCalledWith('set_task_skills', { repoPath: '/repo', taskId: 'gh-7', skills: ['release'] });
   });
 
   test('a refused save and an unreadable skill list both say why', async () => {
@@ -203,7 +229,7 @@ describe('QuickView skills', () => {
     const section = await screen.findByRole('region', { name: 'Skills' });
     fireEvent.click(await within(section).findByLabelText('release'));
     fireEvent.click(within(section).getByRole('button', { name: 'Save skills' }));
-    await vi.waitFor(() => expect(apiSetTaskSkills).toHaveBeenCalledWith('/repo', 'hub-3', ['db', 'release']));
+    await vi.waitFor(() => expect(hubCall).toHaveBeenCalledWith('set_task_skills', { repoPath: '/repo', taskId: 'hub-3', skills: ['db', 'release'] }));
   });
   test('the invalid-entries card explains itself and offers neither Schedule nor Full page', async () => {
     const { source: _source, ...hubCard } = task;
@@ -230,20 +256,7 @@ describe('QuickView skills', () => {
   });
 });
 
-describe('matchNeedsYou / waitingWhy', () => {
-  test('a PR matches by address, never by number', () => {
-    const pr = item({ number: 7 });
-    expect(matchNeedsYou([pr], { id: 'gh-7', source: 'github' }, undefined)).toBeNull();
-    expect(matchNeedsYou([pr], { id: 'gh-7', source: 'github' }, 'https://github.com/o/r/pull/other')).toBeNull();
-    expect(matchNeedsYou([pr], { id: 'gh-7', source: 'github' }, PR)).toBe(pr);
-  });
-
-  test('an issue matches a GitHub card by number, never a Linear card', () => {
-    const issue = item({ kind: 'issue', number: 12, url: 'https://github.com/o/r/issues/12' });
-    expect(matchNeedsYou([issue], { id: 'gh-12', source: 'github' }, undefined)).toBe(issue);
-    expect(matchNeedsYou([issue], { id: 'linear-eng-12', source: 'linear' }, undefined)).toBeNull();
-  });
-
+describe('waitingWhy', () => {
   test('plain words', () => {
     expect(waitingWhy({ kind: 'pr' })).toBe('Pull request ready');
     expect(waitingWhy({ kind: 'issue' })).toBe('Question for you');

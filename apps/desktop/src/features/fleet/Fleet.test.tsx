@@ -1,44 +1,51 @@
-import { describe, expect, test, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
 import { act, fireEvent, render, screen } from '@testing-library/react';
 import { Fleet } from './Fleet';
 import type { BoardTask } from '../../wire';
 
-vi.mock('../../ipc', () => ({
-  listSpawns: vi.fn(async () => []),
-  listTasks: vi.fn(),
-  readAppConfigStrict: vi.fn(async () => ({})),
-  spawnRun: vi.fn(),
-  killRun: vi.fn(),
-  SPAWN_OUTPUT_EVENT: 'spawn:output',
-  SPAWN_EXIT_EVENT: 'spawn:exit',
-}));
-vi.mock('../../transport', () => ({ subscribe: vi.fn(async () => () => {}) }));
-import { listTasks, readAppConfigStrict, spawnRun } from '../../ipc';
-const mockListTasks = vi.mocked(listTasks);
+import type { AppConfig } from '../../taskcell-output';
+import { stubHubCalls } from '../../testHub';
+
+vi.mock('../../transport', async (orig) => ({ ...(await orig<typeof import('../../transport')>()), subscribe: vi.fn(async () => () => {}) }));
+const mockListTasks = vi.fn<(repoPath: string) => Promise<{ tasks: BoardTask[]; capped: boolean }>>();
+const readAppConfigStrict = vi.fn<() => Promise<AppConfig>>();
+const spawnRun = vi.fn<() => Promise<number>>();
+let hubCall: ReturnType<typeof stubHubCalls>;
+beforeEach(() => {
+  mockListTasks.mockReset();
+  readAppConfigStrict.mockReset().mockResolvedValue({});
+  spawnRun.mockReset();
+  hubCall = stubHubCalls({
+    list_spawns: async () => [],
+    list_tasks: ({ repoPath }) => mockListTasks(repoPath),
+    read_app_config_strict: () => readAppConfigStrict(),
+    spawn_run: () => spawnRun(),
+    kill_run: async () => undefined,
+  });
+});
+afterEach(() => vi.restoreAllMocks());
 
 describe('Fleet watch loop launch — repo config cannot inject', () => {
   test('a provider carrying shell syntax is refused and nothing is spawned', async () => {
     mockListTasks.mockResolvedValue({ tasks: [], capped: false });
-    vi.mocked(readAppConfigStrict).mockResolvedValueOnce({ provider: 'claude; touch /tmp/x #' });
-    vi.mocked(spawnRun).mockClear();
+    readAppConfigStrict.mockResolvedValueOnce({ provider: 'claude; touch /tmp/x #' });
     render(<Fleet project="/repo" active={[]} />);
     await act(async () => {});
     await act(async () => fireEvent.click(screen.getByLabelText('Toggle watch loop')));
     expect(await screen.findByText(/Invalid provider/)).toBeInTheDocument();
-    expect(spawnRun).not.toHaveBeenCalled();
+    expect(hubCall).not.toHaveBeenCalledWith('spawn_run', expect.anything());
   });
 
   test('a valid config is spawned as an argv, not a shell string', async () => {
     mockListTasks.mockResolvedValue({ tasks: [], capped: false });
-    vi.mocked(readAppConfigStrict).mockResolvedValueOnce({ provider: 'codex' });
-    vi.mocked(spawnRun).mockClear();
-    vi.mocked(spawnRun).mockResolvedValueOnce(7);
+    readAppConfigStrict.mockResolvedValueOnce({ provider: 'codex' });
+    spawnRun.mockResolvedValueOnce(7);
     render(<Fleet project="/repo" active={[]} />);
     await act(async () => {});
     await act(async () => fireEvent.click(screen.getByLabelText('Toggle watch loop')));
-    expect(spawnRun).toHaveBeenCalledWith('/repo', [
+    expect(hubCall).toHaveBeenCalledWith('spawn_run', { cwd: '/repo', argv: [
       'taskcell', 'watch', '--github', '--concurrency', '3', '--provider', 'codex', '--max-turns', '30',
-    ]);
+    ] });
   });
 });
 
@@ -52,7 +59,7 @@ describe('Fleet slot meter — waiting count (T18–T20)', () => {
     mockListTasks.mockResolvedValue({ tasks: WAITING_FOUR, capped: false });
     render(<Fleet project="/repo" active={[]} />);
     expect(await screen.findByText('Slots 0 / 3 in use · 4 waiting')).toBeInTheDocument();
-    expect(mockListTasks).toHaveBeenCalledWith('/repo');
+    expect(hubCall).toHaveBeenCalledWith('list_tasks', { repoPath: '/repo' });
   });
 
   test('another repository’s running runs do not take this project’s slots', async () => {

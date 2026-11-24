@@ -4,7 +4,7 @@ import { Play } from 'lucide-react';
 import { EnumSelect } from './EnumSelect';
 import { providerLabel, selectableProviders } from '../settings/customProviders';
 import { SkillPicker } from '../board/SkillPicker';
-import { apiListFlows, apiListProviders } from '../../ipc';
+import { hub } from '../../transport';
 import type { Capabilities, CreateRunParams, RepoFlowInfo, RepoProviderInfo } from '../../ipc';
 
 /** Built-ins ∪ healthy repo flows. Entries with an error (or no name) are never offered — they cannot run. */
@@ -94,14 +94,14 @@ export function NewRunForm({
   const [repoProviders, setRepoProviders] = useState<RepoProviderInfo[] | 'error' | null>(null);
   useEffect(() => {
     let live = true;
-    apiListFlows(project)
+    hub().call('api_list_flows', { repoPath: project })
       .then(({ flows }) => {
         if (live) setRepoFlows(flows);
       })
       .catch(() => {
         if (live) setRepoFlows('error');
       });
-    apiListProviders(project)
+    hub().call('api_list_providers', { repoPath: project })
       .then(({ providers }) => {
         if (live) setRepoProviders(providers);
       })

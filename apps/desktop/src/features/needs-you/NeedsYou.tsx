@@ -2,12 +2,12 @@ import { useState, type ReactNode } from 'react';
 import { Button, Textarea } from '@/ui';
 import { errorClause } from '../../errors';
 import { RefreshCw } from 'lucide-react';
-import { mergeNeedsYou, replyNeedsYou, type NeedsYouItem, type RepoReadFailure, type RepoStamp } from '../../ipc';
+import type { NeedsYouItem, RepoReadFailure, RepoStamp } from '../../ipc';
 import { AgentQuestion } from '../../components/AgentQuestion';
 import { gateProps, useCallerCapabilities } from '../../hooks';
 import { RepoFailures } from '../../RepoViews';
 import { needsYouAlert, needsYouCaption } from '../../../../../packages/hub-client/src/needs-you-caption';
-import { isDemoLink } from '../../transport';
+import { hub, isDemoLink } from '../../transport';
 import { ExternalLink } from '../../components/ExternalLink';
 
 /** `placeholder` / `action` reword the box for a PR sent back ("Ask for changes"); the hub call is the same reply. */
@@ -21,7 +21,7 @@ export function ReplyBox({ project, item, onReplied, placeholder = 'Answer the f
     setSending(true);
     setError(null);
     try {
-      await replyNeedsYou(project, item.id, item.kind, body.trim());
+      await hub().call('reply_needs_you', { repoPath: project, id: item.id, kind: item.kind, body: body.trim() });
       setBody('');
       onReplied();
     } catch (e) {
@@ -71,7 +71,7 @@ export function MergeButton({ project, item, onMerged }: { project: string; item
     setConfirming(false);
     setError(null);
     try {
-      await mergeNeedsYou(project, item.id);
+      await hub().call('merge_needs_you', { repoPath: project, id: item.id });
       onMerged();
     } catch (e) {
       setError(String(e));
@@ -95,6 +95,40 @@ export function MergeButton({ project, item, onMerged }: { project: string; item
       {error && (
         <span role="alert" className="text-xs text-destructive-text">
           Not merged: {error}
+        </span>
+      )}
+    </div>
+  );
+}
+
+/** "Review again" on a PR: the hub puts it back through review as its own `gh` identity. Hidden without `canStartTask`; shows "Review requested" until the next list refresh. */
+export function ReReviewButton({ project, item }: { project: string; item: NeedsYouItem }) {
+  const [state, setState] = useState<'idle' | 'busy' | 'done'>('idle');
+  const [error, setError] = useState<string | null>(null);
+  const gate = useCallerCapabilities(project)?.project?.canStartTask;
+  if (gate?.allowed === false) return null;
+  if (state === 'done') return <span className="text-xs text-muted-foreground">Review requested</span>;
+
+  const request = async (): Promise<void> => {
+    setState('busy');
+    setError(null);
+    try {
+      await hub().call('rereview_pr', { repoPath: project, id: item.id });
+      setState('done');
+    } catch (e) {
+      setError(String(e));
+      setState('idle');
+    }
+  };
+
+  return (
+    <div className="flex items-center gap-2">
+      <Button variant="outlined" color="primary" disabled={state === 'busy'} onClick={() => void request()}>
+        {state === 'busy' ? 'Requesting…' : 'Review again'}
+      </Button>
+      {error && (
+        <span role="alert" className="text-xs text-destructive-text">
+          Review not requested: {errorClause(error)}
         </span>
       )}
     </div>
@@ -224,6 +258,7 @@ export function NeedsYou({
                       </div>
                     )}
                     {item.kind === 'pr' && <MergeButton project={item.repoPath ?? project} item={item} onMerged={onReload} />}
+                    {item.kind === 'pr' && <ReReviewButton project={item.repoPath ?? project} item={item} />}
                     <ReplyBox project={item.repoPath ?? project} item={item} onReplied={onReload} />
                   </div>
                 )}

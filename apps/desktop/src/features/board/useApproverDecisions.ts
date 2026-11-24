@@ -1,5 +1,5 @@
 import { useAsync } from '../../hooks';
-import { listRuns, readApproverDecisions } from '../../ipc';
+import { hub } from '../../transport';
 import type { ApproverMode, ApproverPrDecision, RunSummary } from '../../wire';
 
 type ApproverDecisions = { runs: RunSummary[]; decisions: ApproverPrDecision[]; mode: ApproverMode };
@@ -10,7 +10,7 @@ export function useApproverDecisions(project: string, enabled = true): ApproverD
   const { data } = useAsync(
     async () => {
       if (!enabled) return EMPTY;
-      const [runs, d] = await Promise.all([listRuns(project), readApproverDecisions(project)]);
+      const [runs, d] = await Promise.all([hub().call('list_runs', { repoPath: project }), hub().call('read_approver_decisions', { repoPath: project })]);
       return { runs, decisions: d.decisions, mode: d.mode };
     },
     [project, enabled],

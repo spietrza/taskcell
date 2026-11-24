@@ -1,8 +1,10 @@
 import { useState } from 'react';
 import { Button, cn } from '@/ui';
-import { hubTaskAccept, hubTaskArchive, hubTaskCreate, hubTaskDelete, hubTaskRetry, hubTaskSchedule } from '../../ipc';
+import { hubTaskCreate, hubTaskRetry, hubTaskSchedule } from '../../ipc';
+import { hub } from '../../transport';
 import { errorMessage } from '../../errors';
 import type { BoardTask } from '../../wire';
+import { RunWithFlow } from './RunWithFlow';
 
 const FIELD = 'mt-0.5 block w-full rounded border border-border/60 bg-background px-2 py-1 text-sm';
 
@@ -60,10 +62,11 @@ export function ScheduleEditor({ repoPath, task, onSaved }: { repoPath: string; 
       {error !== null && <div role="alert" className="text-xs text-destructive-text">{error}</div>}
       <div className="flex flex-wrap gap-2">
         <Button variant="outlined" onClick={save}>Save schedule</Button>
-        {task.schedule?.state === 'failed' && task.schedule.result !== undefined && <Button variant="outlined" onClick={() => done(hubTaskAccept(repoPath, task.id))}>Accept result</Button>}
+        {task.schedule?.state === 'failed' && task.schedule.result !== undefined && <Button variant="outlined" onClick={() => done(hub().call('hub_task_accept', { repoPath, id: task.id }))}>Accept result</Button>}
         {task.schedule?.state === 'failed' && <Button variant="outlined" onClick={() => done(hubTaskRetry(repoPath, task.id))}>Retry</Button>}
-        {task.schedule?.state === 'done' && <Button variant="outlined" onClick={() => done(hubTaskArchive(repoPath, task.id))}>Archive</Button>}
-        {task.schedule?.state !== 'running' && <Button variant="text" color="destructive" className="ml-auto" onClick={() => done(hubTaskDelete(repoPath, task.id))}>Delete</Button>}
+        {task.schedule?.state === 'failed' && <RunWithFlow repoPath={repoPath} taskId={task.id} mode="retry" onDone={onSaved} />}
+        {task.schedule?.state === 'done' && <Button variant="outlined" onClick={() => done(hub().call('hub_task_archive', { repoPath, id: task.id }))}>Archive</Button>}
+        {task.schedule?.state !== 'running' && <Button variant="text" color="destructive" className="ml-auto" onClick={() => done(hub().call('hub_task_delete', { repoPath, id: task.id }))}>Delete</Button>}
       </div>
     </section>
   );

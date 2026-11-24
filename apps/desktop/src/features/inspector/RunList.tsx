@@ -8,11 +8,11 @@ import { ExternalLink, hostName } from '../../components/ExternalLink';
 import { costLabel, estTitle } from '../../cost';
 import { RunsSplit } from './RunsSplit';
 import { StationMark } from '../../components/StationMark';
-import { runStationOf, stationOf } from '../../stations';
+import { stationOf } from '../../stations';
 import { readRunEvents } from '../../ipc';
 import { liveStage } from '../board/stageLine';
 import { foldRunEvents, withPendingGateSteps } from './runStages';
-import { cardIdOf, repoInitials, runStateTone, runStateWord, titleKey } from '../../runLabels';
+import { cardIdOf, repoInitials, runStateTone, outcomeOf, titleKey } from '../../runLabels';
 import type { ActiveRun, RunSummary } from '../../taskcell-output';
 import type { RepoStamp } from '../../wire';
 
@@ -20,8 +20,8 @@ type Filter = 'all' | 'passed' | 'failed';
 type Run = RunSummary & Partial<RepoStamp>;
 type Active = ActiveRun & Partial<RepoStamp>;
 /** The Passed / Failed pills read the row's own chip word: a failed verify is failed even when every stage completed. */
-const isFailed = (r: RunSummary): boolean => runStateWord(r) === 'failed';
-const isPassed = (r: RunSummary): boolean => runStateTone(runStateWord(r)) === 'success';
+const isFailed = (r: RunSummary): boolean => outcomeOf(r).state === 'failed';
+const isPassed = (r: RunSummary): boolean => runStateTone(outcomeOf(r).state) === 'success';
 
 /** Row keys: what `selected` is compared with. */
 export const runKey = (repoPath: string | undefined, taskId: string, timestamp: string): string => `${repoPath ?? ''}:${taskId}:${timestamp}`;
@@ -234,9 +234,9 @@ export function RunList({
       r.repoName,
       r.taskId,
       r.repoPath,
-      runStationOf(r),
-      <Chip color={runStateTone(runStateWord(r))} variant="outlined">
-        {runStateWord(r)}
+      outcomeOf(r).place,
+      <Chip color={runStateTone(outcomeOf(r).state)} variant="outlined">
+        {outcomeOf(r).state}
       </Chip>,
       <>
         {!ci && <span {...estTitle(costLabel(r))}>{costLabel(r)}</span>}

@@ -1,5 +1,7 @@
 import { DEMO_READ_ONLY_MESSAGE } from '../errors';
-import type { Commands, RepoLesson } from '../wire';
+import type { BoardTask, Commands, NeedsYouItem, RepoLesson, RunDetail, RunSummary } from '../wire';
+import { fixtureOutcome, withOutcome } from './fixtureOutcome';
+import { stationOf } from '../stations';
 import {
   projects,
   runs,
@@ -48,13 +50,24 @@ const READ_DRAFT = JSON.stringify({ id: 'draft-001', title: 'Draft task', body: 
  */
 const mockStamp = (): { repoPath: string; repoName: string } => ({ repoPath: projects[0]!.path, repoName: projects[0]!.name });
 
+const detailWithOutcome = (d: RunDetail, rows: readonly RunSummary[]): RunDetail => {
+  const row = rows.find((r) => r.taskId === d.taskId && r.timestamp === d.timestamp);
+  return row === undefined ? d : { ...d, outcome: fixtureOutcome(row) };
+};
+/** A card's view: its column's place, its newest run's word and address, its waiting item. */
+const withView = <T extends BoardTask>(t: T, rows: readonly RunSummary[], waiting: readonly NeedsYouItem[]): T => {
+  const run = rows.find((r) => r.taskId === t.id);
+  const item = waiting.find((i) => i.kind === 'card' && i.id === t.id);
+  return { ...t, view: { place: stationOf(t), ...(run !== undefined ? { run: { ...fixtureOutcome(run), timestamp: run.timestamp, ...(run.prUrl !== undefined ? { prUrl: run.prUrl } : {}) } } : {}), ...(item !== undefined ? { waiting: item } : {}) } };
+};
+
 const mockTeam = { id: 'default', name: 'Default', members: [{ login: 'you', role: 'admin' as const }], repositories: [] as string[] };
 
 const commandHandlers = {
-  list_runs: () => runs,
+  list_runs: () => runs.map(withOutcome),
   conflict_stats: () => ({ weeks: [], total: { merges: 0, conflicts: 0, autoResolved: 0, leftForHuman: 0 }, topFiles: [] }),
-  list_runs_all: () => ({ runs: runs.map((r) => ({ ...r, ...mockStamp() })), failures: [] }),
-  read_run: () => runDetail,
+  list_runs_all: () => ({ runs: runs.map((r) => ({ ...withOutcome(r), ...mockStamp() })), failures: [] }),
+  read_run: () => detailWithOutcome(runDetail, runs),
   // The live demo run's log: the typed-run backlog, one second apart ending now.
   read_run_events: () => {
     const events = demoRunBacklog.map((b, i) => ({ id: i + 1, ts: new Date(Date.now() - (demoRunBacklog.length - i) * 1000).toISOString(), event: 'api:event', data: b }));
@@ -109,8 +122,8 @@ const commandHandlers = {
     const { runId = remoteImport.runId } = args ?? {};
     return { ...remoteImport, runId };
   },
-  list_tasks: () => ({ tasks: boardTasks, capped: false }),
-  list_tasks_all: () => ({ tasks: boardTasks.map((t) => ({ ...t, ...mockStamp() })), capped: false, failures: [] }),
+  list_tasks: () => ({ tasks: boardTasks.map((t) => withView(t, runs, waitingNeedsYou)), capped: false }),
+  list_tasks_all: () => ({ tasks: boardTasks.map((t) => ({ ...withView(t, runs, waitingNeedsYou), ...mockStamp() })), capped: false, failures: [] }),
   fetch_spec: (args: { taskId?: string } | undefined) => ({ spec: taskSpecs[args?.taskId ?? ''] ?? taskSpecs['LINEAR-123']! }),
   list_spawns: () => [],
   spawn_run: () => 42,
@@ -175,6 +188,7 @@ const commandHandlers = {
   ],
   read_issue_history: () => ({ repo: 'acme/app', issue: 1, prs: [], entries: [], chains: [], unavailable: [] }),
   list_needs_you: () => ({ items: waitingNeedsYou }),
+  needs_you_comment: () => ({}),
   list_lessons: () => ({ lessons: mockLessons, branchFound: true }),
   list_repo_skills: () => ({ skills: [] }),
   update_skill_pr: () => ({ prUrl: 'https://github.com/acme/app/pull/1' }),
@@ -192,6 +206,7 @@ const commandHandlers = {
   reply_needs_you: (args: { id?: string } | undefined) => {
     waitingNeedsYou = waitingNeedsYou.filter((i) => i.id !== args?.id);
   },
+  rereview_pr: () => undefined,
   merge_needs_you: (args: { id?: string } | undefined) => {
     waitingNeedsYou = waitingNeedsYou.filter((i) => i.id !== args?.id);
   },
@@ -229,6 +244,14 @@ const commandHandlers = {
   [K in keyof Commands]: (args: Commands[K]['args']) => Promise<Commands[K]['result']> | Commands[K]['result'];
 }>;
 
+/** Commands the fixtures deliberately do not answer: mobile-only or never sent by the UI. */
+type Unmocked = 'agent_cli_versions' | 'enable_factory_secret' | 'migrate_labels' | 'register_push_token' | 'unregister_push_token' | 'get_team';
+
+// The coverage guard, in the type system: a command added to the wire catalogue needs a fixture handler here (or a
+// place in `Unmocked`), or this line stops compiling — screens call the session directly, so there is no wrapper list to scan.
+const _everyCommandIsMocked: Exclude<keyof Commands, keyof typeof commandHandlers | Unmocked> extends never ? true : never = true;
+void _everyCommandIsMocked;
+
 // Commands dispatch by string name, so this is the one place the per-command arg types are erased.
 const handlers = commandHandlers as Record<string, (args: unknown) => unknown>;
 
@@ -249,12 +272,12 @@ export function handle(cmd: string, args: unknown): unknown {
 const demoOverrides: Record<string, (args: unknown) => unknown> = {
   list_projects: () => [demoProject],
   list_teams: () => [{ ...mockTeam, repositories: [DEMO_REPO_PATH] }],
-  list_runs: () => demoRuns,
-  list_runs_all: () => ({ runs: demoRuns.map((r) => ({ ...r, repoPath: DEMO_REPO_PATH, repoName: demoProject.name })), failures: [] }),
-  read_run: (args) => demoRunDetails[(args as { taskId?: string } | undefined)?.taskId ?? ''] ?? demoRunDetails['DEMO-101'],
+  list_runs: () => demoRuns.map(withOutcome),
+  list_runs_all: () => ({ runs: demoRuns.map((r) => ({ ...withOutcome(r), repoPath: DEMO_REPO_PATH, repoName: demoProject.name })), failures: [] }),
+  read_run: (args) => detailWithOutcome(demoRunDetails[(args as { taskId?: string } | undefined)?.taskId ?? ''] ?? demoRunDetails['DEMO-101']!, demoRuns),
   list_active: () => demoActiveRuns,
-  list_tasks: () => ({ tasks: demoBoardTasks, capped: false }),
-  list_tasks_all: () => ({ tasks: demoBoardTasks.map((t) => ({ ...t, repoPath: DEMO_REPO_PATH, repoName: demoProject.name })), capped: false, failures: [] }),
+  list_tasks: () => ({ tasks: demoBoardTasks.map((t) => withView(t, demoRuns, demoNeedsYou)), capped: false }),
+  list_tasks_all: () => ({ tasks: demoBoardTasks.map((t) => ({ ...withView(t, demoRuns, demoNeedsYou), repoPath: DEMO_REPO_PATH, repoName: demoProject.name })), capped: false, failures: [] }),
   list_needs_you: () => ({ items: demoNeedsYou }),
   list_needs_you_all: () => ({ items: demoNeedsYou.map((i) => ({ ...i, repoPath: DEMO_REPO_PATH, repoName: demoProject.name })), failures: [] }),
   list_remote_runs: () => [],

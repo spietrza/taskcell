@@ -17,6 +17,7 @@ vi.mock('../paused.js', async (importOriginal) => {
 });
 
 import { retryPausedTask, withPausedTasks } from '../paused.js';
+import { forgetBoardWaiting } from '../asking.js';
 
 describe('tasks', () => {
   test('list_tasks wires paused marker details into the command result', async () => {
@@ -26,7 +27,7 @@ describe('tasks', () => {
     vi.mocked(withPausedTasks).mockResolvedValueOnce([enriched]);
     const { ctx } = await makeCtx(repo, { depsOverrides: { listTasks: async () => ({ tasks: [base], capped: false }) } });
     const result = await dispatchRpc(ctx, 'list_tasks', { repoPath: repo });
-    expect(result).toEqual({ tasks: [enriched], capped: false });
+    expect(result).toEqual({ tasks: [{ ...enriched, view: { place: { at: 0, failed: false } } }], capped: false });
     expect(withPausedTasks).toHaveBeenCalledWith('allowed/repo', [base], ctx.gh, expect.objectContaining({ remaining: 30 }));
   });
 
@@ -39,12 +40,33 @@ describe('tasks', () => {
     };
     const { ctx } = await makeCtx(repo, { gh, depsOverrides: { listTasks: async () => ({ tasks: [], capped: false }) } });
     expect(await dispatchRpc(ctx, 'list_tasks', { repoPath: repo })).toEqual({ tasks: [], capped: false });
-    expect(calls.map((c) => c.slice(0, 2))).toEqual([['pr', 'list'], ['pr', 'list']]);
-    // A project whose task source is not GitHub spawns nothing, github.com origin or not.
+    // The paused reads (two `pr list`) and the cards' waiting items (needs-you: one `issue list`, two `pr list`).
+    expect(calls.map((c) => c.slice(0, 2).join(' ')).sort()).toEqual(['issue list', 'pr list', 'pr list', 'pr list', 'pr list']);
+    // A project whose task source is not GitHub reads no paused pull requests, github.com origin or not.
     calls.length = 0;
     await writeAppConfig(repo, { source: 'linear' });
+    // Its cards' waiting items still come from GitHub (its remote's PRs and issues), as list_needs_you reads them.
+    forgetBoardWaiting(repo);
     await dispatchRpc(ctx, 'list_tasks', { repoPath: repo });
-    expect(calls).toEqual([]);
+    expect(calls.map((c) => c.slice(0, 2).join(' ')).sort()).toEqual(['issue list', 'pr list', 'pr list']);
+  });
+
+  test('the cards\' waiting items are kept briefly, shared, and dropped by a reply or a merge', async () => {
+    const repo = await tmpGitRepo('https://github.com/allowed/repo.git');
+    const calls: string[][] = [];
+    const gh = async (args: string[]): Promise<string> => {
+      calls.push(args);
+      return '[]';
+    };
+    const { ctx } = await makeCtx(repo, { gh, depsOverrides: { listTasks: async () => ({ tasks: [], capped: false }) } });
+    const needsYouReads = (): number => calls.filter((c) => c[0] === 'issue' && c[1] === 'list').length;
+    await dispatchRpc(ctx, 'list_tasks', { repoPath: repo });
+    await dispatchRpc(ctx, 'list_tasks', { repoPath: repo });
+    expect(needsYouReads()).toBe(1);
+    // A merge (refused here: no such PR) still drops the kept read, so the next board load sees what changed.
+    await dispatchRpc(ctx, 'merge_needs_you', { repoPath: repo, id: 'allowed/repo#1' }).catch(() => {});
+    await dispatchRpc(ctx, 'list_tasks', { repoPath: repo });
+    expect(needsYouReads()).toBe(2);
   });
 
   test('T-60 api_create_task substitutes source/team/label from app.json and ignores client values', async () => {
@@ -383,5 +405,85 @@ describe('retry_paused_task', () => {
     vi.mocked(retryPausedTask).mockResolvedValueOnce({ label: 'ship it' });
     await expect(call(ctx, repo)).resolves.toEqual({ label: 'ship it' });
     expect(retryPausedTask).toHaveBeenCalledWith('allowed/repo', 7, ['ready for agent', 'ready for spec', 'ship it']);
+  });
+});
+
+describe('needs-you cache', () => {
+  const ghCounter = (): { calls: string[][]; gh: (args: string[]) => Promise<string> } => {
+    const calls: string[][] = [];
+    return { calls, gh: async (args) => { calls.push(args); return '[]'; } };
+  };
+  const board = { listTasks: async () => ({ tasks: [], capped: false }) };
+
+  test('two board polls 20 s apart read GitHub once; list_needs_you within the TTL reads nothing new', async () => {
+    const repo = await tmpGitRepo('https://github.com/allowed/repo.git');
+    const { calls, gh } = ghCounter();
+    const { ctx } = await makeCtx(repo, { gh, depsOverrides: { listTasks: board.listTasks } });
+    await writeAppConfig(repo, { source: 'linear' });
+    forgetBoardWaiting(repo);
+    const now = vi.spyOn(Date, 'now');
+    const t0 = Date.now();
+    try {
+      await dispatchRpc(ctx, 'list_tasks', { repoPath: repo });
+      const first = calls.length;
+      expect(first).toBeGreaterThan(0);
+      now.mockReturnValue(t0 + 20_000);
+      await dispatchRpc(ctx, 'list_tasks', { repoPath: repo });
+      await dispatchRpc(ctx, 'list_needs_you', { repoPath: repo });
+      expect(calls.length).toBe(first);
+    } finally {
+      now.mockRestore();
+    }
+  });
+
+  test('a reply or an answer drops the kept read', async () => {
+    const repo = await tmpGitRepo('https://github.com/allowed/repo.git');
+    const { calls, gh } = ghCounter();
+    const { ctx } = await makeCtx(repo, { gh, depsOverrides: { listTasks: board.listTasks } });
+    forgetBoardWaiting(repo);
+    const reads = (): number => calls.filter((c) => c[0] === 'issue' && c[1] === 'list').length;
+    await dispatchRpc(ctx, 'list_needs_you', { repoPath: repo });
+    await dispatchRpc(ctx, 'reply_needs_you', { repoPath: repo, id: 'allowed/repo#1', kind: 'issue', body: 'hi' }).catch(() => {});
+    await dispatchRpc(ctx, 'list_needs_you', { repoPath: repo });
+    expect(reads()).toBe(2);
+    await dispatchRpc(ctx, 'reply_needs_you', { repoPath: repo, id: 'hub-1', kind: 'card', body: 'hi' }).catch(() => {});
+    await dispatchRpc(ctx, 'list_needs_you', { repoPath: repo });
+    expect(reads()).toBe(3);
+  });
+
+  test('the board path makes no comments calls; a failed read keeps the last items and flags the cards', async () => {
+    const repo = await tmpGitRepo('https://github.com/allowed/repo.git');
+    const calls: string[][] = [];
+    let fail = false;
+    const issue = JSON.stringify([{ number: 4, title: 'Q', url: 'https://github.com/allowed/repo/issues/4', labels: [{ name: 'needs info' }], updatedAt: 'x' }]);
+    const gh = async (args: string[]): Promise<string> => {
+      calls.push(args);
+      if (fail) throw new Error('rate limited');
+      return args[0] === 'issue' && args[1] === 'list' ? issue : '[]';
+    };
+    const card = { id: 'gh-4', title: 'Q', column: 'queued' as const, state: 'x', source: 'github' as const };
+    const { ctx } = await makeCtx(repo, { gh, depsOverrides: { listTasks: async () => ({ tasks: [card], capped: false }) } });
+    forgetBoardWaiting(repo);
+    const now = vi.spyOn(Date, 'now');
+    const t0 = Date.now();
+    try {
+      await dispatchRpc(ctx, 'list_tasks', { repoPath: repo });
+      expect(calls.some((c) => c.includes('comments'))).toBe(false);
+      fail = true;
+      now.mockReturnValue(t0 + 61_000);
+      const failed = await dispatchRpc(ctx, 'list_needs_you', { repoPath: repo }) as { items: { number: number }[]; unchecked?: boolean };
+      expect(failed.items.map((i) => i.number)).toEqual([4]);
+      expect(failed.unchecked).toBe(true);
+      const tasks = (await dispatchRpc(ctx, 'list_tasks', { repoPath: repo }) as { tasks: { view: { waiting?: { number: number }; waitingUnchecked?: boolean } }[] }).tasks;
+      expect(tasks[0]?.view.waiting?.number).toBe(4);
+      expect(tasks[0]?.view.waitingUnchecked).toBe(true);
+      // The failure is kept briefly: a second poll does not retry GitHub.
+      const listReads = (): number => calls.filter((c) => c[0] === 'issue' && c[1] === 'list').length;
+      const before = listReads();
+      await dispatchRpc(ctx, 'list_tasks', { repoPath: repo });
+      expect(listReads()).toBe(before);
+    } finally {
+      now.mockRestore();
+    }
   });
 });

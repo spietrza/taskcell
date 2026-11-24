@@ -1,10 +1,11 @@
 import { useRef, useState } from 'react';
 import { Button, ErrorNote, useFocusTrap } from '@/ui';
-import { readApproverScorecard, setApproverMode } from '../../ipc';
+import { setApproverMode } from '../../ipc';
 import { gateProps, useAsync, useCallerCapabilities } from '../../hooks';
 import { errorMessage } from '../../errors';
 import { ExternalLink } from '../../components/ExternalLink';
 import type { ApproverMode, ApproverScorecard } from '../../wire';
+import { hub } from '../../transport';
 
 const MODE_WORDS: Record<ApproverMode, string> = {
   off: 'Off — the approver does nothing',
@@ -78,7 +79,7 @@ function Dialog({ repo, card, mode, onClose, onDone }: { repo: string; card: App
 
 /** Project settings, "Auto-merge": the 90-day scorecard beside the mode switch (hub only). The switch opens a PR. */
 export function AutoMerge({ project: repo }: { project: string }) {
-  const { data, error, loading } = useAsync(() => readApproverScorecard(repo, '90d'), [repo]);
+  const { data, error, loading } = useAsync(() => hub().call('read_approver_scorecard', { repoPath: repo, period: '90d' }), [repo]);
   const [target, setTarget] = useState<ApproverMode | null>(null);
   const [prUrl, setPrUrl] = useState<string | null>(null);
   const gate = useCallerCapabilities(repo)?.project?.canChangeSettings;

@@ -611,6 +611,23 @@ export function createLlmProxyServer(secretText, options = {}) {
       { host: target.host, port: target.port, method: 'POST', path, headers },
       (upRes) => {
         responded = true;
+        // An Anthropic upstream 401/403 means the real credential is dead: answer a fixed, classified
+        // error the CLI prints instead of the upstream body. Log only method, path and status.
+        if (spec.auth === 'anthropic' && (upRes.statusCode === 401 || upRes.statusCode === 403)) {
+          upRes.resume();
+          const json = JSON.stringify({
+            type: 'error',
+            error: {
+              type: 'authentication_error',
+              message: 'the Claude credential was refused (expired or revoked). Refresh CLAUDE_CODE_OAUTH_TOKEN (or ANTHROPIC_API_KEY) and re-run.',
+            },
+          });
+          res.writeHead(401, { 'content-type': 'application/json' });
+          res.end(json);
+          log(req, upRes.statusCode, Buffer.byteLength(json), started);
+          cleanup();
+          return;
+        }
         const outHeaders = {};
         for (const [key, value] of Object.entries(upRes.headers)) {
           if (HOP_BY_HOP.has(key.toLowerCase())) continue;

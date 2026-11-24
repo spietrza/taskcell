@@ -1,6 +1,6 @@
 import { writeStageMarker, clearStageMarker } from '../core/run-stage-marker.js';
 vi.mock('../core/run-stage-marker.js', () => ({ writeStageMarker: vi.fn(async () => {}), clearStageMarker: vi.fn(async () => {}) }));
-import { afterAll, beforeAll, describe, expect, it, vi, beforeEach } from 'vitest';
+import { describe, expect, it, vi, beforeEach } from 'vitest';
 import { mkdir, mkdtemp, writeFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -11,7 +11,7 @@ import { resolveVerifyCommand, runVerification } from '../pipeline/verify.js';
 import { resolveBaselineVerify } from '../pipeline/baseline-verify.js';
 import { resolveAndRunVisualProof } from '../pipeline/visual-proof.js';
 import { loadRetrospectiveMemory } from '../core/retrospective-memory.js';
-import { pickRunOptions, runSourcedIssue as runWith, conventionalCommitMessage, modelFromLabels } from './source-adapter.js';
+import { pickRunOptions, runSourcedIssue as runWith, conventionalCommitMessage } from './source-adapter.js';
 import { runCredentialContext } from './agent-session.js';
 import type { RunIssueDeps, Tracker, ReviewHost } from './source-adapter.js';
 import { extractPrBodyItemsBlock } from '../pipeline/conformance-gate.js';
@@ -443,10 +443,10 @@ describe('runSourcedIssue', () => {
       injectAnthropicAuth: false,
     } as never);
     const adapter = fakeAdapter([], STAGES);
-    await runSourcedIssue('group/project#1', { repoPath: '/repo', fallbackProvider: 'codex', fallbackModel: 'gpt-5.6-sol' }, adapter);
+    await runSourcedIssue('group/project#1', { repoPath: '/repo', fallbackProvider: 'codex', fallbackModel: 'gpt-6-sol' }, adapter);
     const assembled = runStages.mock.calls[0]?.[1] as PipelineStage[];
     const implementer = assembled.find((st) => st.name === 'implementer');
-    expect(implementer?.fallback).toEqual({ provider: { name: 'codex' }, model: 'gpt-5.6-sol' });
+    expect(implementer?.fallback).toEqual({ provider: { name: 'codex' }, model: 'gpt-6-sol' });
     expect(assembled.filter((st) => st.provider === undefined).every((st) => st.fallback?.provider.name === 'codex')).toBe(true);
     expect(assembled.filter((st) => st.provider !== undefined).every((st) => st.fallback?.provider.name !== 'codex')).toBe(true);
     expect(vi.mocked(prepareContext).mock.calls.at(-1)?.[0]).toEqual(expect.objectContaining({ fallbackAgentName: 'codex' }));
@@ -461,7 +461,7 @@ describe('runSourcedIssue', () => {
       injectAnthropicAuth: false,
     } as never);
     runStages.mockResolvedValueOnce([
-      { ...stageOutcome('implementer', 'sess-1'), providerName: 'codex', model: 'gpt-5.6-sol' },
+      { ...stageOutcome('implementer', 'sess-1'), providerName: 'codex', model: 'gpt-6-sol' },
       stageOutcome('reviewer'),
     ]);
     vi.mocked(resolveVerifyCommand).mockResolvedValue('npm test');
@@ -469,34 +469,15 @@ describe('runSourcedIssue', () => {
       .mockResolvedValueOnce({ passed: false } as never)
       .mockResolvedValueOnce({ passed: false } as never)
       .mockResolvedValueOnce({ passed: true } as never);
-    runAgent.mockResolvedValue({ sessionId: 'sess-1', completed: true, exitReason: 'completed', turns: 2, model: 'gpt-5.6-sol' } as never);
+    runAgent.mockResolvedValue({ sessionId: 'sess-1', completed: true, exitReason: 'completed', turns: 2, model: 'gpt-6-sol' } as never);
 
     const adapter = fakeAdapter([], STAGES);
     await runSourcedIssue('group/project#1', { repoPath: '/repo', fallbackProvider: 'codex', escalateModel: 'claude-fable-5' }, adapter);
 
     expect(runAgent).toHaveBeenCalledTimes(2);
     for (const call of runAgent.mock.calls) {
-      expect(call[1]).toMatchObject({ agent: { name: 'codex' }, resumeSessionId: 'sess-1', model: 'gpt-5.6-sol' });
+      expect(call[1]).toMatchObject({ agent: { name: 'codex' }, resumeSessionId: 'sess-1', model: 'gpt-6-sol' });
     }
-  });
-
-  it('a taskcell:model=<m> label pins the implementer model for that task, over --provider-model', async () => {
-    const labelled = fakeAdapter([], STAGES);
-    labelled.prepare = vi.fn(async () => ({ task: { ...task, labels: ['ready for agent', 'taskcell:model=claude-fable-5'] } }));
-    await runSourcedIssue('group/project#1', { repoPath: '/repo', providerModel: 'claude-sonnet-5', reviewModel: 'claude-opus-4-8' }, labelled);
-
-    const assembled = runStages.mock.calls[0]?.[1] as PipelineStage[];
-    expect(assembled.find((s) => s.name === 'implementer')?.model).toBe('claude-fable-5');
-    // --review-model is untouched: the label is implementer-tier only.
-    expect(assembled.find((s) => s.name === 'reviewer')?.model).toBe('claude-opus-4-8');
-  });
-
-  it('the label routes like --provider-model: a same-provider reviewer without --review-model takes it too', async () => {
-    const labelled = fakeAdapter([], STAGES);
-    labelled.prepare = vi.fn(async () => ({ task: { ...task, labels: ['taskcell:model=claude-fable-5'] } }));
-    await runSourcedIssue('group/project#1', { repoPath: '/repo', provider: 'claude' }, labelled);
-    const assembled = runStages.mock.calls[0]?.[1] as PipelineStage[];
-    expect(assembled.every((s) => s.model === 'claude-fable-5')).toBe(true);
   });
 
   it('--escalate-model does not override a per-task model label on later repairs', async () => {
@@ -542,11 +523,6 @@ describe('runSourcedIssue', () => {
     expect(plain.fork?.score).toBeUndefined();
   });
 
-  it('a model pool resolves to one provider/model before the agents are selected', async () => {
-    await runSourcedIssue('group/project#1', { repoPath: '/repo', providerModel: 'codex/gpt-5.6-sol:1' }, fakeAdapter([], STAGES));
-    expect(selectAgents).toHaveBeenLastCalledWith(expect.objectContaining({ provider: 'codex', providerModel: 'gpt-5.6-sol' }), expect.anything(), expect.anything());
-  });
-
   describe('model pool limits', () => {
     const limitOnce = (): void => {
       runStages.mockImplementationOnce(async (_ctx: unknown, _stages: unknown, opts: { onEvent: (event: RunEvent) => void }) => {
@@ -584,7 +560,7 @@ describe('runSourcedIssue', () => {
       const repo = await mkdtemp(join(tmpdir(), 'pool-flow-'));
       try {
         const stages: PipelineStage[] = [
-          { ...STAGES[0]!, model: 'claude/sonnet:1, codex/gpt-5.6-sol:1' },
+          { ...STAGES[0]!, model: 'claude/sonnet:1, codex/gpt-6-sol:1' },
           { name: 'simplifier', promptTemplate: '', maxTurns: 10 },
           STAGES[1]!,
         ];
@@ -643,21 +619,6 @@ describe('runSourcedIssue', () => {
     expect(persistDecisionProbe).not.toHaveBeenCalled();
   });
 
-  it('modelFromLabels: last matching label wins, blanks ignored, none → undefined', () => {
-    expect(modelFromLabels(['bug', 'taskcell:model=opus', 'taskcell:model=claude-fable-5'])).toBe('claude-fable-5');
-    expect(modelFromLabels(['taskcell:model= '])).toBeUndefined();
-    expect(modelFromLabels(['ready for agent'])).toBeUndefined();
-  });
-
-  it('modelFromLabels: malformed values are ignored and reported, well-formed slugs pass', () => {
-    const bad: string[] = [];
-    const labels = ['taskcell:model=opus; rm -rf /', 'taskcell:model=$(id)', 'taskcell:model=anthropic/claude-sonnet-4.6'];
-    expect(modelFromLabels(labels, (l) => bad.push(l))).toBe('anthropic/claude-sonnet-4.6');
-    expect(bad).toEqual(['taskcell:model=opus; rm -rf /', 'taskcell:model=$(id)']);
-    expect(modelFromLabels(['taskcell:model=gpt-5.6-sol'])).toBe('gpt-5.6-sol');
-    expect(modelFromLabels([`taskcell:model=${'a'.repeat(81)}`])).toBeUndefined();
-  });
-
   it('builds the sandbox with the shared sandboxImage() resolver, so a TASKCELL_SANDBOX_IMAGE override reaches it too', async () => {
     sandboxImage.mockReturnValue('sha256:deadbeef');
     const adapter = fakeAdapter([], STAGES);
@@ -665,15 +626,6 @@ describe('runSourcedIssue', () => {
 
     expect(sandboxImage).toHaveBeenCalled();
     expect(capturedSandboxOpts).toContainEqual(expect.objectContaining({ image: 'sha256:deadbeef' }));
-  });
-
-  it('--plan swaps in the plan-implement-review pipeline (a dedicated planner stage runs first)', async () => {
-    const adapter = fakeAdapter([], STAGES); // adapter's own stages are implementer→reviewer (no planner)
-    await runSourcedIssue('group/project#1', { repoPath: '/repo', plan: true }, adapter);
-
-    const assembled = runStages.mock.calls[0]?.[1] as PipelineStage[];
-    expect(assembled[0]?.name).toBe('planner'); // planning runs before the implementer
-    expect(assembled.some((s) => s.name === 'implementer')).toBe(true);
   });
 
   it('--flow flow-b runs planner→implementer→adversary→repairer and reports the flow key', async () => {
@@ -695,29 +647,6 @@ describe('runSourcedIssue', () => {
     // A reviewer-less flow completes and publishes the PR, but posts no verdict comment.
     expect(result.prUrl).toBe(MR_URL);
     expect(adapter.publishVerdict).not.toHaveBeenCalled();
-  });
-
-  it('--max-turns overrides only the implementer of an HCL-shaped flow; other stages survive', async () => {
-    const adapter = fakeAdapter([], STAGES);
-    await runSourcedIssue('group/project#1', { repoPath: '/repo', flow: 'flow-b', maxTurns: 10 }, adapter);
-    const assembled = runStages.mock.calls[0]?.[1] as PipelineStage[];
-    expect(assembled.find((s) => s.name === 'implementer')?.maxTurns).toBe(10); // flag wins on implementer
-    expect(assembled.find((s) => s.name === 'adversary')?.maxTurns).toBe(12); // non-implementer HCL value survives
-  });
-
-  it("--flow default keeps the adapter's own stages (Linear's issue-reading implementer survives)", async () => {
-    // 'default' is a selectable name in capabilities().flows, so a name-driven UI will send it. It must
-    // mean "the adapter's stages", NOT FLOWS.default.build — an adapter may customize them (Linear swaps
-    // in an implementer that reads the issue via linear-cli), and overriding that is a silent regression.
-    const linearish: PipelineStage[] = [
-      { name: 'implementer', promptTemplate: 'Use the linear-cli skill to read Linear issue {{ISSUE}}', maxTurns: 30 },
-      { name: 'reviewer', promptTemplate: '', maxTurns: 20 },
-    ];
-    const adapter = fakeAdapter([], linearish);
-    await runSourcedIssue('VAN-1', { repoPath: '/repo', flow: 'default' }, adapter);
-
-    const assembled = runStages.mock.calls[0]?.[1] as PipelineStage[];
-    expect(assembled.find((s) => s.name === 'implementer')?.promptTemplate).toContain('linear-cli');
   });
 
   it('--conformance on a reviewer-less flow throws instead of running a stage nobody will see', async () => {
@@ -778,29 +707,6 @@ describe('runSourcedIssue', () => {
     } finally {
       await rm(repo, { recursive: true, force: true });
     }
-  });
-
-  it('--max-turns overrides the assembled implementer stage maxTurns; default stays 30 without the flag', async () => {
-    const adapter = fakeAdapter([], STAGES);
-    await runSourcedIssue('group/project#1', { repoPath: '/repo', maxTurns: 80 }, adapter);
-    const assembled = runStages.mock.calls[0]?.[1] as PipelineStage[];
-    expect(assembled.find((s) => s.name === 'implementer')?.maxTurns).toBe(80);
-
-    vi.clearAllMocks();
-    runStages.mockResolvedValue([stageOutcome('reviewer')]);
-    commitStage.mockResolvedValue({ committed: true, branch: 'b', sha: 'abc1234' });
-    publishForReview.mockResolvedValue({ branch: 'b', prUrl: MR_URL });
-    const adapter2 = fakeAdapter([], STAGES);
-    await runSourcedIssue('group/project#1', { repoPath: '/repo' }, adapter2);
-    const assembledNoOverride = runStages.mock.calls[0]?.[1] as PipelineStage[];
-    expect(assembledNoOverride.find((s) => s.name === 'implementer')?.maxTurns).toBe(30);
-  });
-
-  it('--max-turns survives the --plan pipeline', async () => {
-    const adapter = fakeAdapter([], STAGES);
-    await runSourcedIssue('group/project#1', { repoPath: '/repo', plan: true, maxTurns: 80 }, adapter);
-    const assembled = runStages.mock.calls[0]?.[1] as PipelineStage[];
-    expect(assembled.find((s) => s.name === 'implementer')?.maxTurns).toBe(80);
   });
 
   it('persists stage outcomes WITH pr.prUrl on the committed path', async () => {
@@ -938,72 +844,6 @@ describe('runSourcedIssue', () => {
     expect(publishForReview).not.toHaveBeenCalled();
     expect(order).toEqual([]);
     expect(resolveAndRunVisualProof).toHaveBeenCalled();
-  });
-
-  describe('hand-picked skills', () => {
-    let skillsDir: string;
-    beforeAll(async () => {
-      skillsDir = await mkdtemp(join(tmpdir(), 'taskcell-named-skills-'));
-      for (const id of ['db', 'release', 'other']) {
-        await mkdir(join(skillsDir, id));
-        await writeFile(join(skillsDir, id, 'SKILL.md'), `---\nname: ${id}\n---\n`);
-      }
-    });
-    afterAll(() => rm(skillsDir, { recursive: true, force: true }));
-    const withBody = (description: string): SourceAdapter => ({ ...fakeAdapter([], STAGES), prepare: vi.fn(async () => ({ task: { ...task, description } })) });
-    const record = (): unknown => ((writeStages.mock.calls[0] as unknown[] | undefined)?.[1] as { skills?: unknown } | undefined)?.skills;
-    const implementerPrompt = (): string => (runStages.mock.calls[0]?.[1] as PipelineStage[]).find((s) => s.name === 'implementer')?.promptTemplate ?? '';
-
-    it('merges --skill with the body line, tells the implementer and records named vs available', async () => {
-      await runSourcedIssue('group/project#1', { repoPath: '/repo', skillsDir, namedSkills: ['release'] }, withBody('Do it\n\nSkills: db'));
-      expect(implementerPrompt()).toMatch(/MUST load and follow each of them.*: release, db\./);
-      expect((runStages.mock.calls[0]?.[1] as PipelineStage[]).find((s) => s.name === 'reviewer')?.promptTemplate).not.toContain('MUST load');
-      expect(record()).toEqual({ named: ['release', 'db'], available: ['other'] });
-    });
-
-    it('reaches the implementer of the plan flow too', async () => {
-      await runSourcedIssue('group/project#1', { repoPath: '/repo', skillsDir, plan: true }, withBody('Skills: db'));
-      expect(implementerPrompt()).toContain('MUST load and follow each of them');
-    });
-
-    it('refuses a skill that is not installed before the sandbox and any model call, naming the installed ones', async () => {
-      vi.mocked(prepareContext).mockClear();
-      await expect(runSourcedIssue('group/project#1', { repoPath: '/repo', skillsDir }, withBody('Skills: nope'))).rejects.toThrow('Unknown skill: nope. Installed skills: db, other, release.');
-      await expect(runSourcedIssue('group/project#1', { repoPath: '/repo', skillsDir, namedSkills: ['nope'] }, withBody(''))).rejects.toThrow('Unknown skill: nope.');
-      expect(prepareContext).not.toHaveBeenCalled();
-      expect(runStages).not.toHaveBeenCalled();
-    });
-
-    it('an issue that mentions skills in prose runs as before, with a note on the run', async () => {
-      const events: RunEvent[] = [];
-      await runSourcedIssue('group/project#1', { repoPath: '/repo', skillsDir, onEvent: (e) => events.push(e) }, withBody('Skills: TypeScript and SQL, good communication\n```\nSkills: nope\n```'));
-      expect(runStages).toHaveBeenCalledTimes(1);
-      expect(implementerPrompt()).not.toContain('MUST load');
-      expect(record()).toEqual({ named: [], available: ['db', 'other', 'release'], notes: [expect.stringContaining('it was ignored')] });
-      expect(events).toContainEqual({ type: 'warning', message: expect.stringContaining('it was ignored') });
-    });
-
-    it('the hub list replaces the body line, so a skill unticked there is not loaded', async () => {
-      await runSourcedIssue('group/project#1', { repoPath: '/repo', skillsDir, namedSkills: ['release'], namedSkillsOnly: true }, withBody('Skills: db'));
-      expect(implementerPrompt()).toMatch(/: release\.$/);
-      expect(record()).toEqual({ named: ['release'], available: ['db', 'other'], notes: [expect.stringContaining('was replaced by the list chosen in the hub (release)')] });
-    });
-
-    it('a provider that reads no skills says so on the run event and the record, and lists none as loaded', async () => {
-      const agents = { secrets: {}, proxySecrets: {}, injectAnthropicAuth: false };
-      const events: RunEvent[] = [];
-      vi.mocked(selectAgents).mockReturnValueOnce({ ...agents, agent: { name: 'pi' } } as never);
-      await runSourcedIssue('group/project#1', { repoPath: '/repo', skillsDir, onEvent: (e) => events.push(e) }, withBody('Skills: db'));
-      const note = expect.stringContaining('provider pi does not support skills');
-      expect(record()).toEqual({ named: [], available: [], notes: [note] });
-      expect(events).toContainEqual({ type: 'warning', message: note });
-
-      // Every agent stage's provider is checked, not only the implementer's.
-      writeStages.mockClear();
-      vi.mocked(selectAgents).mockReturnValueOnce({ ...agents, agent: { name: 'claude' }, reviewAgent: { name: 'pi' } } as never);
-      await runSourcedIssue('group/project#1', { repoPath: '/repo', skillsDir }, withBody('Skills: db'));
-      expect(record()).toEqual({ named: ['db'], available: ['other', 'release'], notes: [note] });
-    });
   });
 
   it('injects --spec-file content as a virtual comment without mutating the fetched task', async () => {

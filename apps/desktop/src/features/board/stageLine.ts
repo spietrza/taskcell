@@ -25,7 +25,7 @@ export function repairAttempts(run?: Pick<RunDetail, 'stages'>): number {
 }
 
 /**
- * The six stations for a place on the line (`stationOf`, `runStationOf`, `cardStationOf`): stations before `at` are done,
+ * The six stations for a place on the line (the hub's `view.place` / `outcome.place`, or `stationOf`): stations before `at` are done,
  * after it waiting; `at` itself is current, or failed. `repairs` notes the gate repairs on a current Gates station.
  */
 export function stepsAt(place: Place, opts: { repairs?: number; maxRepairs?: number } = {}): StageStep[] {

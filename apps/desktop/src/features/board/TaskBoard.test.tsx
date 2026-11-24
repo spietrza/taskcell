@@ -7,27 +7,36 @@ import type { BoardTask } from '../../wire';
 
 vi.mock('../../ipc', () => ({
   callerCapabilities: vi.fn(async () => ({ mutationsAllowed: true, owner: true, admin: true, canAddProject: { allowed: true }, teamRoles: {} })),
-  listTasks: vi.fn(),
   listTasksAll: vi.fn(),
-  listRuns: vi.fn().mockResolvedValue([]),
   readRun: vi.fn(),
-  listNeedsYou: vi.fn().mockResolvedValue({ items: [] }),
-  retryPausedTask: vi.fn().mockResolvedValue({ label: 'ready for agent' }),
-  apiListSkills: vi.fn(async () => ({ skills: ['db', 'release'] })),
-  apiSetTaskSkills: vi.fn(async (_repo: string, _id: string, skills: string[]) => ({ skills })),
   hubTaskCreate: vi.fn().mockResolvedValue({ id: 'hub-2' }),
   hubTaskSchedule: vi.fn().mockResolvedValue({ id: 'hub-1' }),
-  readAppConfigStrict: vi.fn(async () => ({})),
   fetchSpec: vi.fn(async () => 'The issue body.'),
 }));
-import { listNeedsYou, listTasks, listTasksAll, retryPausedTask } from '../../ipc';
-const mockListTasks = vi.mocked(listTasks);
+import { listTasksAll } from '../../ipc';
+import { stubHubCalls, type HubCall } from '../../testHub';
+const mockListTasks = vi.fn<HubCall<'list_tasks'>>();
+const listNeedsYou = vi.fn<HubCall<'list_needs_you'>>(async () => ({ items: [] }));
+let hubCall: ReturnType<typeof stubHubCalls>;
 
 beforeEach(() => {
   vi.clearAllMocks();
   window.__TASKCELL_HUB__ = true;
+  hubCall = stubHubCalls({
+    list_tasks: mockListTasks,
+    list_runs: async () => [],
+    list_needs_you: listNeedsYou,
+    needs_you_comment: async () => ({}),
+    retry_paused_task: async () => ({ label: 'ready for agent' }),
+    list_skills: async () => ({ skills: ['db', 'release'] }),
+    set_task_skills: async ({ skills }) => ({ skills }),
+    read_app_config_strict: async () => ({}),
+  });
 });
-afterEach(() => vi.useRealTimers());
+afterEach(() => {
+  vi.useRealTimers();
+  vi.restoreAllMocks();
+});
 
 // A lane is a station column (a group named by its label); scope queries to it so a task asserted
 // "in Cell" really renders under Cell, not just somewhere on the board.
@@ -144,7 +153,7 @@ describe('TaskBoard on a hub-board project', () => {
 
   test('an all-repositories poll that cannot read one repository keeps its cards, the open quick view and typed text', async () => {
     vi.useFakeTimers();
-    const seven = { id: 'gh-7', title: 'Seven', column: 'review' as const, state: 'review', source: 'github' as const, repoPath: '/r/alpha', repoName: 'alpha' };
+    const seven = { id: 'gh-7', title: 'Seven', column: 'review' as const, state: 'review', source: 'github' as const, repoPath: '/r/alpha', repoName: 'alpha', view: { place: { at: 4, failed: false }, waiting: { id: 'o/r#7', kind: 'issue' as const, number: 7, repoSlug: 'o/r', title: 'Seven', url: 'u', reason: 'taskcell:verify-failed' } } };
     vi.mocked(listNeedsYou).mockResolvedValueOnce({ items: [{ id: 'o/r#7', kind: 'issue', number: 7, repoSlug: 'o/r', title: 'Seven', url: 'u', reason: 'taskcell:verify-failed' }] });
     vi.mocked(listTasksAll).mockResolvedValueOnce({ tasks: [seven], capped: false, failures: [], hubBoards: ['/r/alpha'] });
     vi.mocked(listTasksAll).mockResolvedValue({ tasks: [], capped: false, failures: [{ repoPath: '/r/alpha', repoName: 'alpha', error: 'hub down' }], hubBoards: [] });
@@ -591,7 +600,7 @@ describe('TaskBoard paused by a provider limit', () => {
     render(<TaskBoard project="/repo" repos={[]} onOpenTask={() => {}} onNewTask={() => {}} />);
     fireEvent.click(await screen.findByText('Paused gh-7'));
     fireEvent.click(await screen.findByRole('button', { name: 'Retry now' }));
-    await waitFor(() => expect(retryPausedTask).toHaveBeenCalledWith('/repo', 7));
+    await waitFor(() => expect(hubCall).toHaveBeenCalledWith('retry_paused_task', { repoPath: '/repo', number: 7 }));
     await waitFor(() => expect(mockListTasks).toHaveBeenCalledTimes(2));
     expect(screen.queryByRole('status')).toBeNull();
     expect(screen.queryByText('Paused: provider limit')).toBeNull();

@@ -162,7 +162,7 @@ async function startHubTask(ctx: SweepContext, repoPath: string, task: HubTask, 
     (await repoVisibility(ctx.configDir, caller)).assert(repoPath);
     const config = await readAppConfig(repoPath);
     const provider = typeof config.provider === 'string' && config.provider.trim() !== '' ? config.provider : undefined;
-    const flow = configuredFlow(config);
+    const flow = task.flow ?? configuredFlow(config);
     const credential = ctx.userCredentials !== undefined ? await ctx.userCredentials.resolveForRun(caller.user, provider) : undefined;
     const params: CreateRunParams = { issueRef: task.id, repoPath, transport: HUB_TRANSPORT, hubTask: { id: task.id, title: task.title, body: task.body }, ...(task.skills !== undefined ? { skills: task.skills } : {}), startedBy: actor!.login, ...(provider !== undefined ? { provider } : {}), ...(flow !== undefined ? { flow } : {}) };
     await ctx.deps?.checkRun?.(params, credential);

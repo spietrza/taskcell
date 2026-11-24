@@ -1,13 +1,13 @@
-import { expect, test, vi } from 'vitest';
+import { afterEach, beforeEach, expect, test, vi } from 'vitest';
 import { useState } from 'react';
 import { fireEvent, render, screen, within } from '@testing-library/react';
 import { FilterBar } from './FilterBar';
 import { DEFAULT_FILTER, type CardSource, type HubFilter } from './filterState';
 import { RunList } from './features/inspector/RunList';
 import { TaskBoard } from './features/board/TaskBoard';
+import { stubHubCalls } from './testHub';
 
 vi.mock('./ipc', () => ({
-  listTasks: vi.fn(),
   listTasksAll: vi.fn().mockResolvedValue({
     tasks: [
       { id: 'gh-1', title: 'Alpha', column: 'running', state: '', source: 'github', repoPath: '/a', repoName: 'a' },
@@ -16,10 +16,12 @@ vi.mock('./ipc', () => ({
     capped: false,
     failures: [],
   }),
-  listRuns: vi.fn().mockResolvedValue([]),
   readRun: vi.fn(),
-  listNeedsYou: vi.fn().mockResolvedValue({ items: [] }),
 }));
+beforeEach(() => {
+  stubHubCalls({ list_tasks: async () => ({ tasks: [], capped: false }), list_runs: async () => [], list_needs_you: async () => ({ items: [] }) });
+});
+afterEach(() => vi.restoreAllMocks());
 
 const repos = [{ path: '/a', name: 'alpha-repo' }, { path: '/b', name: 'beta-repo' }, { path: '/c', name: 'gamma' }];
 // Past six projects the tabs keep the busy ones and "More…" holds the picker.

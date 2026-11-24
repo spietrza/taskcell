@@ -20,6 +20,7 @@ import { ciRunUrl, diffUrlFor, httpsUrl } from './links.js';
 import { reviewVerdictOf } from '../pipeline/review-verdict.js';
 import { parseSkillsUsed, sanitizeSkillIds } from './skills-used.js';
 import { parseMetrics } from './stats.js';
+import { taskRefKey } from '../tasks/board.js';
 import { workflowPaths } from './taskcell.js';
 import type { DecisionProbeResult } from './decision-probe.js';
 import type { BaseMergeEvent } from './conflict-stats.js';
@@ -184,6 +185,21 @@ async function tryReadProofPassed(path: string): Promise<boolean | undefined> {
   }
 }
 
+/**
+ * Each card's newest local run, keyed by its board id (`taskRefKey`: `gh-owner-repo-904` and `gh-904` are one card).
+ * CI-imported runs are never a card's run. Newest by timestamp, whatever order `runs` come in.
+ */
+export function newestRuns<T extends Pick<RunSummary, 'taskId' | 'timestamp' | 'source'>>(runs: readonly T[]): Map<string, T> {
+  const out = new Map<string, T>();
+  for (const r of runs) {
+    if (r.source === 'ci') continue;
+    const key = taskRefKey(r.taskId);
+    const held = out.get(key);
+    if (held === undefined || held.timestamp < r.timestamp) out.set(key, r);
+  }
+  return out;
+}
+
 async function parseRunSummaries(root: string): Promise<RunSummary[]> {
   const summaries: RunSummary[] = [];
 
@@ -238,7 +254,7 @@ async function parseRunSummaries(root: string): Promise<RunSummary[]> {
       const asked = stoppedEarly === undefined ? undefined : askedText(stoppedEarly.finalText);
       // shortcut: only a proof stamped with the run's own timestamp counts (not readRunDetail's fallback for older runs).
       const proofName = `${sanitizeTimestamp(timestamp)}.proof.json`;
-      const verifyFailed = files.some((f) => f.name === proofName) && (await tryReadProofPassed(join(taskPath, proofName))) === false;
+      const proofPassed = files.some((f) => f.name === proofName) ? await tryReadProofPassed(join(taskPath, proofName)) : undefined;
       summaries.push({
         taskId: first.taskId,
         timestamp,
@@ -255,7 +271,8 @@ async function parseRunSummaries(root: string): Promise<RunSummary[]> {
         ...(trigger !== undefined ? { trigger } : {}),
         ...(extraAttempts > 0 ? { extraAttempts } : {}),
         ...(failedStage !== undefined ? { failedStage } : {}),
-        ...(verifyFailed ? { verifyFailed: true as const } : {}),
+        ...(proofPassed === false ? { verifyFailed: true as const } : {}),
+        ...(proofPassed === true ? { verifyPassed: true as const } : {}),
         ...(asked !== undefined ? { asked } : {}),
       });
     }
@@ -570,7 +587,7 @@ export interface StageModelPick {
 export interface RunWriter {
   /** Persist one record per pipeline stage under the writer's timestamp, then mirror the run as one
    * OTLP trace when an exporter is configured (opt-in, best-effort — see otlp-sink). */
-  writeStages(outcomes: ReadonlyArray<{ name: string; result: RunResult; model?: string }>, opts?: WriteStagesOptions): Promise<void>;
+  writeStages(outcomes: ReadonlyArray<{ name: string; result: RunResult; model?: string; primaryAuthRefused?: string }>, opts?: WriteStagesOptions): Promise<void>;
   /** Persist a verification proof to `<ts>.proof.json` and append a `{ evt: 'verify', ... }` metric line. */
   writeProof(result: VerificationResult, opts?: { baseRed?: boolean }): Promise<string>;
   /** Persist a visual proof to `<ts>.visual-proof.json` and append a `{ evt: 'visual_proof', ... }` metric line. */
@@ -603,6 +620,8 @@ interface WriteRecordOptions {
   skills?: RunSkills;
   skillIds?: readonly string[];
   modelPick?: StageModelPick;
+  /** The stage's own provider refused its credential and the fallback ran it: the refused provider's name. */
+  primaryAuthRefused?: string;
 }
 
 /**
@@ -675,6 +694,7 @@ async function writeRecord(repoPath: string, taskId: string, timestamp: string, 
     ...(opts.lessonIds !== undefined && opts.lessonIds.length > 0 ? { lessonIds: [...opts.lessonIds] } : {}),
     ...(opts.skills !== undefined ? { skills: opts.skills } : {}),
     ...(opts.modelPick !== undefined ? { modelPick: opts.modelPick } : {}),
+    ...(opts.primaryAuthRefused !== undefined ? { primaryAuthRefused: opts.primaryAuthRefused } : {}),
   };
   const suffix = opts.label !== undefined ? `-${opts.label}` : '';
   const base = join(taskDir, `${sanitizeTimestamp(timestamp)}${suffix}`);
@@ -778,6 +798,7 @@ export function beginRun(
           ...(opts.skills !== undefined ? { skills: opts.skills } : {}),
           ...(opts.skillIds !== undefined ? { skillIds: opts.skillIds } : {}),
           ...(opts.modelPicks?.[outcome.name] !== undefined ? { modelPick: opts.modelPicks[outcome.name] } : {}),
+          ...(outcome.primaryAuthRefused !== undefined ? { primaryAuthRefused: outcome.primaryAuthRefused } : {}),
         });
       }
       const first = outcomes[0];

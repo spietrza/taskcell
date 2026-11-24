@@ -8,6 +8,7 @@ import { readLedger } from './ledger.js';
 import { decide } from './rules.js';
 import { buildDecisionRecord, appendDecision, appendAction, reasonKey } from './record.js';
 import type { ActionKind } from './record.js';
+import { writeMarker } from '../core/comment-ledger.js';
 import { publishCheckRun, commentDecision, commentOnce, shadowSafeGhRunner } from './publish.js';
 import { dependencyHolds, rebaseDependents } from './dependency-order.js';
 import { actSafeGhRunner, actExclusions, reviewExact, escapeForComment, NO_DEDICATED_REVIEWER } from './act.js';
@@ -132,7 +133,7 @@ export async function runApprover(input: RunApproverInput, state: { updated: boo
   // `code` is the stable part of a reason (default: the reason itself): it keys the marker and the log, so a different code on the
   // same head is reported while free-form detail (a gh error) does not make every run comment again.
   const tell = async (action: ActionKind, reason: string, headSha: string, code: string = reason): Promise<void> => {
-    const marker = `<!-- taskcell-approver-act: ${headSha}:${action}:${reasonKey(code)} -->`;
+    const marker = writeMarker('approver-act', `${headSha}:${action}:${reasonKey(code)}`);
     // A failed comment must not hide the log line, nor the other way round: both run, then the failures are thrown together (like finish()).
     const failures: string[] = [];
     try {

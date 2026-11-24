@@ -10,8 +10,14 @@ import { BASE_LABEL_PREFIX, assertAllowedBase, assertSafeBaseBranch, readAllowed
 import { readAppConfig } from '../app-config.js';
 import type { RpcContext } from '../rpc.js';
 import * as projects from '../projects.js';
+import { listRepoFlows, unknownFlowError } from '../../flows/repo.js';
+import { FLOWS } from '../../api/capabilities.js';
 import { listHubBoard } from '../hub-board.js';
 import { HUB_TASK_ID, MAX_BLOCKED_BY, MAX_BODY_LENGTH, MAX_TITLE_LENGTH, createHubTask, editHubTask, listHubTasks, removeHubTask, updateHubTask, type HubTaskOwner } from '../hub-tasks.js';
+import { withCardViews } from '../card-view.js';
+import { cachedNeedsYou, forgetBoardWaiting } from '../asking.js';
+import { defaultRunsRoot, listRunSummaries } from '../runs.js';
+import { withCiRuns } from '../ci-metrics.js';
 import { startGithubTask, triggerLabelsFor } from '../start-task.js';
 import { markerReadBudget, retryPausedTask, withPausedTasks, type MarkerReadBudget } from '../paused.js';
 import type { BoardTask, CreatedTask, RepoReadFailure, RepoStamp, RetryPausedResult, StartTaskResult } from '../../wire.js';
@@ -20,6 +26,7 @@ import { defineCommands, requireString, requireMatch, optionalString, optionalNu
 export interface TasksCommands {
   /** `hubBoard`: the project's task source is the hub's own board (its cards are created and scheduled in the hub). */
   list_tasks: { args: { repoPath: string }; result: { tasks: BoardTask[]; capped: boolean; hubBoard?: true } };
+  // Every card in both lists carries its `view` (src/hub/card-view.ts): its place on the line, its newest run, its waiting item.
   /** HUB_ONLY: `list_tasks` across every hub repository, each card stamped with its repository. `hubBoards`: the repositories whose task source is the hub board. */
   list_tasks_all: { args: { teamId?: string } | undefined; result: { tasks: (BoardTask & RepoStamp)[]; capped: boolean; failures: RepoReadFailure[]; hubBoards?: string[] } };
   fetch_spec: { args: { repoPath: string; taskId: string }; result: { spec: string } };
@@ -37,10 +44,10 @@ export interface TasksCommands {
   hub_task_create: { args: { repoPath: string; title: string; body?: string; blockedBy?: string[]; startDate?: string }; result: { id: string } };
   /** HUB_ONLY: set a hub-board task's dependencies (ids of the project's other tasks) and/or start date (`null` clears it). The caller becomes its owner. */
   hub_task_schedule: { args: { repoPath: string; id: string; blockedBy?: string[]; startDate?: string | null }; result: { id: string } };
-  /** HUB_ONLY: put a failed hub-board task back to `todo`, to run as the caller; its old result is cleared. */
-  hub_task_retry: { args: { repoPath: string; id: string }; result: { id: string } };
-  /** Start one `todo` hub task now as the caller, even while the project's auto-run is off (the scheduler's next tick, same gates). */
-  hub_task_start: { args: { repoPath: string; id: string }; result: { id: string } };
+  /** HUB_ONLY: put a failed hub-board task back to `todo`, to run as the caller; its old result is cleared. `flow`: run it with that flow (a built-in or the repo's) instead of the configured one. */
+  hub_task_retry: { args: { repoPath: string; id: string; flow?: string }; result: { id: string } };
+  /** Start one `todo` hub task now as the caller, even while the project's auto-run is off (the scheduler's next tick, same gates). `flow`: run it with that flow instead of the configured one. */
+  hub_task_start: { args: { repoPath: string; id: string; flow?: string }; result: { id: string } };
   /** HUB_ONLY: accept the delivered result of a hub-board task that failed verification: it becomes done (its dependents may start) without a second run. */
   hub_task_accept: { args: { repoPath: string; id: string }; result: { id: string } };
   /** HUB_ONLY: move a done hub-board task to the project's archive file, freeing room on the board. */
@@ -63,6 +70,16 @@ async function withPaused(ctx: RpcContext, real: string, tasks: BoardTask[], bud
   if (((await readAppConfig(real)).source ?? 'github') !== 'github') return tasks;
   const slug = await githubSlug(real);
   return slug === undefined ? tasks : withPausedTasks(slug, tasks, ctx.gh, budget);
+}
+
+/** Each card with its view: where it sits, its newest run and its waiting item (src/hub/card-view.ts). Local state is best effort: a run list that cannot be read leaves the cards placed by their column. */
+async function withViews<T extends BoardTask>(ctx: RpcContext, real: string, tasks: T[]): Promise<T[]> {
+  const [runs, needsYou] = await Promise.all([
+    // CI-imported runs too (as list_runs): a run in GitHub Actions gives its card the PR address, never its place or its run.
+    listRunSummaries(defaultRunsRoot(real)).then((local) => withCiRuns(real, local)).catch(() => []),
+    cachedNeedsYou(ctx.configDir, real, ctx.gh),
+  ]);
+  return withCardViews(tasks, runs, needsYou.items, needsYou.unchecked === true);
 }
 
 /** GitHub's cap on a label name. */
@@ -160,6 +177,21 @@ function scheduleBlockedBy(value: unknown): string[] | undefined {
   return value as string[];
 }
 
+/** A `flow` argument: undefined when absent, else a name the repo can run (a built-in or a valid repo flow); anything else is refused, listing the valid names. */
+async function requestedFlow(args: Record<string, unknown>, real: string): Promise<string | undefined> {
+  const flow = optionalString(args, 'flow');
+  if (flow === undefined) return undefined;
+  const known = Object.hasOwn(FLOWS, flow) || (await listRepoFlows(real)).some((f) => f.name === flow && f.error === undefined);
+  if (!known) throw new BadRequestError((await unknownFlowError(flow, real)).message);
+  return flow;
+}
+
+/** Audit detail of a start/retry: `flow.<name>` when a flow was chosen. */
+const flowDetail = async (_ctx: unknown, a: Record<string, unknown>): Promise<string[]> => {
+  const flow = optionalString(a, 'flow');
+  return flow === undefined ? [] : [`flow.${flow}`];
+};
+
 /** The caller, as the person a task they create, schedule or retry runs as. */
 const ownerOf = ({ ctx, caller }: CommandCall): HubTaskOwner => ({ actor: actorOf(ctx), caller });
 
@@ -208,7 +240,8 @@ export const commands = defineCommands<TasksCommands>({
   list_tasks: async ({ ctx, args, allow }) => {
     const real = await allow(requireString(args, 'repoPath'));
     const r = await boardOf(ctx, real);
-    return r.hubBoard === true ? r : { ...r, tasks: await withPaused(ctx, real, r.tasks, markerReadBudget()) };
+    const tasks = r.hubBoard === true ? r.tasks : await withPaused(ctx, real, r.tasks, markerReadBudget());
+    return { ...r, tasks: await withViews(ctx, real, tasks) };
   },
   list_tasks_all: async ({ ctx, allow, scope }) => {
     let capped = false;
@@ -228,9 +261,9 @@ export const commands = defineCommands<TasksCommands>({
         capped ||= r.capped;
         if (r.hubBoard === true) {
           hubBoards.push(registered.get(real) ?? real);
-          return r.tasks;
+          return withViews(ctx, real, r.tasks);
         }
-        return withPaused(ctx, real, r.tasks, budget);
+        return withViews(ctx, real, await withPaused(ctx, real, r.tasks, budget));
       },
       await scope(),
     );
@@ -306,6 +339,7 @@ export const commands = defineCommands<TasksCommands>({
   hub_task_retry: async (call) => {
     const real = await hubBoardRepo(call);
     const id = requireMatch(call.args, 'id', HUB_TASK_ID, 'hub task id');
+    const flow = await requestedFlow(call.args, real);
     const task = await editHubTask(call.ctx.configDir, real, id, (t) => {
       if (t.status !== 'failed') throw new BadRequestError(`${id} is ${t.status}, not failed`);
       t.status = 'todo';
@@ -313,19 +347,28 @@ export const commands = defineCommands<TasksCommands>({
       delete t.result;
       delete t.accepted;
       t.owner = ownerOf(call);
+      if (flow !== undefined) t.flow = flow;
+      else delete t.flow;
     });
     if (task === undefined) throw new BadRequestError(`no hub task ${id}`);
+    // The card moved on: its waiting item, if any, no longer waits.
+    forgetBoardWaiting(real);
     return { id };
   },
   hub_task_start: async (call) => {
     const real = await hubBoardRepo(call);
     const id = requireMatch(call.args, 'id', HUB_TASK_ID, 'hub task id');
+    const flow = await requestedFlow(call.args, real);
     const task = await editHubTask(call.ctx.configDir, real, id, (t) => {
       if (t.status !== 'todo') throw new BadRequestError(`${id} is ${t.status}, not to do`);
       t.startRequested = true;
       t.owner = ownerOf(call);
+      // A plain start keeps a flow chosen on retry; only a retry without a flow clears it.
+      if (flow !== undefined) t.flow = flow;
     });
     if (task === undefined) throw new BadRequestError(`no hub task ${id}`);
+    // The card moved on: its waiting item, if any, no longer waits.
+    forgetBoardWaiting(real);
     return { id };
   },
   hub_task_accept: async (call) => {
@@ -338,6 +381,8 @@ export const commands = defineCommands<TasksCommands>({
       delete t.reason;
     });
     if (task === undefined) throw new BadRequestError(`no hub task ${id}`);
+    // The card moved on: its waiting item, if any, no longer waits.
+    forgetBoardWaiting(real);
     return { id };
   },
   hub_task_archive: async (call) => {
@@ -411,8 +456,8 @@ export const commands = defineCommands<TasksCommands>({
     },
   },
   hub_task_schedule: { action: 'task-schedule', target: repoItemTarget('id') },
-  hub_task_retry: { action: 'task-schedule', target: repoItemTarget('id') },
-  hub_task_start: { action: 'task-schedule', target: repoItemTarget('id') },
+  hub_task_retry: { action: 'task-schedule', target: repoItemTarget('id'), detail: flowDetail },
+  hub_task_start: { action: 'task-schedule', target: repoItemTarget('id'), detail: flowDetail },
   hub_task_accept: { action: 'task-schedule', target: repoItemTarget('id') },
   hub_task_archive: { action: 'task-edit', target: repoItemTarget('id') },
   hub_task_delete: { action: 'task-edit', target: repoItemTarget('id') },

@@ -1,5 +1,7 @@
 import { hasReviewHeading } from '../core/labels.js';
 import { classifyAuthor, isBotLogin } from '../tasks/comment-trust.js';
+import { hasMarker, lastMarkerAt, revisionRounds, writeMarker } from '../core/comment-ledger.js';
+import type { LedgerComment } from '../core/comment-ledger.js';
 import { hasPullRequestReviewIncompleteMarker, hasPullRequestReviewMarker, soleReviewMarkerSha } from './pr-review.js';
 import { extractFindings } from '../structured/findings.js';
 import { defaultGhRunner } from '../tasks/github.js';
@@ -531,25 +533,27 @@ export async function replyAndResolveThread(
   await gh(['api', 'graphql', '-f', `query=${RESOLVE_MUTATION}`, '-F', `threadId=${threadId}`]);
 }
 
-// Match both the default (`vanguard-revision:`) and the white-label (`revision:`) marker so
-// round-counting / non-recursion work identically whether or not --commit-author was passed.
-const REVISION_MARKER_PRESENT_RE = /<!--\s*(?:(?:taskcell|vanguard)-)?revision:/;
-const REVISION_MARKER_RE = /<!--\s*(?:(?:taskcell|vanguard)-)?revision:\s*([^>\s]+)\s*-->/g;
-
+// The ledger reads the default (`taskcell-revision:`), legacy (`vanguard-revision:`) and white-label (`revision:`) spellings alike,
+// so round-counting / non-recursion work identically whether or not --commit-author was passed.
 export function hasRevisionMarker(body: string): boolean {
-  return REVISION_MARKER_PRESENT_RE.test(body);
+  return hasMarker('revision', body);
 }
 
 /** Hidden marker on the round-cap notice, so a later run can tell whether a human commented since. */
-const REVISION_CAP_MARKER = '<!-- taskcell-revision-cap -->';
+export const revisionCapMarker = (): string => writeMarker('revision-cap', true);
 
-export const revisionCapMarker = (): string => REVISION_CAP_MARKER;
+/** Hidden marker on a CI-failure comment (resume-rate-limited's ci-watch step); one per failing head SHA. */
+export const ciFailedMarker = (headSha: string): string => writeMarker('ci-failed', headSha);
 
-function hasRevisionCapMarker(body: string): boolean {
-  return body.includes(REVISION_CAP_MARKER) || body.includes(REVISION_CAP_MARKER.replace('taskcell-', 'vanguard-'));
-}
+/** True for a CI-failure comment, under either spelling. Such a comment never resets the revision budget. */
+export const hasCiFailedMarker = (body: string): boolean => hasMarker('ci-failed', body);
 
 type FeedbackTrustOptions = Pick<ActionableOptions, 'feedbackAuthors' | 'botLogins'>;
+
+/** A feedback item as the ledger reads it: any author the feedback trust rules do not drop is trusted. */
+function ledgerItem(item: FeedbackItem, opts: FeedbackTrustOptions): LedgerComment {
+  return { body: item.body, author: classifyFeedbackAuthor(item, opts) === 'untrusted' ? 'untrusted' : 'trusted', createdAt: item.createdAt };
+}
 
 function classifyFeedbackAuthor(item: FeedbackItem, opts: FeedbackTrustOptions) {
   return classifyAuthor(item.author, item.authorAssociation, { allowedAuthors: opts.feedbackAuthors, botLogins: opts.botLogins });
@@ -565,15 +569,7 @@ export function countRevisionRoundsFromFeedback(
   opts: FeedbackTrustOptions = {},
   afterCreatedAt?: string,
 ): number {
-  const rounds = new Set<string>();
-  for (const item of fb.items) {
-    if (afterCreatedAt !== undefined && !(item.createdAt > afterCreatedAt)) continue;
-    if (classifyFeedbackAuthor(item, opts) === 'untrusted') continue;
-    for (const match of item.body.matchAll(REVISION_MARKER_RE)) {
-      if (match[1] !== undefined) rounds.add(match[1]);
-    }
-  }
-  return rounds.size;
+  return revisionRounds(fb.items.map((item) => ledgerItem(item, opts)), afterCreatedAt);
 }
 
 /**
@@ -584,18 +580,14 @@ export function countRevisionRoundsFromFeedback(
  * undefined when there is no cap notice, or nothing trusted-human came after it — the cap still holds.
  */
 export function revisionBudgetResetAt(fb: PullRequestFeedback, opts: FeedbackTrustOptions = {}): string | undefined {
-  let lastCapNoticeAt: string | undefined;
-  for (const item of fb.items) {
-    if (!hasRevisionCapMarker(item.body)) continue;
-    if (classifyFeedbackAuthor(item, opts) === 'untrusted') continue;
-    if (lastCapNoticeAt === undefined || item.createdAt > lastCapNoticeAt) lastCapNoticeAt = item.createdAt;
-  }
+  const lastCapNoticeAt = lastMarkerAt('revision-cap', fb.items.map((item) => ledgerItem(item, opts)));
   if (lastCapNoticeAt === undefined) return undefined;
 
   let resetAt: string | undefined;
   for (const item of fb.items) {
     if (item.createdAt === '' || item.createdAt <= lastCapNoticeAt) continue;
     if (isBotLogin(item.author, opts.botLogins)) continue;
+    if (hasCiFailedMarker(item.body)) continue;
     const trust = classifyFeedbackAuthor(item, opts);
     if (trust !== 'association' && trust !== 'allowed') continue;
     if (resetAt === undefined || item.createdAt < resetAt) resetAt = item.createdAt;
@@ -606,12 +598,11 @@ export function revisionBudgetResetAt(fb: PullRequestFeedback, opts: FeedbackTru
 /**
  * Marker embedded in revision replies for round-counting and non-recursion. White-label drops the
  * "vanguard" token from the visible source of a client-repo comment; both forms are recognised by
- * REVISION_MARKER_RE, so dedup/round-counting are unaffected.
+ * the ledger, so dedup/round-counting are unaffected.
  */
 export const revisionMarker = (headRefOid: string, whiteLabel = false, mergeOnly = false): string => {
-  // The extra token keeps REVISION_MARKER_RE from matching (so the round is not counted toward the cap) while hasRevisionMarker still does.
-  const tail = mergeOnly ? `${headRefOid} merge-only` : headRefOid;
-  return whiteLabel ? `<!-- revision: ${tail} -->` : `<!-- taskcell-revision: ${tail} -->`;
+  // A merge-only round still marks the comment (non-recursion) but is not counted toward the cap (revisionRounds).
+  return writeMarker('revision', { head: headRefOid, mergeOnly }, { whiteLabel });
 };
 
 /** Feedback that mentions a conflict. Wording only: it may let a round merge the base, never decide what the round did. */

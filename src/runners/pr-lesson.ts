@@ -16,10 +16,11 @@ import type { GlabRunner } from '../tasks/gitlab.js';
 import { GITLAB_VERIFY_FAILED_LABEL } from '../gitlab-labels.js';
 import { sameLabel } from '../core/labels.js';
 import { isFactoryBranch } from '../worktree/manager.js';
+import { hasMarker, writeMarker } from '../core/comment-ledger.js';
 import { hasRevisionMarker } from './pr-feedback.js';
 import { extractCommentVerdict } from './review-prompt.js';
 
-export const LESSON_MARKER = '<!-- taskcell-lesson -->';
+export const LESSON_MARKER = writeMarker('lesson', true);
 export const VERIFY_FAILED_LABEL = 'taskcell:verify-failed';
 const ITEM_MAX = 4000;
 const FILES_MAX = 60;
@@ -85,7 +86,7 @@ export async function fetchPrHistory(
   const comments = (pr.comments ?? []).filter(trusted);
   const notes = [
     ...reviews.filter((r) => (r.body ?? '').trim() !== '').map((r) => ({ url: pr.url, body: r.body ?? '' })),
-    ...comments.filter((c) => (c.body ?? '').trim() !== '' && !(c.body ?? '').includes(LESSON_MARKER)).map((c) => ({ url: c.url ?? pr.url, body: c.body ?? '' })),
+    ...comments.filter((c) => (c.body ?? '').trim() !== '' && !hasMarker('lesson', c.body ?? '')).map((c) => ({ url: c.url ?? pr.url, body: c.body ?? '' })),
   ].slice(-NOTES_MAX);
   return {
     repo,
@@ -100,8 +101,8 @@ export async function fetchPrHistory(
     additions: pr.additions ?? 0,
     deletions: pr.deletions ?? 0,
     notes,
-    // Any author: a forged marker only suppresses a duplicate comment, never adds content.
-    hasLessonComment: (pr.comments ?? []).some((c) => (c.body ?? '').includes(LESSON_MARKER)),
+    // Trusted authors only: a forged marker from anyone else must not suppress the lesson.
+    hasLessonComment: comments.some((c) => hasMarker('lesson', c.body ?? '')),
   };
 }
 
@@ -184,10 +185,10 @@ export async function fetchMrHistory(
     verifyFailed: labels.some((l) => sameLabel(l, GITLAB_VERIFY_FAILED_LABEL) || sameLabel(l, VERIFY_FAILED_LABEL)),
     ...stats,
     notes: trusted
-      .filter((n) => body(n).trim() !== '' && !body(n).includes(LESSON_MARKER))
+      .filter((n) => body(n).trim() !== '' && !hasMarker('lesson', body(n)))
       .map((n) => ({ url: noteUrl(n), body: body(n) }))
       .slice(-NOTES_MAX),
-    hasLessonComment: human.some((n) => body(n).includes(LESSON_MARKER)),
+    hasLessonComment: trusted.some((n) => hasMarker('lesson', body(n))),
     factory:
       mr.source_project_id !== undefined &&
       mr.source_project_id === mr.target_project_id &&

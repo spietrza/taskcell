@@ -32,6 +32,8 @@ export interface HubTask {
   owner?: HubTaskOwner;
   /** Hand-picked skill ids (installed ones; checked when set): the task's run loads exactly these. */
   skills?: string[];
+  /** Flow the next run uses instead of the project's configured one (set by Start/Retry with a flow; validated then). */
+  flow?: string;
   /** `todo`: a person pressed Start; the scheduler starts it even when its project's auto-run is off. Cleared when it starts. */
   startRequested?: true;
   /** `running`: the run session's id for its run. */
@@ -119,6 +121,7 @@ function isTask(r: unknown, seen: Set<string>): r is HubTask {
     && typeof t.status === 'string' && STATUSES.includes(t.status)
     && Array.isArray(t.blockedBy) && t.blockedBy.every((x) => typeof x === 'string')
     && (t.startDate === undefined || typeof t.startDate === 'string')
+    && (t.flow === undefined || typeof t.flow === 'string')
     && (t.skills === undefined || (Array.isArray(t.skills) && t.skills.every((x) => typeof x === 'string')));
 }
 

@@ -24,8 +24,8 @@ import { savePaths } from '../../../src/hub/projects.js';
 import type { SidecarDeps } from '../../../src/sidecar/sidecar.js';
 import type { RunResult } from '../../../src/core/types.js';
 import type { VerificationResult } from '../../../src/pipeline/verify.js';
-import { listProjects, listRuns, readRun, apiRepoOk } from './ipc';
-import { subscribe } from './transport';
+import { listProjects, readRun } from './ipc';
+import { hub as session, subscribe } from './transport';
 
 (globalThis as unknown as { window: typeof globalThis }).window = globalThis;
 
@@ -246,10 +246,12 @@ describe('hub <-> browser transport integration', () => {
     expect(projects.some((p) => p.path === repo)).toBe(true);
   });
 
-  test('listRuns() deep-equals listRunSummaries(); readRun() has proof defined', async () => {
-    const runs = await listRuns(repo);
+  test('list_runs deep-equals listRunSummaries(); readRun() has proof defined', async () => {
+    const runs = await session().call('list_runs', { repoPath: repo });
     const direct = await listRunSummaries(defaultRunsRoot(repo));
-    expect(runs).toEqual(direct);
+    // The hub adds each row's outcome (state word and place); the records are otherwise the store's own.
+    expect(runs.map(({ outcome: _outcome, ...r }) => r)).toEqual(direct);
+    expect(runs[0]?.outcome).toBeDefined();
     expect(runs).toHaveLength(1);
 
     const detail = await readRun(repo, { source: { kind: 'local' }, taskId: TASK_ID, timestamp: TIMESTAMP });
@@ -257,12 +259,12 @@ describe('hub <-> browser transport integration', () => {
     expect(detail.proof?.passed).toBe(true);
   });
 
-  test('apiRepoOk() resolves false (not null) for a disallowed path', async () => {
-    await expect(apiRepoOk('/x')).resolves.toBe(false);
+  test('api_repo_ok resolves false (not null) for a disallowed path', async () => {
+    await expect(session().call('api_repo_ok', { repoPath: '/x' })).resolves.toBe(false);
   });
 
-  test('listRuns() on a disallowed path rejects with the server message string', async () => {
-    await expect(listRuns('/not/allowed')).rejects.toThrow('repoPath does not exist: /not/allowed');
+  test('list_runs on a disallowed path rejects with the server message string', async () => {
+    await expect(session().call('list_runs', { repoPath: '/not/allowed' })).rejects.toThrow('repoPath does not exist: /not/allowed');
   });
 
   test('a published vanguard:changed reaches subscribe() through the EventSource polyfill', async () => {

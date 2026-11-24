@@ -35,7 +35,7 @@ const OPT = {
   'fallback-provider': str('<name>', 'Retry on this provider when the primary one fails (outage, limit, revoked credential); a comma list (codex,cursor) is a fallback chain'),
   'fallback-model': str('<model>', 'Model for every stage that fell back (default: that provider\'s default); a comma list pairs with --fallback-provider'),
   'usage-cap': str('<pct>', 'Stop starting work once the provider\'s plan window is at/over this % (1-100; env TASKCELL_USAGE_CAP_PCT)'),
-  'provider-model': str('<m>', 'Model for the implementer/simplifier stages (default: provider\'s default), or a weighted pool: claude/sonnet:3,codex/gpt-5.6-sol:1'),
+  'provider-model': str('<m>', 'Model for the implementer/simplifier stages (default: provider\'s default), or a weighted pool: claude/sonnet:3,codex/gpt-6-sol:1'),
   'review-model': str('<m>', 'Model for the review stage (default: provider\'s default), or a pool as for --provider-model'),
   'escalate-model': str('<m>', 'Model for the 2nd and later gate repairs (default: stay on the implementer model)'),
   'no-simplify': bool('Skip the simplifier stage (lean: implement -> review only)'),
@@ -95,7 +95,7 @@ type Overrides = Record<string, Partial<OptionDecl> & { help: string }>;
 /** Own (command-specific) options: full declarations, not in the shared table. */
 type Own = Record<string, OptionDecl>;
 
-function command(name: string, summary: string, shared: readonly (keyof typeof OPT)[], own: Own = {}, overrides: Overrides = {}, synopsis?: string): CommandDecl {
+function command<N extends string>(name: N, summary: string, shared: readonly (keyof typeof OPT)[], own: Own = {}, overrides: Overrides = {}, synopsis?: string): CommandDecl & { name: N } {
   const options: Record<string, OptionDecl> = {};
   for (const key of shared) options[key] = { ...OPT[key], ...overrides[key] };
   Object.assign(options, own);
@@ -136,7 +136,7 @@ const SKILLS_OWN: Own = {
 
 const AUDIT_STREAMS = 'hub, run-events, metrics, decisions, lessons';
 
-export const COMMANDS: readonly CommandDecl[] = [
+export const COMMANDS = [
   command('run', 'Run an agent on a task and open a draft PR for review (exactly one of --linear, --github, --gitlab, --project).', [...RUN_OPTS, 'repo', 'github-repo', 'label', 'github', 'gitlab-project', 'concurrency', 'egress', 'llm-proxy'], {
     linear: str('<id>', 'Linear issue id'),
     gitlab: str('<ref>', 'GitLab issue ref'),
@@ -217,7 +217,9 @@ export const COMMANDS: readonly CommandDecl[] = [
     'save-baseline': bool('Publish this result as the new baseline'),
   }),
   command('migrate-labels', 'Rename a repo\'s old vanguard:* labels to taskcell:* (dry-run by default).', ['github-repo'], { apply: bool('Rename the labels') }),
-  command('resume-rate-limited', 'Re-apply the trigger label on issues/PRs a provider limit or an unmet dependency parked, once clear.', ['github-repo', 'dry-run', 'trigger-labels', 'dependency-repos', 'claimed-state', 'review-state', 'spec-claimed-label'], {}, {
+  command('resume-rate-limited', 'Re-apply the trigger label on issues/PRs a provider limit or an unmet dependency parked, once clear.', ['github-repo', 'dry-run', 'trigger-labels', 'dependency-repos', 'claimed-state', 'review-state', 'spec-claimed-label'], {
+    'no-ci-watch': bool('Do not revise factory PRs whose required checks failed (default: on; needs a user token)'),
+  }, {
     'claimed-state': { help: 'As given to watch' },
     'review-state': { help: 'As given to watch' },
     'spec-claimed-label': { help: 'As given to watch' },
@@ -237,7 +239,10 @@ export const COMMANDS: readonly CommandDecl[] = [
     'allowed-host': multi('<host>', 'Extra Host header accepted on a non-loopback bind (repeatable)'),
     'admin-github-login': multi('<login>', 'GitHub login granted admin access (repeatable)'),
   }, {}, '[rotate-token]'),
-];
+] as const;
+
+/** Every command word the CLI declares. */
+export type CommandName = (typeof COMMANDS)[number]['name'];
 
 /** Every option name any command declares: tells a flag meant for another command from a typo. */
 export const KNOWN_OPTIONS: ReadonlySet<string> = new Set(COMMANDS.flatMap((c) => Object.keys(c.options)));

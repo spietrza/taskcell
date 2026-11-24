@@ -1,4 +1,4 @@
-import { describe, expect, test, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { NewHubTask, ScheduleEditor, ScheduleLines, blockedByExample } from './Schedule';
 import type { BoardTask } from '../../wire';
@@ -7,11 +7,23 @@ vi.mock('../../ipc', () => ({
   hubTaskSchedule: vi.fn().mockResolvedValue({ id: 'hub-2' }),
   hubTaskRetry: vi.fn().mockResolvedValue({ id: 'hub-2' }),
   hubTaskCreate: vi.fn().mockResolvedValue({ id: 'hub-3' }),
-  hubTaskAccept: vi.fn().mockResolvedValue({ id: 'hub-2' }),
-  hubTaskArchive: vi.fn().mockResolvedValue({ id: 'hub-2' }),
-  hubTaskDelete: vi.fn().mockResolvedValue({ id: 'hub-2' }),
+  callerCapabilities: vi.fn(async () => ({})),
+  apiCapabilitiesCached: vi.fn(async () => ({ flows: [{ name: 'plan', label: 'Plan' }] })),
+  apiListFlows: vi.fn(async () => ({ flows: [] })),
 }));
-import { hubTaskAccept, hubTaskArchive, hubTaskCreate, hubTaskDelete, hubTaskRetry, hubTaskSchedule } from '../../ipc';
+import { hubTaskCreate, hubTaskRetry, hubTaskSchedule } from '../../ipc';
+import { stubHubCalls } from '../../testHub';
+
+let hubCall: ReturnType<typeof stubHubCalls>;
+beforeEach(() => {
+  hubCall = stubHubCalls({
+    hub_task_accept: async () => ({ id: 'hub-2' }),
+    hub_task_archive: async () => ({ id: 'hub-2' }),
+    hub_task_delete: async () => ({ id: 'hub-2' }),
+    api_list_flows: async () => ({ flows: [] }),
+  });
+});
+afterEach(() => vi.restoreAllMocks());
 
 const base: BoardTask = { id: 'hub-2', title: 'B', column: 'queued', state: '' };
 
@@ -70,13 +82,13 @@ describe('ScheduleEditor', () => {
     const onSaved = vi.fn();
     const failed = render(<ScheduleEditor repoPath="/r" task={{ ...base, schedule: { state: 'failed', label: 'failed: verify', result: 'branch b' } }} onSaved={onSaved} />);
     fireEvent.click(screen.getByRole('button', { name: 'Accept result' }));
-    await waitFor(() => expect(hubTaskAccept).toHaveBeenCalledWith('/r', 'hub-2'));
+    await waitFor(() => expect(hubCall).toHaveBeenCalledWith('hub_task_accept', { repoPath: '/r', id: 'hub-2' }));
     fireEvent.click(screen.getByRole('button', { name: 'Delete' }));
-    await waitFor(() => expect(hubTaskDelete).toHaveBeenCalledWith('/r', 'hub-2'));
+    await waitFor(() => expect(hubCall).toHaveBeenCalledWith('hub_task_delete', { repoPath: '/r', id: 'hub-2' }));
     failed.unmount();
     const done = render(<ScheduleEditor repoPath="/r" task={{ ...base, schedule: { state: 'done', label: 'done' } }} onSaved={onSaved} />);
     fireEvent.click(screen.getByRole('button', { name: 'Archive' }));
-    await waitFor(() => expect(hubTaskArchive).toHaveBeenCalledWith('/r', 'hub-2'));
+    await waitFor(() => expect(hubCall).toHaveBeenCalledWith('hub_task_archive', { repoPath: '/r', id: 'hub-2' }));
     done.unmount();
     render(<ScheduleEditor repoPath="/r" task={{ ...base, schedule: { state: 'running', label: 'running' } }} onSaved={onSaved} />);
     expect(screen.queryByRole('button', { name: 'Delete' })).toBeNull();
@@ -126,4 +138,14 @@ test('the "Blocked by" example never suggests the card itself', () => {
   expect(blockedByExample('hub-1')).toBe('hub-2, hub-3');
   expect(blockedByExample('hub-7')).toBe('hub-1, hub-2');
   expect(blockedByExample()).toBe('hub-1, hub-2');
+});
+
+describe('Run with flow…', () => {
+  test('a failed task retries with the chosen flow', async () => {
+    vi.mocked(hubTaskRetry).mockClear();
+    render(<ScheduleEditor repoPath="/r" task={{ ...base, schedule: { state: 'failed', label: 'failed: boom', reason: 'boom' } }} onSaved={() => {}} />);
+    fireEvent.click(screen.getByRole('button', { name: 'Run with flow…' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Plan' }));
+    await waitFor(() => expect(hubTaskRetry).toHaveBeenCalledWith('/r', 'hub-2', 'plan'));
+  });
 });
