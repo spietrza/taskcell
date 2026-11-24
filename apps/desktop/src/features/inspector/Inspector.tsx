@@ -3,7 +3,7 @@ import { Button, PAGE_CLASS, cn } from '@/ui';
 import { FilePlus, RefreshCw } from 'lucide-react';
 import { canUseFleet, isDemoMode, subscribe, hub } from '../../transport';
 import { DEMO_READ_ONLY_MESSAGE } from '../../errors';
-import { listRuns, listRunsAll, listTasks, listTasksAll, readRun, apiCapabilitiesCached, apiActiveRun, apiQueue, apiCancel, apiRepoOk, type Capabilities, type CreateRunParams } from '../../ipc';
+import { listRunsAll, listTasksAll, readRun, apiCapabilitiesCached, type Capabilities, type CreateRunParams } from '../../ipc';
 import { RunList, activeKey, runKey } from './RunList';
 import { projectColor } from '../../color';
 import { RunPane } from './RunPane';
@@ -118,7 +118,7 @@ export function Inspector({
   // Typed run (S1): capabilities for the form, the single in-flight typed run, and the idle-check.
   const [caps, setCaps] = useState<Capabilities | null>(null);
   const [typedRun, setTypedRun] = useState<TypedRunState | null>(null);
-  const [checkedIdle, setCheckedIdle] = useState(false); // false until apiActiveRun() resolves on mount
+  const [checkedIdle, setCheckedIdle] = useState(false); // false until api_active_run resolves on mount
   const [foreignRun, setForeignRun] = useState<string | null>(null); // repoPath of another project's live run (S8)
   const typedRunRef = useRef<TypedRunState | null>(null); // latest typedRun, readable in async callbacks
   const dismissedRunId = useRef<string | null>(null); // a run the user closed — ignore its late events
@@ -240,7 +240,7 @@ export function Inspector({
       setActive(a.flatMap((x) => x.rows));
       return;
     }
-    const [r, a] = await Promise.all([listRuns(project), hub().call('list_active', { repoPath: project })]);
+    const [r, a] = await Promise.all([hub().call('list_runs', { repoPath: project }), hub().call('list_active', { repoPath: project })]);
     if (gen !== runsGen.current) return;
     // Stamped with the project so ⌘K can place each run in the team.
     setRuns(r.map((x) => ({ ...x, repoPath: project })));
@@ -303,7 +303,7 @@ export function Inspector({
     let alive = true;
     const read = allRepos
       ? listTasksAll(teamId).then((r) => r.tasks)
-      : listTasks(project).then((r) => r.tasks.map((t) => ({ ...t, repoPath: project })));
+      : hub().call('list_tasks', { repoPath: project }).then((r) => r.tasks.map((t) => ({ ...t, repoPath: project })));
     read
       .then((tasks) => {
         if (!alive) return;
@@ -448,7 +448,7 @@ export function Inspector({
 
   // Cached repo pre-flight per project (Inspector is key={project}, so this runs once per project).
   useEffect(() => {
-    void apiRepoOk(project).then(setRepoOk).catch(() => setRepoOk(true)); // couldn't verify → don't block
+    void hub().call('api_repo_ok', { repoPath: project }).then(setRepoOk).catch(() => setRepoOk(true)); // couldn't verify → don't block
   }, [project]);
 
   // Mirror typedRun into a ref so async callbacks (the apiCreateRun catch) can read the latest value.
@@ -490,7 +490,7 @@ export function Inspector({
   useEffect(() => {
     const attach = async (): Promise<void> => {
       try {
-        const active = await apiActiveRun();
+        const active = await hub().call('api_active_run');
         let runId = active !== null && active.repoPath === project ? active.runId : undefined;
         if (active !== null && runId === undefined) {
           // Another project's run holds the sidecar. Don't fold its backlog — surface a note
@@ -501,7 +501,7 @@ export function Inspector({
         // No active run of ours, but one may be waiting in the queue — re-attach that instead,
         // or a reload would leave it with no strip and no way to cancel it. The hub allows at most
         // one queued run per project (run-session.ts), so `find` cannot miss a second one.
-        if (runId === undefined) runId = (await apiQueue()).find((q) => q.repoPath === project)?.runId;
+        if (runId === undefined) runId = (await hub().call('api_queue')).find((q) => q.repoPath === project)?.runId;
         if (runId === undefined) return;
         const backlog = (await hub().call('api_run_backlog', { runId })) as { runId: string; event: RunEvent }[];
         // Fold BEFORE flipping checkedIdle: between the two the button's guard would see
@@ -510,7 +510,7 @@ export function Inspector({
           backlog.reduce((s, p) => reduceTypedRun(s, p, project), prev ?? initialTypedRun()),
         );
       } catch {
-        // Treat an unverifiable idle-check as idle: a rejected apiActiveRun (sidecar not up yet, IPC
+        // Treat an unverifiable idle-check as idle: a rejected api_active_run (sidecar not up yet, IPC
         // error) must not leave the New-run button disabled forever. A second concurrent run is still
         // queued (hub), so the worst case is confusion, not corruption.
       } finally {
@@ -623,7 +623,7 @@ export function Inspector({
   const repoNameOf = (path: string): string | undefined => projects.find((p) => p.path === path)?.name;
   const titleOf = (repo: string, taskId: string): string | undefined => titles.get(titleKey(repo, taskId));
   const selectedKey = detail ? runKey(detailRepo, detail.taskId, detail.timestamp) : liveRun ? activeKey(liveRun.repoPath ?? project, liveRun.taskId) : undefined;
-  const cancelRun = (runId: string): void => (isDemoMode() ? setError(DEMO_READ_ONLY_MESSAGE) : void apiCancel(runId));
+  const cancelRun = (runId: string): void => (isDemoMode() ? setError(DEMO_READ_ONLY_MESSAGE) : void hub().call('api_cancel', { runId }));
 
   return (
     // Fixed-height frame: chrome (toolbar / banners) is shrink-0; the content region below owns scroll.

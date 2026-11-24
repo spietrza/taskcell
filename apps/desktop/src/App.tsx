@@ -17,7 +17,7 @@ import { Onboarding } from './features/onboarding/Onboarding';
 import { StarterTaskDialog } from './features/onboarding/StarterTaskDialog';
 import { loadOnboarding, saveOnboarding, showOnFirstRun, type OnboardingStored } from './features/onboarding/steps';
 import { factoryGateOf, useCallerCapabilities } from './hooks';
-import { listProjects, cloneProject, listNeedsYouAll, teamAddRepository, factoryState, localWorkerState } from './ipc';
+import { listProjects, cloneProject, listNeedsYouAll } from './ipc';
 import { loadTeamId, resolveTeam, saveTeamId, teamProjects } from './teams';
 import type { FactoryState, LocalWorkerState, RepoReadFailure, Team } from './wire';
 import { projectColor, contrastColor } from './color';
@@ -217,7 +217,7 @@ export default function App() {
   // it there (a member is refused, and the project then shows on the default team only); then re-read.
   const adoptProject = async (path: string): Promise<void> => {
     teamsGen.current++;
-    if (team && team.id !== 'default') await teamAddRepository(team.id, path).catch(() => undefined);
+    if (team && team.id !== 'default') await hub().call('add_team_repository', { teamId: team.id, path }).catch(() => undefined);
     await reloadTeams();
   };
 
@@ -321,7 +321,7 @@ export default function App() {
     if (!showHomeNow || projectPaths === '') return;
     let alive = true;
     void Promise.all(
-      projectPaths.split('\n').map((path) => factoryState(path).then((s) => [path, s] as const, () => null)),
+      projectPaths.split('\n').map((path) => hub().call('factory_state', { repoPath: path }).then((s) => [path, s] as const, () => null)),
     ).then((entries) => {
       if (alive) setFactoryStates(Object.fromEntries(entries.filter((e) => e !== null)));
     });
@@ -335,7 +335,7 @@ export default function App() {
   useEffect(() => {
     if (!showHomeNow || projectPaths === '') return;
     let alive = true;
-    void Promise.all(projectPaths.split('\n').map((path) => localWorkerState(path).then((s) => [path, s] as const, () => null))).then((entries) => {
+    void Promise.all(projectPaths.split('\n').map((path) => hub().call('local_worker_state', { repoPath: path }).then((s) => [path, s] as const, () => null))).then((entries) => {
       if (alive) setLocalWorkers(Object.fromEntries(entries.filter((e) => e !== null)));
     });
     return () => {

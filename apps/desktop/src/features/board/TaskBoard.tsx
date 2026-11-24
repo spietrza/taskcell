@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { Button, Card, ErrorNote, LINK_CLASS, cn } from '@/ui';
 import { FilePlus } from 'lucide-react';
-import { listTasks, listTasksAll } from '../../ipc';
+import { listTasksAll } from '../../ipc';
 import { hub } from '../../transport';
 import { inRepos } from '../../repoFilter';
 import { isNoTaskSource, RepoFailures, RepoLabel, TaskSourceHint } from '../../RepoViews';
@@ -123,7 +123,7 @@ export function TaskBoard({
   const [reloads, setReloads] = useState(0);
   const reposKey = repos.join('\n');
   const read = (): Promise<BoardList> =>
-    allRepos ? listTasksAll(teamId).then((l) => ({ ...l, tasks: inRepos(l.tasks, repos), failures: inRepos(l.failures, repos) })) : listTasks(project).then((r) => ({ ...r, failures: [] }));
+    allRepos ? listTasksAll(teamId).then((l) => ({ ...l, tasks: inRepos(l.tasks, repos), failures: inRepos(l.failures, repos) })) : hub().call('list_tasks', { repoPath: project }).then((r) => ({ ...r, failures: [] }));
   const { data: loaded, error, loading } = useAsync(read, [project, allRepos, teamId, reposKey, reloads]);
   // Every board is live-read quietly, one read at a time, polling while the window is visible, so a card follows its task without
   // a reload: a hub board fast, a tracker board and the all-repositories view slower. A fresh load supersedes the last

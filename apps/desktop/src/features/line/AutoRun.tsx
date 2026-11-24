@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Button } from '@/ui';
-import { factoryState, localWorkerState } from '../../ipc';
+import { hub } from '../../transport';
 import { factoryGateOf, gateProps, useCallerCapabilities } from '../../hooks';
 import type { FactoryState, LocalWorkerState } from '../../wire';
 import { autoRunLabel } from '../dashboard/factoryLabel';
@@ -18,7 +18,7 @@ export function AutoRun({ project, taskSource }: { project: string; taskSource: 
   useEffect(() => {
     if (open) return;
     let alive = true;
-    void Promise.all([factoryState(project).catch(() => undefined), localWorkerState(project).catch(() => undefined)]).then(([f, w]) => {
+    void Promise.all([hub().call('factory_state', { repoPath: project }).catch(() => undefined), hub().call('local_worker_state', { repoPath: project }).catch(() => undefined)]).then(([f, w]) => {
       if (alive) setState({ ...(f ? { f } : {}), ...(w ? { w } : {}) });
     });
     return () => {

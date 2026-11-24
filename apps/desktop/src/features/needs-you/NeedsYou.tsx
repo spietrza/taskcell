@@ -2,7 +2,7 @@ import { useState, type ReactNode } from 'react';
 import { Button, Textarea } from '@/ui';
 import { errorClause } from '../../errors';
 import { RefreshCw } from 'lucide-react';
-import { mergeNeedsYou, replyNeedsYou, type NeedsYouItem, type RepoReadFailure, type RepoStamp } from '../../ipc';
+import type { NeedsYouItem, RepoReadFailure, RepoStamp } from '../../ipc';
 import { AgentQuestion } from '../../components/AgentQuestion';
 import { gateProps, useCallerCapabilities } from '../../hooks';
 import { RepoFailures } from '../../RepoViews';
@@ -21,7 +21,7 @@ export function ReplyBox({ project, item, onReplied, placeholder = 'Answer the f
     setSending(true);
     setError(null);
     try {
-      await replyNeedsYou(project, item.id, item.kind, body.trim());
+      await hub().call('reply_needs_you', { repoPath: project, id: item.id, kind: item.kind, body: body.trim() });
       setBody('');
       onReplied();
     } catch (e) {
@@ -71,7 +71,7 @@ export function MergeButton({ project, item, onMerged }: { project: string; item
     setConfirming(false);
     setError(null);
     try {
-      await mergeNeedsYou(project, item.id);
+      await hub().call('merge_needs_you', { repoPath: project, id: item.id });
       onMerged();
     } catch (e) {
       setError(String(e));

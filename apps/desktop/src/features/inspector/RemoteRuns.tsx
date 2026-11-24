@@ -1,7 +1,6 @@
 import { useState, type ReactNode } from 'react';
 import { Button, Table, Chip, ErrorNote, ScrollTable, Timestamp } from '@/ui';
 import { Download } from 'lucide-react';
-import { importRemoteRun } from '../../ipc';
 import { useAsync, usePhone } from '../../hooks';
 import { ExternalLink } from '../../components/ExternalLink';
 import { verdictColor, verdictWord } from '../../status';
@@ -56,7 +55,7 @@ export function RemoteRuns({
   const fetchRecords = async (id: number): Promise<void> => {
     setRecords((m) => ({ ...m, [id]: { loading: true } }));
     try {
-      const data = await importRemoteRun(project, id);
+      const data = await hub().call('import_remote_run', { repoPath: project, runId: id });
       setRecords((m) => ({ ...m, [id]: { data } }));
     } catch (e) {
       setRecords((m) => ({ ...m, [id]: { error: String(e) } }));

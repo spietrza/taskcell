@@ -1,7 +1,7 @@
 import type { ReactElement } from 'react';
 import { useState } from 'react';
 import { Button, Input } from '@/ui';
-import { teamAddMember, teamAddRepository, teamRemoveMember, teamRemoveRepository, teamSetRole } from '../../ipc';
+import { hub } from '../../transport';
 import { useCallerCapabilities } from '../../hooks';
 import type { Project } from '../../taskcell-output';
 import type { Team, TeamRole } from '../../wire';
@@ -61,7 +61,7 @@ export function Members({ team, allProjects, onTeam, confirmRemoveRepo }: TeamSc
                 <select
                   aria-label={`Role of ${m.login}`}
                   value={m.role}
-                  onChange={(e) => edit(teamSetRole(team.id, m.login, e.target.value as TeamRole))}
+                  onChange={(e) => edit(hub().call('add_team_member', { teamId: team.id, login: m.login, role: e.target.value as TeamRole }))}
                   className="h-9 rounded border border-border bg-background px-2 text-sm"
                 >
                   <option value="admin">admin</option>
@@ -79,7 +79,7 @@ export function Members({ team, allProjects, onTeam, confirmRemoveRepo }: TeamSc
                       aria-label={`Confirm removing ${m.login}`}
                       onClick={() => {
                         setConfirmRemove(null);
-                        edit(teamRemoveMember(team.id, m.login));
+                        edit(hub().call('remove_team_member', { teamId: team.id, login: m.login }));
                       }}
                     >
                       Remove
@@ -102,7 +102,7 @@ export function Members({ team, allProjects, onTeam, confirmRemoveRepo }: TeamSc
           className="flex flex-wrap gap-2"
           onSubmit={(e) => {
             e.preventDefault();
-            if (login.trim() !== '') edit(teamAddMember(team.id, login, 'member'), () => setLogin(''));
+            if (login.trim() !== '') edit(hub().call('add_team_member', { teamId: team.id, login, role: 'member' }), () => setLogin(''));
           }}
         >
           <Input aria-label="Login" placeholder="Login" value={login} onChange={(e) => setLogin(e.target.value)} className="min-w-0 flex-1" />
@@ -121,7 +121,7 @@ export function Members({ team, allProjects, onTeam, confirmRemoveRepo }: TeamSc
             {editRepos && (
               <Button
                 aria-label={`Remove repository ${nameOf(p)}`}
-                onClick={() => confirmRemoveRepo(p) && edit(teamRemoveRepository(team.id, p))}
+                onClick={() => confirmRemoveRepo(p) && edit(hub().call('remove_team_repository', { teamId: team.id, path: p }))}
               >
                 Remove
               </Button>
@@ -145,7 +145,7 @@ export function Members({ team, allProjects, onTeam, confirmRemoveRepo }: TeamSc
               </option>
             ))}
           </select>
-          <Button disabled={repo === ''} onClick={() => edit(teamAddRepository(team.id, repo), () => setRepo(''))}>
+          <Button disabled={repo === ''} onClick={() => edit(hub().call('add_team_repository', { teamId: team.id, path: repo }), () => setRepo(''))}>
             Add repository
           </Button>
         </div>
