@@ -1,8 +1,8 @@
 import { useEffect, useMemo, useState } from 'react';
 import { ArrowRight, CircleCheck, CircleX, GitMerge, Info, MessageCircleQuestionMark, Play, Settings2, SquarePlus, type LucideIcon } from 'lucide-react';
 import { Button, LINK_CLASS, Skeleton, cn } from '@/ui';
-import { listActive, listActivity, listRunsAll, listTasksAll, type RepoReadFailure } from '../../ipc';
-import { onStreamReset, subscribe } from '../../transport';
+import { listActivity, listRunsAll, listTasksAll, type RepoReadFailure } from '../../ipc';
+import { hub } from '../../transport';
 import { inRepos } from '../../repoFilter';
 import { RepoFailures, isNoTaskSource } from '../../RepoViews';
 import { NeedsYou } from '../needs-you/NeedsYou';
@@ -26,7 +26,7 @@ const ACTIVITY_ICON: Record<ActivityEvent['kind'], LucideIcon> = {
 };
 
 /**
- * Reads `read` on mount, whenever the hub reports a change in one of `repos` (and after a stream gap), and, with
+ * Live-reads `read`: on mount, whenever the hub reports a change in one of `repos`, after a stream gap or reconnect, and, with
  * `pollMs`, on a timer while the page is visible. One read at a time; a failed read keeps the last answer.
  */
 function useHubRead<T>(read: () => Promise<T>, key: string, repos: string[], pollMs?: number): [data: T | null, settled: boolean] {
@@ -36,38 +36,16 @@ function useHubRead<T>(read: () => Promise<T>, key: string, repos: string[], pol
   useEffect(() => {
     setData(null); // another scope: never show the old one's answer
     setSettled(false);
-    let alive = true;
-    let busy = false;
-    let again = false; // a change arrived mid-read: one trailing read
-    const load = (): void => {
-      if (busy) {
-        again = true;
-        return;
-      }
-      busy = true;
-      read()
-        .then((d) => {
-          if (alive) setData(d);
-        }, () => {})
-        .finally(() => {
-          busy = false;
-          if (alive) setSettled(true);
-          if (again && alive) {
-            again = false;
-            load();
-          }
-        });
-    };
-    load();
-    const id = pollMs === undefined ? undefined : setInterval(() => !document.hidden && load(), pollMs);
-    const changed = subscribe<string>('vanguard:changed', (e) => repos.includes(e.payload) && load());
-    const reset = onStreamReset(load);
-    return () => {
-      alive = false;
-      if (id !== undefined) clearInterval(id);
-      void changed.then((f) => f());
-      void reset.then((f) => f());
-    };
+    const live = hub().liveRead(read, {
+      onData: (d) => {
+        setData(d);
+        setSettled(true);
+      },
+      onError: () => setSettled(true),
+      changed: (path) => repos.includes(path as string),
+      ...(pollMs === undefined ? {} : { pollMs, shouldPoll: () => !document.hidden }),
+    });
+    return live.stop;
     // `read` is rebuilt every render; `key` names what it reads.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [key, pollMs]);
@@ -171,7 +149,7 @@ export function Home({
       Promise.all(
         runningKey === '' ? [] : runningKey.split('\n').map((l) => l.slice(0, l.lastIndexOf(':'))).map((path) => {
           const name = shown.find((p) => p.path === path)?.name ?? path;
-          return listActive(path).then((a) => a.map((r): StampedActive => ({ ...r, repoPath: path, repoName: name })), () => []);
+          return hub().call('list_active', { repoPath: path }).then((a) => a.map((r): StampedActive => ({ ...r, repoPath: path, repoName: name })), () => []);
         }),
       ).then((l) => l.flat()),
     `${runningKey}|${repoKey}`,

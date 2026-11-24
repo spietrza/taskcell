@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { StreamView } from './StreamView';
-import { readSession } from '../../ipc';
+import { hub } from '../../transport';
 import { cn } from '@/ui';
 import type { ActiveRun, SessionRead } from '../../taskcell-output';
 
@@ -20,7 +20,7 @@ export function LiveRun({
 
   useEffect(() => {
     let alive = true;
-    readSession(active.sessionFile)
+    hub().call('read_session', { sessionFile: active.sessionFile })
       .then((d) => {
         if (alive) setData(d);
       })

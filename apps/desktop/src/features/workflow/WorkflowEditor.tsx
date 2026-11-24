@@ -2,7 +2,8 @@ import { useCallback, useEffect, useReducer, useRef, useState } from 'react';
 import { useDiscardGuard } from '../../navGuard';
 import { Button, CodeBlock, Input } from '@/ui';
 import { AlertTriangle, Pencil, Plus, Trash2 } from 'lucide-react';
-import { apiCapabilitiesCached, apiDeleteFlow, apiListFlows, apiReadFlow, apiWriteFlow, readAppConfig } from '../../ipc';
+import { apiCapabilitiesCached } from '../../ipc';
+import { hub } from '../../transport';
 import type { Capabilities, RepoFlowInfo } from '../../ipc';
 import { FlowCanvas } from './FlowCanvas';
 import { StageInspector } from './StageInspector';
@@ -44,7 +45,7 @@ export function WorkflowEditor({ project }: { project: string }) {
   const refreshList = useCallback(async (): Promise<void> => {
     const issued = gen.current;
     try {
-      const { flows: next } = await apiListFlows(project);
+      const { flows: next } = await hub().call('api_list_flows', { repoPath: project });
       if (issued === gen.current) {
         setFlows(next);
         setListError(null);
@@ -78,7 +79,7 @@ export function WorkflowEditor({ project }: { project: string }) {
     let current = true;
     setInUse(undefined);
     void Promise.resolve()
-      .then(() => readAppConfig(project))
+      .then(() => hub().call('read_app_config', { repoPath: project }))
       .then((c) => current && setInUse(c.flow ?? 'default'))
       .catch(() => undefined);
     apiCapabilitiesCached()
@@ -108,7 +109,7 @@ export function WorkflowEditor({ project }: { project: string }) {
     // The old save's result is gen-guarded now, so release its lock too — a hung save on the flow
     // we're leaving must not silently block saving this one (review #338 r2).
     saving.current = false;
-    apiReadFlow(project, file)
+    hub().call('api_read_flow', { repoPath: project, file })
       .then(({ doc, source }) => {
         if (issued === gen.current) dispatch({ type: 'loaded', file, doc, source });
       })
@@ -124,7 +125,7 @@ export function WorkflowEditor({ project }: { project: string }) {
     const issued = gen.current;
     const savedDoc = state.doc; // the exact snapshot shipped — saveOk clears dirty only if still current
     try {
-      const { source } = await apiWriteFlow(project, state.file, savedDoc);
+      const { source } = await hub().call('api_write_flow', { repoPath: project, file: state.file, doc: savedDoc });
       if (issued === gen.current) {
         dispatch({ type: 'saveOk', source, savedDoc });
         void refreshList();
@@ -174,7 +175,7 @@ export function WorkflowEditor({ project }: { project: string }) {
     if (!window.confirm(`Delete ${file} from .taskcell/flows/?`)) return;
     opBusy.current = true;
     try {
-      await apiDeleteFlow(project, file);
+      await hub().call('api_delete_flow', { repoPath: project, file });
       setOpError(null);
       if (state.file === file) {
         gen.current += 1; // invalidate in-flight reads/saves of the deleted flow
@@ -197,16 +198,16 @@ export function WorkflowEditor({ project }: { project: string }) {
     }
     opBusy.current = true;
     try {
-      const { doc } = await apiReadFlow(project, file); // the ON-DISK doc — rename never invents content
+      const { doc } = await hub().call('api_read_flow', { repoPath: project, file }); // the ON-DISK doc — rename never invents content
       const targetFile = `${to}.hcl`;
-      await apiWriteFlow(project, targetFile, { ...doc, name: to });
+      await hub().call('api_write_flow', { repoPath: project, file: targetFile, doc: { ...doc, name: to } });
       setOpError(null);
       // SAME-PATH rename (a hand-authored y.hcl declaring name "x", renamed to "y" — aligning the
       // name with the basename): the write above IS the whole operation. Deleting here would
       // remove the file just written — the flow would be GONE (review #345 r2, blocking).
       if (targetFile !== file) {
         try {
-          await apiDeleteFlow(project, file);
+          await hub().call('api_delete_flow', { repoPath: project, file });
         } catch (err) {
           // write-before-delete: the flow now exists under both names — say so, lose nothing.
           setOpError(`renamed to ${targetFile} but could not remove ${file}: ${String(err)} — both files exist`);
@@ -218,7 +219,7 @@ export function WorkflowEditor({ project }: { project: string }) {
         // must not clobber the newer selection (review #345 — the S5 async-context class again).
         const issued = ++gen.current;
         saving.current = false;
-        apiReadFlow(project, `${to}.hcl`)
+        hub().call('api_read_flow', { repoPath: project, file: `${to}.hcl` })
           .then(({ doc: d, source }) => {
             if (issued === gen.current) dispatch({ type: 'loaded', file: `${to}.hcl`, doc: d, source });
           })
@@ -251,7 +252,7 @@ export function WorkflowEditor({ project }: { project: string }) {
     if (builtinInfo?.doc === undefined || flows === null || dupName === '' || dupProblem !== null || opBusy.current) return;
     opBusy.current = true;
     try {
-      await apiWriteFlow(project, `${dupName}.hcl`, { ...builtinInfo.doc, name: dupName });
+      await hub().call('api_write_flow', { repoPath: project, file: `${dupName}.hcl`, doc: { ...builtinInfo.doc, name: dupName } });
       setOpError(null);
       await refreshList();
       setBuiltin(null);

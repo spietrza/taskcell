@@ -1,8 +1,8 @@
 import { useEffect, useState } from 'react';
 import { Button, Chip } from '@/ui';
 import { Minus, Plus } from 'lucide-react';
-import { subscribe as listen } from '../../transport';
-import { spawnRun, killRun, listSpawns, listTasks, SPAWN_OUTPUT_EVENT, SPAWN_EXIT_EVENT } from '../../ipc';
+import { hub, subscribe as listen } from '../../transport';
+import { SPAWN_OUTPUT_EVENT, SPAWN_EXIT_EVENT } from '../../ipc';
 import { useAppConfig, useAsync } from '../../hooks';
 import { watchArgv } from '../../command';
 import { boardCountLabels } from '../board/counts';
@@ -22,7 +22,7 @@ export function Fleet({ project, active: allActive }: { project: string; active:
   // Fleet reads the board itself, once per project (no polling): a count handed down from the last
   // board visit is stale the moment the factory claims a task, and Fleet is reachable without ever
   // opening the board. Null while it loads or if it fails — nothing is honest there, `0` is not.
-  const board = useAsync(() => listTasks(project), [project]);
+  const board = useAsync(() => hub().call('list_tasks', { repoPath: project }), [project]);
   const waiting = boardCountLabels(board.data)?.queued ?? null;
 
   // Seed the editable controls from saved config once it loads.
@@ -33,7 +33,7 @@ export function Fleet({ project, active: allActive }: { project: string; active:
 
   // On mount, reconcile against the backend spawn registry so the toggle survives navigation.
   useEffect(() => {
-    listSpawns()
+    hub().call('list_spawns')
       .then((spawns) => {
         const existing = spawns.find(
           (s) => s.cwd === project && (s.command.includes('taskcell watch') || s.command.includes('vanguard watch')),
@@ -84,7 +84,7 @@ export function Fleet({ project, active: allActive }: { project: string; active:
     }
     setError(null);
     try {
-      const pid = await spawnRun(project, argv);
+      const pid = await hub().call('spawn_run', { cwd: project, argv });
       setSpawn({ pid, command: argv.join(' '), lines: [] });
     } catch (e) {
       setError(String(e));
@@ -93,7 +93,7 @@ export function Fleet({ project, active: allActive }: { project: string; active:
 
   const stop = async (): Promise<void> => {
     if (spawn && spawn.exit === undefined) {
-      await killRun(spawn.pid);
+      await hub().call('kill_run', { pid: spawn.pid });
       // Optimistically mark stopped so the UI is never permanently stuck if spawn:exit is missed.
       // spawn:exit will overwrite this with the real exit code when it arrives.
       setSpawn((prev) => (prev && prev.exit === undefined ? { ...prev, exit: null } : prev));
@@ -182,7 +182,7 @@ export function Fleet({ project, active: allActive }: { project: string; active:
         <LaunchPanel
           spawn={spawn}
           onKill={(pid) => {
-            void killRun(pid);
+            void hub().call('kill_run', { pid });
             // Mirror stop()'s optimistic mark so the panel Kill can't leave a stuck "running" if spawn:exit is missed.
             setSpawn((prev) => (prev && prev.pid === pid && prev.exit === undefined ? { ...prev, exit: null } : prev));
           }}

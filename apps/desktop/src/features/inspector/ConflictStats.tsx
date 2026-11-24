@@ -1,10 +1,10 @@
 import { useAsync } from '../../hooks';
-import { conflictStats } from '../../ipc';
+import { hub } from '../../transport';
 
 /** Conflicts with the base, as `taskcell stats` prints them: totals plus the most-conflicted files. Hidden until a base merge was recorded. */
 export function ConflictStats({ repoPath, refreshKey }: { repoPath: string; refreshKey?: number }) {
   // A failed read hides the line (data stays null); the error text is the shared hook's.
-  const { data: stats } = useAsync(() => conflictStats(repoPath), [repoPath, refreshKey], { keepPrevious: true });
+  const { data: stats } = useAsync(() => hub().call('conflict_stats', { repoPath }), [repoPath, refreshKey], { keepPrevious: true });
   if (stats === null || stats.total.merges === 0) return null;
   const { total, topFiles } = stats;
   return (

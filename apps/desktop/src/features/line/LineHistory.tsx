@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { History } from 'lucide-react';
 import { Timestamp } from '@/ui';
-import { readSettingsHistory } from '../../ipc';
+import { hub } from '../../transport';
 import { STATION_SHORT, type Station } from '../../stations';
 import type { SettingsHistoryEntry } from '../../wire';
 
@@ -58,7 +58,7 @@ export function LineHistory({ project, version }: { project: string; version: nu
   const [failed, setFailed] = useState(false);
   useEffect(() => {
     let live = true;
-    readSettingsHistory(project).then(
+    hub().call('read_settings_history', { repoPath: project }).then(
       (r) => { if (live) { setRows(r); setFailed(false); } },
       () => { if (live) setFailed(true); },
     );

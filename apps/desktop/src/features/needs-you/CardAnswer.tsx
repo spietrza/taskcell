@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
-import { listNeedsYou, type NeedsYouItem } from '../../ipc';
+import type { NeedsYouItem } from '../../ipc';
+import { hub } from '../../transport';
 import { taskRefKey } from '../board/taskref';
 import { AgentQuestion } from '../../components/AgentQuestion';
 import { ReplyBox } from './NeedsYou';
@@ -23,7 +24,7 @@ export function CardAnswer({ project, taskId, onReplied, showQuestion = false }:
     let alive = true;
     setItem(null);
     const key = taskRefKey(taskId);
-    listNeedsYou(project)
+    hub().call('list_needs_you', { repoPath: project })
       .then((r) => alive && setItem(r.items.find((i) => i.kind === 'card' && i.id === key) ?? null))
       .catch(() => {});
     return () => {

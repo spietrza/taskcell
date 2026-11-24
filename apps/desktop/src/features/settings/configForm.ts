@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { writeAppConfig } from '../../ipc';
+import { hub } from '../../transport';
 import { useAppConfig, useCallerCapabilities } from '../../hooks';
 import { useDiscardGuard } from '../../navGuard';
 import { customProviderRowError, customProviderRows } from './customProviders';
@@ -53,7 +53,7 @@ export function useConfigForm(project: string) {
   const save = async (): Promise<void> => {
     const shipped = cfg; // the exact object written — dirty clears only if it is still current
     try {
-      await writeAppConfig(project, shipped);
+      await hub().call('write_app_config', { repoPath: project, config: shipped });
     } catch (e) {
       // The form keeps the user's input and stays dirty: they correct the named field and save again.
       setSaveError(errorMessage(e));

@@ -1,5 +1,5 @@
 import { useEffect, useState, type ReactNode } from 'react';
-import { apiListSkills } from '../../ipc';
+import { hub } from '../../transport';
 import { errorMessage } from '../../errors';
 
 /**
@@ -25,7 +25,7 @@ export function SkillPicker({
   useEffect(() => {
     let live = true;
     setInstalled(null);
-    apiListSkills(project)
+    hub().call('list_skills', { repoPath: project })
       .then(({ skills }) => {
         if (live) setInstalled(skills);
       })

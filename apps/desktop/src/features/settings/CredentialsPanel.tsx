@@ -1,16 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { Button, Input } from '@/ui';
-import {
-  deleteInstanceCredential,
-  deleteUserCredential,
-  getCredentialPolicy,
-  instanceCredentialsStatus,
-  saveInstanceCredential,
-  saveUserCredential,
-  setCredentialPolicy,
-  userCredentialsStatus,
-  callerCapabilities,
-} from '../../ipc';
+import { callerCapabilities } from '../../ipc';
+import { hub } from '../../transport';
 import type { CredentialPolicy } from '../../wire';
 
 /** Mirrors `CREDENTIAL_NAMES` in src/hub/credentials.ts — the only variables the hub will store. */
@@ -114,12 +105,12 @@ export function CredentialsPanel() {
   const refresh = useCallback(async (): Promise<void> => {
     try {
       // An unreadable caller_capabilities falls back to the status's own admin flag rather than taking the panel down.
-      const [s, caps] = await Promise.all([userCredentialsStatus(), callerCapabilities().catch(() => null)]);
+      const [s, caps] = await Promise.all([hub().call('user_credentials_status'), callerCapabilities().catch(() => null)]);
       const admin = caps?.admin ?? s.admin;
       setStatus({ ...s, admin });
       if (admin) {
-        setPolicy((await getCredentialPolicy()).policy);
-        const instance = await instanceCredentialsStatus();
+        setPolicy((await hub().call('get_credential_policy')).policy);
+        const instance = await hub().call('instance_credentials_status');
         setInstanceNames(instance.names);
         setInstanceReason(instance.reason);
       }
@@ -147,7 +138,7 @@ export function CredentialsPanel() {
               onChange={(e) => {
                 const next = e.target.value as CredentialPolicy;
                 setPolicyError(undefined);
-                void setCredentialPolicy(next).then(refresh, (err) => setPolicyError(String(err)));
+                void hub().call('set_credential_policy', { policy: next }).then(refresh, (err) => setPolicyError(String(err)));
               }}
             >
               {(Object.keys(POLICY_LABELS) as CredentialPolicy[]).map((p) => (
@@ -162,11 +153,11 @@ export function CredentialsPanel() {
             title="Instance credentials"
             names={instanceNames}
             onSave={async (n, v) => {
-              await saveInstanceCredential(n, v);
+              await hub().call('save_instance_credential', { name: n, value: v });
               await refresh();
             }}
             onDelete={async (n) => {
-              await deleteInstanceCredential(n);
+              await hub().call('delete_instance_credential', { name: n });
               await refresh();
             }}
           />
@@ -178,11 +169,11 @@ export function CredentialsPanel() {
           title="Your credentials"
           names={status.names}
           onSave={async (n, v) => {
-            await saveUserCredential(n, v);
+            await hub().call('save_user_credential', { name: n, value: v });
             await refresh();
           }}
           onDelete={async (n) => {
-            await deleteUserCredential(n);
+            await hub().call('delete_user_credential', { name: n });
             await refresh();
           }}
         />

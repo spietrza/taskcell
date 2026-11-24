@@ -1,5 +1,12 @@
 import { test, expect, afterEach, vi } from 'vitest';
-import { invoke, subscribe, onStreamReset, onHubRestart, onHubConnectionIssue, captureHubToken, watchHubToken } from './transport';
+import { hub, subscribe, onHubRestart, onHubConnectionIssue, captureHubToken, watchHubToken } from './transport';
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const invoke = (cmd: string, args?: Record<string, unknown>): Promise<any> => hub().call(cmd as 'list_runs', args as never);
+const onStreamReset = (handler: () => void): Promise<() => void> => {
+  const stop = hub().subscribe({ onEvent: () => {}, onReset: handler });
+  return Promise.resolve(() => stop());
+};
 
 /** Minimal fake EventSource — jsdom doesn't implement one. Tracks every instance so a test can
  * assert how many were actually constructed (the "one shared EventSource" guarantee). */
@@ -199,8 +206,8 @@ test('T-93 one shared EventSource, handlers routed by event name', async () => {
   const sessionCalls = stubSessionFetch();
   const aEvents: unknown[] = [];
   const bEvents: unknown[] = [];
-  const unlistenA = await subscribe<{ x: number }>('event-a', (e) => aEvents.push(e.payload));
-  const unlistenB = await subscribe<{ y: number }>('event-b', (e) => bEvents.push(e.payload));
+  const unlistenA = await subscribe<{ x: number }>('api:event', (e) => aEvents.push(e.payload));
+  const unlistenB = await subscribe<{ y: number }>('spawn:output', (e) => bEvents.push(e.payload));
 
   const es = await sourceOpened();
   expect(FakeEventSource.instances).toHaveLength(1); // shared, not one per subscriber
@@ -209,8 +216,8 @@ test('T-93 one shared EventSource, handlers routed by event name', async () => {
   expect(sessionCalls[0]!.url).toBe('/events/session');
   expect(sessionCalls[0]!.init?.method).toBe('POST');
   expect((sessionCalls[0]!.init?.headers as Record<string, string>)['x-vanguard-hub-token']).toBe('a&b');
-  es.emit('event-a', { x: 1 });
-  es.emit('event-b', { y: 2 });
+  es.emit('api:event', { x: 1 });
+  es.emit('spawn:output', { y: 2 });
   expect(aEvents).toEqual([{ x: 1 }]);
   expect(bEvents).toEqual([{ y: 2 }]);
 
@@ -218,12 +225,37 @@ test('T-93 one shared EventSource, handlers routed by event name', async () => {
   unlistenB();
 });
 
+test('a live read re-reads after the browser reconnects the event stream (catch-up), on a change and on a reset', async () => {
+  window.__TASKCELL_HUB__ = true;
+  vi.stubGlobal('EventSource', FakeEventSource);
+  stubSessionFetch();
+  let reads = 0;
+  const live = hub().liveRead(async () => ++reads, { onData: () => {}, changed: (p) => p === '/repo' });
+  const es = await sourceOpened();
+  es.emit('open', {}); // the first open: the read at start covers it
+  await new Promise((r) => setTimeout(r, 0));
+  expect(reads).toBe(1);
+  es.emit('error', {}); // a transient drop: the browser retries by itself
+  es.emit('open', {});
+  await new Promise((r) => setTimeout(r, 0));
+  expect(reads).toBe(2);
+  es.emit('vanguard:changed', '/other');
+  es.emit('vanguard:changed', '/repo');
+  await new Promise((r) => setTimeout(r, 0));
+  expect(reads).toBe(3);
+  es.emit('stream-reset', {});
+  await new Promise((r) => setTimeout(r, 0));
+  expect(reads).toBe(4);
+  live.stop();
+  expect(es.closed).toBe(true);
+});
+
 test('T-94 unsubscribe closes the source when the last handler leaves', async () => {
   window.__TASKCELL_HUB__ = true;
   vi.stubGlobal('EventSource', FakeEventSource);
   stubSessionFetch();
-  const unlistenA = await subscribe('event-a', () => {});
-  const unlistenB = await subscribe('event-b', () => {});
+  const unlistenA = await subscribe('api:event', () => {});
+  const unlistenB = await subscribe('spawn:output', () => {});
   const es = await sourceOpened();
 
   unlistenA();
@@ -294,7 +326,7 @@ test('a permanently closed SSE stream probes before deciding: the hub\'s own tok
   );
   const restarts: number[] = [];
   const unlistenRestart = await onHubRestart(() => restarts.push(1));
-  const unlistenSub = await subscribe('event-a', () => {});
+  const unlistenSub = await subscribe('api:event', () => {});
   const es = await sourceOpened();
 
   es.emit('error', {}); // still OPEN: a transient drop the browser retries on its own
@@ -322,7 +354,7 @@ test('a 403 on /events (the Host check, not the hub\'s own token) notifies onHub
   const issues: number[] = [];
   const unlistenRestart = await onHubRestart(() => restarts.push(1));
   const unlistenIssue = await onHubConnectionIssue(() => issues.push(1));
-  const unlistenSub = await subscribe('event-a', () => {});
+  const unlistenSub = await subscribe('api:event', () => {});
   const es = await sourceOpened();
 
   es.readyState = 2;
@@ -344,7 +376,7 @@ test('a network error probing /events (a proxy 502, connection dropped) notifies
   const issues: number[] = [];
   const unlistenRestart = await onHubRestart(() => restarts.push(1));
   const unlistenIssue = await onHubConnectionIssue(() => issues.push(1));
-  const unlistenSub = await subscribe('event-a', () => {});
+  const unlistenSub = await subscribe('api:event', () => {});
   const es = await sourceOpened();
 
   es.readyState = 2;
@@ -370,7 +402,7 @@ test.each([
   const issues: number[] = [];
   const unlistenRestart = await onHubRestart(() => restarts.push(1));
   const unlistenIssue = await onHubConnectionIssue(() => issues.push(1));
-  const unlistenSub = await subscribe('event-a', () => {});
+  const unlistenSub = await subscribe('api:event', () => {});
   for (let i = 0; i < 10 && issues.length === 0; i++) await new Promise((r) => setTimeout(r, 0));
   expect(issues).toEqual([1]);
   expect(restarts).toEqual([]);
@@ -391,7 +423,7 @@ test('the hub\'s own token rejection on the events-session request notifies onHu
   const issues: number[] = [];
   const unlistenRestart = await onHubRestart(() => restarts.push(1));
   const unlistenIssue = await onHubConnectionIssue(() => issues.push(1));
-  const unlistenSub = await subscribe('event-a', () => {});
+  const unlistenSub = await subscribe('api:event', () => {});
   for (let i = 0; i < 10 && restarts.length === 0; i++) await new Promise((r) => setTimeout(r, 0));
   expect(restarts).toEqual([1]);
   expect(issues).toEqual([]);
@@ -563,6 +595,7 @@ test('a refused tab stores a pasted launch URL at once; a pending token that is 
 });
 
 test('a refused tab stops asking the hub until a new launch URL arrives, then reconnects', async () => {
+  vi.stubGlobal('EventSource', FakeEventSource);
   launchWith('old');
   const offered = stubTokenHub(() => 'new');
   const restarts: number[] = [];
@@ -570,7 +603,7 @@ test('a refused tab stops asking the hub until a new launch URL arrives, then re
   await expect(invoke('list_runs', {})).rejects.toBe('invalid hub token');
   // Later calls (polling) and the event stream send nothing: no refused sign-in lines in the audit log.
   await expect(invoke('list_runs', {})).rejects.toBe('invalid hub token');
-  const unsub = await subscribe('run-progress', () => {});
+  const unsub = await subscribe('api:event', () => {});
   await new Promise((r) => setTimeout(r, 0));
   expect(offered).toEqual(['old']);
   expect(restarts).toEqual([1]);
@@ -578,9 +611,28 @@ test('a refused tab stops asking the hub until a new launch URL arrives, then re
   vi.stubGlobal('location', { ...window.location, reload, hash: '#token=new', pathname: '/', search: '' });
   window.history.replaceState(null, '', '/#token=new');
   await expect(invoke('list_runs', {})).resolves.toBe('ok');
-  expect(offered).toEqual(['old', 'new']);
+  expect(offered).toEqual(['old', 'new', 'new']); // the call, and the stream's session request reopened by the new token
   // Reconnected: one reload clears the banner and reopens the event stream.
   expect(reload).toHaveBeenCalledTimes(1);
   unsub();
   unlisten();
+});
+
+test("a proxy's non-JSON 401 on the events-session request is a connection issue: the hub's token is not blamed and calls keep going", async () => {
+  window.__TASKCELL_HUB__ = true;
+  vi.stubGlobal('EventSource', FakeEventSource);
+  const fetchSpy = vi.fn(async (url: string) => (url === '/events/session' ? new Response('<html>login</html>', { status: 401 }) : new Response(JSON.stringify({ result: 'ok' }), { status: 200 })));
+  vi.stubGlobal('fetch', fetchSpy);
+  const restarts: number[] = [];
+  const issues: number[] = [];
+  const unlistenRestart = await onHubRestart(() => restarts.push(1));
+  const unlistenIssue = await onHubConnectionIssue(() => issues.push(1));
+  const unlistenSub = await subscribe('api:event', () => {});
+  for (let i = 0; i < 10 && issues.length === 0; i++) await new Promise((r) => setTimeout(r, 0));
+  expect(issues).toEqual([1]);
+  expect(restarts).toEqual([]);
+  await expect(invoke('list_runs', {})).resolves.toBe('ok');
+  unlistenSub();
+  unlistenIssue();
+  unlistenRestart();
 });

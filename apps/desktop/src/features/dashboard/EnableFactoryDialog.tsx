@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { Button, Chip, CodeBlock, LINK_CLASS, useFocusTrap } from '@/ui';
-import { enableFactoryApply, enableFactoryHost, enableFactoryPlan, enableFactoryStart, enableFactoryVerify, enableFactoryWatch, factoryRefresh, factoryState, localWorkerDoctor, localWorkerSet, localWorkerState } from '../../ipc';
+import { enableFactoryVerify } from '../../ipc';
+import { hub } from '../../transport';
 import { factoryStepLabel, localWorkerLabel } from './factoryLabel';
 import { ExternalLink } from '../../components/ExternalLink';
 import { RUN_LOCATIONS } from '../../platform';
@@ -84,7 +85,7 @@ export function EnableFactoryDialog({ project, onClose, startLocal = false }: { 
       // The hub may have stored a newer plan (new rule-less jobs): reload it so the confirmation names them.
       if (kind === 'verify') {
         setDoctorConfirmed(false);
-        factoryRefresh(project.path).then(setChecklist, () => undefined);
+        hub().call('factory_refresh', { repoPath: project.path }).then(setChecklist, () => undefined);
       }
     } finally {
       setBusy(null);
@@ -96,7 +97,7 @@ export function EnableFactoryDialog({ project, onClose, startLocal = false }: { 
   const inProgress = checklist?.state === 'setting-up';
   useEffect(() => {
     let alive = true;
-    void factoryState(project.path).then(
+    void hub().call('factory_state', { repoPath: project.path }).then(
       (s) => alive && setChecklist(s),
       // Without the saved state, fall back to the picker so the user can still start (or retry) from there.
       (err) => {
@@ -109,7 +110,7 @@ export function EnableFactoryDialog({ project, onClose, startLocal = false }: { 
   }, [project.path]);
   useEffect(() => {
     let alive = true;
-    void enableFactoryHost(project.path).then((r) => alive && setHost(r.host), () => alive && setHost('other'));
+    void hub().call('enable_factory_host', { repoPath: project.path }).then((r) => alive && setHost(r.host), () => alive && setHost('other'));
     return () => {
       alive = false;
     };
@@ -118,7 +119,7 @@ export function EnableFactoryDialog({ project, onClose, startLocal = false }: { 
     if (!inProgress) return;
     let alive = true;
     const timer = setInterval(() => {
-      factoryRefresh(project.path).then((s) => alive && setChecklist(s), () => undefined);
+      hub().call('factory_refresh', { repoPath: project.path }).then((s) => alive && setChecklist(s), () => undefined);
     }, POLL_MS);
     return () => {
       alive = false;
@@ -128,25 +129,25 @@ export function EnableFactoryDialog({ project, onClose, startLocal = false }: { 
 
   const loadPlan = (provider: FactoryProviderId): Promise<void> =>
     step('plan', async () => {
-      const next = await enableFactoryPlan(project.path, provider);
+      const next = await hub().call('enable_factory_plan', { repoPath: project.path, provider });
       setTags((next.gitlabRunnerTags ?? []).join(', '));
       setPlan(next);
     });
   const loadWatch = (): Promise<void> =>
     step('watch', async () => {
-      setWatch(await enableFactoryWatch(project.path));
+      setWatch(await hub().call('enable_factory_watch', { repoPath: project.path }));
     });
   const loadLocal = (): Promise<void> =>
     step('local', async () => {
-      setLocal(await localWorkerState(project.path));
+      setLocal(await hub().call('local_worker_state', { repoPath: project.path }));
     });
   const switchLocal = (enabled: boolean): Promise<void> =>
     step('local', async () => {
-      setLocal(await localWorkerSet(project.path, enabled));
+      setLocal(await hub().call('local_worker_set', { repoPath: project.path, enabled }));
     });
   const runLocalDoctor = (): Promise<void> =>
     step('local', async () => {
-      setLocal(await localWorkerDoctor(project.path));
+      setLocal(await hub().call('local_worker_doctor', { repoPath: project.path }));
     });
   useEffect(() => {
     if (startLocal) void loadLocal();
@@ -162,18 +163,18 @@ export function EnableFactoryDialog({ project, onClose, startLocal = false }: { 
   const manualOnly = plan?.gitlabManualInclude === true && existing.has('.gitlab/taskcell.yml');
   const apply = (p: FactoryPlan): Promise<void> =>
     step('apply', async () => {
-      await enableFactoryApply(project.path, p);
-      setChecklist(await factoryRefresh(project.path));
+      await hub().call('enable_factory_apply', { repoPath: project.path, plan: p });
+      setChecklist(await hub().call('factory_refresh', { repoPath: project.path }));
     });
   // Callers already on the base: no PR, the checklist starts at the secret.
-  const start = (p: FactoryPlan): Promise<void> => step('apply', async () => setChecklist(await enableFactoryStart(project.path, p)));
+  const start = (p: FactoryPlan): Promise<void> => step('apply', async () => setChecklist(await hub().call('enable_factory_start', { repoPath: project.path, plan: p })));
   const runVerify = (p: FactoryPlan): Promise<void> =>
     step('verify', async () => {
       await enableFactoryVerify(project.path, p, doctorConfirmed ? unruledJobs : []);
       setDoctorConfirmed(false);
-      setChecklist(await factoryRefresh(project.path));
+      setChecklist(await hub().call('factory_refresh', { repoPath: project.path }));
     });
-  const checkSecret = (): Promise<void> => step('secret', async () => setChecklist(await factoryRefresh(project.path)));
+  const checkSecret = (): Promise<void> => step('secret', async () => setChecklist(await hub().call('factory_refresh', { repoPath: project.path })));
   const copy = (text: string): void => {
     if (!navigator.clipboard) {
       setError('Copying is not available here; select the command and copy it by hand.');
