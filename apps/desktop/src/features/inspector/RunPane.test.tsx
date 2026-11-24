@@ -3,7 +3,7 @@ import { afterEach, beforeEach, expect, test, vi } from 'vitest';
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { RunPane } from './RunPane';
 import { readSession } from '../../ipc';
-import { subscribe } from '../../transport';
+import { hub } from '../../transport';
 import type { RunDetail, StageDetail } from '../../taskcell-output';
 
 vi.mock('../../ipc', async (orig) => ({
@@ -11,15 +11,17 @@ vi.mock('../../ipc', async (orig) => ({
   readSession: vi.fn(),
   listLessons: vi.fn(async () => ({ lessons: [], branchFound: true })),
 }));
-// The event log is read through the transport's `invoke`; `readRunEvents` stands for `read_run_events` (repo, task, timestamp).
+// The event log is read through the session's `call`; `readRunEvents` stands for `read_run_events` (repo, task, timestamp).
 const readRunEvents = vi.fn();
 vi.mock('../../transport', async (orig) => {
   const t = await orig<typeof import('../../transport')>();
-  return {
-    ...t,
-    subscribe: vi.fn(async () => () => {}),
-    invoke: vi.fn(async (cmd: string, args?: Record<string, unknown>) => (cmd === 'read_run_events' ? readRunEvents(args?.repoPath, args?.taskId, args?.timestamp, args?.after) : t.invoke(cmd, args))),
+  const session = t.hub();
+  const hub = {
+    ...session,
+    subscribe: vi.fn(() => Object.assign(() => {}, { lastEventId: undefined })),
+    call: vi.fn(async (cmd: string, args?: Record<string, unknown>) => (cmd === 'read_run_events' ? readRunEvents(args?.repoPath, args?.taskId, args?.timestamp, args?.after) : session.call(cmd as 'list_runs', args as never))),
   };
+  return { ...t, hub: () => hub };
 });
 
 const noEvents = { events: [], nextAfter: 0, hasMore: false, truncated: false };
@@ -263,10 +265,10 @@ test('a live run past 500 events: the tail pages on and reaches its terminal eve
 
 test("another run's event does not re-read this run's log", async () => {
   let push: ((payload: unknown) => void) | undefined;
-  vi.mocked(subscribe).mockImplementation((async (_name: string, h: (e: { payload: unknown }) => void) => {
-    push = (payload) => h({ payload });
-    return () => {};
-  }) as never);
+  vi.mocked(hub().subscribe).mockImplementation((h) => {
+    push = (payload) => h.onEvent('api:event', payload);
+    return Object.assign(() => {}, { lastEventId: undefined });
+  });
   readRunEvents.mockResolvedValue(sealedEvents([{ type: 'stage-start', name: 'implementer', index: 1, of: 4 }]));
   render(<RunPane {...props} active={{ taskId: 'gh-r-3', sessionFile: '', lastActivityMs: Date.UTC(2026, 10, 16, 9) }} />);
   await waitFor(() => expect(readRunEvents).toHaveBeenCalled());

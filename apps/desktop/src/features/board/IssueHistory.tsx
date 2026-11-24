@@ -1,5 +1,5 @@
-import { readIssueHistory } from '../../ipc';
 import { useAsync } from '../../hooks';
+import { hub } from '../../transport';
 
 const ISSUE = /(\d+)$/;
 
@@ -7,7 +7,7 @@ const ISSUE = /(\d+)$/;
 export function IssueHistory({ project, taskId }: { project: string; taskId: string }) {
   const issue = Number(ISSUE.exec(taskId)?.[1]);
   const { data, error, loading } = useAsync(
-    () => (Number.isInteger(issue) && issue > 0 ? readIssueHistory(project, issue) : Promise.reject(new Error('no issue number'))),
+    () => (Number.isInteger(issue) && issue > 0 ? hub().call('read_issue_history', { repoPath: project, issue }) : Promise.reject(new Error('no issue number'))),
     [project, issue],
   );
   return (

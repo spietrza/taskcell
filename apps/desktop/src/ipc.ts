@@ -1,13 +1,12 @@
-import { invoke, onStreamReset, subscribe } from './transport';
+import { hub } from './transport';
+import type { CallArgs } from '../../../packages/hub-client/src/client';
 import { tailRun, type RunTail, type RunTailHandlers, type RunTailTarget } from '../../../packages/hub-client/src/runTail';
-import type { ApproverMode, CallerCapabilities, ApproverModeChange, ApproverPeriod, ApproverPrDecision, ApproverScorecard, CostBreakdown, CostPeriod, SetupStatus, Team, TeamRole } from './wire';
+import type { ApproverMode, CallerCapabilities, ApproverModeChange, ApproverPrDecision, SetupStatus, Team, TeamRole } from './wire';
 import type {
   RunSummary,
   RunDetail,
   Project,
-  ActiveRun,
   SessionRead,
-  RemoteRun,
   RemoteImport,
   RunRef,
   DirListing,
@@ -27,7 +26,6 @@ import type {
   FactoryVerifyResult,
   NeedsYouItem,
   SpawnInfo,
-  StartTaskResult,
 } from './wire';
 
 export type { NeedsYouItem, RepoReadFailure, RepoStamp } from './wire';
@@ -37,12 +35,9 @@ export type { NeedsYouItem, RepoReadFailure, RepoStamp } from './wire';
  * catalogue, and its args/result are that command's — so a renamed field, a forgotten argument or a
  * wrapper that claims the wrong result shape is a `tsc` error here instead of a runtime surprise in
  * whichever backend answers (the hub, or dev/mockBackend.ts).
- *
- * The cast is the single place the per-command arg type is erased: `invoke` dispatches by string
- * name and takes a plain record, exactly like the hub's `POST /rpc/<cmd>`.
  */
 function call<K extends keyof Commands>(cmd: K, args: Commands[K]['args']): Promise<Commands[K]['result']> {
-  return invoke<Commands[K]['result']>(cmd, args as Record<string, unknown> | undefined);
+  return hub().call(cmd, ...([args] as CallArgs<K>));
 }
 
 /** The optional team scope of the hub's list commands: no id = the server's default. */
@@ -50,11 +45,6 @@ const teamArgs = (teamId?: string): { teamId: string } | undefined => (teamId ==
 
 export function listRuns(repoPath: string): Promise<RunSummary[]> {
   return call('list_runs', { repoPath });
-}
-
-/** HUB_ONLY: a project's CI run cost by model and stage (its metrics branch) for a period. */
-export function readCostBreakdown(repoPath: string, period: CostPeriod): Promise<CostBreakdown> {
-  return call('read_cost_breakdown', { repoPath, period });
 }
 
 /** HUB_ONLY: conflicts with the base per week for one repository, as `taskcell stats` prints them. */
@@ -84,20 +74,7 @@ export function readRunEvents(repoPath: string, taskId: string, timestamp?: stri
  * on an `api:event` of this run, ended at its terminal event. `refresh()` reads again (the file watcher's backstop).
  */
 export function tailRunEvents(target: RunTailTarget, handlers: RunTailHandlers): RunTail {
-  return tailRun(
-    {
-      call: ((cmd: keyof Commands, args: Commands[keyof Commands]['args']) => call(cmd, args)) as never,
-      subscribe: (h) => {
-        const closers = [
-          subscribe('api:event', (e) => h.onEvent('api:event', e.payload)),
-          ...(h.onReset ? [onStreamReset(h.onReset)] : []),
-        ];
-        return Object.assign(() => closers.forEach((c) => void c.then((f) => f())), { lastEventId: undefined });
-      },
-    },
-    target,
-    handlers,
-  );
+  return tailRun(hub(), target, handlers);
 }
 
 /** Hub-only: a native-dialog stand-in (src/hub/browse.ts) — lists `path`'s subdirectories, confined
@@ -108,10 +85,6 @@ export function browseDirs(path?: string): Promise<DirListing> {
 
 export function listProjects(teamId?: string): Promise<Project[]> {
   return call('list_projects', teamArgs(teamId));
-}
-
-export function addProject(path: string): Promise<Project[]> {
-  return call('add_project', { path });
 }
 
 /** Hub-only: clone `url` under `parentDir` (the same browse-root-confined picker as `browseDirs`)
@@ -191,15 +164,6 @@ export function listActivity(teamId?: string): Promise<Commands['list_activity']
   return call('list_activity', teamArgs(teamId));
 }
 
-/** Hub-only: one issue's history over the audit streams, run records and Git host events. */
-export function readIssueHistory(repoPath: string, issue: number): Promise<Commands['read_issue_history']['result']> {
-  return call('read_issue_history', { repoPath, issue });
-}
-
-export function removeProject(path: string): Promise<Project[]> {
-  return call('remove_project', { path });
-}
-
 /** Hub-only: the "Needs you" read model (src/hub/needs-you.ts) — items waiting on a human, gh/labels
  *  only, no model call. Empty on a project with no GitHub remote. */
 export function listNeedsYou(repoPath: string): Promise<{ items: NeedsYouItem[] }> {
@@ -224,24 +188,9 @@ export function mergeNeedsYou(repoPath: string, id: string): Promise<void> {
   return call('merge_needs_you', { repoPath, id });
 }
 
-/** Hub-only: put an open factory PR back through review (drops `taskcell:reviewed` and the review trigger, re-adds the trigger). */
-export function rereviewPr(repoPath: string, id: string): Promise<void> {
-  return call('rereview_pr', { repoPath, id });
-}
-
-/** Hub-only: apply a trigger label to a GitHub issue of the project (src/hub/start-task.ts). Throws
- *  on a non-trigger label, a closed or already-started issue, or a non-GitHub project. */
-export function startTask(repoPath: string, number: number, label: string): Promise<StartTaskResult> {
-  return call('start_task', { repoPath, number, label });
-}
-
 /** Hub-only: "Retry now" on a task paused by a provider limit (src/hub/paused.ts). Throws where `startTask` would refuse, or when the factory's marker is missing. */
 export function retryPausedTask(repoPath: string, number: number): Promise<Commands['retry_paused_task']['result']> {
   return call('retry_paused_task', { repoPath, number });
-}
-
-export function listActive(repoPath: string): Promise<ActiveRun[]> {
-  return call('list_active', { repoPath });
 }
 
 export function readSession(sessionFile: string): Promise<SessionRead> {
@@ -261,10 +210,6 @@ export function readAppConfigStrict(repoPath: string): Promise<AppConfig> {
 
 export function writeAppConfig(repoPath: string, config: AppConfig): Promise<void> {
   return call('write_app_config', { repoPath, config });
-}
-
-export function listRemoteRuns(repoPath: string): Promise<RemoteRun[]> {
-  return call('list_remote_runs', { repoPath });
 }
 
 /** Import a CI run's record artifact (once; a cache hit skips `gh`) and group it into run summaries.
@@ -310,14 +255,6 @@ export function killRun(pid: number): Promise<void> {
   return call('kill_run', { pid });
 }
 
-export function watchProject(repoPath: string): Promise<void> {
-  return call('watch_project', { repoPath });
-}
-
-export function unwatchProject(repoPath: string): Promise<void> {
-  return call('unwatch_project', { repoPath });
-}
-
 // Typed core API over the `taskcell __sidecar` child (no stdout scraping). Run events arrive on the
 // `api:event` hub event — subscribe with `subscribe('api:event', …)` where the run UI needs them
 // (that consumption is Subsystem 1; this only exposes the wrappers).
@@ -342,7 +279,7 @@ export type {
   CompleteCallArgs as CompleteParams,
 } from './wire';
 import type { LocalWorkerState } from './wire';
-import type { AuditEntry, Capabilities, CreateRunParams, CreateRunResult, FlowDoc, RepoFlowInfo, RepoProviderInfo, CompleteCallArgs } from './wire';
+import type { AuditEntry, Capabilities, FlowDoc, RepoFlowInfo, RepoProviderInfo, CompleteCallArgs } from './wire';
 
 export function apiCapabilities(): Promise<Capabilities> {
   return call('api_capabilities', undefined);
@@ -363,10 +300,6 @@ export function apiCapabilitiesCached(): Promise<Capabilities> {
     throw err;
   });
   return capsCache;
-}
-
-export function apiCreateRun(params: CreateRunParams): Promise<CreateRunResult> {
-  return call('api_create_run', { params });
 }
 
 /**
@@ -489,11 +422,6 @@ export function apiActiveRun(): Promise<{ runId: string; repoPath: string } | nu
   return call('api_active_run', undefined);
 }
 
-/** Buffered `{ runId, event }` backlog for a run, for a re-attaching live strip. */
-export function apiRunBacklog(runId: string): Promise<unknown[]> {
-  return call('api_run_backlog', { runId });
-}
-
 /** HUB_ONLY: runs waiting behind the active one, for a page that just (re)loaded — events alone
  * cannot reconstruct this for a client that wasn't listening when they were queued. */
 export function apiQueue(): Promise<{ runId: string; repoPath: string; position: number }[]> {
@@ -545,16 +473,6 @@ export function deleteInstanceCredential(name: string): Promise<void> {
   return call('delete_instance_credential', { name });
 }
 
-/** Hub-only: the teams the caller can see. */
-export function listTeams(): Promise<Team[]> {
-  return call('list_teams', undefined);
-}
-
-/** Hub-only: the caller's role in a team (`null` for a non-member). */
-export function teamRole(id: string): Promise<TeamRole | null> {
-  return call('team_role', { id });
-}
-
 export function teamAddMember(teamId: string, login: string, role: TeamRole): Promise<Team> {
   return call('add_team_member', { teamId, login, role });
 }
@@ -586,49 +504,9 @@ export function listLessons(repoPath: string, taskText?: string): Promise<Comman
   return call('list_lessons', { repoPath, ...(taskText !== undefined ? { taskText } : {}) });
 }
 
-/** Hub-only: the skills of a repo with lock status, upstream check and usage. */
-export function listRepoSkills(repoPath: string): Promise<Commands['list_repo_skills']['result']> {
-  return call('list_repo_skills', { repoPath });
-}
-
-/** Hub-only, a mutation: open a PR that updates one skill (never changes it any other way). */
-export function updateSkillPr(repoPath: string, name: string): Promise<Commands['update_skill_pr']['result']> {
-  return call('update_skill_pr', { repoPath, name });
-}
-
 /** Hub-only, owner only, a mutation: open a PR that adds the skill at `source`, or the `paths` found by `discoverSkills` (pinned by `ref`) in one PR. */
 export function addSkillPr(repoPath: string, source: string, pick?: { ref: string; paths: string[] }): Promise<Commands['add_skill_pr']['result']> {
   return call('add_skill_pr', { repoPath, source, ...pick });
-}
-
-/** Hub-only, owner only: the skills a repository holds (reads the network, writes nothing). */
-export function discoverSkills(repoPath: string, source: string): Promise<Commands['discover_skills']['result']> {
-  return call('discover_skills', { repoPath, source });
-}
-
-/** Hub-only, owner only: the project's open skill-add PRs (reads the forge, writes nothing). */
-export function listPendingSkillPrs(repoPath: string): Promise<Commands['list_pending_skill_prs']['result']> {
-  return call('list_pending_skill_prs', { repoPath });
-}
-
-/** Hub-only, owner only, a write: fast-forward the hub's checkout to the default branch. Throws with the reason when it refuses. */
-export function pullCheckout(repoPath: string): Promise<Commands['pull_checkout']['result']> {
-  return call('pull_checkout', { repoPath });
-}
-
-/** Hub-only, owner only, a mutation: open a PR that removes a skill. */
-export function removeSkillPr(repoPath: string, name: string): Promise<Commands['remove_skill_pr']['result']> {
-  return call('remove_skill_pr', { repoPath, name });
-}
-
-/** Hub-only, a mutation: dismiss a lesson so later runs no longer receive it. */
-export function dismissLesson(repoPath: string, id: string): Promise<void> {
-  return call('dismiss_lesson', { repoPath, id });
-}
-
-/** HUB_ONLY: the approver's scorecard and current mode for a project (metrics branch + base-branch policy). */
-export function readApproverScorecard(repoPath: string, period: ApproverPeriod): Promise<ApproverScorecard> {
-  return call('read_approver_scorecard', { repoPath, period });
 }
 
 /** HUB_ONLY: what the approver decided for each PR on the metrics branch. */

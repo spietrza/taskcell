@@ -1,11 +1,12 @@
 import { useEffect, useState, type ReactNode } from 'react';
 import { Button, Chip, Input, ScrollTable, Table } from '@/ui';
 import { RefreshCw } from 'lucide-react';
-import { addSkillPr, discoverSkills, listPendingSkillPrs, listRepoSkills, pullCheckout, removeSkillPr, updateSkillPr } from '../../ipc';
+import { addSkillPr } from '../../ipc';
 import { errorClause, errorMessage } from '../../errors';
 import { gateProps, useAsync, useCallerCapabilities } from '../../hooks';
 import { ExternalLink } from '../../components/ExternalLink';
 import type { DiscoveredSkill, RepoSkill } from '../../wire';
+import { hub } from '../../transport';
 
 const webUrl = (u: string): string | undefined => (/^https?:\/\//i.test(u) ? u : undefined);
 
@@ -50,9 +51,9 @@ export function Skills({ project }: { project: string }) {
   // The PR an add opened, kept until the view is left: its skills are not in the list until it is merged.
   const [notice, setNotice] = useState<{ prUrl: string; names: string[] } | null>(null);
   const [pull, setPull] = useState<{ kind: 'ok' | 'error'; message: string } | null>(null);
-  const { data, error, loading } = useAsync(() => listRepoSkills(project), [project, nonce]);
+  const { data, error, loading } = useAsync(() => hub().call('list_repo_skills', { repoPath: project }), [project, nonce]);
   // Best effort: a caller who may not read the forge, or a project without a GitHub remote, simply sees none.
-  const { data: pendingData } = useAsync(() => listPendingSkillPrs(project).catch(() => ({ prs: [] })), [project, nonce]);
+  const { data: pendingData } = useAsync(() => hub().call('list_pending_skill_prs', { repoPath: project }).catch(() => ({ prs: [] })), [project, nonce]);
   const pending = pendingData?.prs ?? [];
   const caps = useCallerCapabilities(project)?.project;
   const groups = Object.entries(
@@ -85,7 +86,7 @@ export function Skills({ project }: { project: string }) {
   const pullNow = async (): Promise<void> => {
     setBusy('pull');
     try {
-      const { updated } = await pullCheckout(project);
+      const { updated } = await hub().call('pull_checkout', { repoPath: project });
       setPull({ kind: 'ok', message: updated ? 'Checkout updated.' : 'Checkout already up to date.' });
       setNonce((n) => n + 1);
     } catch (e) {
@@ -114,7 +115,7 @@ export function Skills({ project }: { project: string }) {
     clearPull();
     setBusy('add');
     try {
-      const r = await discoverSkills(project, src);
+      const r = await hub().call('discover_skills', { repoPath: project, source: src });
       const folder = src.replace(/\/SKILL\.md$/, '').replace(/\/$/, '');
       if (pointsAtFolder(src) && r.skills.length === 1 && folder.endsWith(`/${r.skills[0]!.path}`)) {
         setBusy(null);
@@ -280,11 +281,11 @@ export function Skills({ project }: { project: string }) {
                   <Table.Cell>
                     <div className="flex flex-wrap items-center gap-2">
                       {isOutdated(s) && (
-                        <Button variant="outlined" {...gateProps(caps?.canUpdateSkill)} disabled={busy !== null || caps?.canUpdateSkill.allowed === false} onClick={() => void run(`update:${s.name}`, () => updateSkillPr(project, s.name))}>
+                        <Button variant="outlined" {...gateProps(caps?.canUpdateSkill)} disabled={busy !== null || caps?.canUpdateSkill.allowed === false} onClick={() => void run(`update:${s.name}`, () => hub().call('update_skill_pr', { repoPath: project, name: s.name }))}>
                           {busy === `update:${s.name}` ? 'Opening…' : 'Open update PR'}
                         </Button>
                       )}
-                      <Button variant="text" color="secondary" {...gateProps(caps?.canEditSkills)} disabled={busy !== null || caps?.canEditSkills.allowed === false} onClick={() => void run(`remove:${s.name}`, () => removeSkillPr(project, s.name))}>
+                      <Button variant="text" color="secondary" {...gateProps(caps?.canEditSkills)} disabled={busy !== null || caps?.canEditSkills.allowed === false} onClick={() => void run(`remove:${s.name}`, () => hub().call('remove_skill_pr', { repoPath: project, name: s.name }))}>
                         {busy === `remove:${s.name}` ? 'Opening…' : 'Remove (PR)'}
                       </Button>
                       {result(`update:${s.name}`)}

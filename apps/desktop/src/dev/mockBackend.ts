@@ -243,6 +243,14 @@ const commandHandlers = {
   [K in keyof Commands]: (args: Commands[K]['args']) => Promise<Commands[K]['result']> | Commands[K]['result'];
 }>;
 
+/** Commands the fixtures deliberately do not answer: mobile-only or never sent by the UI. */
+type Unmocked = 'agent_cli_versions' | 'enable_factory_secret' | 'migrate_labels' | 'register_push_token' | 'unregister_push_token' | 'get_team';
+
+// The coverage guard, in the type system: a command added to the wire catalogue needs a fixture handler here (or a
+// place in `Unmocked`), or this line stops compiling — screens call the session directly, so there is no wrapper list to scan.
+const _everyCommandIsMocked: Exclude<keyof Commands, keyof typeof commandHandlers | Unmocked> extends never ? true : never = true;
+void _everyCommandIsMocked;
+
 // Commands dispatch by string name, so this is the one place the per-command arg types are erased.
 const handlers = commandHandlers as Record<string, (args: unknown) => unknown>;
 

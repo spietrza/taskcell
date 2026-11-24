@@ -17,7 +17,7 @@ import { Onboarding } from './features/onboarding/Onboarding';
 import { StarterTaskDialog } from './features/onboarding/StarterTaskDialog';
 import { loadOnboarding, saveOnboarding, showOnFirstRun, type OnboardingStored } from './features/onboarding/steps';
 import { factoryGateOf, useCallerCapabilities } from './hooks';
-import { listProjects, addProject, cloneProject, removeProject, listNeedsYouAll, listTeams, teamAddRepository, factoryState, localWorkerState } from './ipc';
+import { listProjects, cloneProject, listNeedsYouAll, teamAddRepository, factoryState, localWorkerState } from './ipc';
 import { loadTeamId, resolveTeam, saveTeamId, teamProjects } from './teams';
 import type { FactoryState, LocalWorkerState, RepoReadFailure, Team } from './wire';
 import { projectColor, contrastColor } from './color';
@@ -26,7 +26,7 @@ import { ProjectCombobox } from './ProjectCombobox';
 import { inRepos } from './repoFilter';
 import { loadFilter, saveFilter, type HubFilter } from './filterState';
 import { resolveScreen, screenFromUrl, setUrlParam, settingsSectionFromUrl, urlForScreen } from './screenUrl';
-import { hubSignedIn, isDemoMode, hubSignOut, onHubRestart, onHubConnectionIssue } from './transport';
+import { hub, hubSignedIn, isDemoMode, hubSignOut, onHubRestart, onHubConnectionIssue } from './transport';
 import { applyTheme, initialTheme, saveTheme } from './theme';
 import type { Project, ActiveRun } from './taskcell-output';
 import type { StampedNeeds } from './features/home/homeModel';
@@ -145,47 +145,39 @@ export default function App() {
   });
 
   useEffect(() => {
-    let alive = true;
-    const tick = (): void => {
-      listProjects()
-        .then((p) => {
-          if (!alive) return;
-          setProjects(p);
-          setProjectsLoaded(true);
-        })
-        .catch(() => {});
-      const gen = teamsGen.current;
-      listTeams()
-        .then((t) => {
-          if (alive && gen === teamsGen.current) setTeams(t);
-        })
-        .catch(() => {})
-        .finally(() => alive && setTeamsLoaded(true));
-    };
-    tick();
-    const id = setInterval(tick, 5000);
+    const live = hub().liveRead(listProjects, {
+      onData: (p) => {
+        setProjects(p);
+        setProjectsLoaded(true);
+      },
+      pollMs: 5000,
+      changed: () => false, // a file change says nothing of the project list
+    });
+    let gen = teamsGen.current;
+    const teamsLive = hub().liveRead(
+      () => {
+        gen = teamsGen.current;
+        return hub().call('list_teams');
+      },
+      {
+        onData: (t) => {
+          if (gen === teamsGen.current) setTeams(t);
+          setTeamsLoaded(true);
+        },
+        onError: () => setTeamsLoaded(true),
+        pollMs: 5000,
+        changed: () => false,
+      },
+    );
     return () => {
-      alive = false;
-      clearInterval(id);
+      live.stop();
+      teamsLive.stop();
     };
   }, []);
 
   useEffect(() => {
     if (scopeId === undefined) return;
-    let alive = true;
-    const tick = (): void => {
-      listProjects(scopeId)
-        .then((list) => {
-          if (alive) setScoped({ teamId: scopeId, list });
-        })
-        .catch(() => {});
-    };
-    tick();
-    const id = setInterval(tick, 5000);
-    return () => {
-      alive = false;
-      clearInterval(id);
-    };
+    return hub().liveRead(() => listProjects(scopeId), { onData: (list) => setScoped({ teamId: scopeId, list }), pollMs: 5000, changed: () => false }).stop;
   }, [scopeId, scopedNonce]);
 
   // Default the current project to the persisted filter's repository, else the first, once projects load;
@@ -217,7 +209,7 @@ export default function App() {
   // Re-read the teams and the selected team's projects after a local add/remove.
   const reloadTeams = async (): Promise<void> => {
     teamsGen.current++;
-    setTeams(await listTeams().catch(() => teams));
+    setTeams(await hub().call('list_teams').catch(() => teams));
     setScopedNonce((n) => n + 1);
   };
 
@@ -361,7 +353,7 @@ export default function App() {
     // Removing the ACTIVE project unmounts Inspector — guard like any navigation.
     if (activeProject === path && !navGuard.current.confirm()) return;
     try {
-      setProjects(await removeProject(path));
+      setProjects(await hub().call('remove_project', { path }));
       await reloadTeams();
       if (activeProject === path) setActiveProject(null);
     } catch {
@@ -449,23 +441,16 @@ export default function App() {
       setNeeds(null);
       return;
     }
-    let alive = true;
     const repos = repoKey.split('\n');
-    const tick = (): void => {
-      listNeedsYouAll(scopeId)
-        .then((l) => {
-          if (!alive) return;
-          setNeeds({ items: inRepos(l.items, repos), failures: inRepos(l.failures, repos) });
-          setNeedsError(null);
-        })
-        .catch((e) => alive && setNeedsError(String(e)));
-    };
-    tick();
-    const id = setInterval(tick, 30000);
-    return () => {
-      alive = false;
-      clearInterval(id);
-    };
+    return hub().liveRead(() => listNeedsYouAll(scopeId), {
+      onData: (l) => {
+        setNeeds({ items: inRepos(l.items, repos), failures: inRepos(l.failures, repos) });
+        setNeedsError(null);
+      },
+      onError: setNeedsError,
+      pollMs: 30000,
+      changed: () => false, // forge-backed read: only the timer, a reset or a reconnect re-runs it, not every file change
+    }).stop;
   }, [needsYou, activeProject, scopeId, repoKey, needsNonce]);
 
   const SCREEN_LABEL: Record<Screen, string> = {
@@ -725,7 +710,7 @@ export default function App() {
         <RepoPicker
           added={projects.map((p) => p.path)}
           onAdd={async (path) => {
-            const list = await addProject(path);
+            const list = await hub().call('add_project', { path });
             setProjects(list);
             await adoptProject(path);
             setShowRepoPicker(false);

@@ -1,11 +1,12 @@
 import { useState } from 'react';
 import { Button, Card, Chip, Input, Timestamp } from '@/ui';
 import { RefreshCw } from 'lucide-react';
-import { dismissLesson, fetchSpec, listLessons } from '../../ipc';
+import { fetchSpec, listLessons } from '../../ipc';
 import { errorClause } from '../../errors';
 import { useAsync } from '../../hooks';
 import { ExternalLink } from '../../components/ExternalLink';
 import type { RepoLesson } from '../../wire';
+import { hub } from '../../transport';
 
 /** Lesson text is distilled from PR discussion: only http(s) addresses become links. */
 const webUrl = (u: string): string | undefined => (/^https?:\/\//i.test(u) ? u : undefined);
@@ -126,7 +127,7 @@ export function Lessons({ project }: { project: string }) {
           key={l.id}
           lesson={l}
           onDismiss={async () => {
-            await dismissLesson(project, l.id);
+            await hub().call('dismiss_lesson', { repoPath: project, id: l.id });
             setNonce((n) => n + 1);
           }}
         />

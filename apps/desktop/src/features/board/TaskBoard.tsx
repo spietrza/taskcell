@@ -2,6 +2,7 @@ import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { Button, Card, ErrorNote, LINK_CLASS, cn } from '@/ui';
 import { FilePlus } from 'lucide-react';
 import { listTasks, listTasksAll } from '../../ipc';
+import { hub } from '../../transport';
 import { inRepos } from '../../repoFilter';
 import { isNoTaskSource, RepoFailures, RepoLabel, TaskSourceHint } from '../../RepoViews';
 import type { BoardTask, CardPlace, RepoReadFailure, RepoStamp } from '../../wire';
@@ -124,7 +125,7 @@ export function TaskBoard({
   const read = (): Promise<BoardList> =>
     allRepos ? listTasksAll(teamId).then((l) => ({ ...l, tasks: inRepos(l.tasks, repos), failures: inRepos(l.failures, repos) })) : listTasks(project).then((r) => ({ ...r, failures: [] }));
   const { data: loaded, error, loading } = useAsync(read, [project, allRepos, teamId, reposKey, reloads]);
-  // Every board is re-read quietly, one read at a time, while the window is visible, so a card follows its task without
+  // Every board is live-read quietly, one read at a time, polling while the window is visible, so a card follows its task without
   // a reload: a hub board fast, a tracker board and the all-repositories view slower. A fresh load supersedes the last
   // poll. A failed poll keeps the cards on screen (nothing unmounts, a typed draft survives), marks them stale and is
   // tried again on the next interval. So is a repository the all-repositories poll could not read: its last good cards
@@ -140,21 +141,19 @@ export function TaskBoard({
   const pollMs = !allRepos && data?.hubBoard === true ? HUB_POLL_MS : TRACKER_POLL_MS;
   useEffect(() => {
     if (!polling) return;
-    let alive = true;
-    let busy = false;
-    const id = setInterval(() => {
-      if (busy || document.hidden) return;
-      busy = true;
-      read().then(
-        (r) => {
-          if (!alive) return;
-          setPolled(keepUnread(shownRef.current, r));
-          setStale(r.failures.some((f) => !isNoTaskSource(f.error)));
-        },
-        () => { if (alive) setStale(true); },
-      ).finally(() => { busy = false; });
-    }, pollMs);
-    return () => { alive = false; clearInterval(id); };
+    // The first read is the load's own; a stream gap or a reconnect re-reads at once.
+    return hub().liveRead(read, {
+      initial: false,
+      pollMs,
+      shouldPoll: () => !document.hidden,
+      // Only a hub board follows file changes; a tracker board and the all-repositories view keep their slower poll (they read a forge).
+      changed: (path) => !allRepos && shownRef.current?.hubBoard === true && path === project,
+      onData: (r) => {
+        setPolled(keepUnread(shownRef.current, r));
+        setStale(r.failures.some((f) => !isNoTaskSource(f.error)));
+      },
+      onError: () => setStale(true),
+    }).stop;
     // `read` changes only with these deps, as for the load above.
   }, [polling, pollMs, project, allRepos, teamId, reposKey, reloads]);
   const approver = useApproverDecisions(project, !allRepos);

@@ -27,8 +27,8 @@ export interface HubStreamHandlers {
   onOpen?: () => void;
   /** The stream failed (non-2xx status or a network error); it is not retried. With `detail.status` the HTTP
    *  status; with `detail.streamOpen` a problem the stream survived (an oversized frame was skipped; `detail.event` is
-   *  its `event:` name when it was seen). */
-  onError?: (message: string, detail?: { status?: number; streamOpen?: boolean; event?: string }) => void;
+   *  its `event:` name when it was seen); `detail.body` is the parsed non-2xx response body, when there was one. */
+  onError?: (message: string, detail?: { status?: number; body?: unknown; streamOpen?: boolean; event?: string }) => void;
 }
 
 export interface HubClient {
@@ -109,8 +109,10 @@ export function createHubClient(options: HubClientOptions): HubClient {
       try {
         const response = await doFetch(`${baseUrl}/events`, { method: 'GET', headers: { [HUB_TOKEN_HEADER]: token(), accept: 'text/event-stream' }, signal: abort.signal });
         if (!response.ok || !response.body) {
+          const body: unknown = response.status === 401 && response.body ? await response.json().catch(() => undefined) : undefined;
           await response.body?.cancel().catch(() => undefined);
-          return handlers.onError?.(`request failed with status ${response.status}`, { status: response.status });
+          if (abort.signal.aborted) return;
+          return handlers.onError?.(`request failed with status ${response.status}`, { status: response.status, ...(body !== undefined ? { body } : {}) });
         }
         handlers.onOpen?.();
         const reader = response.body.getReader();

@@ -1,25 +1,8 @@
 import { test, expect, vi } from 'vitest';
-import ipcSource from '../ipc.ts?raw';
 import { handle, HANDLED_COMMANDS } from './mockBackend';
 import type { Commands } from '../wire';
 
-// The real coverage guard: derive the command surface from ipc.ts (the source of truth) — NOT from
-// the handler map, which would be tautological. A new call() added to ipc.ts without a matching
-// fixture fails HERE, instead of silently hitting the unhandled-command warn path at runtime.
-// `?raw` inlines ipc.ts as text via Vite (no fs/URL — import.meta.url is not a file:// URL in vitest).
-const ipcCommands = [
-  ...new Set(
-    [...ipcSource.matchAll(/\b(?:call|invoke)\s*(?:<[^(]*?>)?\s*\(\s*['"]([^'"]+)['"]/g)].map((m) => m[1]),
-  ),
-];
-
-test('every command ipc.ts calls has a mock handler', () => {
-  // A scan that finds nothing would make the assertion below vacuously pass — fail loudly instead.
-  expect(ipcCommands.length).toBeGreaterThan(0);
-  const handled = new Set(HANDLED_COMMANDS);
-  const missing = ipcCommands.filter((cmd) => !handled.has(cmd));
-  expect(missing, `mockBackend.ts is missing handlers for ipc.ts commands: ${missing.join(', ')}`).toEqual([]);
-});
+// The coverage guard (every wire command has a fixture handler) is type-level, in mockBackend.ts.
 
 // The handler map is `satisfies`-checked against the wire catalogue, so a fixture whose shape has
 // drifted from the real backend's payload cannot reach a test — tsc rejects it. Shown, not asserted:

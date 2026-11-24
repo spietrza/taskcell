@@ -1,27 +1,9 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Button, PAGE_CLASS, cn } from '@/ui';
 import { FilePlus, RefreshCw } from 'lucide-react';
-import { canUseFleet, isDemoMode, subscribe, onStreamReset } from '../../transport';
+import { canUseFleet, isDemoMode, subscribe, hub } from '../../transport';
 import { DEMO_READ_ONLY_MESSAGE } from '../../errors';
-import {
-  listRuns,
-  listRunsAll,
-  listActive,
-  listTasks,
-  listTasksAll,
-  readRun,
-  watchProject,
-  unwatchProject,
-  apiCapabilitiesCached,
-  apiCreateRun,
-  apiActiveRun,
-  apiRunBacklog,
-  apiQueue,
-  apiCancel,
-  apiRepoOk,
-  type Capabilities,
-  type CreateRunParams,
-} from '../../ipc';
+import { listRuns, listRunsAll, listTasks, listTasksAll, readRun, apiCapabilitiesCached, apiActiveRun, apiQueue, apiCancel, apiRepoOk, type Capabilities, type CreateRunParams } from '../../ipc';
 import { RunList, activeKey, runKey } from './RunList';
 import { projectColor } from '../../color';
 import { RunPane } from './RunPane';
@@ -241,7 +223,7 @@ export function Inspector({
         listRunsAll(teamId).then((l) => ({ runs: inRepos(l.runs, repos), failures: inRepos(l.failures, repos) })),
         Promise.all(
           projects.map((p) =>
-            listActive(p.path).then(
+            hub().call('list_active', { repoPath: p.path }).then(
               (rows) => ({ rows: rows.map((x) => ({ ...x, repoPath: p.path, repoName: p.name })) }),
               // One repository's running rows failing leaves the others listed; it is named in `failures`.
               (e: unknown) => ({ rows: [], failure: { repoPath: p.path, repoName: p.name, error: String(e) } }),
@@ -258,7 +240,7 @@ export function Inspector({
       setActive(a.flatMap((x) => x.rows));
       return;
     }
-    const [r, a] = await Promise.all([listRuns(project), listActive(project)]);
+    const [r, a] = await Promise.all([listRuns(project), hub().call('list_active', { repoPath: project })]);
     if (gen !== runsGen.current) return;
     // Stamped with the project so ⌘K can place each run in the team.
     setRuns(r.map((x) => ({ ...x, repoPath: project })));
@@ -430,18 +412,14 @@ export function Inspector({
   // The paths being watched; "All repositories" watches every repository, so any of them live-updates the list.
   const watchedRef = useRef<Set<string>>(new Set());
   useEffect(() => {
-    const unlisten = subscribe<string>('vanguard:changed', (e) => {
-      if (watchedRef.current.has(e.payload)) void refreshRef.current();
-    });
-    // A stream-reset means the SSE gap may have swallowed a vanguard:changed we'd otherwise have
-    // reacted to, so resync unconditionally rather than trusting the stream to have told us (#491).
-    const unlistenReset = onStreamReset(() => void refreshRef.current());
+    // A change of a watched repository, a stream reset (the gap may have swallowed one) and a reconnect re-read the
+    // runs; the first read is the load's own.
+    const live = hub().liveRead(() => refreshRef.current(), { onData: () => {}, initial: false, changed: (path) => watchedRef.current.has(path as string) });
     return () => {
       setWatching(false);
-      watchedRef.current.forEach((p) => void unwatchProject(p).catch(() => {}));
+      watchedRef.current.forEach((p) => void hub().call('unwatch_project', { repoPath: p }).catch(() => {}));
       watchedRef.current = new Set();
-      void unlisten.then((f) => f());
-      void unlistenReset.then((f) => f());
+      live.stop();
     };
   }, []);
 
@@ -452,9 +430,9 @@ export function Inspector({
     const next = new Set(watchKey.split('\n').filter((p) => p !== ''));
     const prev = watchedRef.current;
     const added = [...next].filter((p) => !prev.has(p));
-    [...prev].filter((p) => !next.has(p)).forEach((p) => void unwatchProject(p).catch(() => {}));
+    [...prev].filter((p) => !next.has(p)).forEach((p) => void hub().call('unwatch_project', { repoPath: p }).catch(() => {}));
     watchedRef.current = next;
-    void Promise.all(added.map((p) => watchProject(p)))
+    void Promise.all(added.map((p) => hub().call('watch_project', { repoPath: p })))
       .then(() => setWatching(true))
       .catch(() => setWatching(false));
     // Only the repository list changed: re-read the runs without closing what is open (a mode change is `load`'s).
@@ -525,7 +503,7 @@ export function Inspector({
         // one queued run per project (run-session.ts), so `find` cannot miss a second one.
         if (runId === undefined) runId = (await apiQueue()).find((q) => q.repoPath === project)?.runId;
         if (runId === undefined) return;
-        const backlog = (await apiRunBacklog(runId)) as { runId: string; event: RunEvent }[];
+        const backlog = (await hub().call('api_run_backlog', { runId })) as { runId: string; event: RunEvent }[];
         // Fold BEFORE flipping checkedIdle: between the two the button's guard would see
         // checkedIdle && typedRun === null and enable New run while a run is genuinely live.
         setTypedRun((prev) =>
@@ -585,7 +563,7 @@ export function Inspector({
     setDetail(null);
     setLiveRun(null);
     if (screen !== 'runs') onOpenRuns?.();
-    void apiCreateRun(params)
+    void hub().call('api_create_run', { params })
       .then((res) => {
         if (runGen.current !== gen) return; // a newer run owns the strip
         // The event stream owns the terminal; this is a backstop only if the terminal event was lost —
@@ -797,7 +775,7 @@ export function Inspector({
           // The card's own live run when the hub lists one (a claimed card may have none yet): else the Runs list.
           onOpenRun={(id, repo) => {
             const path = repo ?? project;
-            void listActive(path)
+            void hub().call('list_active', { repoPath: path })
               .then((rows) => rows.find((a) => a.taskId === id), () => undefined)
               .then((a) => (a && onOpenRunning ? onOpenRunning({ ...a, repoPath: path, repoName: projects.find((p) => p.path === path)?.name ?? path }) : onOpenRuns?.()));
           }}

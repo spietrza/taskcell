@@ -2,12 +2,12 @@ import { useState, type ReactNode } from 'react';
 import { Button, Textarea } from '@/ui';
 import { errorClause } from '../../errors';
 import { RefreshCw } from 'lucide-react';
-import { mergeNeedsYou, replyNeedsYou, rereviewPr, type NeedsYouItem, type RepoReadFailure, type RepoStamp } from '../../ipc';
+import { mergeNeedsYou, replyNeedsYou, type NeedsYouItem, type RepoReadFailure, type RepoStamp } from '../../ipc';
 import { AgentQuestion } from '../../components/AgentQuestion';
 import { gateProps, useCallerCapabilities } from '../../hooks';
 import { RepoFailures } from '../../RepoViews';
 import { needsYouAlert, needsYouCaption } from '../../../../../packages/hub-client/src/needs-you-caption';
-import { isDemoLink } from '../../transport';
+import { hub, isDemoLink } from '../../transport';
 import { ExternalLink } from '../../components/ExternalLink';
 
 /** `placeholder` / `action` reword the box for a PR sent back ("Ask for changes"); the hub call is the same reply. */
@@ -113,7 +113,7 @@ export function ReReviewButton({ project, item }: { project: string; item: Needs
     setState('busy');
     setError(null);
     try {
-      await rereviewPr(project, item.id);
+      await hub().call('rereview_pr', { repoPath: project, id: item.id });
       setState('done');
     } catch (e) {
       setError(String(e));

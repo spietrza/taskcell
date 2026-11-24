@@ -1,12 +1,13 @@
 import { useState, type ReactNode } from 'react';
 import { Button, Table, Chip, ErrorNote, ScrollTable, Timestamp } from '@/ui';
 import { Download } from 'lucide-react';
-import { importRemoteRun, listRemoteRuns } from '../../ipc';
+import { importRemoteRun } from '../../ipc';
 import { useAsync, usePhone } from '../../hooks';
 import { ExternalLink } from '../../components/ExternalLink';
 import { verdictColor, verdictWord } from '../../status';
 import type { RemoteImport, RemoteRun, RunSource, RunSummary } from '../../taskcell-output';
 import { NO_REMOTE_MESSAGE } from '../../wire';
+import { hub } from '../../transport';
 
 function StatusChip({ r }: { r: RemoteRun }) {
   if (r.status !== 'completed') {
@@ -49,7 +50,7 @@ export function RemoteRuns({
   onOpenRun: (run: RunSummary, source: RunSource) => void;
 }) {
   const phone = usePhone();
-  const { data: runs, error, loading } = useAsync(() => listRemoteRuns(project), [project]);
+  const { data: runs, error, loading } = useAsync(() => hub().call('list_remote_runs', { repoPath: project }), [project]);
   const [records, setRecords] = useState<Record<number, Records>>({});
 
   const fetchRecords = async (id: number): Promise<void> => {
