@@ -3,6 +3,8 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { beginRun as beginStoredRun, runsRoot, sanitizeTimestamp } from '../core/run-store.js';
+import { CredentialLimited } from '../runners/run-execution.js';
+import { ProviderLimitError } from '../core/errors.js';
 import { invokeCoreMethod } from './sidecar.js';
 import type { RunResult } from '../core/types.js';
 import type { RunEvent } from '../pipeline/events.js';
@@ -547,5 +549,64 @@ describe('createRun registers a stored CODEX_AUTH_JSON\'s inner tokens for the s
     expect(during).toEqual(expect.arrayContaining(['sk-proj-Ab3Xy9Qm2Kp7Lz4Vw8', ...Object.values(tokens)]));
     const after = injectedSecretValues({});
     for (const v of Object.values(tokens)) expect(after).not.toContain(v);
+  });
+});
+
+describe('createRun credential rotation', () => {
+  const credA = { source: 'instance' as const, env: { ANTHROPIC_API_KEY: 'sk-ant-AAAA-secret' }, accountId: 'a', accountName: 'Key A' };
+  const credB = { source: 'instance' as const, env: { ANTHROPIC_API_KEY: 'sk-ant-BBBB-secret' }, accountId: 'b', accountName: 'Key B' };
+  const mkRotation = (next: typeof credB | undefined): { provider: string; hasNext: () => Promise<boolean>; limited: ReturnType<typeof vi.fn>; cool: () => Promise<void>; refresh: (c: typeof credA) => Promise<typeof credA> } => ({
+    provider: 'claude',
+    hasNext: async () => next !== undefined,
+    limited: vi.fn(async () => next),
+    cool: async () => {},
+    refresh: async (c) => c,
+  });
+  const destroy = vi.fn(async () => {});
+
+  it('continues on the next account in a fresh sandbox holding only that secret, and keeps both redacted until the end', async () => {
+    const repoPath = await plainRepo();
+    const limit = new ProviderLimitError('limit');
+    const until = new Date(Date.now() + 3600_000);
+    startSandboxContext.mockImplementation(async (opts: { llmProxy?: boolean }) => ({ proxyMode: false, destroy, ...opts }) as never);
+    const seenDuring: string[][] = [];
+    runGithubIssue.mockImplementationOnce(async () => {
+      throw new CredentialLimited(limit, until);
+    });
+    runGithubIssue.mockImplementationOnce(async () => {
+      seenDuring.push(injectedSecretValues({}));
+      return { prUrl: 'https://example/pr/2' };
+    });
+    const events: RunEvent[] = [];
+    const rotation = mkRotation(credB);
+    const result = await productionDeps().createRun({ issueRef: 'o/r#1', repoPath }, (e) => events.push(e), credA, rotation as never);
+    expect(result).toEqual({ prUrl: 'https://example/pr/2' });
+    expect(rotation.limited).toHaveBeenCalledWith('a', until);
+    // each attempt: its own sandbox context holding only its credential
+    expect(startSandboxContext).toHaveBeenCalledTimes(2);
+    const [first, second] = startSandboxContext.mock.calls.map((c) => JSON.stringify(c[0]));
+    expect(first).toContain('sk-ant-AAAA-secret');
+    expect(first).not.toContain('sk-ant-BBBB-secret');
+    expect(second).toContain('sk-ant-BBBB-secret');
+    expect(second).not.toContain('sk-ant-AAAA-secret');
+    expect(destroy).toHaveBeenCalledTimes(2);
+    // both registered while the run lasts, forgotten after
+    expect(seenDuring[0]).toEqual(expect.arrayContaining(['sk-ant-AAAA-secret', 'sk-ant-BBBB-secret']));
+    expect(injectedSecretValues({})).not.toContain('sk-ant-AAAA-secret');
+    const warning = events.find((e) => e.type === 'warning') as { message: string } | undefined;
+    expect(warning?.message).toContain('Key A');
+    expect(warning?.message).toContain('Key B');
+    expect(warning?.message).not.toContain('sk-ant');
+    // the second attempt's run options name the account that funds it
+    expect(runGithubIssue.mock.calls.at(-1)![1]).toMatchObject({ credentialName: 'Key B' });
+  });
+
+  it('with every account out, the original limit error escapes (the run parks)', async () => {
+    const repoPath = await plainRepo();
+    const limit = new ProviderLimitError('limit');
+    runGithubIssue.mockImplementationOnce(async () => {
+      throw new CredentialLimited(limit, new Date(Date.now() + 1000));
+    });
+    await expect(productionDeps().createRun({ issueRef: 'o/r#1', repoPath }, () => {}, credA, mkRotation(undefined) as never)).rejects.toBe(limit);
   });
 });

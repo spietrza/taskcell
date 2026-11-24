@@ -558,6 +558,8 @@ export interface WriteStagesOptions {
   imageDigest?: string;
   /** `instance` or `user`: which kind of credential funded the run (never the value). */
   credentialSource?: 'instance' | 'user';
+  /** The user-given name of the stored credential that funded the run (never the value). */
+  credentialName?: string;
   /**
    * Leave the `.diff`, `.bundle` and `.transcript.log` off disk and stub `finalText`; only the JSON
    * record (marked `diffOmitted: 'secret-blocked'`) and the metric line are written for every stage.
@@ -615,6 +617,7 @@ interface WriteRecordOptions {
   noChanges?: true;
   maxRepairIterations?: number;
   credentialSource?: 'instance' | 'user';
+  credentialName?: string;
   startedBy?: string;
   lessonIds?: readonly string[];
   skills?: RunSkills;
@@ -688,6 +691,7 @@ async function writeRecord(repoPath: string, taskId: string, timestamp: string, 
     ...(opts.noChanges === true ? { noChanges: true } : {}),
     ...(opts.maxRepairIterations !== undefined ? { maxRepairIterations: opts.maxRepairIterations } : {}),
     ...(opts.credentialSource !== undefined ? { credentialSource: opts.credentialSource } : {}),
+    ...(opts.credentialName !== undefined ? { credentialName: redactForPublish(opts.credentialName, opts.secretValues) } : {}),
     ...(diffOmitted !== undefined ? { diffOmitted } : {}),
     ...(opts.startedBy !== undefined ? { startedBy: opts.startedBy } : {}),
     ...(runTrigger !== undefined ? { trigger: runTrigger } : {}),
@@ -747,6 +751,7 @@ async function writeRecord(repoPath: string, taskId: string, timestamp: string, 
       : {}),
     ...(review !== undefined ? { verdict: review.verdict } : {}),
     ...(opts.modelPick !== undefined ? { provider: opts.modelPick.provider, pick: opts.modelPick.pick } : {}),
+    ...(opts.credentialName !== undefined ? { credential: redactForPublish(opts.credentialName, opts.secretValues) } : {}),
     // Implement/revise runs pass their lesson ids (possibly none): how many the run loaded, 0 when none.
     ...(opts.lessonIds !== undefined ? { lessonsLoaded: opts.lessonIds.length, ...(opts.lessonIds.length > 0 ? { lessonIds: [...opts.lessonIds] } : {}) } : {}),
   };
@@ -793,6 +798,7 @@ export function beginRun(
           ...(opts.noChanges === true ? { noChanges: true } : {}),
           ...(opts.maxRepairIterations !== undefined ? { maxRepairIterations: opts.maxRepairIterations } : {}),
           ...(opts.credentialSource !== undefined ? { credentialSource: opts.credentialSource } : {}),
+          ...(opts.credentialName !== undefined ? { credentialName: opts.credentialName } : {}),
           ...(runOpts.startedBy !== undefined ? { startedBy: runOpts.startedBy } : {}),
           ...(opts.lessonIds !== undefined ? { lessonIds: opts.lessonIds } : {}),
           ...(opts.skills !== undefined ? { skills: opts.skills } : {}),
@@ -803,7 +809,7 @@ export function beginRun(
       }
       const first = outcomes[0];
       if (first === undefined) return;
-      const { omitDiff: _omitDiff, baseBranch: _baseBranch, configPaths: _configPaths, noChanges: _noChanges, maxRepairIterations: _maxRepairIterations, lessonIds: _lessonIds, skills: _skills, skillIds: _skillIds, modelPicks: _modelPicks, ...trace } = opts;
+      const { omitDiff: _omitDiff, credentialName: _credentialName, baseBranch: _baseBranch, configPaths: _configPaths, noChanges: _noChanges, maxRepairIterations: _maxRepairIterations, lessonIds: _lessonIds, skills: _skills, skillIds: _skillIds, modelPicks: _modelPicks, ...trace } = opts;
       await exportRunTrace({
         taskId,
         timestamp,

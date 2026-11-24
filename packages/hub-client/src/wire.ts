@@ -90,6 +90,23 @@ export interface CreateRunParams {
 export interface RunCredential {
   source: 'instance' | 'user';
   env: Record<string, string>;
+  /** Stored account id (the cool-down key) and its user-given name; absent when the env came from the hub start-up
+   * environment or a variable that is not a stored account. The name is shown in run records; never the value. */
+  accountId?: string;
+  accountName?: string;
+}
+
+/** Hub-only, in-process (never serialised): rotation across a provider's stored accounts for ONE run, in list order. */
+export interface CredentialRotation {
+  readonly provider: string;
+  /** Another enabled, non-cooling account not yet exhausted in this run exists. */
+  hasNext(): Promise<boolean>;
+  /** Cool `accountId` until `until` (cool-down file, plus an in-run set so a failed write still skips it) and return the next account's credential, or undefined when all are out. */
+  limited(accountId: string, until: Date): Promise<RunCredential | undefined>;
+  /** Cool without switching (a stage fallback rescued the stage). */
+  cool(accountId: string, until: Date): Promise<void>;
+  /** Re-pick at dequeue: a queued run whose account has since cooled starts on the next one. */
+  refresh(current: RunCredential): Promise<RunCredential>;
 }
 
 /** Result of the sidecar `createRun` method. */
@@ -496,6 +513,8 @@ export interface RunRecord {
   stoppedBy?: 'provider-limit';
   /** Which kind of credential funded the run (hub per-user credentials); never the value. Absent on CLI/CI runs. */
   credentialSource?: 'instance' | 'user';
+  /** The user-given name of the stored credential that funded the run; never the value. Absent when none was used. */
+  credentialName?: string;
   /**
    * `named`: the skills named by hand that the run loaded. `available`: the other installed skills the
    * agent could pick from (not what it used). `notes`: an ignored `Skills:` line, or a provider that
@@ -1301,6 +1320,19 @@ export interface SetupStatus {
 /** The admin `per-user credentials` switch: off, user's own first then the instance's, or user's own only. */
 export type CredentialPolicy = 'off' | 'user-first' | 'user-only';
 
+/** A stored provider credential's kind: a subscription token, an API key, or a gateway auth token. */
+export type AccountType = 'subscription' | 'api-key' | 'auth-token';
+
+/** What any RPC may return about a stored credential: never its value. */
+export interface CredentialAccountView {
+  id: string;
+  provider: string;
+  name: string;
+  type: AccountType;
+  enabled: boolean;
+  coolingUntil?: string;
+}
+
 /** Named realtime channels the wire carries (`src/hub/rpc.ts`'s `publish`, Rust's `emit_event`).
  * The desktop additionally sees a Rust-minted `run-accepted` `api:event` variant core never emits —
  * that is a desktop extension of `RunEvent`, declared desktop-side (see typedRunReducer.ts), not here. */
@@ -1358,11 +1390,19 @@ export interface Commands {
   get_credential_policy: { args: undefined; result: { policy: CredentialPolicy } };
   set_credential_policy: { args: { policy: CredentialPolicy }; result: void };
   /** HUB_ONLY, hub owner or admin only: instance provider credentials. Write-only — status lists names, never values. */
-  instance_credentials_status: { args: undefined; result: { names: string[]; reason?: string } };
+  instance_credentials_status: { args: undefined; result: { names: string[]; reason?: string; accounts: CredentialAccountView[]; termsWarning?: string } };
+  /** HUB_ONLY, hub owner or admin only: the instance's Claude accounts (up to 20, tried in list order; a limited one cools until its reset). `value` is required to create and optional to rename or switch one; it is never returned. A second enabled subscription token needs `acknowledgeTerms` (see docs/hub.md). */
+  save_instance_account: { args: { id?: string; provider: 'claude'; name: string; type: AccountType; value?: string; enabled?: boolean; acknowledgeTerms?: boolean }; result: { id: string } };
+  delete_instance_account: { args: { id: string }; result: void };
+  reorder_instance_accounts: { args: { ids: string[] }; result: void };
   save_instance_credential: { args: { name: string; value: string }; result: void };
   delete_instance_credential: { args: { name: string }; result: void };
   /** HUB_ONLY: the signed-in user's OWN credentials (no RPC takes a user id). Write-only. */
-  user_credentials_status: { args: undefined; result: { enabled: boolean; admin: boolean; names: string[] } };
+  user_credentials_status: { args: undefined; result: { enabled: boolean; admin: boolean; names: string[]; accounts: CredentialAccountView[] } };
+  /** HUB_ONLY: the signed-in user's OWN Claude accounts. A second enabled subscription token is refused (one person, one plan). */
+  save_user_account: { args: { id?: string; provider: 'claude'; name: string; type: AccountType; value?: string; enabled?: boolean }; result: { id: string } };
+  delete_user_account: { args: { id: string }; result: void };
+  reorder_user_accounts: { args: { ids: string[] }; result: void };
   save_user_credential: { args: { name: string; value: string }; result: void };
   delete_user_credential: { args: { name: string }; result: void };
   list_drafts: { args: { repoPath: string }; result: string[] };
@@ -1589,7 +1629,9 @@ export const COMMAND_NAMES = [
   'clone_project',
   'conflict_stats',
   'delete_draft',
+  'delete_instance_account',
   'delete_instance_credential',
+  'delete_user_account',
   'delete_user_credential',
   'discover_skills',
   'dismiss_lesson',
@@ -1658,10 +1700,14 @@ export const COMMAND_NAMES = [
   'remove_skill_pr',
   'remove_team_member',
   'remove_team_repository',
+  'reorder_instance_accounts',
+  'reorder_user_accounts',
   'reply_needs_you',
   'rereview_pr',
   'retry_paused_task',
+  'save_instance_account',
   'save_instance_credential',
+  'save_user_account',
   'save_user_credential',
   'set_approver_mode',
   'set_credential_policy',
@@ -1701,7 +1747,9 @@ export const WRITE_COMMAND_NAMES: readonly (typeof COMMAND_NAMES)[number][] = [
   'clear_draft_assets',
   'clone_project',
   'delete_draft',
+  'delete_instance_account',
   'delete_instance_credential',
+  'delete_user_account',
   'delete_user_credential',
   'dismiss_lesson',
   'enable_factory_apply',
@@ -1726,10 +1774,14 @@ export const WRITE_COMMAND_NAMES: readonly (typeof COMMAND_NAMES)[number][] = [
   'remove_skill_pr',
   'remove_team_member',
   'remove_team_repository',
+  'reorder_instance_accounts',
+  'reorder_user_accounts',
   'reply_needs_you',
   'rereview_pr',
   'retry_paused_task',
+  'save_instance_account',
   'save_instance_credential',
+  'save_user_account',
   'save_user_credential',
   'set_approver_mode',
   'set_credential_policy',

@@ -33,6 +33,12 @@ export interface RunCredentialContext {
 export type CredentialDeps = ProviderChoice & {
   /** Which kind of credential funded the run (hub per-user credentials). */
   credentialSource?: 'instance' | 'user';
+  /** The user-given name of the stored credential that funds the run (never the value). */
+  credentialName?: string;
+  /** Hub: rotation across the provider's stored accounts; a limit on one moves the run to the next. */
+  credentialRotation?: { provider: string; hasNext(): Promise<boolean> };
+  /** Hub: this run's account hit a limit that a stage fallback rescued — cool it until `until`. */
+  onCredentialCooled?: (until: Date) => Promise<void>;
   /** Env the provider keys are read from (default process.env): a hub run's resolved credential env. */
   providerEnv?: NodeJS.ProcessEnv;
 };

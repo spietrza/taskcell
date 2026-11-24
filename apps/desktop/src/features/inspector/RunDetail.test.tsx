@@ -98,3 +98,9 @@ test('a changed gate config says why it matters', () => {
   expect(screen.getByRole('note')).toHaveAttribute('title', 'This run changed a file your test commands come from. Check it before merging.');
   expect(screen.getByRole('note')).toHaveTextContent('Gate config changed: package.json');
 });
+
+test('the overview shows the stored credential name, never a value', () => {
+  const named: StageDetail = { record: { ...stage().record, credentialSource: 'instance', credentialName: 'Team key 2' } };
+  render(<RunDetail detail={{ taskId: 'task-1', timestamp: stage().record.timestamp, stages: [named] }} project="/repo" />);
+  expect(screen.getByText(/billed to the hub's account "Team key 2"/)).toBeInTheDocument();
+});

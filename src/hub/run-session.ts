@@ -9,7 +9,7 @@ import type { AuditActor } from '../core/audit.js';
 import { auditActorOf } from './audit.js';
 import { RunEventLog } from './run-events.js';
 import type { SidecarDeps, CreateRunParams, CreateRunResult } from '../sidecar/sidecar.js';
-import type { RunCredential } from '../wire.js';
+import type { CredentialRotation, RunCredential } from '../wire.js';
 import { readEnv } from '../core/env.js';
 
 /**
@@ -32,6 +32,7 @@ interface QueuedRun {
   runId: string;
   params: CreateRunParams;
   credential?: RunCredential;
+  rotation?: CredentialRotation;
   resolve: (result: CreateRunResult) => void;
   reject: (error: unknown) => void;
   hooks?: RunHooks;
@@ -60,7 +61,7 @@ export interface RunSession {
    * did not queue passes the start-time check, `onQueued` when it waits, `onRefused` when that check
    * (the allowlist re-check) refuses it — including a queued run's, once promoted. `credential` (hub
    * per-user credentials) is server-resolved and handed to `deps.createRun`. */
-  createRun(params: CreateRunParams, hooks?: RunHooks, credential?: RunCredential): Promise<CreateRunResult>;
+  createRun(params: CreateRunParams, hooks?: RunHooks, credential?: RunCredential, rotation?: CredentialRotation): Promise<CreateRunResult>;
   activeRun(): { runId: string; repoPath: string } | null;
   /** Runs waiting behind the active one, in start order — `position` is 1-based (1 = next to run). */
   queued(): { runId: string; repoPath: string; position: number }[];
@@ -208,7 +209,8 @@ export function createRunSession(
    * call has already returned the entry's runId to its caller. Starts the next queued entry, if
    * any, once this slot frees up. */
   async function execute(entry: QueuedRun): Promise<void> {
-    const { runId, params, credential, resolve, reject } = entry;
+    const { runId, params, rotation, resolve, reject } = entry;
+    let credential = entry.credential;
     const repoPath = params.repoPath;
     active = { runId, repoPath }; // hold the slot across the start-time check below
 
@@ -231,8 +233,10 @@ export function createRunSession(
       // bufferPush, and the only event a strip re-attach may adopt from.
       buffer.delete(runId);
       eventLog = { runId, log: new RunEventLog(repoPath, undefined, undefined, { actor: actorFor(params.startedBy), subject: { repo: repoPath, runId } }) };
-      emit(runId, { type: 'run-accepted', repoPath, ...(credential !== undefined ? { credentialSource: credential.source } : {}) });
-      result = await deps.createRun(params, (e) => emit(runId, e), credential);
+      // A queued run whose account has cooled since it was picked starts on the next one.
+      if (credential !== undefined && rotation !== undefined) credential = await rotation.refresh(credential);
+      emit(runId, { type: 'run-accepted', repoPath, ...(credential !== undefined ? { credentialSource: credential.source } : {}), ...(credential?.accountName !== undefined ? { credentialName: credential.accountName } : {}) });
+      result = await deps.createRun(params, (e) => emit(runId, e), credential, rotation);
     } catch (error) {
       errMessage = error instanceof Error ? error.message : String(error);
     }
@@ -302,7 +306,7 @@ export function createRunSession(
       if (active !== null) cancelledRunId = active.runId;
       cancelCurrent();
     },
-    async createRun(params, hooks, credential): Promise<CreateRunResult> {
+    async createRun(params, hooks, credential, rotation): Promise<CreateRunResult> {
       // repoPath is required BEFORE minting a runId, so `run-accepted`'s payload is always a string
       // and a rejected call never burns an id.
       const repoPath = params.repoPath;
@@ -326,7 +330,7 @@ export function createRunSession(
       counter += 1;
       saveCounter(counterFile, counter);
       return new Promise<CreateRunResult>((resolve, reject) => {
-        const entry: QueuedRun = { runId, params, ...(credential !== undefined ? { credential } : {}), resolve, reject, ...(hooks !== undefined ? { hooks } : {}) };
+        const entry: QueuedRun = { runId, params, ...(credential !== undefined ? { credential } : {}), ...(rotation !== undefined ? { rotation } : {}), resolve, reject, ...(hooks !== undefined ? { hooks } : {}) };
         if (active === null) {
           void execute(entry);
           return;

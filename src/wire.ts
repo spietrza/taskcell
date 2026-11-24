@@ -89,6 +89,23 @@ export interface CreateRunParams {
 export interface RunCredential {
   source: 'instance' | 'user';
   env: Record<string, string>;
+  /** Stored account id (the cool-down key) and its user-given name; absent when the env came from the hub start-up
+   * environment or a variable that is not a stored account. The name is shown in run records; never the value. */
+  accountId?: string;
+  accountName?: string;
+}
+
+/** Hub-only, in-process (never serialised): rotation across a provider's stored accounts for ONE run, in list order. */
+export interface CredentialRotation {
+  readonly provider: string;
+  /** Another enabled, non-cooling account not yet exhausted in this run exists. */
+  hasNext(): Promise<boolean>;
+  /** Cool `accountId` until `until` (cool-down file, plus an in-run set so a failed write still skips it) and return the next account's credential, or undefined when all are out. */
+  limited(accountId: string, until: Date): Promise<RunCredential | undefined>;
+  /** Cool without switching (a stage fallback rescued the stage). */
+  cool(accountId: string, until: Date): Promise<void>;
+  /** Re-pick at dequeue: a queued run whose account has since cooled starts on the next one. */
+  refresh(current: RunCredential): Promise<RunCredential>;
 }
 
 /** Result of the sidecar `createRun` method. */
@@ -495,6 +512,8 @@ export interface RunRecord {
   stoppedBy?: 'provider-limit';
   /** Which kind of credential funded the run (hub per-user credentials); never the value. Absent on CLI/CI runs. */
   credentialSource?: 'instance' | 'user';
+  /** The user-given name of the stored credential that funded the run; never the value. Absent when none was used. */
+  credentialName?: string;
   /**
    * `named`: the skills named by hand that the run loaded. `available`: the other installed skills the
    * agent could pick from (not what it used). `notes`: an ignored `Skills:` line, or a provider that
@@ -1299,6 +1318,19 @@ export interface SetupStatus {
 
 /** The admin `per-user credentials` switch: off, user's own first then the instance's, or user's own only. */
 export type CredentialPolicy = 'off' | 'user-first' | 'user-only';
+
+/** A stored provider credential's kind: a subscription token, an API key, or a gateway auth token. */
+export type AccountType = 'subscription' | 'api-key' | 'auth-token';
+
+/** What any RPC may return about a stored credential: never its value. */
+export interface CredentialAccountView {
+  id: string;
+  provider: string;
+  name: string;
+  type: AccountType;
+  enabled: boolean;
+  coolingUntil?: string;
+}
 
 /** Named realtime channels the wire carries (`src/hub/rpc.ts`'s `publish`, Rust's `emit_event`).
  * The desktop additionally sees a Rust-minted `run-accepted` `api:event` variant core never emits —

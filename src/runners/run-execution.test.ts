@@ -3,7 +3,10 @@ import { execFileSync } from 'node:child_process';
 import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { executeIssueRun } from './run-execution.js';
+import { executeIssueRun, CredentialLimited, coolRescuedCredential } from './run-execution.js';
+import { ProviderLimitError } from '../core/errors.js';
+import { UsageCapError } from '../core/usage-cap.js';
+import { readFile, stat } from 'node:fs/promises';
 import type { IssueRunExecution } from './run-execution.js';
 import { planIssueRun } from './run-plan.js';
 import { runCredentialContext } from './agent-session.js';
@@ -36,12 +39,12 @@ interface Fakes {
   host: ReviewHost;
   targets: NewPrTarget[];
   exec: ReturnType<typeof vi.fn>;
-  state: { dirty: boolean; diff: string; execExit: number };
+  state: { dirty: boolean; diff: string; execExit: number; failWith?: Error };
 }
 
 function fakes(): Fakes {
   const targets: NewPrTarget[] = [];
-  const state = { dirty: false, diff: '', execExit: 0 };
+  const state: Fakes['state'] = { dirty: false, diff: '', execExit: 0 };
   const exec = vi.fn(async () => ({ exitCode: state.execExit, stdout: 'boom', stderr: '' }));
   const tracker: Tracker = {
     prepare: vi.fn(async () => ({ task })),
@@ -74,7 +77,10 @@ async function run(f: Fakes, deps: Partial<RunIssueDeps> = {}, events: RunEvent[
     baseBranch: 'main',
     startRef: '0000sha',
     wm: {
-      isDirty: async () => f.state.dirty,
+      isDirty: async () => {
+        if (f.state.failWith !== undefined) throw f.state.failWith;
+        return f.state.dirty;
+      },
       diff: async () => f.state.diff,
       outgoingDiff: async () => f.state.diff,
       commitMessages: async () => [],
@@ -167,5 +173,61 @@ describe('executeIssueRun: skill notes', () => {
     const events: RunEvent[] = [];
     await run(f, {}, events);
     expect(events).toContainEqual({ type: 'warning', message: expect.stringContaining('it was ignored') });
+  });
+});
+
+describe('executeIssueRun: credential rotation', () => {
+  const limit = (): Error => new ProviderLimitError('usage limit reached');
+  /** A run whose first sandbox call hits `error`; `session.prepare` is the first thing the run awaits. */
+  async function limited(error: Error, deps: Partial<RunIssueDeps>): Promise<unknown> {
+    const f = fakes();
+    f.state.failWith = error;
+    f.state.dirty = true;
+    return run(f, deps).then(() => undefined, (e: unknown) => e);
+  }
+
+  it('a provider limit with another account available throws CredentialLimited and cools no pool entry', async () => {
+    const hasNext = vi.fn(async () => true);
+    const thrown = await limited(limit(), { credentialRotation: { provider: 'claude', hasNext }, credentialName: 'A' });
+    expect(thrown).toBeInstanceOf(CredentialLimited);
+    expect((thrown as CredentialLimited).until.getTime()).toBeGreaterThan(Date.now());
+  });
+
+  it('writes the attempt records with the credential name and the provider-limit stop, and cools no pool entry', async () => {
+    await limited(limit(), { credentialRotation: { provider: 'claude', hasNext: async () => true }, credentialName: 'Key A' });
+    const metrics = (await readFile(join(repo, '.taskcell', 'runs', 'metrics.jsonl'), 'utf8')).trim().split('\n').map((l) => JSON.parse(l) as Record<string, unknown>);
+    expect(metrics.some((m) => m.evt === 'run_complete' && m.credential === 'Key A' && m.stoppedBy === 'provider-limit')).toBe(true);
+    await expect(stat(join(repo, '.taskcell', 'model-pool-cooldowns.json'))).rejects.toThrow();
+  });
+
+  it('a local usage cap never rotates accounts', async () => {
+    const cap = new UsageCapError('claude', 90, 80, new Date(Date.now() + 3600_000));
+    const thrown = await limited(cap, { credentialRotation: { provider: 'claude', hasNext: async () => true } });
+    expect(thrown).toBeInstanceOf(UsageCapError);
+  });
+
+  it('with no account left the original limit error escapes (park)', async () => {
+    const thrown = await limited(limit(), { credentialRotation: { provider: 'claude', hasNext: async () => false } });
+    expect(thrown).toBeInstanceOf(ProviderLimitError);
+  });
+
+  it('a limit on another provider does not rotate', async () => {
+    const thrown = await limited(limit(), { credentialRotation: { provider: 'codex', hasNext: async () => true } });
+    expect(thrown).toBeInstanceOf(ProviderLimitError);
+  });
+});
+
+describe('coolRescuedCredential', () => {
+  const reset = new Date(Date.now() + 3600_000).toISOString();
+  it('cools the account when a stage on the rotation provider was rescued by its fallback', async () => {
+    const cooled = vi.fn(async () => {});
+    await coolRescuedCredential([{ name: 'implementer', primaryLimitResetAt: reset }, { name: 'reviewer' }], () => 'claude', 'claude', cooled);
+    expect(cooled).toHaveBeenCalledOnce();
+    expect(cooled).toHaveBeenCalledWith(new Date(reset));
+  });
+  it('does not cool the Claude account for a rescued stage on another provider (e.g. a Codex reviewer)', async () => {
+    const cooled = vi.fn(async () => {});
+    await coolRescuedCredential([{ name: 'reviewer', primaryLimitResetAt: reset }], (stage) => (stage === 'reviewer' ? 'codex' : 'claude'), 'claude', cooled);
+    expect(cooled).not.toHaveBeenCalled();
   });
 });

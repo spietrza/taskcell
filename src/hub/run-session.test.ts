@@ -425,3 +425,29 @@ describe('run-session persistent run ids', () => {
     expect([...new Set(ids)]).toEqual(['run-0', 'run-1']);
   });
 });
+
+describe('credential rotation through the run session', () => {
+  test('the rotation travels with the run: refresh() re-picks at dequeue, createRun receives both, run-accepted names the account', async () => {
+    const first = { source: 'instance' as const, env: { ANTHROPIC_API_KEY: 'sk-A' }, accountId: 'a', accountName: 'Key A' };
+    const second = { source: 'instance' as const, env: { ANTHROPIC_API_KEY: 'sk-B' }, accountId: 'b', accountName: 'Key B' };
+    const rotation = {
+      provider: 'claude',
+      hasNext: async () => true,
+      limited: async () => undefined,
+      cool: async () => {},
+      refresh: vi.fn(async () => second),
+    };
+    const seen: unknown[][] = [];
+    const published: { name: string; payload: unknown }[] = [];
+    const deps = fakeDeps(async (_p, _e, credential, rot) => {
+      seen.push([credential, rot]);
+      return {};
+    });
+    const session = createRunSession(deps, (name, payload) => published.push({ name, payload }));
+    await session.createRun({ issueRef: '1', repoPath: '/repo' } as CreateRunParams, undefined, first, rotation);
+    expect(rotation.refresh).toHaveBeenCalledWith(first);
+    expect(seen[0]).toEqual([second, rotation]);
+    expect(JSON.stringify(published)).toContain('"credentialName":"Key B"');
+    expect(JSON.stringify(published)).not.toContain('sk-B');
+  });
+});

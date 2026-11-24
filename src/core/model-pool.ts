@@ -1,7 +1,7 @@
-import { createHash, randomUUID } from 'node:crypto';
-import { readFile, writeFile, rename } from 'node:fs/promises';
+import { createHash } from 'node:crypto';
 import { join } from 'node:path';
 import { assertStatePath, ensureStateDir } from './state-path.js';
+import { readCooldownFile, recordCooldownFile } from './cooldowns.js';
 import { parseProviderRateLimitReset } from './rate-limit-marker.js';
 
 /**
@@ -125,36 +125,19 @@ function cooldownPath(repoPath: string): string {
 }
 
 /** Entries that hit a limit, keyed `provider/model`, with the ISO time they may be picked again. Expired entries are dropped. */
-export async function readCooldowns(repoPath: string, now: Date = new Date()): Promise<Map<string, Date>> {
-  const map = new Map<string, Date>();
-  let raw: unknown;
-  try {
-    raw = JSON.parse(await readFile(cooldownPath(repoPath), 'utf8'));
-  } catch {
-    return map;
-  }
-  if (raw === null || typeof raw !== 'object' || Array.isArray(raw)) return map;
-  for (const [key, value] of Object.entries(raw as Record<string, unknown>)) {
-    if (typeof value !== 'string') continue;
-    const until = new Date(value);
-    if (!Number.isNaN(until.getTime()) && until.getTime() > now.getTime()) map.set(key, until);
-  }
-  return map;
+export function readCooldowns(repoPath: string, now: Date = new Date()): Promise<Map<string, Date>> {
+  return readCooldownFile(cooldownPath(repoPath), now);
 }
 
 /** Record that `provider/model` hit a limit until `until` (best-effort; a later reset time wins). */
 export async function recordCooldown(repoPath: string, entry: { provider: string; model?: string }, until: Date, now: Date = new Date()): Promise<void> {
-  const current = await readCooldowns(repoPath, now);
-  const key = entryKey(entry);
-  const prior = current.get(key);
-  if (prior === undefined || prior.getTime() < until.getTime()) current.set(key, until);
-  const file = cooldownPath(repoPath);
-  await ensureStateDir(repoPath, join(repoPath, '.taskcell'));
-  await assertStatePath(repoPath, file);
-  const tmp = `${file}.${process.pid}.${randomUUID()}.tmp`;
-  await assertStatePath(repoPath, tmp);
-  await writeFile(tmp, `${JSON.stringify(Object.fromEntries([...current].map(([k, d]) => [k, d.toISOString()])), null, 2)}\n`);
-  await rename(tmp, file);
+  await recordCooldownFile(cooldownPath(repoPath), entryKey(entry), until, {
+    now,
+    prepare: async (path) => {
+      await ensureStateDir(repoPath, join(repoPath, '.taskcell'));
+      await assertStatePath(repoPath, path);
+    },
+  });
 }
 
 /** `--fallback-provider codex,cursor` + `--fallback-model gpt-6-sol,` → ordered list (an empty model slot = that provider's default). */

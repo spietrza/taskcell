@@ -193,6 +193,7 @@ async function startIssue(ctx: LocalWorkerContext, repoPath: string, number: num
           { issueRef: String(number), repoPath, transport: 'github', startedBy: LOCAL_WORKER_LOGIN, ...(provider !== undefined ? { provider } : {}), ...(flow !== undefined ? { flow } : {}) },
           { onStarted: (id) => resolve(id), onQueued: (id) => resolve(id) },
           credential,
+          credential !== undefined ? ctx.userCredentials?.rotationFor(undefined, provider, credential) : undefined,
         );
         run.then((r) => { resolve(''); done(r); }, (e: unknown) => { const err = e instanceof Error ? e : new Error(String(e)); resolve(err); done(err); });
       } catch (e) {

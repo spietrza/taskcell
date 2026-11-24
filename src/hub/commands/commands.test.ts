@@ -5,7 +5,9 @@ import { readCommandModules } from '../command-codegen.js';
 import { COMMAND_NAMES, HUB_AUDITED, HUB_COMMANDS, HUB_POLICY } from './index.js';
 import { dispatchRpc, makeCtx, tmpRepo } from '../test-kit.js';
 import { UnknownCommandError } from '../command-kit.js';
-import { ForbiddenError } from '../credentials.js';
+import { ForbiddenError, createCredentialService } from '../credentials.js';
+import { mkdtemp } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
 
 const dir = __dirname;
 const modules = readCommandModules(dir);
@@ -73,5 +75,54 @@ describe('hub command modules', () => {
   test('dispatch is a lookup: an inherited property name is an unknown command', async () => {
     const { ctx } = await makeCtx(await tmpRepo());
     await expect(dispatchRpc(ctx, 'constructor', {})).rejects.toBeInstanceOf(UnknownCommandError);
+  });
+
+  describe('Claude account RPCs', () => {
+    const SENTINEL = 'sk-ant-SENTINEL-do-not-leak-0123';
+    const member = { user: { id: 'u2', email: 'u2@x.test', name: 'Member' }, owner: false };
+    const setup = async () => {
+      const { ctx } = await makeCtx(await tmpRepo());
+      ctx.userCredentials = createCredentialService(await mkdtemp(join(tmpdir(), 'acct-cfg-')));
+      ctx.user = member.user;
+      return ctx;
+    };
+
+    test('instance account RPCs are manager-only (403 to a member)', async () => {
+      const ctx = await setup();
+      const args = { provider: 'claude', name: 'A', type: 'api-key', value: SENTINEL };
+      await expect(dispatchRpc(ctx, 'save_instance_account', args, member)).rejects.toBeInstanceOf(ForbiddenError);
+      await expect(dispatchRpc(ctx, 'delete_instance_account', { id: 'x' }, member)).rejects.toBeInstanceOf(ForbiddenError);
+      await expect(dispatchRpc(ctx, 'reorder_instance_accounts', { ids: [] }, member)).rejects.toBeInstanceOf(ForbiddenError);
+      await expect(dispatchRpc(ctx, 'instance_credentials_status', undefined, member)).rejects.toBeInstanceOf(ForbiddenError);
+    });
+
+    test('user account RPCs are refused while per-user credentials are off', async () => {
+      const ctx = await setup();
+      await expect(dispatchRpc(ctx, 'save_user_account', { provider: 'claude', name: 'A', type: 'api-key', value: 'v' }, member)).rejects.toThrow(/turned off/);
+    });
+
+    test('audit targets name an id or "new", never the name or the value; validation rejects bad input', async () => {
+      expect(HUB_AUDITED.save_instance_account!.target({ name: 'Secret name', value: SENTINEL })).toBe('credential-account:new');
+      expect(HUB_AUDITED.save_instance_account!.target({ id: 'abc-1', name: 'Secret name' })).toBe('credential-account:abc-1');
+      const ctx = await setup();
+      await expect(dispatchRpc(ctx, 'save_instance_account', { provider: 'openai', name: 'A', type: 'api-key', value: 'v' })).rejects.toThrow(/provider/);
+      await expect(dispatchRpc(ctx, 'save_instance_account', { provider: 'claude', name: 'A', type: 'nope', value: 'v' })).rejects.toThrow(/type/);
+      await expect(dispatchRpc(ctx, 'save_instance_account', { provider: 'claude', name: 'A', type: 'api-key' })).rejects.toThrow(/value/);
+    });
+
+    test('no credential RPC result contains a stored secret value', async () => {
+      const ctx = await setup();
+      await dispatchRpc(ctx, 'set_credential_policy', { policy: 'user-first' });
+      const results: unknown[] = [];
+      results.push(await dispatchRpc(ctx, 'save_instance_account', { provider: 'claude', name: 'Inst', type: 'api-key', value: SENTINEL }));
+      results.push(await dispatchRpc(ctx, 'save_instance_credential', { name: 'ZAI_API_KEY', value: SENTINEL }));
+      results.push(await dispatchRpc(ctx, 'instance_credentials_status', undefined));
+      results.push(await dispatchRpc(ctx, 'save_user_account', { provider: 'claude', name: 'Mine', type: 'api-key', value: SENTINEL }, member));
+      results.push(await dispatchRpc(ctx, 'save_user_credential', { name: 'OPENAI_API_KEY', value: SENTINEL }, member));
+      results.push(await dispatchRpc(ctx, 'user_credentials_status', undefined, member));
+      results.push(await dispatchRpc(ctx, 'get_credential_policy', undefined));
+      expect(JSON.stringify(results)).not.toContain(SENTINEL);
+      expect(JSON.stringify(results)).toContain('Inst');
+    });
   });
 });

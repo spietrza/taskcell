@@ -50,7 +50,7 @@ export const commands = defineCommands<RunSessionCommands>({
         onStarted: (id) => log('run-start', id, 'ok'),
         onQueued: (id) => log('run-queue', id, 'ok'),
         onRefused: (id) => log('run-start', id, 'refused'),
-      }, credential);
+      }, credential, credential !== undefined ? ctx.userCredentials?.rotationFor(ctx.user, validated.provider, credential) : undefined);
     } catch (err) {
       if (!accepted) {
         const repoPath = optionalString(params, 'repoPath');

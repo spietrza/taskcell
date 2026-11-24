@@ -8,9 +8,9 @@ import { hasLabel } from '../core/labels.js';
 import { coolPoolEntries } from './agent-session.js';
 import type { AgentSession } from './agent-session.js';
 import { probeTaskDifficulty, decisionProbeConfig } from '../core/decision-probe.js';
-import { TaskcellError } from '../core/errors.js';
+import { TaskcellError, ProviderLimitError } from '../core/errors.js';
 import { isStructuredProviderLimit } from '../core/rate-limit-marker.js';
-import { recordCooldown, entryKey } from '../core/model-pool.js';
+import { recordCooldown, entryKey, cooldownUntil } from '../core/model-pool.js';
 import type { StagePick } from './model-pool-routing.js';
 import { decisionDiffScorer } from '../evals/decision-judge.js';
 import { runStages, sandboxComplete, reviewFinalDiff, STAGE } from '../pipeline/pipeline.js';
@@ -95,6 +95,28 @@ export class PoolEntryLimited extends Error {
   }
 }
 
+const pinnedName = (p: string | { name: string } | undefined): string | undefined => (typeof p === 'string' ? p : p?.name);
+
+/** A stage on the rotation's provider hit a limit and its fallback rescued it: cool the run's account until the limit resets, so the next run starts on the next one. A stage on another provider cools nothing. */
+export async function coolRescuedCredential(
+  outcomes: readonly { name: string; primaryLimitResetAt?: string }[],
+  providerOf: (stage: string) => string,
+  rotationProvider: string | undefined,
+  onCooled: ((until: Date) => Promise<void>) | undefined,
+): Promise<void> {
+  if (rotationProvider === undefined) return;
+  for (const o of outcomes) {
+    if (o.primaryLimitResetAt !== undefined && providerOf(o.name) === rotationProvider) await onCooled?.(new Date(o.primaryLimitResetAt)).catch(() => undefined);
+  }
+}
+
+/** Thrown by one attempt when its stored credential hit a provider limit and another account of that provider has quota. */
+export class CredentialLimited extends Error {
+  constructor(readonly limit: unknown, readonly until: Date) {
+    super('credential out of quota');
+  }
+}
+
 /**
  * Per stage that ran: the provider/model actually used and why it was picked (rotation, skip after a
  * limit, fallback, label, flow pin, or plain config). Written to every stage record of the run so
@@ -153,6 +175,11 @@ export async function executeIssueRun(run: IssueRunExecution): Promise<RunIssueR
   const { issueRef, plan, session, skills, tracker, host, exhausted } = run;
   const { task, runTaskId, whiteLabel, labelModel, deps, routing, recordedPicks, flow, baseBranch } = plan;
   const { agents, credentials } = session;
+  /** The provider a stage actually runs on: its pool pick, else its own pinned provider (reviewer, flow stage), else the implementer's. */
+  const stageProvider = (stage: string): string =>
+    tierPick(plan, stage, agents.agent.name)?.provider
+    ?? (REVIEW_TIER.has(stage) ? agents.reviewAgent?.name : pinnedName(plan.flowPools.stages.find((s) => s.name === stage)?.provider))
+    ?? agents.agent.name;
   const { notes: skillNotes, record: skillsRecord } = planIssueSkills(plan, {
     agent: agents.agent.name,
     ...(agents.reviewAgent !== undefined ? { reviewAgent: agents.reviewAgent.name } : {}),
@@ -246,6 +273,7 @@ export async function executeIssueRun(run: IssueRunExecution): Promise<RunIssueR
       baseBranch,
       ...(imageDigest !== undefined ? { imageDigest } : {}),
       ...(deps.credentialSource !== undefined ? { credentialSource: deps.credentialSource } : {}),
+      ...(deps.credentialName !== undefined ? { credentialName: deps.credentialName } : {}),
     };
     // Lessons are only all known once the gate repairs have run, so read them at write time.
     const stageMeta = (): typeof runMeta & { lessonIds: string[]; skills: RunSkills; maxRepairIterations: number; modelPicks?: Record<string, StagePick> } => ({
@@ -694,6 +722,13 @@ export async function executeIssueRun(run: IssueRunExecution): Promise<RunIssueR
     return { task, prUrl: pr.prUrl, ...(verificationFailed ? { verificationFailed: true } : {}), ...(!implementerDone ? { implementerIncomplete: true } : {}) };
   } catch (error) {
     if (isStructuredProviderLimit(error)) {
+      // The provider's accounts are exhausted before its pool entry moves on: while another account has quota, the
+      // limited one is cooled by the caller and the run restarts on it. A local usage cap is per provider: rotating cannot help.
+      const rotation = deps.credentialRotation;
+      if (rotation !== undefined && error instanceof ProviderLimitError && stageProvider(activeStage) === rotation.provider && await rotation.hasNext()) {
+        await persistProviderStop?.().catch(() => undefined);
+        throw new CredentialLimited(error, cooldownUntil(error.message));
+      }
       // A pooled stage cools down the entry that hit the limit (and the implementer's fallback: a limit
       // only escapes the stage once its fallback is out too), so new runs skip it until the named reset
       // or the default hour. Then this task moves on to the next entry, then the fallback chain.
@@ -718,6 +753,7 @@ export async function executeIssueRun(run: IssueRunExecution): Promise<RunIssueR
       const pick = o.primaryLimitResetAt !== undefined ? tierPick(plan, o.name, agents.agent.name) : undefined;
       if (pick !== undefined) await recordCooldown(deps.repoPath, pick, new Date(o.primaryLimitResetAt!)).catch(() => undefined);
     }
+    await coolRescuedCredential(outcomes, stageProvider, deps.credentialRotation?.provider, deps.onCredentialCooled);
     await refreshRetrospectiveMemory(deps.repoPath).catch((err: unknown) => {
       console.error('retrospective memory refresh failed (non-fatal):', err);
     });

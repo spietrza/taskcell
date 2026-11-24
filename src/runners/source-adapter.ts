@@ -268,6 +268,7 @@ export async function runSourcedIssue(
     try {
       return await runSourcedIssueAttempt(issueRef, configuredDeps, tracker, host, exhausted);
     } catch (error) {
+      // Anything else (a CredentialLimited too) goes to the caller: the hub's createRun cools the account and restarts.
       if (!(error instanceof PoolEntryLimited)) throw error;
       console.log(`taskcell: ${issueRef} ${error.message}; retrying on the next pool entry`);
     }

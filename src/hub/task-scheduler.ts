@@ -174,6 +174,7 @@ async function startHubTask(ctx: SweepContext, repoPath: string, task: HubTask, 
         onRefused: (id) => log('run-start', `${id} ${task.id}`, 'refused'),
       },
       credential,
+      credential !== undefined ? ctx.userCredentials?.rotationFor(caller.user, provider, credential) : undefined,
     );
   } catch (err) {
     // One refusal line per reason, not one per tick: the same refusal is retried every tick.

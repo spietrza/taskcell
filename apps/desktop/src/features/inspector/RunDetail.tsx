@@ -46,6 +46,7 @@ export function RunDetail({ detail, project, prLink = true, steps, flow }: { det
   const baseBranch = detail.stages.find((s) => s.record.baseBranch !== undefined)?.record.baseBranch;
   const configPaths = detail.stages.find((s) => s.record.configPaths !== undefined)?.record.configPaths;
   const credentialSource = detail.stages.find((s) => s.record.credentialSource !== undefined)?.record.credentialSource;
+  const credentialName = detail.stages.find((s) => s.record.credentialName !== undefined)?.record.credentialName;
   const diffStages = detail.stages.filter((s) => s.diff || s.record.diffOmitted);
   const transcriptStages = detail.stages.filter((s) => s.transcript);
 
@@ -82,7 +83,7 @@ export function RunDetail({ detail, project, prLink = true, steps, flow }: { det
         )}
         {credentialSource !== undefined && (
           <div className="text-sm text-muted-foreground">
-            Model usage billed to {credentialSource === 'user' ? "the starter's own account" : "the hub's account"}
+            Model usage billed to {credentialSource === 'user' ? "the starter's own account" : "the hub's account"}{credentialName !== undefined && ` "${credentialName}"`}
           </div>
         )}
         {((prLink && detail.prUrl !== undefined) || detail.ciUrl !== undefined) && (

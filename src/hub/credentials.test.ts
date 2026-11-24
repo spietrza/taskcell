@@ -107,7 +107,7 @@ describe('ScopedCredentialStore at-rest keys', () => {
     await expect(new ScopedCredentialStore(protectedDir, randomBytes(32).toString('base64')).values('instance')).rejects.toThrow('TASKCELL_HUB_SECRET');
     await expect(new ScopedCredentialStore(protectedDir).values('instance')).rejects.toThrow('credentials.key');
     const unreadable = createCredentialService(protectedDir, [], randomBytes(32).toString('base64'));
-    expect(await unreadable.instanceStatus()).toEqual({ names: [], reason: expect.stringContaining('cannot be decrypted') });
+    expect(await unreadable.instanceStatus()).toMatchObject({ names: [], reason: expect.stringContaining('cannot be decrypted') });
 
     const localDir = await dir();
     await new ScopedCredentialStore(localDir).put('instance', 'CLAUDE_CODE_OAUTH_TOKEN', SECRET_VALUE);
@@ -148,7 +148,7 @@ describe('ScopedCredentialStore at-rest keys', () => {
       await service.migrateLegacy();
       expect((await service.instanceStatus()).reason).toContain('TASKCELL_HUB_SECRET');
       await rm(file);
-      expect(await service.instanceStatus()).toEqual({ names: [] });
+      expect(await service.instanceStatus()).toMatchObject({ names: [] });
       expect(error.mock.calls.flat().join(' ')).not.toContain(SECRET_VALUE);
     } finally {
       error.mockRestore();
@@ -168,14 +168,14 @@ describe('re-review hardening', () => {
     try {
       const mismatched = createCredentialService(d, [], randomBytes(32).toString('base64'));
       await mismatched.migrateLegacy();
-      expect(await mismatched.instanceStatus()).toEqual({ names: ['CLAUDE_CODE_OAUTH_TOKEN'], reason: expect.stringContaining('credentials.enc cannot be decrypted') });
+      expect(await mismatched.instanceStatus()).toMatchObject({ names: ['CLAUDE_CODE_OAUTH_TOKEN'], reason: expect.stringContaining('credentials.enc cannot be decrypted') });
       await mismatched.putInstance('OPENROUTER_API_KEY', 'or-key');
       expect((await readFile(join(d, 'credentials.key'), 'utf8')).trim()).toHaveLength(64);
       expect(Object.keys(await new ScopedCredentialStore(d).values('instance')).sort()).toEqual(['CLAUDE_CODE_OAUTH_TOKEN', 'OPENROUTER_API_KEY']);
 
       const restored = createCredentialService(d, [], oldSecret);
       await restored.migrateLegacy();
-      expect(await restored.instanceStatus()).toEqual({ names: ['CLAUDE_CODE_OAUTH_TOKEN', 'OPENROUTER_API_KEY', 'ZAI_API_KEY'] });
+      expect(await restored.instanceStatus()).toMatchObject({ names: ['CLAUDE_CODE_OAUTH_TOKEN', 'OPENROUTER_API_KEY', 'ZAI_API_KEY'] });
       await expect(readFile(join(d, 'credentials.key'))).rejects.toThrow();
       expect(Object.keys(await new ScopedCredentialStore(d, oldSecret).values('instance'))).toHaveLength(3);
     } finally {
@@ -192,8 +192,8 @@ describe('re-review hardening', () => {
       const d = await dir();
       await new ScopedCredentialStore(d).put('instance', 'CLAUDE_CODE_OAUTH_TOKEN', SECRET_VALUE);
       const short = createCredentialService(d, [], 'c2hvcnQ=');
-      expect(await short.resolveForRun(undefined)).toEqual({ source: 'instance', env: { CLAUDE_CODE_OAUTH_TOKEN: SECRET_VALUE } });
-      expect(await short.instanceStatus()).toEqual({ names: ['CLAUDE_CODE_OAUTH_TOKEN'], reason: expect.stringContaining('32 bytes') });
+      expect(await short.resolveForRun(undefined)).toMatchObject({ source: 'instance', env: { CLAUDE_CODE_OAUTH_TOKEN: SECRET_VALUE } });
+      expect(await short.instanceStatus()).toMatchObject({ names: ['CLAUDE_CODE_OAUTH_TOKEN'], reason: expect.stringContaining('32 bytes') });
 
       const locked = await dir();
       await new ScopedCredentialStore(locked, randomBytes(32).toString('base64')).put('instance', 'CLAUDE_CODE_OAUTH_TOKEN', SECRET_VALUE);
@@ -224,7 +224,7 @@ describe('re-review hardening', () => {
       const service = createCredentialService(d, [], secret);
       await Promise.all([service.migrateLegacy(), service.migrateLegacy()]);
       expect(error.mock.calls.flat().filter((line: unknown) => String(line).includes('migrated credentials'))).toHaveLength(1);
-      expect(await service.instanceStatus()).toEqual({ names: ['CLAUDE_CODE_OAUTH_TOKEN'] });
+      expect(await service.instanceStatus()).toMatchObject({ names: ['CLAUDE_CODE_OAUTH_TOKEN'] });
     } finally {
       error.mockRestore();
     }
@@ -262,7 +262,7 @@ describe('re-review hardening', () => {
       expect(await new ScopedCredentialStore(d).values('instance')).toEqual({ OPENROUTER_API_KEY: 'or-key' });
       const restored = createCredentialService(d, [], oldSecret);
       await restored.migrateLegacy();
-      expect(await restored.instanceStatus()).toEqual({ names: ['OPENROUTER_API_KEY', 'ZAI_API_KEY'] });
+      expect(await restored.instanceStatus()).toMatchObject({ names: ['OPENROUTER_API_KEY', 'ZAI_API_KEY'] });
     } finally {
       error.mockRestore();
     }
@@ -481,7 +481,7 @@ describe('re-review hardening', () => {
     const error = quiet();
     try {
       const status = await service.instanceStatus();
-      expect(status).toEqual({ names: [], reason: expect.stringContaining('cannot be read') });
+      expect(status).toMatchObject({ names: [], reason: expect.stringContaining('cannot be read') });
       expect(status.reason).not.toContain(d);
       expect(service.childEnv('claude').CLAUDE_CODE_OAUTH_TOKEN).toBe('saved');
     } finally {
@@ -602,5 +602,183 @@ describe('hub admins by sign-in identity', () => {
     expect(svc.isAdmin(undefined)).toBe(false);
     expect(() => svc.assertManager(user({ login: 'gitlab:alice' }), false)).not.toThrow();
     expect(() => svc.assertManager(user({ login: 'gitlab:mallory' }), false)).toThrow('hub admin');
+  });
+});
+
+describe('multiple Claude accounts (store)', () => {
+  const user = { id: 'u1', email: 'u@x.y', name: 'U' } as never;
+  const acct = (name: string, over: Record<string, unknown> = {}) => ({ name, type: 'api-key' as const, value: `sk-${name}`, ...over });
+
+  it('v1 store upgrades in memory to accounts named after their variables; legacy put/remove keep working', async () => {
+    const d = await dir();
+    const store = new ScopedCredentialStore(d);
+    await store.put('instance', 'CLAUDE_CODE_OAUTH_TOKEN', 'oauth');
+    await store.put('instance', 'ANTHROPIC_API_KEY', 'key');
+    await store.put('instance', 'OPENAI_API_KEY', 'openai');
+    expect((await store.accounts('instance')).map((a) => [a.name, a.type])).toEqual([['CLAUDE_CODE_OAUTH_TOKEN', 'subscription'], ['ANTHROPIC_API_KEY', 'api-key']]);
+    expect(await store.names('instance')).toEqual(['ANTHROPIC_API_KEY', 'CLAUDE_CODE_OAUTH_TOKEN', 'OPENAI_API_KEY']);
+    await store.remove('instance', 'ANTHROPIC_API_KEY');
+    expect(await store.names('instance')).toEqual(['CLAUDE_CODE_OAUTH_TOKEN', 'OPENAI_API_KEY']);
+  });
+
+  it('reads a v1 file (bare scope → env map) as accounts', async () => {
+    const d = await dir();
+    const key = randomBytes(32);
+    const iv = randomBytes(12);
+    const cipher = createCipheriv('aes-256-gcm', key, iv);
+    const data = Buffer.concat([cipher.update(JSON.stringify({ instance: { ANTHROPIC_API_KEY: 'k1', ZAI_API_KEY: 'z' } }), 'utf8'), cipher.final()]);
+    await writeFile(join(d, 'credentials.key'), `${key.toString('hex')}\n`);
+    await writeFile(join(d, 'credentials.enc.json'), JSON.stringify({ iv: iv.toString('base64'), tag: cipher.getAuthTag().toString('base64'), data: data.toString('base64') }));
+    const store = new ScopedCredentialStore(d);
+    expect((await store.accounts('instance')).map((a) => a.name)).toEqual(['ANTHROPIC_API_KEY']);
+    expect(await store.values('instance')).toEqual({ ANTHROPIC_API_KEY: 'k1', ZAI_API_KEY: 'z' });
+  });
+
+  it('putAccount creates and updates without the secret; reorder needs a permutation; the cap is 20; names are unique', async () => {
+    const store = new ScopedCredentialStore(await dir());
+    const id = await store.putAccount('instance', acct('A'));
+    await store.putAccount('instance', { id, name: 'A2', enabled: false });
+    expect(await store.accounts('instance')).toMatchObject([{ id, name: 'A2', enabled: false, value: 'sk-A' }]);
+    await expect(store.putAccount('instance', acct('a2'))).rejects.toThrow(/already has that name/);
+    const b = await store.putAccount('instance', acct('B'));
+    await expect(store.reorderAccounts('instance', [id])).rejects.toThrow(/exactly once/);
+    await store.reorderAccounts('instance', [b, id]);
+    expect((await store.accounts('instance')).map((a) => a.id)).toEqual([b, id]);
+    await store.removeAccount('instance', b);
+    for (let i = 0; i < 19; i++) await store.putAccount('instance', acct(`n${i}`));
+    await expect(store.putAccount('instance', acct('one-too-many'))).rejects.toThrow(/at most 20/);
+  });
+
+  it('values() is the first enabled account per variable', async () => {
+    const store = new ScopedCredentialStore(await dir());
+    await store.putAccount('instance', acct('off', { enabled: false, value: 'sk-off' }));
+    await store.putAccount('instance', acct('first', { value: 'sk-first' }));
+    await store.putAccount('instance', acct('second', { value: 'sk-second' }));
+    expect((await store.values('instance')).ANTHROPIC_API_KEY).toBe('sk-first');
+  });
+
+  it('terms: a second enabled subscription token is refused in a user scope and needs acknowledgeTerms on the instance; a disabled one does not count', async () => {
+    const store = new ScopedCredentialStore(await dir());
+    const sub = (name: string, over: Record<string, unknown> = {}) => acct(name, { type: 'subscription', ...over });
+    await store.putAccount('user:u1', sub('one'));
+    await expect(store.putAccount('user:u1', sub('two'))).rejects.toThrow(/individual usage/);
+    await store.putAccount('user:u1', sub('off', { enabled: false }));
+    await store.putAccount('instance', sub('one'));
+    await expect(store.putAccount('instance', sub('two'))).rejects.toThrow(/acknowledgeTerms/);
+    await store.putAccount('instance', sub('two', { acknowledgeTerms: true }));
+    const svc = createCredentialService(await dir());
+    await svc.store.putAccount('instance', sub('a'));
+    await svc.store.putAccount('instance', sub('b', { acknowledgeTerms: true }));
+    expect((await svc.instanceStatus()).termsWarning).toMatch(/ordinary, individual usage/);
+  });
+
+  describe('resolution and rotation', () => {
+    it('picks the first enabled, non-cooling account with exactly one Anthropic variable', async () => {
+      const svc = createCredentialService(await dir());
+      await svc.store.putAccount('instance', acct('off', { enabled: false }));
+      await svc.store.putAccount('instance', acct('A'));
+      await svc.store.putAccount('instance', acct('B', { type: 'auth-token' }));
+      const cred = await svc.resolveForRun(undefined, 'claude');
+      expect(cred).toMatchObject({ source: 'instance', env: { ANTHROPIC_API_KEY: 'sk-A' }, accountName: 'A' });
+      expect(Object.keys(cred.env)).toEqual(['ANTHROPIC_API_KEY']);
+    });
+
+    it('limited() cools the account until the reset (hub-level file, no secret), continues on the next, and returns undefined when all are out', async () => {
+      const d = await dir();
+      const svc = createCredentialService(d);
+      const a = await svc.store.putAccount('instance', acct('A'));
+      const b = await svc.store.putAccount('instance', acct('B'));
+      const first = await svc.resolveForRun(undefined, 'claude');
+      const rotation = svc.rotationFor(undefined, 'claude', first)!;
+      expect(await rotation.hasNext()).toBe(true);
+      const until = new Date(Date.now() + 3600_000);
+      const next = await rotation.limited(a, until);
+      expect(next).toMatchObject({ accountId: b, accountName: 'B', env: { ANTHROPIC_API_KEY: 'sk-B' } });
+      const file = JSON.parse(await readFile(join(d, 'credential-cooldowns.json'), 'utf8')) as Record<string, string>;
+      expect(file).toEqual({ [`credential:instance:${a}`]: until.toISOString() });
+      expect(await rotation.hasNext()).toBe(false);
+      expect(await rotation.limited(b, until)).toBeUndefined();
+      // new runs refuse with the reset, naming no value
+      await expect(svc.resolveForRun(undefined, 'claude')).rejects.toThrow(/all 2 Claude credentials are cooling down.*resets at/);
+      expect((await svc.accountViews('instance')).every((v) => v.coolingUntil === until.toISOString())).toBe(true);
+    });
+
+    it('a failed cooldown write still skips the account in this run; refresh() re-picks a cooled account', async () => {
+      const d = await dir();
+      const svc = createCredentialService(d);
+      const a = await svc.store.putAccount('instance', acct('A'));
+      await svc.store.putAccount('instance', acct('B'));
+      const first = await svc.resolveForRun(undefined, 'claude');
+      await mkdir(join(d, 'credential-cooldowns.json')); // a directory: the write fails
+      const rotation = svc.rotationFor(undefined, 'claude', first)!;
+      expect((await rotation.limited(a, new Date(Date.now() + 1000)))?.accountName).toBe('B');
+      await rm(join(d, 'credential-cooldowns.json'), { recursive: true });
+      const other = svc.rotationFor(undefined, 'claude', first)!;
+      await other.cool(a, new Date(Date.now() + 3600_000));
+      expect((await other.refresh(first)).accountName).toBe('B');
+    });
+
+    it('user-first: a user whose accounts all cool is refused, not moved onto the instance accounts', async () => {
+      const svc = createCredentialService(await dir());
+      await svc.setPolicy('user-first');
+      await svc.store.putAccount('instance', acct('inst'));
+      const own = await svc.store.putAccount('user:u1', acct('mine'));
+      const first = await svc.resolveForRun(user, 'claude');
+      expect(first).toMatchObject({ source: 'user', accountName: 'mine' });
+      await svc.rotationFor(user, 'claude', first)!.cool(own, new Date(Date.now() + 3600_000));
+      await expect(svc.resolveForRun(user, 'claude')).rejects.toThrow(/cooling down/);
+    });
+
+    it('no accounts: the instance credential is empty (the start-up environment funds the run, as before)', async () => {
+      const svc = createCredentialService(await dir());
+      expect(await svc.resolveForRun(undefined, 'claude')).toEqual({ source: 'instance', env: {} });
+      expect(svc.rotationFor(undefined, 'claude', { source: 'instance', env: {} })).toBeUndefined();
+    });
+  });
+});
+
+describe('v1 → v2 store upgrade survives re-key and the marker', () => {
+  const v1File = async (d: string, key: Buffer): Promise<void> => {
+    const iv = randomBytes(12);
+    const cipher = createCipheriv('aes-256-gcm', key, iv);
+    const data = Buffer.concat([cipher.update(JSON.stringify({ instance: { CLAUDE_CODE_OAUTH_TOKEN: 'oauth', ANTHROPIC_API_KEY: 'k1', ZAI_API_KEY: 'z' } }), 'utf8'), cipher.final()]);
+    await writeFile(join(d, 'credentials.enc.json'), JSON.stringify({ iv: iv.toString('base64'), tag: cipher.getAuthTag().toString('base64'), data: data.toString('base64') }));
+  };
+
+  it('a v1 disk-key store re-keys under the secret as ordered accounts, writes the marker, and reads back', async () => {
+    const d = await dir();
+    const diskKey = randomBytes(32);
+    await writeFile(join(d, 'credentials.key'), `${diskKey.toString('hex')}\n`);
+    await v1File(d, diskKey);
+    const secret = randomBytes(32).toString('base64');
+    const store = new ScopedCredentialStore(d, secret);
+    expect((await store.accounts('instance')).map((a) => [a.name, a.type])).toEqual([['CLAUDE_CODE_OAUTH_TOKEN', 'subscription'], ['ANTHROPIC_API_KEY', 'api-key']]);
+    await expect(stat(join(d, 'credentials.key'))).rejects.toThrow(); // re-keyed: the disk key is gone
+    await expect(stat(join(d, 'credentials.keyed'))).resolves.toBeDefined();
+    // a fresh store under the same secret reads the same accounts and plain variables
+    const again = new ScopedCredentialStore(d, secret);
+    expect(await again.values('instance')).toEqual({ ZAI_API_KEY: 'z', CLAUDE_CODE_OAUTH_TOKEN: 'oauth', ANTHROPIC_API_KEY: 'k1' });
+    // the first save writes v2, which still loads
+    await again.putAccount('instance', { name: 'extra', type: 'api-key', value: 'k2' });
+    expect((await new ScopedCredentialStore(d, secret).accounts('instance')).map((a) => a.name)).toEqual(['CLAUDE_CODE_OAUTH_TOKEN', 'ANTHROPIC_API_KEY', 'extra']);
+  });
+
+  it('with the marker present and no secret, the store is refused (accounts are not exposed)', async () => {
+    const d = await dir();
+    const secret = randomBytes(32).toString('base64');
+    await new ScopedCredentialStore(d, secret).putAccount('instance', { name: 'A', type: 'api-key', value: 'k' });
+    await expect(new ScopedCredentialStore(d).accounts('instance')).rejects.toThrow(/credentials\.keyed/);
+  });
+
+  it('concurrent cool-downs through the service lose no key', async () => {
+    const d = await dir();
+    const svc = createCredentialService(d);
+    const ids = [];
+    for (const n of ['A', 'B', 'C']) ids.push(await svc.store.putAccount('instance', { name: n, type: 'api-key', value: `k${n}` }));
+    const rotation = svc.rotationFor(undefined, 'claude', await svc.resolveForRun(undefined, 'claude'))!;
+    const until = new Date(Date.now() + 3600_000);
+    await Promise.all(ids.map((id) => rotation.cool(id, until)));
+    const file = JSON.parse(await readFile(join(d, 'credential-cooldowns.json'), 'utf8')) as Record<string, string>;
+    expect(Object.keys(file).sort()).toEqual(ids.map((id) => `credential:instance:${id}`).sort());
   });
 });
