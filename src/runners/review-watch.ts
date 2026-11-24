@@ -2,6 +2,8 @@ import { incompleteAttempts } from '../core/comment-ledger.js';
 import type { Forge, LedgerComment } from '../core/comment-ledger.js';
 import { fanOut } from '../pipeline/fan-out.js';
 import { failureReason } from '../core/errors.js';
+import { UsageCapError } from '../core/usage-cap.js';
+import { delay } from '../core/delay.js';
 
 /** The host-neutral review loop: poll → claim → review → mark → restore-on-failure, shared by watch-prs and watch-mrs. */
 export interface ReviewWatchPrimitives<T> {
@@ -35,22 +37,6 @@ export interface ReviewWatchLoopOptions extends ReviewWatchOnceOptions {
 /** Incomplete-review attempts per head, and the passes a failed pinned review gets in one run: one budget. */
 export const INCOMPLETE_RETRY_LIMIT = 3;
 
-export function delay(ms: number, signal?: AbortSignal): Promise<void> {
-  if (signal?.aborted === true) return Promise.resolve();
-  return new Promise((resolve) => {
-    const onAbort = (): void => {
-      clearTimeout(timer);
-      resolve();
-    };
-    // Detach on the timer path too, or a long-lived signal gains one listener per tick.
-    const timer = setTimeout(() => {
-      signal?.removeEventListener('abort', onAbort);
-      resolve();
-    }, ms);
-    signal?.addEventListener('abort', onAbort, { once: true });
-  });
-}
-
 /**
  * The incomplete-review cap policy over the ledger: `comments` carry each author's class, so a forged attempt or cap
  * marker never counts; `pending` is 1 when the current failure's own marker is posted after this check, else 0.
@@ -65,7 +51,7 @@ export function incompleteCapState(
   return { attempts, capPosted, stop: capPosted || attempts + pending >= INCOMPLETE_RETRY_LIMIT };
 }
 
-type Kind = 'reviewed' | 'failed' | 'skipped';
+type Kind = 'reviewed' | 'failed' | 'skipped' | 'paused';
 
 /** Run one review-watch poll: list, claim, review, and mark each ready item. */
 export async function reviewWatchOnce<T>(
@@ -99,6 +85,11 @@ export async function reviewWatchOnce<T>(
           await primitives.onFailure(item, error);
         } catch (restoreError) {
           opts.log?.(`${phase} ${id}: restore failed -> manual label check (${failureReason(restoreError)})`);
+        }
+        // A usage-cap pause is not a failure: the adapter parked the item, and a re-run would hit the cap again.
+        if (error instanceof UsageCapError) {
+          opts.log?.(`${phase} ${id}: paused -> usage cap (${failureReason(error)})`);
+          return { id, kind: 'paused' };
         }
         opts.log?.(`${phase} ${id}: failed -> retry later (${failureReason(error)})`);
         return { id, kind: 'failed' };
