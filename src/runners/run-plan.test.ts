@@ -49,7 +49,7 @@ describe('modelFromLabels', () => {
     const labels = ['taskcell:model=opus; rm -rf /', 'taskcell:model=$(id)', 'taskcell:model=anthropic/claude-sonnet-4.6'];
     expect(modelFromLabels(labels, (l) => bad.push(l))).toBe('anthropic/claude-sonnet-4.6');
     expect(bad).toEqual(['taskcell:model=opus; rm -rf /', 'taskcell:model=$(id)']);
-    expect(modelFromLabels(['taskcell:model=gpt-5.6-sol'])).toBe('gpt-5.6-sol');
+    expect(modelFromLabels(['taskcell:model=gpt-6-sol'])).toBe('gpt-6-sol');
     expect(modelFromLabels([`taskcell:model=${'a'.repeat(81)}`])).toBeUndefined();
   });
 });
@@ -75,11 +75,11 @@ describe('planIssueRun: model routing', () => {
   });
 
   it('a model pool resolves to one provider/model, recorded as a pick and logged', async () => {
-    const p = await plan({ deps: { providerModel: 'codex/gpt-5.6-sol:1' } });
-    expect(p.deps).toMatchObject({ provider: 'codex', providerModel: 'gpt-5.6-sol' });
-    expect(p.choice).toMatchObject({ provider: 'codex', providerModel: 'gpt-5.6-sol' });
-    expect(p.recordedPicks.implementer).toMatchObject({ provider: 'codex', model: 'gpt-5.6-sol' });
-    expect(p.logs[0]).toContain('implementer → codex/gpt-5.6-sol');
+    const p = await plan({ deps: { providerModel: 'codex/gpt-6-sol:1' } });
+    expect(p.deps).toMatchObject({ provider: 'codex', providerModel: 'gpt-6-sol' });
+    expect(p.choice).toMatchObject({ provider: 'codex', providerModel: 'gpt-6-sol' });
+    expect(p.recordedPicks.implementer).toMatchObject({ provider: 'codex', model: 'gpt-6-sol' });
+    expect(p.logs[0]).toContain('implementer → codex/gpt-6-sol');
     expect(p.routing.pooled).toBe(true);
   });
 
@@ -105,7 +105,7 @@ describe('planIssueRun: model routing', () => {
   });
 
   it('tierPick: the reviewer draws on the reviewer pick, the implementer tier on the implementer pick', async () => {
-    const p = await plan({ deps: { providerModel: 'claude/sonnet:1', reviewModel: 'codex/gpt-5.6-sol:1', reviewProvider: 'codex' } });
+    const p = await plan({ deps: { providerModel: 'claude/sonnet:1', reviewModel: 'codex/gpt-6-sol:1', reviewProvider: 'codex' } });
     expect(tierPick(p, 'implementer', 'claude')?.provider).toBe('claude');
     expect(tierPick(p, 'reviewer', 'claude')?.provider).toBe('codex');
     expect(tierPick(p, 'simplifier', 'claude')?.provider).toBe('claude');
@@ -237,10 +237,10 @@ describe('planRevision', () => {
   });
 
   it('a model pool resolves to one entry, keyed on the source issue, with its picks', () => {
-    const p = planRevision(input(revise({ providerModel: 'codex/gpt-5.6-sol:1' })));
-    expect(p.deps).toMatchObject({ provider: 'codex', providerModel: 'gpt-5.6-sol' });
-    expect(p.effectiveModel).toBe('gpt-5.6-sol');
-    expect(p.poolPicks.implementer).toMatchObject({ provider: 'codex', model: 'gpt-5.6-sol' });
+    const p = planRevision(input(revise({ providerModel: 'codex/gpt-6-sol:1' })));
+    expect(p.deps).toMatchObject({ provider: 'codex', providerModel: 'gpt-6-sol' });
+    expect(p.effectiveModel).toBe('gpt-6-sol');
+    expect(p.poolPicks.implementer).toMatchObject({ provider: 'codex', model: 'gpt-6-sol' });
   });
 
   it('a label pins the pool pick to the label model', () => {
@@ -257,7 +257,7 @@ describe('planRevision', () => {
   });
 
   it('a test agent skips pool routing', () => {
-    const deps = revise({ providerModel: 'codex/gpt-5.6-sol:1', _agent: agent('claude') });
+    const deps = revise({ providerModel: 'codex/gpt-6-sol:1', _agent: agent('claude') });
     const p = planRevision(input(deps));
     expect(p.deps).toBe(deps);
     expect(p.poolPicks).toEqual({});

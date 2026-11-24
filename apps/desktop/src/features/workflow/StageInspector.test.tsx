@@ -7,7 +7,7 @@ describe('StageInspector model pool', () => {
     const onSetOverride = vi.fn();
     render(
       <StageInspector
-        stage={{ name: 'implementer', overrides: { model: 'claude/sonnet:3, codex/gpt-5.6-sol:1' } }}
+        stage={{ name: 'implementer', overrides: { model: 'claude/sonnet:3, codex/gpt-6-sol:1' } }}
         palette={['implementer']}
         providers={['claude', 'codex']}
         onSetName={() => {}}
@@ -16,10 +16,10 @@ describe('StageInspector model pool', () => {
         onRemove={() => {}}
       />,
     );
-    expect(screen.getByLabelText('pool entry 2 id')).toHaveValue('gpt-5.6-sol');
+    expect(screen.getByLabelText('pool entry 2 id')).toHaveValue('gpt-6-sol');
     fireEvent.change(screen.getByLabelText('pool weight 2'), { target: { value: '2' } });
-    expect(onSetOverride).toHaveBeenLastCalledWith('model', 'claude/sonnet:3, codex/gpt-5.6-sol:2');
+    expect(onSetOverride).toHaveBeenLastCalledWith('model', 'claude/sonnet:3, codex/gpt-6-sol:2');
     fireEvent.click(screen.getByLabelText('remove pool entry 1'));
-    expect(onSetOverride).toHaveBeenLastCalledWith('model', 'codex/gpt-5.6-sol:2');
+    expect(onSetOverride).toHaveBeenLastCalledWith('model', 'codex/gpt-6-sol:2');
   });
 });

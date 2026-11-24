@@ -24,7 +24,7 @@ export const MODEL_LABEL_PREFIX = 'taskcell:model=';
 
 /**
  * Model ids/aliases/slugs as every supported provider spells them (`opus`, `claude-sonnet-5`,
- * `anthropic/claude-sonnet-4.6`, `gpt-5.6-sol`, `glm-5.2`). Labels are a lower-trust input than a CLI
+ * `anthropic/claude-sonnet-4.6`, `gpt-6-sol`, `glm-5.2`). Labels are a lower-trust input than a CLI
  * flag — anyone with triage permission can set one — so the value is allowlisted by shape before it
  * becomes a `--model` argument, even though the arg is shell-quoted downstream.
  */

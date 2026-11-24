@@ -438,7 +438,7 @@ describe('runBudgetedStages', () => {
         { name: 'implementer', promptTemplate: 'implement', model: 'claude-sonnet-5' },
         { name: 'simplifier', promptTemplate: 'simplify', resumePrevious: false },
       ],
-      { provider: fallback, model: 'gpt-5.6-sol' },
+      { provider: fallback, model: 'gpt-6-sol' },
     );
 
     const result = await runBudgetedStages(ctx, stages, { agent: primary, maxCostUsd: 1 });
@@ -446,8 +446,8 @@ describe('runBudgetedStages', () => {
     expect(result.status).toBe('completed');
     if (result.status === 'completed') {
       expect(result.outcomes.map((o) => [o.name, o.providerName, o.model])).toEqual([
-        ['implementer', 'rec', 'gpt-5.6-sol'],
-        ['simplifier', 'rec', 'gpt-5.6-sol'],
+        ['implementer', 'rec', 'gpt-6-sol'],
+        ['simplifier', 'rec', 'gpt-6-sol'],
       ]);
     }
     expect(primaryInputs).toHaveLength(1);

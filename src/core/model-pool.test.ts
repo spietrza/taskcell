@@ -27,13 +27,13 @@ describe('parseModelPool', () => {
   });
 
   it('parses a single weighted entry', () => {
-    expect(parseModelPool('codex/gpt-5.6-sol:1', known)).toEqual([{ provider: 'codex', model: 'gpt-5.6-sol', weight: 1 }]);
+    expect(parseModelPool('codex/gpt-6-sol:1', known)).toEqual([{ provider: 'codex', model: 'gpt-6-sol', weight: 1 }]);
   });
 
   it('parses weights, a default weight of 1, and a model id with slashes and colons', () => {
-    expect(parseModelPool('claude/sonnet:3, codex/gpt-5.6-sol:1, openrouter/qwen/qwen3:free:2, cursor/auto', known)).toEqual([
+    expect(parseModelPool('claude/sonnet:3, codex/gpt-6-sol:1, openrouter/qwen/qwen3:free:2, cursor/auto', known)).toEqual([
       { provider: 'claude', model: 'sonnet', weight: 3 },
-      { provider: 'codex', model: 'gpt-5.6-sol', weight: 1 },
+      { provider: 'codex', model: 'gpt-6-sol', weight: 1 },
       { provider: 'openrouter', model: 'qwen/qwen3:free', weight: 2 },
       { provider: 'cursor', model: 'auto', weight: 1 },
     ]);
@@ -54,7 +54,7 @@ describe('parseModelPool', () => {
 });
 
 describe('rotation', () => {
-  const pool = parseModelPool('claude/sonnet:3, codex/gpt-5.6-sol:1', known);
+  const pool = parseModelPool('claude/sonnet:3, codex/gpt-6-sol:1', known);
 
   it('is stable for one task id', () => {
     const first = pickIndex(pool, 'owner/repo#42');
@@ -76,7 +76,7 @@ describe('rotation', () => {
 });
 
 describe('orderCandidates', () => {
-  const pool = parseModelPool('claude/sonnet:1, codex/gpt-5.6-sol:1', known);
+  const pool = parseModelPool('claude/sonnet:1, codex/gpt-6-sol:1', known);
   const id = 'task-1';
   const start = pickIndex(pool, id);
   const picked = pool[start]!;
@@ -107,7 +107,7 @@ describe('orderCandidates', () => {
 
 describe('parseFallbackList', () => {
   it('pairs providers and models; an empty slot means the provider default', () => {
-    expect(parseFallbackList('codex,cursor', 'gpt-5.6-sol,')).toEqual([{ provider: 'codex', model: 'gpt-5.6-sol' }, { provider: 'cursor' }]);
+    expect(parseFallbackList('codex,cursor', 'gpt-6-sol,')).toEqual([{ provider: 'codex', model: 'gpt-6-sol' }, { provider: 'cursor' }]);
     expect(parseFallbackList('codex', undefined)).toEqual([{ provider: 'codex' }]);
     expect(() => parseFallbackList('codex', 'a,b')).toThrow(/more models/);
   });
