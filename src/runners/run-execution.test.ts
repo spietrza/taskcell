@@ -252,6 +252,8 @@ describe('executeIssueRun: skill notes', () => {
 const verifyDeps = { verifyCmd: 'pnpm test' } as const;
 const verifyRuns = (f: Fakes): number => f.exec.mock.calls.filter(([cmd]) => String(cmd) === 'pnpm test').length;
 const isReview = (i: AgentRunInput): boolean => i.prompt.includes('REVIEW');
+/** The PR body the opened PR was created with. */
+const bodyOf = (f: Fakes): string => f.targets[0]!.body({ commitLeaks: [], facts: { configBlock: undefined } as never });
 
 describe('executeIssueRun: repair loop', () => {
   it('a red verify resumes the implementer session and the reviewer then runs once, on the repaired tree', async () => {
@@ -269,7 +271,19 @@ describe('executeIssueRun: repair loop', () => {
     expect(f.host.addFailureLabel).not.toHaveBeenCalled();
     expect(f.host.publishVerdict).toHaveBeenCalledTimes(1);
     expect(f.targets[0]).toMatchObject({ draft: false });
-    expect(f.targets[0]!.body({ commitLeaks: [], facts: { configBlock: undefined } as never })).toContain(`Closes ${task.id}`);
+    expect(bodyOf(f)).toContain(`Closes ${task.id}`);
+  });
+
+  it('a green verify never resumes the implementer and never re-reviews', async () => {
+    const f = fakes(true);
+    await dirtyTree(f);
+    const { agent, calls } = scriptedAgent();
+    await run(f, verifyDeps, [], { stages: STAGES, agent });
+    // The implementer once and the reviewer once: no repair round, no re-review.
+    expect(calls).toHaveLength(2);
+    expect(calls.filter((c) => !isReview(c))).toHaveLength(1);
+    expect(isReview(calls[1]!)).toBe(true);
+    expect(verifyRuns(f)).toBe(1);
   });
 
   it('a verify that stays red exhausts the cap, skips the reviewer and ships a labelled partial draft', async () => {
@@ -285,7 +299,7 @@ describe('executeIssueRun: repair loop', () => {
     expect(f.host.publishVerdict).not.toHaveBeenCalled();
     expect(f.host.addFailureLabel).toHaveBeenCalledWith(PR_URL, 'verify');
     expect(f.targets[0]).toMatchObject({ draft: true });
-    expect(f.targets[0]!.body({ commitLeaks: [], facts: { configBlock: undefined } as never })).not.toContain(`Closes ${task.id}`);
+    expect(bodyOf(f)).not.toContain(`Closes ${task.id}`);
   });
 
   it('hands the reviewer\'s blocking findings back to the implementer, then publishes the re-review (#673)', async () => {
@@ -321,21 +335,30 @@ describe('executeIssueRun: repair loop', () => {
     expect(f.targets[0]).toMatchObject({ draft: true });
     const text = vi.mocked(f.host.publishVerdict).mock.calls[0]![0].reviewerOutcome?.result.finalText ?? '';
     expect(text).toContain('Review unavailable:');
+    // A provider error can quote a credential: the verdict comment carries the reason, masked.
+    expect(text).toContain('[REDACTED-GH]');
     expect(text).not.toContain(token);
+    const body = bodyOf(f);
+    expect(body).toMatch(/^Review: INCOMPLETE \(0 findings\)$/m);
+    expect(body).not.toContain(token);
     expect(f.prCreates.flat().join('\n')).not.toContain(token);
   });
 
   it('flags the re-review as stopped by a provider limit only for the limit error itself', async () => {
     vi.spyOn(console, 'error').mockImplementation(() => {});
-    const stoppedBy = async (error: Error): Promise<string | undefined> => {
+    const rereviewOf = async (error: Error): Promise<{ stoppedBy?: string; taskId?: string }> => {
       const f = fakes(true);
       await dirtyTree(f);
       const { agent } = scriptedAgent((input, n) => (isReview(input) ? (n === 1 ? { finalText: BLOCKING } : error) : {}));
       await run(f, verifyDeps, [], { stages: STAGES, agent });
-      return vi.mocked(f.host.publishVerdict).mock.calls[0]![0].reviewerOutcome?.result.stoppedBy;
+      return vi.mocked(f.host.publishVerdict).mock.calls[0]![0].reviewerOutcome?.result ?? {};
     };
-    expect(await stoppedBy(new ProviderLimitError("You've hit your session limit · resets 9pm (UTC)"))).toBe('provider-limit');
-    expect(await stoppedBy(new AgentError('crashed after adding handling for usage limit reached'))).toBeUndefined();
+    const limited = await rereviewOf(new ProviderLimitError("You've hit your session limit · resets 9pm (UTC)"));
+    expect(limited.stoppedBy).toBe('provider-limit');
+    // The synthetic outcome carries the run's task id (what the real stages use), not the issue's: stats key on it.
+    expect(limited.taskId).toBe('gl-1');
+    expect((await rereviewOf(new AgentError('crashed after adding handling for usage limit reached'))).stoppedBy).toBeUndefined();
+    expect((await rereviewOf(new AgentError('process crashed; stdout tail: rate_limit_error status code 429'))).stoppedBy).toBeUndefined();
   });
 });
 
@@ -347,9 +370,21 @@ describe('executeIssueRun: verdict publishing', () => {
     await run(f, { reviewGate: true }, [], { stages: STAGES, agent });
     expect(f.host.publishVerdict).toHaveBeenCalledTimes(1);
     expect(f.host.publishVerdict).toHaveBeenCalledWith(expect.objectContaining({ prUrl: PR_URL, attribution: 'claude', gate: true, reviewerOutcome: expect.objectContaining({ name: 'reviewer' }) }));
-    const body = f.targets[0]!.body({ commitLeaks: [], facts: { configBlock: undefined } as never });
+    const body = bodyOf(f);
     expect(body.match(/^Review: PASS \(0 findings\)$/gm)).toHaveLength(1);
+    expect(body.indexOf('## Proof of work')).toBeGreaterThan(-1);
+    expect(body.indexOf('Review:')).toBeGreaterThan(body.indexOf('## Proof of work'));
     expect(f.tracker.linkPr).toHaveBeenCalledWith('group/project#1', task, PR_URL);
+  });
+
+  it('a reviewer that still blocks after the repairs puts CHANGES with its finding count below the proof of work', async () => {
+    const f = fakes(true);
+    await dirtyTree(f);
+    const { agent } = scriptedAgent((input) => (isReview(input) ? { finalText: BLOCKING } : {}));
+    await run(f, verifyDeps, [], { stages: STAGES, agent });
+    const body = bodyOf(f);
+    expect(body.match(/^Review: CHANGES \(1 finding\)$/gm)).toHaveLength(1);
+    expect(body.indexOf('Review:')).toBeGreaterThan(body.indexOf('## Proof of work'));
   });
 
   it('a white-label run posts no verdict and no link-back', async () => {
@@ -365,6 +400,7 @@ describe('executeIssueRun: verdict publishing', () => {
     await dirtyTree(f);
     await run(f, {}, [], { stages: [STAGES[0]!], agent: scriptedAgent().agent });
     expect(f.host.publishVerdict).not.toHaveBeenCalled();
+    expect(bodyOf(f)).not.toContain('Review:');
     expect(f.tracker.linkPr).toHaveBeenCalledTimes(1);
   });
 });
@@ -410,7 +446,7 @@ describe('executeIssueRun: model pool limits', () => {
     const dir = await mkdtemp(join(tmpdir(), 'pool-flow-'));
     try {
       const stages: PipelineStage[] = [
-        { ...STAGES[0]!, model: 'claude/sonnet:1, claude/haiku:1' },
+        { ...STAGES[0]!, model: 'codex/gpt-6-sol:1, claude/sonnet:1' },
         { name: 'simplifier', promptTemplate: 'SIMPLIFY', maxTurns: 10 },
         STAGES[1]!,
       ];
@@ -419,6 +455,8 @@ describe('executeIssueRun: model pool limits', () => {
       const { agent } = scriptedAgent((input) => (input.prompt.includes('SIMPLIFY') ? new ProviderLimitError("You've hit your usage limit") : {}));
       const stopped = run(f, { repoPath: dir, provider: 'claude', providerModel: 'claude/opus:1' }, [], { stages, agent });
       await expect(stopped).rejects.toBeInstanceOf(ProviderLimitError);
+      // The run-level pool is out, so no restart on a flow-pool re-route.
+      await expect(stopped).rejects.not.toBeInstanceOf(PoolEntryLimited);
       expect([...(await readCooldowns(dir)).keys()]).toEqual(['claude/opus']);
     } finally {
       await rm(dir, { recursive: true, force: true });
@@ -427,15 +465,6 @@ describe('executeIssueRun: model pool limits', () => {
 });
 
 describe('planIssueRun ordering', () => {
-  it('an unknown skill stops the run before the sandbox opens', async () => {
-    const f = fakes();
-    const { agent, calls } = scriptedAgent();
-    await expect(run(f, { namedSkills: ['no-such-skill'] }, [], { stages: STAGES, agent, skillIds: ['real-skill'] })).rejects.toThrow(/no-such-skill/);
-    expect(f.prepare).not.toHaveBeenCalled();
-    expect(f.exec).not.toHaveBeenCalled();
-    expect(calls).toHaveLength(0);
-  });
-
   it('the model pool resolves to one entry before agent selection reads the options', async () => {
     const plan = await planIssueRun({
       fetchedTask: task,

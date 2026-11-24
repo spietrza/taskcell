@@ -115,7 +115,6 @@ const { writeStages, beginRun, runStages, commitStage, publishForReview, reviewF
 vi.mock('../sandbox/llm-proxy.js', () => ({
   startProviderProxies: vi.fn(async () => ({ openai: undefined, destroy: vi.fn(async () => {}) })),
 }));
-vi.mock('../sandbox/egress-proxy.js', () => ({ llmProxySandboxEnv: vi.fn(() => undefined) }));
 const { sandboxImage, capturedSandboxOpts } = vi.hoisted(() => ({
   sandboxImage: vi.fn(() => 'vanguard-sandbox:latest'),
   capturedSandboxOpts: [] as Array<{ image?: string }>,
@@ -186,7 +185,6 @@ vi.mock('../core/run-store.js', () => ({
   beginRun: (...args: unknown[]) => beginRun(...(args as [])),
   persistDecisionProbe: (...args: unknown[]) => persistDecisionProbe(...(args as [])),
 }));
-vi.mock('../core/run-summary.js', () => ({ summarizeOutcomes: vi.fn(() => '') }));
 vi.mock('../pipeline/verify.js', () => ({
   resolveVerifyCommand: vi.fn(async () => undefined),
   runVerification: vi.fn(async () => undefined),
@@ -757,6 +755,16 @@ describe('runSourcedIssue', () => {
     } finally {
       await rm(root, { recursive: true, force: true });
     }
+  });
+
+  it('an unknown skill stops the run after the fetch but before agent selection, the provider proxies and the sandbox', async () => {
+    const adapter = fakeAdapter([], STAGES);
+    await expect(runSourcedIssue('group/project#1', { repoPath: '/repo', namedSkills: ['no-such-skill'] }, adapter)).rejects.toThrow(/no-such-skill/);
+    expect(adapter.prepare).toHaveBeenCalledTimes(1);
+    expect(selectAgents).not.toHaveBeenCalled();
+    expect(startProviderProxies).not.toHaveBeenCalled();
+    expect(prepareContext).not.toHaveBeenCalled();
+    expect(runStages).not.toHaveBeenCalled();
   });
 
   it('an implement run does not inject the spec-only tech-spec skill (bundled or repo-supplied)', async () => {
