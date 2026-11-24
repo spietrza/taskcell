@@ -9,6 +9,7 @@ import { hasLabel, labelForms, NEEDS_REVISION_LABEL, DEFAULT_GITHUB_AGENT_LABEL,
 import { GITHUB_REVIEW_LABEL, GITHUB_VERIFY_FAILED_LABEL } from '../github-labels.js';
 import { shownBaseFromLabels } from '../core/base-branch.js';
 import { TaskcellError } from '../core/errors.js';
+import type { NeedsYouItem as WireNeedsYouItem } from '../wire.js';
 import { fanOut } from '../pipeline/fan-out.js';
 import { httpsUrl } from '../core/links.js';
 import { clarifyMessage } from '../runners/watch-shared.js';
@@ -115,6 +116,52 @@ async function lastOwnComment(
   const last = comments.filter((c) => own.has((c.author?.login ?? '').toLowerCase())).at(-1);
   if (last === undefined) return undefined;
   return { author: last.author?.login ?? '', body: redactForPublish(last.body ?? '') };
+}
+
+/** One item's fetched comment (or none), kept per item by `withLastComments`. */
+export type CommentMemo = Map<string, Promise<{ author: string; body: string } | undefined>>;
+
+/**
+ * `items` with the factory's last comment (and, for an issue, the `ask` it implies), for the lists that show it (Home,
+ * push, Slack). Fetches only what `memo` lacks, at most MAX_COMMENT_FETCHES and what `budget` still allows, and keeps each
+ * result in `memo` (a failed fetch as none), so a repeated read within the cache's life costs nothing.
+ */
+export async function withLastComments(
+  repoSlug: string,
+  items: readonly WireNeedsYouItem[],
+  gh: GhRunner,
+  memo: CommentMemo,
+  budget: { remaining: number },
+): Promise<WireNeedsYouItem[]> {
+  const todo = items.filter((i) => i.kind !== 'card' && !memo.has(i.id)).slice(0, Math.max(0, Math.min(MAX_COMMENT_FETCHES, budget.remaining)));
+  budget.remaining -= todo.length;
+  if (todo.length > 0) {
+    const own = ownLogins(gh, []);
+    const batch = fanOut(todo, (i) => own.then((logins) => lastOwnComment(repoSlug, i.kind as 'issue' | 'pr', i.number, logins, gh)), { concurrency: COMMENT_FETCH_CONCURRENCY });
+    todo.forEach((i, n) => memo.set(i.id, batch.then((o) => (o[n]?.status === 'fulfilled' ? o[n].value : undefined), () => undefined)));
+  }
+  return Promise.all(items.map(async (i) => {
+    const lastComment = i.kind === 'card' ? undefined : await memo.get(i.id);
+    if (lastComment === undefined) return i;
+    return { ...i, lastComment, ...(i.kind === 'issue' ? { ask: isTooVague(lastComment.body) ? ('too-vague' as const) : ('question' as const) } : {}) };
+  }));
+}
+
+/**
+ * The factory's last comment on one waiting item (and the `ask` it implies for an issue), for the view of the item the
+ * person opened: the lists carry no comments. `id` must name an item of `repoSlug`.
+ */
+export async function needsYouComment(
+  repoSlug: string,
+  id: string,
+  kind: 'issue' | 'pr',
+  gh: GhRunner = defaultGhRunner,
+): Promise<{ lastComment?: { author: string; body: string }; ask?: 'question' | 'too-vague' }> {
+  assertRepoSlug(repoSlug);
+  const number = Number(itemNumber(repoSlug, id));
+  const lastComment = await lastOwnComment(repoSlug, kind, number, await ownLogins(gh, []), gh);
+  if (lastComment === undefined) return {};
+  return { lastComment, ...(kind === 'issue' ? { ask: isTooVague(lastComment.body) ? ('too-vague' as const) : ('question' as const) } : {}) };
 }
 
 /**

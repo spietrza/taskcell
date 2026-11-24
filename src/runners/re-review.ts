@@ -4,6 +4,8 @@
  * (previous-finding table, no new blocking finding on unchanged code, verdict derived from the table).
  */
 import { z } from 'zod';
+import { parseMarkers, writeMarker } from '../core/comment-ledger.js';
+import type { MergeOnlyPayload } from '../core/comment-ledger.js';
 import { extractJson } from '../structured/extract.js';
 import { neutralizePromptTags } from '../context/escape.js';
 import { DIFF_GIT_HEADER_RE, extractReviewVerdict, RISK_RE, VERDICT_RE } from './review-prompt.js';
@@ -308,12 +310,9 @@ export function applyReReviewRules(
   };
 }
 
-const MERGE_ONLY_RE = /^<!-- merge-only: (\{.*\}) -->$/m;
-const mergeOnlySchema = z.object({ from: z.string(), to: z.string(), files: z.array(z.string()) });
-
 /** Machine-readable record of a merge-only round for the incremental re-review: the head it started from, the commit it pushed and the conflicted files it resolved. */
 export const mergeOnlyMarker = (round: { from: string; to: string; files: readonly string[] }): string =>
-  `<!-- merge-only: ${JSON.stringify({ from: round.from, to: round.to, files: round.files }).replace(/-->/g, '--\\u003e')} -->`;
+  writeMarker('merge-only', { from: round.from, to: round.to, files: [...round.files] });
 
 /**
  * The files resolved by merge-only rounds, when the Revision Summaries (oldest first) are all merge-only and
@@ -325,14 +324,8 @@ export function mergeOnlyResolvedFiles(summaries: readonly string[], from: strin
   const files = new Set<string>();
   let at = from;
   for (const body of summaries) {
-    const raw = MERGE_ONLY_RE.exec(body)?.[1];
-    if (raw === undefined) return undefined;
-    let round: z.infer<typeof mergeOnlySchema>;
-    try {
-      round = mergeOnlySchema.parse(JSON.parse(raw));
-    } catch {
-      return undefined;
-    }
+    const round = parseMarkers<MergeOnlyPayload>('merge-only', body)[0];
+    if (round === undefined) return undefined;
     if (round.from !== at) return undefined;
     at = round.to;
     for (const f of round.files) files.add(f);

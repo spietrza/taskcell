@@ -1,3 +1,5 @@
+import { containsTrustedMarker, writeMarker } from '../core/comment-ledger.js';
+import type { LedgerComment } from '../core/comment-ledger.js';
 import { defaultGhRunner } from '../tasks/github.js';
 import type { GhRunner } from '../tasks/github.js';
 import { TaskcellError } from '../core/errors.js';
@@ -133,7 +135,7 @@ function commentBody(decision: Decision, record: DecisionRecord): string {
     '',
     '_Shadow mode — nothing was merged, approved or labelled._',
     '',
-    `<!-- taskcell-approver: ${record.headSha ?? 'none'} -->`,
+    writeMarker('approver', record.headSha ?? 'none'),
   ].join('\n');
 }
 
@@ -154,8 +156,9 @@ export async function commentOnce(gh: GhRunner, repoSlug: string, prNumber: numb
   try {
     const out = await gh(['pr', 'view', String(prNumber), '--repo', repoSlug, '--json', 'comments']);
     const parsed = JSON.parse(out) as { comments?: GhComment[] };
-    const trusted = (c: GhComment): boolean => c.viewerDidAuthor === true || classifyAuthor(c.author?.login ?? '', c.authorAssociation ?? '', { botLogins }) !== 'untrusted';
-    if ((parsed.comments ?? []).some((c) => (c.body?.includes(marker) === true || c.body?.includes(marker.replace('taskcell-', 'vanguard-')) === true) && trusted(c))) return false;
+    const authorOf = (c: GhComment): LedgerComment['author'] =>
+      c.viewerDidAuthor === true ? 'self' : classifyAuthor(c.author?.login ?? '', c.authorAssociation ?? '', { botLogins }) !== 'untrusted' ? 'trusted' : 'untrusted';
+    if (containsTrustedMarker(marker, (parsed.comments ?? []).map((c) => ({ body: c.body ?? '', author: authorOf(c) })))) return false;
   } catch {
     // best-effort dedupe lookup; fall through and post
   }
@@ -171,7 +174,7 @@ export async function commentDecision(
   decision: Decision,
   record: DecisionRecord,
 ): Promise<void> {
-  await commentOnce(shadowSafeGhRunner(gh), repoSlug, prNumber, `<!-- taskcell-approver: ${record.headSha ?? 'none'} -->`, commentBody(decision, record));
+  await commentOnce(shadowSafeGhRunner(gh), repoSlug, prNumber, writeMarker('approver', record.headSha ?? 'none'), commentBody(decision, record));
 }
 
 export { defaultGhRunner };

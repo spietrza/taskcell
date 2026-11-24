@@ -2,19 +2,20 @@ import { labelForms } from '../core/labels.js';
 import { failureReason } from '../core/errors.js';
 import { UsageCapError } from '../core/usage-cap.js';
 import { failureOrCapComment } from './watch-shared.js';
-import { classifyAuthor } from '../tasks/comment-trust.js';
+import { writeMarker } from '../core/comment-ledger.js';
+import type { LedgerComment } from '../core/comment-ledger.js';
 import { incompleteCapState, reviewWatchLoop, reviewWatchOnce } from './review-watch.js';
 import type { ReviewWatchLoopOptions, ReviewWatchOnceOptions, ReviewWatchPrimitives, ReviewWatchTick } from './review-watch.js';
 import { defaultGlabRunner, encodeProject, glabUser, neutralizeQuickActions } from '../tasks/gitlab.js';
 import {
   MergeRequestReviewIncompleteError,
   hasMergeRequestReviewForHead,
-  hasMergeRequestReviewIncompleteMarker,
+  glabNoteComment,
   mergeRequestReviewIncompleteMarker,
 } from './mr-review.js';
 import { stripReviewMarkers } from './review-prompt.js';
 import type { GlabRunner } from '../tasks/gitlab.js';
-import type { MergeRequestReviewTarget } from './mr-review.js';
+import type { GlabMrNoteItem, MergeRequestReviewTarget } from './mr-review.js';
 import { redactForPublish } from '../core/secret-scan.js';
 
 export interface MergeRequestWatchItem extends MergeRequestReviewTarget {
@@ -51,15 +52,8 @@ interface GlabMrListItem {
   labels?: string[];
 }
 
-interface GlabMrNoteItem {
-  body?: string | null;
-  system?: boolean;
-  author?: { username?: string } | null;
-}
-
 const NOTES_PER_PAGE = 100;
 const NOTE_PAGES = 5;
-const MR_INCOMPLETE_CAP_MARKER_RE = /^<!--[ \t]*taskcell-mr-review-incomplete-cap:[ \t]*([a-fA-F0-9]+)[ \t]*-->$/gm;
 
 function mrId(item: MergeRequestWatchItem): string {
   return `${item.project}!${item.iid}`;
@@ -131,7 +125,7 @@ async function incompleteReviewAttempts(
   item: MergeRequestWatchItem,
 ): Promise<{ attempts: number; capPosted: boolean; stop: boolean }> {
   const self = await glabUser(glab);
-  const bodies: string[] = [];
+  const comments: LedgerComment[] = [];
   for (let page = 1; page <= NOTE_PAGES; page++) {
     const out = await glab([
       'api',
@@ -140,15 +134,11 @@ async function incompleteReviewAttempts(
     const notes = JSON.parse(out) as GlabMrNoteItem[];
     if (!Array.isArray(notes)) throw new Error('the response is not a list of notes');
     // GitLab notes carry no association: the one trusted author is the glab user (Taskcell's own notes).
-    for (const note of notes) {
-      if (note.system || note.body === undefined || note.body === null) continue;
-      if (classifyAuthor(note.author?.username ?? '', undefined, { botLogins: [self] }) === 'untrusted') continue;
-      bodies.push(note.body);
-    }
+    for (const note of notes) comments.push(glabNoteComment(note, self));
     if (notes.length < NOTES_PER_PAGE) break;
   }
   // The failure note that carries this attempt's marker is posted after this check: count it.
-  return incompleteCapState(bodies, item.sha, hasMergeRequestReviewIncompleteMarker, MR_INCOMPLETE_CAP_MARKER_RE, 1);
+  return incompleteCapState(comments, item.sha, 'mr', 1);
 }
 
 /**
@@ -231,7 +221,7 @@ export function gitlabMergeRequestWatchPrimitives(
       if (capPause) terminal = true;
       const incompleteMarker = incomplete && item.sha !== '' ? `\n\n${mergeRequestReviewIncompleteMarker(item.sha)}` : '';
       // Once the cap note exists, a further incomplete attempt still gets its failure note, without a second cap marker.
-      const capMarker = capDue ? `\n<!-- taskcell-mr-review-incomplete-cap: ${item.sha} -->` : '';
+      const capMarker = capDue ? `\n${writeMarker('mr-review-incomplete-cap', item.sha)}` : '';
       try {
         await glab([
           'mr', 'note',

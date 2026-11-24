@@ -53,26 +53,14 @@ import { execa } from 'execa';
 import { hostGitArgs } from '../worktree/host-git.js';
 import { dischargePrBodyItemsBlock, extractPrBodyItemsBlock, parseSpecManifest, extractTaskIdFromPrBody, scanCommitClosingKeywords } from '../pipeline/conformance-gate.js';
 import type { VerificationResult } from '../pipeline/verify.js';
-import {
-  implementReviewSimplifyStages,
-  runStages,
-  withStageProvider,
-  withStageModel,
-  withStageModelExcept,
-  withStageFallback,
-  withStageFallbackModel,
-  withPrimaryFallback,
-  STAGE,
-} from '../pipeline/pipeline.js';
+import { runStages, STAGE } from '../pipeline/pipeline.js';
 import { droppedCiPathsNote, pushToExistingBranch } from '../pipeline/remote-branch.js';
 import { defaultGhRunner, GitHubTaskFetcher } from '../tasks/github.js';
 import { modelFromLabels } from './source-adapter.js';
-import { isProviderName } from '../agents/registry.js';
-import { readCooldowns, recordCooldown, poolTaskKey } from '../core/model-pool.js';
+import { planRevision, planRevisionPipeline } from './run-plan.js';
+import { readCooldowns, recordCooldown } from '../core/model-pool.js';
 import { openAgentSession, coolPoolEntries } from './agent-session.js';
 import { isStructuredProviderLimit } from '../core/rate-limit-marker.js';
-import { routeModelPools } from './model-pool-routing.js';
-import type { StagePick } from './model-pool-routing.js';
 import { GITHUB_REVIEW_LABEL } from '../github-labels.js';
 import { WorktreeManager } from '../worktree/manager.js';
 import { TaskcellError } from '../core/errors.js';
@@ -478,19 +466,10 @@ export async function runRevisePullRequest(prRef: string, deps: ReviseGithubPrDe
     log(`revise-pr ${target.repoSlug}#${target.number}: pins the implementer model to ${labelModel} via label (overrides --provider-model)`);
   }
   // Model pools: keyed on the issue the PR implements, so the revision runs on the entry the implement run picked.
-  let poolPicks: Record<string, StagePick> = {};
-  if (deps._agent === undefined) {
-    const cooldowns = await readCooldowns(deps.repoPath).catch(() => new Map<string, Date>());
-    const customs = deps.customProviders ?? [];
-    const routing = routeModelPools(deps, poolTaskKey(extractTaskIdFromPrBody(pr.body) ?? `${target.repoSlug}#${target.number}`), {
-      isProvider: (name) => isProviderName(name) || customs.some((c) => c.name === name),
-      cooling: (key) => cooldowns.has(key),
-      ...(labelModel !== undefined ? { labelModel } : {}),
-    });
-    deps = routing.options;
-    poolPicks = routing.picks;
-  }
-  const effectiveModel = labelModel ?? deps.providerModel;
+  const cooldowns = deps._agent === undefined ? await readCooldowns(deps.repoPath).catch(() => new Map<string, Date>()) : new Map<string, Date>();
+  const plan = planRevision({ deps, labelModel, taskKey: extractTaskIdFromPrBody(pr.body) ?? `${target.repoSlug}#${target.number}`, cooldowns });
+  deps = plan.deps;
+  const { poolPicks, effectiveModel } = plan;
 
   const session = await openAgentSession({
     choice: deps,
@@ -567,39 +546,7 @@ export async function runRevisePullRequest(prRef: string, deps: ReviseGithubPrDe
       throw error;
     }
     try {
-      const allStages = implementReviewSimplifyStages();
-      const base = deps.noSimplify === true ? allStages.filter((s) => s.name !== STAGE.SIMPLIFIER) : allStages;
-      let pipeline = agents.reviewAgent !== undefined ? withStageProvider(base, agents.reviewAgent) : base;
-      if (effectiveModel !== undefined) {
-        const crossProviderReview =
-          deps.reviewProvider !== undefined && deps.reviewProvider !== (deps.provider ?? 'claude');
-        pipeline = crossProviderReview
-          ? withStageModelExcept(pipeline, effectiveModel, STAGE.REVIEWER)
-          : withStageModel(pipeline, effectiveModel);
-      }
-      if (deps.reviewModel !== undefined) pipeline = withStageModel(pipeline, deps.reviewModel, STAGE.REVIEWER);
-      if (agents.reviewAgent !== undefined) {
-        pipeline = withStageFallback(pipeline, {
-          provider: agents.agent,
-          ...(effectiveModel !== undefined ? { model: effectiveModel } : {}),
-        });
-      }
-      // An explicit --review-model survives the fallback only when the fallback runs on the provider
-      // the model was pinned for; a cross-provider fallback keeps --fallback-model / its own default.
-      // Outside the fallback-provider branch: the reviewer's same-provider fallback above exists with
-      // or without --fallback-provider, and withPrimaryFallback below never touches a stage that
-      // already has one.
-      if (deps.reviewModel !== undefined) pipeline = withStageFallbackModel(pipeline, deps.reviewModel, agents.agent);
-      // Implementer fallback: on an AgentError from the primary provider (outage, usage limit, revoked
-      // credential, rate limit) runStages retries the stage once on this provider — same contract as
-      // the first delivery's implementer fallback (source-adapter.ts). Every stage on the primary gets
-      // it (implementer, simplifier): the provider that failed one fails the other too.
-      if (agents.fallbackAgent !== undefined) {
-        pipeline = withPrimaryFallback(pipeline, {
-          provider: agents.fallbackAgent,
-          ...(deps.fallbackModel !== undefined ? { model: deps.fallbackModel } : {}),
-        });
-      }
+      let pipeline = planRevisionPipeline(deps, agents, effectiveModel);
 
       // A branch that no longer merges into its base (or, in a merge-only round, any branch behind it) is merged here (a merge commit), or, when the base changed CI config and the branch is the factory's, rebased onto it:
       // conflict markers are left in the worktree for the agent, and the gate below runs on the result.

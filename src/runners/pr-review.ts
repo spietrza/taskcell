@@ -1,3 +1,4 @@
+import { hasMarker, parseMarkers, soleTrailingMarker, writeMarker } from '../core/comment-ledger.js';
 import { REVIEW_HEADING, hasReviewHeading } from '../core/labels.js';
 import { hasLabel } from '../core/labels.js';
 import type { InstructionOverlay } from '../context/instruction-files.js';
@@ -9,7 +10,6 @@ import {
   AUTHORITATIVE_BLOCK_INSTRUCTION,
   GATE_CONFIG_REVIEW_INSTRUCTION,
   LARGE_DIFF_LINES,
-  MARKER_PAD,
   REVIEW_INCOMPLETE,
   RETRY_TRIAGE_INSTRUCTION,
   VERDICT_INSTRUCTION,
@@ -132,7 +132,6 @@ const PR_HASH_RE = /^([^/\s]+\/[^#\s]+)#(\d+)$/;
 const PR_PATH_RE = /^([^/\s]+\/[^/\s]+)\/pull\/(\d+)$/;
 const NUMBER_RE = /^\d+$/;
 const PROMISE_RE = /<promise>\s*COMPLETE\s*<\/promise>/gi;
-const PR_REVIEW_MARKER_RE = /^<!--[ \t]*(?:taskcell|vanguard)-pr-review:[ \t]*([a-fA-F0-9]+)[ \t]*-->$/gm;
 // Every incomplete-note builder must open the body with this heading: hasPullRequestReviewIncompleteMarker
 // checks it as an exact prefix, so a leading BOM, space or attribution line would turn the bot's own notice
 // into human feedback for revise-pr.
@@ -332,7 +331,7 @@ export function buildPullRequestReviewPrompt(pr: PullRequestForReview, opts: { r
 }
 
 export function pullRequestReviewMarker(headRefOid: string): string {
-  return `<!-- taskcell-pr-review: ${headRefOid} -->`;
+  return writeMarker('pr-review', headRefOid);
 }
 
 export function hasPullRequestReviewMarker(body: string, headRefOid: string): boolean {
@@ -345,7 +344,7 @@ export function hasPullRequestReviewMarker(body: string, headRefOid: string): bo
  * more than one distinct marker SHA (a legitimate review carries exactly one).
  */
 export function pullRequestReviewMarkerShas(body: string): string[] {
-  return Array.from(body.matchAll(PR_REVIEW_MARKER_RE)).map((marker) => marker[1]!);
+  return parseMarkers<string>('pr-review', body);
 }
 
 /** The body's marker SHA when it carries exactly one distinct one; undefined for none or a planted second. */
@@ -354,15 +353,13 @@ export function soleReviewMarkerSha(body: string): string | undefined {
   return shas.size === 1 ? [...shas][0] : undefined;
 }
 
-const PR_REVIEW_RUN_MARKER_RE = /^<!--[ \t]*taskcell-pr-review-run:[ \t]*([a-fA-F0-9]+):(\d+)[ \t]*-->$/gm;
-
 /**
  * Host-stamped on a review the PR-review workflow posts. Its SHA is the head the host read right before it fetched the
  * diff the reviewer was given (never GitHub's commit id for the review, which is the head at submit time); the run id
  * only says which run posted it.
  */
 export function pullRequestReviewRunMarker(headRefOid: string, runId: string): string {
-  return `<!-- taskcell-pr-review-run: ${headRefOid}:${runId} -->`;
+  return writeMarker('pr-review-run', { sha: headRefOid, runId });
 }
 
 /**
@@ -371,9 +368,7 @@ export function pullRequestReviewRunMarker(headRefOid: string, runId: string): s
  * whole-line or not: the host writes one, so more is a planted one.
  */
 export function soleReviewRunStampSha(body: string): string | undefined {
-  const stamps = Array.from(body.matchAll(PR_REVIEW_RUN_MARKER_RE));
-  if (stamps.length !== 1 || body.split('taskcell-pr-review-run:').length !== 2) return undefined;
-  return body.trimEnd().endsWith(`\n${stamps[0]![0]}`) ? stamps[0]![1] : undefined;
+  return soleTrailingMarker<{ sha: string; runId: string }>('pr-review-run', body)?.sha;
 }
 
 export const PR_REVIEW_INCOMPLETE_NOTICE =
@@ -418,28 +413,23 @@ function appendMarker(visible: string, headRefOid?: string): string {
  * Marks Taskcell's own incomplete review so revise-pr does not take it for human feedback when the posting
  * login is not recognised as a bot. The head dedupe does not count it (no SHA).
  */
-export const PR_REVIEW_INCOMPLETE_MARKER = '<!-- taskcell-pr-review-incomplete -->';
-const PR_REVIEW_INCOMPLETE_HEAD_MARKER_RE = /^<!--[ \t]*taskcell-pr-review-incomplete:[ \t]*([a-fA-F0-9]+)[ \t]*-->$/gm;
+export const PR_REVIEW_INCOMPLETE_MARKER = writeMarker('pr-review-incomplete-note', true);
 
 /** Head-specific marker used only to count incomplete attempts; it is not a completed-review dedupe marker. */
 export function pullRequestReviewIncompleteHeadMarker(headRefOid: string): string {
-  return `<!-- taskcell-pr-review-incomplete: ${headRefOid} -->`;
+  return writeMarker('pr-review-incomplete', headRefOid);
 }
 
 export function hasPullRequestReviewIncompleteHeadMarker(body: string, headRefOid: string): boolean {
-  return Array.from(body.matchAll(PR_REVIEW_INCOMPLETE_HEAD_MARKER_RE)).some((match) => match[1] === headRefOid);
+  return parseMarkers<string>('pr-review-incomplete', body).includes(headRefOid);
 }
-// Whole line only, like the head-SHA markers, so a comment that mentions the marker inline stays feedback;
-// the padding matches stripReviewMarkers. The note must also open with the bot's heading, so a marker quoted
-// in a code block stays feedback unless the comment opens with that heading too. A last-line rule would miss
-// the bot's own note: publishReviewVerdict appends the Conformance section after the marker.
-const PR_REVIEW_INCOMPLETE_MARKER_RE = new RegExp(
-  String.raw`^${MARKER_PAD}<!--[ \t]*(?:taskcell|vanguard)-pr-review-incomplete[ \t]*-->${MARKER_PAD}$`,
-  'm',
-);
+// Whole line only, like the head-SHA markers, so a comment that mentions the marker inline stays feedback.
+// The note must also open with the bot's heading, so a marker quoted in a code block stays feedback unless the
+// comment opens with that heading too. A last-line rule would miss the bot's own note: publishReviewVerdict
+// appends the Conformance section after the marker.
 
 export function hasPullRequestReviewIncompleteMarker(body: string): boolean {
-  return hasReviewHeading(body) && PR_REVIEW_INCOMPLETE_MARKER_RE.test(body);
+  return hasReviewHeading(body) && hasMarker('pr-review-incomplete-note', body);
 }
 
 // Deliberately no head-SHA marker: the marker means "this head has a verdict", and an incomplete

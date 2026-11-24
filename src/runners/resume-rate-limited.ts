@@ -4,7 +4,7 @@ import { hasLabel, labelForms, resolveAdds, resolveRemovals, sameLabel } from '.
 import { GITHUB_CLAIMED_LABEL, GITHUB_RATE_LIMITED_LABEL, GITHUB_REVIEW_LABEL, GITHUB_SPEC_CLAIMED_LABEL, GITHUB_WAITING_LABEL } from '../github-labels.js';
 import { watchCiFailures } from './ci-watch.js';
 import { classifyAuthor } from '../tasks/comment-trust.js';
-import { checkDependencies, WAITING_MARKER_RE } from '../tasks/dependencies.js';
+import { checkDependencies, parseWaitingMarker } from '../tasks/dependencies.js';
 import { defaultGhRunner } from '../tasks/github.js';
 import { findOverlapMarker } from '../tasks/overlap.js';
 import type { RateLimitedMarker } from '../core/rate-limit-marker.js';
@@ -176,14 +176,14 @@ async function resumeWaiting(ctx: { opts: ResumeRateLimitedOptions; gh: GhRunner
         continue;
       }
       const trusted = trustedBodies(view.comments ?? []);
-      const park = trusted.map((body) => WAITING_MARKER_RE.exec(body)).filter((m) => m !== null).at(-1);
-      const trigger = park?.[1];
+      const park = trusted.map(parseWaitingMarker).filter((m) => m !== undefined).at(-1);
+      const trigger = park?.trigger;
       if (trigger === undefined || ![...allowed].some((a) => sameLabel(a, trigger))) {
         record('skipped', 'skip -> no trusted waiting marker naming an allowed trigger');
         continue;
       }
       // The lookup failed again right after an earlier resume: re-triggering would only park it again.
-      if (park?.[2] === 'error-repeat') {
+      if (park?.kind === 'error-repeat') {
         record('skipped', `skip -> dependency lookup failed again after a resume; re-apply "${trigger}" by hand once watch can read every dependency`);
         continue;
       }

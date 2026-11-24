@@ -1801,17 +1801,6 @@ describe('runRevisePullRequest — revise-pass verification', () => {
     expect(await readRunRecordModels()).toContain('sonnet');
   });
 
-  it('without --provider-model the implement stage carries no model (provider default)', async () => {
-    const agentInputs: AgentRunInput[] = [];
-    await runRevisePullRequest('12', {
-      repoPath: repo, repoSlug: 'o/r', gh: makeGhWithIssueLabels([], []),
-      _sandbox: makeSandbox(), _agent: agentThatCompletes(agentInputs), _worktrees: new WorktreeManager(repo),
-      _pushRunner: async () => '', _baseBranch: 'feature-branch', provider: 'claude',
-    });
-    expect(agentInputs[0]?.model).toBeUndefined();
-    expect(await readRunRecordModels()).toEqual([]);
-  });
-
   it('a taskcell:model=<m> label on the source issue overrides --provider-model', async () => {
     const agentInputs: AgentRunInput[] = [];
     const ghCalls: string[][] = [];

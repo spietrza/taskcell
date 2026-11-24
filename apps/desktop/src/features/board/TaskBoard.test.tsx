@@ -12,6 +12,7 @@ vi.mock('../../ipc', () => ({
   listRuns: vi.fn().mockResolvedValue([]),
   readRun: vi.fn(),
   listNeedsYou: vi.fn().mockResolvedValue({ items: [] }),
+  needsYouComment: vi.fn().mockResolvedValue({}),
   retryPausedTask: vi.fn().mockResolvedValue({ label: 'ready for agent' }),
   apiListSkills: vi.fn(async () => ({ skills: ['db', 'release'] })),
   apiSetTaskSkills: vi.fn(async (_repo: string, _id: string, skills: string[]) => ({ skills })),

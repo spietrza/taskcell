@@ -1,3 +1,4 @@
+import { hasMarker, writeMarker } from '../core/comment-ledger.js';
 import { isBotLogin, isTrustedComment, isTrustedNonAuthorComment } from '../tasks/comment-trust.js';
 import { defaultGhRunner, commentGithubIssue, editGithubLabels, GitHubTaskFetcher } from '../tasks/github.js';
 import { GITHUB_NEEDS_RESEARCH_LABEL, GITHUB_RESEARCHING_LABEL } from '../github-labels.js';
@@ -5,10 +6,6 @@ import { escapePromptTags } from '../context/escape.js';
 import type { GhRunner } from '../tasks/github.js';
 import type { Task, TaskComment } from '../tasks/fetcher.js';
 const PROMISE_RE = /<promise>\s*COMPLETE\s*<\/promise>/gi;
-const RESEARCH_MARKER = 'taskcell-research';
-const LEGACY_RESEARCH_MARKER = 'vanguard-research';
-/** Neutral marker used in white-label mode so the comment source carries no "vanguard" token. */
-const WHITE_LABEL_RESEARCH_MARKER = 'research-iter';
 
 export type Researcher = (prompt: string) => Promise<string>;
 
@@ -29,8 +26,8 @@ export interface ResearchResult {
 }
 
 export function isResearchComment(comment: TaskComment): boolean {
-  // Match either marker so iteration/watermark logic works across default and white-label comments.
-  return comment.body.includes(`<!-- ${RESEARCH_MARKER}:`) || comment.body.includes(`<!-- ${LEGACY_RESEARCH_MARKER}:`) || comment.body.includes(`<!-- ${WHITE_LABEL_RESEARCH_MARKER}:`);
+  // The ledger reads the default, legacy and white-label spellings, so iteration/watermark logic works across them.
+  return hasMarker('research', comment.body);
 }
 
 /**
@@ -153,8 +150,7 @@ export function formatResearchComment(
   const heading = whiteLabel === true ? `## Research (iteration ${iteration})` : `## Taskcell Research (iteration ${iteration})`;
   const modeLine = `_Mode: ${modeLabel}_`;
   const content = body === '' ? 'No findings produced.' : body;
-  const markerName = whiteLabel === true ? WHITE_LABEL_RESEARCH_MARKER : RESEARCH_MARKER;
-  const marker = `<!-- ${markerName}: ${iteration} -->`;
+  const marker = writeMarker('research', iteration, { whiteLabel: whiteLabel === true });
   return `${heading}\n\n${modeLine}\n\n${content}\n\n${marker}`;
 }
 
