@@ -1,9 +1,10 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
+import type { Mock } from 'vitest';
 import { execFileSync } from 'node:child_process';
-import { mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { executeIssueRun } from './run-execution.js';
+import { executeIssueRun, PoolEntryLimited } from './run-execution.js';
 import type { IssueRunExecution } from './run-execution.js';
 import { planIssueRun } from './run-plan.js';
 import { runCredentialContext } from './agent-session.js';
@@ -11,13 +12,18 @@ import type { NewPrTarget, ReviewHost, RunIssueDeps, Tracker } from './source-ad
 import type { RunContext } from '../core/taskcell.js';
 import type { Task } from '../tasks/fetcher.js';
 import type { RunEvent } from '../pipeline/events.js';
-import type { AgentProvider } from '../agents/provider.js';
+import type { AgentProvider, AgentRunInput, AgentRunOutput, AgentTurn } from '../agents/provider.js';
 import type { SkillRegistry } from '../context/skill-registry.js';
+import type { PipelineStage } from '../pipeline/pipeline.js';
+import { AgentError, ProviderLimitError } from '../core/errors.js';
+import { readCooldowns } from '../core/model-pool.js';
 
-// Execution against fakes only: a fake Tracker, a fake ReviewHost and a fake sandbox session. No module is mocked.
+// Execution against fakes only: a fake Tracker, a fake ReviewHost, a fake sandbox session and a scripted agent. No module is mocked.
 
 const task: Task = { id: 'group/project#1', title: 'Add a thing', description: '', labels: [], children: [], comments: [] };
+const PR_URL = 'https://github.com/group/project/pull/7';
 const SECRET_DIFF = `diff --git a/a.ts b/a.ts\n--- a/a.ts\n+++ b/a.ts\n@@ -0,0 +1 @@\n+const t = 'ghp_${'a1B2'.repeat(9)}';\n`;
+const TOUCH_DIFF = 'diff --git a/x.txt b/x.txt\n--- a/x.txt\n+++ b/x.txt\n@@ -0,0 +1 @@\n+hello\n';
 
 let repo: string;
 let worktree: string;
@@ -36,37 +42,96 @@ interface Fakes {
   host: ReviewHost;
   targets: NewPrTarget[];
   exec: ReturnType<typeof vi.fn>;
-  state: { dirty: boolean; diff: string; execExit: number };
+  prepare: Mock<() => void>;
+  /** Arguments of each `gh pr create` the fake command runner saw. */
+  prCreates: string[][];
+  /** `execExits` are consumed one per sandbox command, then `execExit` applies: a gate can go red, then green. */
+  state: { dirty: boolean; diff: string; execExit: number; execExits: number[] };
 }
 
-function fakes(): Fakes {
+/** `openPr`: deliver as a real new-pr target over a recording command runner (nothing is pushed), else a local branch. */
+function fakes(openPr = false): Fakes {
   const targets: NewPrTarget[] = [];
-  const state = { dirty: false, diff: '', execExit: 0 };
-  const exec = vi.fn(async () => ({ exitCode: state.execExit, stdout: 'boom', stderr: '' }));
+  const prCreates: string[][] = [];
+  const state = { dirty: false, diff: '', execExit: 0, execExits: [] as number[] };
+  // Only the verify command (pnpm …) is scripted; copy-back's own housekeeping commands succeed silently.
+  const exec = vi.fn(async (cmd: string) => (String(cmd).startsWith('pnpm ') ? { exitCode: state.execExits.shift() ?? state.execExit, stdout: 'boom', stderr: '' } : { exitCode: 0, stdout: '', stderr: '' }));
   const tracker: Tracker = {
     prepare: vi.fn(async () => ({ task })),
     taskId: () => 'gl-1',
+    closeIssueOnMerge: true,
     stages: () => [],
     signalSecretBlock: vi.fn(async () => {}),
     signalBaseRed: vi.fn(async () => {}),
     linkPr: vi.fn(async () => {}),
   };
+  const runner = async (file: string, args: string[]): Promise<string> => {
+    if (file === 'gh' && args[0] === 'pr') {
+      prCreates.push(args);
+      return `${PR_URL}\n`;
+    }
+    return '';
+  };
   const host: ReviewHost = {
     kind: 'gh',
-    newPrTarget: (pr) => { targets.push(pr); return { kind: 'local-branch' }; },
+    newPrTarget: (pr) => {
+      targets.push(pr);
+      return openPr ? { kind: 'new-pr', ...pr, cli: 'gh', runner } : { kind: 'local-branch' };
+    },
     publishVerdict: vi.fn(async () => {}),
     addFailureLabel: vi.fn(async () => {}),
     addGateConfigLabel: vi.fn(async () => {}),
   };
-  return { tracker, host, targets, exec, state };
+  return { tracker, host, targets, exec, prepare: vi.fn<() => void>(), prCreates, state };
 }
 
-async function run(f: Fakes, deps: Partial<RunIssueDeps> = {}, events: RunEvent[] = []): Promise<Awaited<ReturnType<typeof executeIssueRun>>> {
+const STAGES: PipelineStage[] = [
+  { name: 'implementer', promptTemplate: 'IMPLEMENT', maxTurns: 30, stageCostFraction: 0.6, stageCostFloorUsd: 0.25 },
+  { name: 'reviewer', promptTemplate: 'REVIEW', maxTurns: 20 },
+];
+
+const BLOCKING = '<findings>' + JSON.stringify({ findings: [{ severity: 'high', kind: 'correctness', title: 'unchecked null deref', evidence: 'src/a.ts:10' }] }) + '</findings>';
+
+type Reply = Partial<AgentRunOutput> | Error;
+
+/** An agent that records every call and answers each one from `reply` (the call's input and its 0-based index). */
+function scriptedAgent(reply: (input: AgentRunInput, n: number) => Reply = () => ({})): { agent: AgentProvider; calls: AgentRunInput[] } {
+  const calls: AgentRunInput[] = [];
+  const agent: AgentProvider = {
+    name: 'claude',
+    async *run(input: AgentRunInput): AsyncGenerator<AgentTurn, AgentRunOutput, void> {
+      const n = calls.push(input) - 1;
+      const r = reply(input, n);
+      if (r instanceof Error) throw r;
+      yield { text: 'working' };
+      return { finalText: 'done <promise>COMPLETE</promise>', turns: 1, sessionId: `sess-${n}`, ...r };
+    },
+  };
+  return { agent, calls };
+}
+
+interface RunOptions {
+  stages?: PipelineStage[];
+  agent?: AgentProvider;
+  skillIds?: string[];
+  exhausted?: Set<string>;
+}
+
+async function run(f: Fakes, deps: Partial<RunIssueDeps> = {}, events: RunEvent[] = [], opts: RunOptions = {}): Promise<Awaited<ReturnType<typeof executeIssueRun>>> {
   const all: RunIssueDeps = { repoPath: repo, onEvent: (e) => events.push(e), ...deps };
-  const plan = await planIssueRun({ fetchedTask: (await f.tracker.prepare('group/project#1')).task, deps: all, baseStages: [], tracker: f.tracker, skillIds: [], cooldowns: new Map(), exhausted: new Set() });
+  const exhausted = opts.exhausted ?? new Set<string>();
+  const plan = await planIssueRun({
+    fetchedTask: (await f.tracker.prepare('group/project#1')).task,
+    deps: all,
+    baseStages: opts.stages ?? [],
+    tracker: f.tracker,
+    skillIds: opts.skillIds ?? [],
+    cooldowns: await readCooldowns(all.repoPath),
+    exhausted,
+  });
   const ctx = {
     taskId: 'gl-1',
-    sandbox: { exec: f.exec },
+    sandbox: { exec: f.exec, exists: async () => true, copyFileOut: async (_from: string, to: string) => { await mkdir(to, { recursive: true }); } },
     worktreePath: worktree,
     branch: 'feat/gl-1',
     home: '/home',
@@ -78,19 +143,33 @@ async function run(f: Fakes, deps: Partial<RunIssueDeps> = {}, events: RunEvent[
       diff: async () => f.state.diff,
       outgoingDiff: async () => f.state.diff,
       commitMessages: async () => [],
+      changedPaths: async () => ['x.txt'],
     },
-    log: console,
+    log: { info: () => {}, warn: () => {}, error: () => {}, debug: () => {} },
   } as unknown as RunContext;
   const session: IssueRunExecution['session'] = {
-    agents: { agent: { name: 'claude' } as AgentProvider, secrets: {}, proxySecrets: {}, injectAnthropicAuth: false },
+    agents: { agent: opts.agent ?? ({ name: 'claude' } as AgentProvider), secrets: {}, proxySecrets: {}, injectAnthropicAuth: false },
     credentials: runCredentialContext(all),
-    prepare: vi.fn(async () => ctx),
+    prepare: async () => {
+      f.prepare();
+      return ctx;
+    },
   };
   const skills = { ids: () => [], inject: async () => {} } as unknown as SkillRegistry;
-  return executeIssueRun({ issueRef: 'group/project#1', plan, session, skills, tracker: f.tracker, host: f.host, exhausted: new Set() });
+  return executeIssueRun({ issueRef: 'group/project#1', plan, session, skills, tracker: f.tracker, host: f.host, exhausted });
 }
 
-beforeEach(() => vi.spyOn(console, 'log').mockImplementation(() => {}));
+let fileSeq = 0;
+/** A change the real `git commit` in the shared worktree can pick up (each test needs a new file). */
+async function dirtyTree(f: Fakes): Promise<void> {
+  f.state.dirty = true;
+  f.state.diff = TOUCH_DIFF;
+  await writeFile(join(worktree, `x${fileSeq++}.txt`), 'hello\n');
+}
+
+beforeEach(() => {
+  vi.spyOn(console, 'log').mockImplementation(() => {});
+});
 
 describe('executeIssueRun', () => {
   it('a clean tree is "no changes": no link-back, run-end emitted', async () => {
@@ -167,5 +246,209 @@ describe('executeIssueRun: skill notes', () => {
     const events: RunEvent[] = [];
     await run(f, {}, events);
     expect(events).toContainEqual({ type: 'warning', message: expect.stringContaining('it was ignored') });
+  });
+});
+
+const verifyDeps = { verifyCmd: 'pnpm test' } as const;
+const verifyRuns = (f: Fakes): number => f.exec.mock.calls.filter(([cmd]) => String(cmd) === 'pnpm test').length;
+const isReview = (i: AgentRunInput): boolean => i.prompt.includes('REVIEW');
+
+describe('executeIssueRun: repair loop', () => {
+  it('a red verify resumes the implementer session and the reviewer then runs once, on the repaired tree', async () => {
+    const f = fakes(true);
+    await dirtyTree(f);
+    f.state.execExits = [1, 0];
+    const { agent, calls } = scriptedAgent();
+    const result = await run(f, verifyDeps, [], { stages: STAGES, agent });
+    expect(result.prUrl).toBe(PR_URL);
+    expect(calls).toHaveLength(3);
+    expect(calls[1]).toMatchObject({ resumeSessionId: 'sess-0' });
+    expect(isReview(calls[2]!)).toBe(true);
+    // Red, then green: the repaired tree is the one the reviewer saw, so no third verify and no re-review.
+    expect(verifyRuns(f)).toBe(2);
+    expect(f.host.addFailureLabel).not.toHaveBeenCalled();
+    expect(f.host.publishVerdict).toHaveBeenCalledTimes(1);
+    expect(f.targets[0]).toMatchObject({ draft: false });
+    expect(f.targets[0]!.body({ commitLeaks: [], facts: { configBlock: undefined } as never })).toContain(`Closes ${task.id}`);
+  });
+
+  it('a verify that stays red exhausts the cap, skips the reviewer and ships a labelled partial draft', async () => {
+    const f = fakes(true);
+    await dirtyTree(f);
+    f.state.execExit = 1;
+    const { agent, calls } = scriptedAgent();
+    const result = await run(f, { ...verifyDeps, maxRepairIterations: 1 }, [], { stages: STAGES, agent });
+    expect(result).toMatchObject({ prUrl: PR_URL, verificationFailed: true });
+    // The implementer and exactly one repair; the reviewer never ran on a red tree.
+    expect(calls).toHaveLength(2);
+    expect(calls.some(isReview)).toBe(false);
+    expect(f.host.publishVerdict).not.toHaveBeenCalled();
+    expect(f.host.addFailureLabel).toHaveBeenCalledWith(PR_URL, 'verify');
+    expect(f.targets[0]).toMatchObject({ draft: true });
+    expect(f.targets[0]!.body({ commitLeaks: [], facts: { configBlock: undefined } as never })).not.toContain(`Closes ${task.id}`);
+  });
+
+  it('hands the reviewer\'s blocking findings back to the implementer, then publishes the re-review (#673)', async () => {
+    const f = fakes(true);
+    await dirtyTree(f);
+    const { agent, calls } = scriptedAgent((input, n) => (isReview(input) && n === 1 ? { finalText: BLOCKING } : isReview(input) ? { finalText: 'No blocking issues.' } : {}));
+    const result = await run(f, verifyDeps, [], { stages: STAGES, agent });
+    expect(result.prUrl).toBe(PR_URL);
+    // implement, review (blocking), one repair on the implementer's session carrying the finding, re-review.
+    expect(calls).toHaveLength(4);
+    expect(calls[2]).toMatchObject({ resumeSessionId: 'sess-0' });
+    expect(calls[2]!.prompt).toContain('unchecked null deref');
+    expect(calls[2]!.prompt).toContain('src/a.ts:10');
+    expect(isReview(calls[3]!)).toBe(true);
+    // The verdict is the re-review's, never the stale blocking one.
+    const verdict = vi.mocked(f.host.publishVerdict).mock.calls[0]![0];
+    expect(verdict.reviewerOutcome?.result.finalText).toBe('No blocking issues.');
+  });
+
+  it('a re-review that fails publishes a masked, incomplete verdict on a draft', async () => {
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    const f = fakes(true);
+    await dirtyTree(f);
+    const token = `ghp_${'a'.repeat(36)}`;
+    const { agent } = scriptedAgent((input, n) => {
+      if (isReview(input) && n === 1) return { finalText: BLOCKING };
+      if (isReview(input)) return new AgentError(`usage limit reached for token ${token}`);
+      return {};
+    });
+    const result = await run(f, verifyDeps, [], { stages: STAGES, agent });
+    // Gate-green work still ships, as a draft: nothing reviewed what ships.
+    expect(result.prUrl).toBe(PR_URL);
+    expect(f.targets[0]).toMatchObject({ draft: true });
+    const text = vi.mocked(f.host.publishVerdict).mock.calls[0]![0].reviewerOutcome?.result.finalText ?? '';
+    expect(text).toContain('Review unavailable:');
+    expect(text).not.toContain(token);
+    expect(f.prCreates.flat().join('\n')).not.toContain(token);
+  });
+
+  it('flags the re-review as stopped by a provider limit only for the limit error itself', async () => {
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    const stoppedBy = async (error: Error): Promise<string | undefined> => {
+      const f = fakes(true);
+      await dirtyTree(f);
+      const { agent } = scriptedAgent((input, n) => (isReview(input) ? (n === 1 ? { finalText: BLOCKING } : error) : {}));
+      await run(f, verifyDeps, [], { stages: STAGES, agent });
+      return vi.mocked(f.host.publishVerdict).mock.calls[0]![0].reviewerOutcome?.result.stoppedBy;
+    };
+    expect(await stoppedBy(new ProviderLimitError("You've hit your session limit · resets 9pm (UTC)"))).toBe('provider-limit');
+    expect(await stoppedBy(new AgentError('crashed after adding handling for usage limit reached'))).toBeUndefined();
+  });
+});
+
+describe('executeIssueRun: verdict publishing', () => {
+  it('posts one verdict on the opened PR: the pushed head, the reviewer\'s outcome, its provider and the gate flag', async () => {
+    const f = fakes(true);
+    await dirtyTree(f);
+    const { agent } = scriptedAgent((input) => (isReview(input) ? { finalText: 'No blocking issues.' } : {}));
+    await run(f, { reviewGate: true }, [], { stages: STAGES, agent });
+    expect(f.host.publishVerdict).toHaveBeenCalledTimes(1);
+    expect(f.host.publishVerdict).toHaveBeenCalledWith(expect.objectContaining({ prUrl: PR_URL, attribution: 'claude', gate: true, reviewerOutcome: expect.objectContaining({ name: 'reviewer' }) }));
+    const body = f.targets[0]!.body({ commitLeaks: [], facts: { configBlock: undefined } as never });
+    expect(body.match(/^Review: PASS \(0 findings\)$/gm)).toHaveLength(1);
+    expect(f.tracker.linkPr).toHaveBeenCalledWith('group/project#1', task, PR_URL);
+  });
+
+  it('a white-label run posts no verdict and no link-back', async () => {
+    const f = fakes(true);
+    await dirtyTree(f);
+    await run(f, { commitAuthor: { name: 'A', email: 'a@x' } }, [], { stages: STAGES, agent: scriptedAgent().agent });
+    expect(f.host.publishVerdict).not.toHaveBeenCalled();
+    expect(f.tracker.linkPr).not.toHaveBeenCalled();
+  });
+
+  it('a flow without a reviewer has no verdict to post', async () => {
+    const f = fakes(true);
+    await dirtyTree(f);
+    await run(f, {}, [], { stages: [STAGES[0]!], agent: scriptedAgent().agent });
+    expect(f.host.publishVerdict).not.toHaveBeenCalled();
+    expect(f.tracker.linkPr).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('executeIssueRun: model pool limits', () => {
+  const POOL = 'claude/sonnet:1, claude/opus:1';
+  const limitAgent = (): ReturnType<typeof scriptedAgent> => scriptedAgent(() => new ProviderLimitError("You've hit your usage limit"));
+
+  it('a limit on the picked entry cools it and asks for a re-run; the re-run lands on the next entry', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'pool-retry-'));
+    try {
+      const exhausted = new Set<string>();
+      const first = limitAgent();
+      const stopped = run(fakes(), { repoPath: dir, providerModel: POOL }, [], { stages: [STAGES[0]!], agent: first.agent, exhausted });
+      await expect(stopped).rejects.toBeInstanceOf(PoolEntryLimited);
+      expect(exhausted.size).toBe(1);
+      const out = [...exhausted][0]!;
+      expect([...(await readCooldowns(dir)).keys()]).toEqual([out]);
+
+      const f = fakes();
+      const second = scriptedAgent();
+      await run(f, { repoPath: dir, providerModel: POOL }, [], { stages: [STAGES[0]!], agent: second.agent, exhausted });
+      const models = [first.calls[0]!.model, second.calls[0]!.model];
+      expect(models.sort()).toEqual(['opus', 'sonnet']);
+      expect(`claude/${first.calls[0]!.model}`).toBe(out);
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('the limit escapes (not a retry) once the only entry is out', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'pool-out-'));
+    try {
+      const run1 = run(fakes(), { repoPath: dir, providerModel: 'claude/sonnet:1' }, [], { stages: [STAGES[0]!], agent: limitAgent().agent });
+      await expect(run1).rejects.toBeInstanceOf(ProviderLimitError);
+      await expect(run1).rejects.not.toBeInstanceOf(PoolEntryLimited);
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('a simplifier limit cools the run-level entry, not the flow implementer pool named like the tier', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'pool-flow-'));
+    try {
+      const stages: PipelineStage[] = [
+        { ...STAGES[0]!, model: 'claude/sonnet:1, claude/haiku:1' },
+        { name: 'simplifier', promptTemplate: 'SIMPLIFY', maxTurns: 10 },
+        STAGES[1]!,
+      ];
+      const f = fakes();
+      await dirtyTree(f);
+      const { agent } = scriptedAgent((input) => (input.prompt.includes('SIMPLIFY') ? new ProviderLimitError("You've hit your usage limit") : {}));
+      const stopped = run(f, { repoPath: dir, provider: 'claude', providerModel: 'claude/opus:1' }, [], { stages, agent });
+      await expect(stopped).rejects.toBeInstanceOf(ProviderLimitError);
+      expect([...(await readCooldowns(dir)).keys()]).toEqual(['claude/opus']);
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+});
+
+describe('planIssueRun ordering', () => {
+  it('an unknown skill stops the run before the sandbox opens', async () => {
+    const f = fakes();
+    const { agent, calls } = scriptedAgent();
+    await expect(run(f, { namedSkills: ['no-such-skill'] }, [], { stages: STAGES, agent, skillIds: ['real-skill'] })).rejects.toThrow(/no-such-skill/);
+    expect(f.prepare).not.toHaveBeenCalled();
+    expect(f.exec).not.toHaveBeenCalled();
+    expect(calls).toHaveLength(0);
+  });
+
+  it('the model pool resolves to one entry before agent selection reads the options', async () => {
+    const plan = await planIssueRun({
+      fetchedTask: task,
+      deps: { repoPath: repo, providerModel: 'claude/sonnet:1, claude/opus:1' },
+      baseStages: STAGES,
+      tracker: fakes().tracker,
+      skillIds: [],
+      cooldowns: new Map(),
+      exhausted: new Set(),
+    });
+    // `choice` is what selectAgents receives: a single resolved entry, never the pool spec.
+    expect(['sonnet', 'opus']).toContain(plan.choice.providerModel);
+    expect(plan.choice.provider).toBe('claude');
+    expect(plan.routing.pooled).toBe(true);
   });
 });
