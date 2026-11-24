@@ -2,7 +2,7 @@ import { gitlabMergeRequestWatchPrimitives, watchMergeRequests } from '../runner
 import { reviewMrCommand } from './review-mr.js';
 import { formatPreflightReport, preflightFailed, runPreflight } from './preflight.js';
 import type { Command } from './args.js';
-import type { MergeRequestWatchPrimitives, WatchMergeRequestsLoopOptions } from '../runners/mr-watch.js';
+import type { MergeRequestWatchPrimitives, MergeRequestWatchTick, WatchMergeRequestsLoopOptions } from '../runners/mr-watch.js';
 
 type WatchMrsCommand = Extract<Command, { kind: 'watch-mrs' }>;
 type ReviewMrCommand = Extract<Command, { kind: 'review-mr' }>;
@@ -11,7 +11,7 @@ export type ReviewMrCommandRunner = (cmd: ReviewMrCommand) => Promise<void>;
 export type WatchMergeRequestsRunner = (
   primitives: MergeRequestWatchPrimitives,
   opts: WatchMergeRequestsLoopOptions,
-) => Promise<void>;
+) => Promise<MergeRequestWatchTick | undefined>;
 
 export interface WatchMrsCommandDeps {
   reviewMr?: ReviewMrCommandRunner;
@@ -56,13 +56,15 @@ export async function watchMrsCommand(cmd: WatchMrsCommand, deps: WatchMrsComman
 
   log(`watch-mrs[gitlab]: polling every ${cmd.intervalMs / 1000}s for MRs labeled "${cmd.label}". Ctrl-C to stop.`);
   try {
-    await runWatchMrs(primitives, {
+    const tick = await runWatchMrs(primitives, {
       concurrency: cmd.concurrency,
       intervalMs: cmd.intervalMs,
       once: cmd.once,
       signal: controller.signal,
       log,
     });
+    // --once is the CI mode: a failed listing or review must fail the step, as in watch-prs.
+    if (cmd.once && tick !== undefined && tick.failed.length > 0) process.exitCode = 1;
   } finally {
     process.off('SIGINT', stop);
     process.off('SIGTERM', stop);

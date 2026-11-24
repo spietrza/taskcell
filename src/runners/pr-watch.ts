@@ -1,4 +1,3 @@
-import { fanOut } from '../pipeline/fan-out.js';
 import { failureReason } from '../core/errors.js';
 import { isRateLimitHold, rateLimitHold } from '../core/rate-limit-marker.js';
 import {
@@ -11,6 +10,8 @@ import { defaultGhRunner, isTrustedIssueAuthor } from '../tasks/github.js';
 import { classifyAuthor, describeIgnoredAuthor, isBotLogin } from '../tasks/comment-trust.js';
 import { hasLabel, labelForms, resolveAdds, resolveRemovals } from '../core/labels.js';
 import { GITHUB_RATE_LIMITED_LABEL } from '../github-labels.js';
+import { INCOMPLETE_RETRY_LIMIT, incompleteCapState, reviewWatchLoop, reviewWatchOnce } from './review-watch.js';
+import type { ReviewWatchLoopOptions, ReviewWatchOnceOptions, ReviewWatchPrimitives, ReviewWatchTick } from './review-watch.js';
 import type { GhRunner } from '../tasks/github.js';
 
 export interface PullRequestWatchItem {
@@ -23,33 +24,10 @@ export interface PullRequestWatchItem {
   labels: string[];
 }
 
-export interface PullRequestWatchPrimitives {
-  listReady: () => Promise<PullRequestWatchItem[]>;
-  claim: (item: PullRequestWatchItem) => Promise<void>;
-  review: (item: PullRequestWatchItem) => Promise<void>;
-  markReviewed: (item: PullRequestWatchItem) => Promise<void>;
-  onFailure: (item: PullRequestWatchItem, error: unknown) => Promise<void>;
-  /** PR ids the last listReady() could not decide on (a pinned PR's failed author lookup); counted as failed. */
-  takeListFailures?: () => string[];
-}
-
-export interface PullRequestWatchTick {
-  reviewed: string[];
-  failed: string[];
-  skipped: string[];
-}
-
-export interface WatchPullRequestsOnceOptions {
-  concurrency?: number;
-  log?: (line: string) => void;
-  phase?: string;
-}
-
-export interface WatchPullRequestsLoopOptions extends WatchPullRequestsOnceOptions {
-  intervalMs?: number;
-  once?: boolean;
-  signal?: AbortSignal;
-}
+export type PullRequestWatchPrimitives = ReviewWatchPrimitives<PullRequestWatchItem>;
+export type PullRequestWatchTick = ReviewWatchTick;
+export type WatchPullRequestsOnceOptions = ReviewWatchOnceOptions;
+export type WatchPullRequestsLoopOptions = ReviewWatchLoopOptions;
 
 export interface GitHubPullRequestWatchOptions {
   repoSlug: string;
@@ -96,10 +74,6 @@ interface GhPullRequestReviewView {
   comments?: GhPullRequestReviewBody[];
   reviews?: GhPullRequestReviewBody[];
 }
-
-type PullRequestWatchKind = 'reviewed' | 'failed' | 'skipped';
-/** Incomplete-review attempts per head, and the passes a failed pinned review gets in one run: one budget. */
-export const INCOMPLETE_RETRY_LIMIT = 3;
 
 /**
  * Run `pass` and, for a pinned-only run (no later sweep to retry its failed review), retry the pin until it
@@ -245,13 +219,10 @@ async function incompleteReviewState(
   gh: GhRunner,
   item: PullRequestWatchItem,
   allowedAuthors?: readonly string[],
-): Promise<{ attempts: number; capPosted: boolean }> {
+): Promise<{ attempts: number; capPosted: boolean; stop: boolean }> {
   const out = await gh(['pr', 'view', String(item.number), '--repo', item.repoSlug, '--json', 'comments,reviews']);
   const bodies = trustedReviewBodies(JSON.parse(out) as GhPullRequestReviewView, allowedAuthors);
-  return {
-    attempts: bodies.filter((body) => hasPullRequestReviewIncompleteHeadMarker(body, item.headRefOid)).length,
-    capPosted: bodies.some((body) => Array.from(body.matchAll(PR_INCOMPLETE_CAP_MARKER_RE)).some((match) => match[1] === item.headRefOid)),
-  };
+  return incompleteCapState(bodies, item.headRefOid, hasPullRequestReviewIncompleteHeadMarker, PR_INCOMPLETE_CAP_MARKER_RE);
 }
 
 /**
@@ -353,7 +324,7 @@ export function githubPullRequestWatchPrimitives(opts: GitHubPullRequestWatchOpt
         if (item.headRefOid !== '') {
           try {
             const state = await incompleteReviewState(gh, item, opts.allowedAuthors);
-            stop = state.capPosted || state.attempts >= INCOMPLETE_RETRY_LIMIT;
+            stop = state.stop;
             if (stop && !state.capPosted) {
               try {
                 await commentPullRequest(
@@ -384,76 +355,17 @@ export function githubPullRequestWatchPrimitives(opts: GitHubPullRequestWatchOpt
 }
 
 /** Run one PR-watch poll: list, claim, review, and mark each ready PR. */
-export async function watchPullRequestsOnce(
+export function watchPullRequestsOnce(
   primitives: PullRequestWatchPrimitives,
   opts: WatchPullRequestsOnceOptions = {},
 ): Promise<PullRequestWatchTick> {
-  const phase = opts.phase ?? 'watch-prs';
-  const ready = await primitives.listReady();
-  const listFailed = primitives.takeListFailures?.() ?? [];
-  opts.log?.(`${phase}: poll -> ${ready.length} ready`);
-  const results = await fanOut(
-    ready,
-    async (item): Promise<{ id: string; kind: PullRequestWatchKind }> => {
-      const id = prId(item);
-      try {
-        await primitives.claim(item);
-        opts.log?.(`${phase} ${id}: claim -> reviewing`);
-      } catch {
-        opts.log?.(`${phase} ${id}: skipped -> already claimed`);
-        return { id, kind: 'skipped' };
-      }
-
-      try {
-        await primitives.review(item);
-        await primitives.markReviewed(item);
-        opts.log?.(`${phase} ${id}: reviewed -> marked`);
-        return { id, kind: 'reviewed' };
-      } catch (error) {
-        try {
-          await primitives.onFailure(item, error);
-        } catch (restoreError) {
-          opts.log?.(`${phase} ${id}: restore failed -> manual label check (${failureReason(restoreError)})`);
-        }
-        opts.log?.(`${phase} ${id}: failed -> retry later (${failureReason(error)})`);
-        return { id, kind: 'failed' };
-      }
-    },
-    opts.concurrency !== undefined ? { concurrency: opts.concurrency } : {},
-  );
-  const ids = (kind: PullRequestWatchKind): string[] =>
-    results.flatMap((outcome) => (outcome.status === 'fulfilled' && outcome.value.kind === kind ? [outcome.value.id] : []));
-  return { reviewed: ids('reviewed'), failed: [...listFailed, ...ids('failed')], skipped: ids('skipped') };
-}
-
-function delay(ms: number, signal?: AbortSignal): Promise<void> {
-  if (signal?.aborted === true) return Promise.resolve();
-  return new Promise((resolve) => {
-    const onAbort = (): void => {
-      clearTimeout(timer);
-      resolve();
-    };
-    // Detach on the timer path too, or a long-lived signal gains one listener per tick.
-    const timer = setTimeout(() => {
-      signal?.removeEventListener('abort', onAbort);
-      resolve();
-    }, ms);
-    signal?.addEventListener('abort', onAbort, { once: true });
-  });
+  return reviewWatchOnce(primitives, prId, { phase: 'watch-prs', ...opts });
 }
 
 /** Poll GitHub PRs until stopped, running the PR review loop for each ready PR. Returns the last tick so `--once` callers can report failures truthfully. */
-export async function watchPullRequests(
+export function watchPullRequests(
   primitives: PullRequestWatchPrimitives,
   opts: WatchPullRequestsLoopOptions = {},
 ): Promise<PullRequestWatchTick | undefined> {
-  const intervalMs = opts.intervalMs ?? 60_000;
-  let last: PullRequestWatchTick | undefined;
-  for (;;) {
-    if (opts.signal?.aborted === true) return last;
-    last = await watchPullRequestsOnce(primitives, opts);
-    opts.log?.(`watch-prs: ${last.reviewed.length} reviewed, ${last.failed.length} failed, ${last.skipped.length} skipped.`);
-    if (opts.once === true) return last;
-    await delay(intervalMs, opts.signal);
-  }
+  return reviewWatchLoop(primitives, prId, { phase: 'watch-prs', ...opts });
 }

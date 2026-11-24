@@ -1,8 +1,10 @@
 import { labelForms } from '../core/labels.js';
-import { fanOut } from '../pipeline/fan-out.js';
 import { failureReason } from '../core/errors.js';
 import { UsageCapError } from '../core/usage-cap.js';
 import { failureOrCapComment } from './watch-shared.js';
+import { classifyAuthor } from '../tasks/comment-trust.js';
+import { incompleteCapState, reviewWatchLoop, reviewWatchOnce } from './review-watch.js';
+import type { ReviewWatchLoopOptions, ReviewWatchOnceOptions, ReviewWatchPrimitives, ReviewWatchTick } from './review-watch.js';
 import { defaultGlabRunner, encodeProject, glabUser, neutralizeQuickActions } from '../tasks/gitlab.js';
 import {
   MergeRequestReviewIncompleteError,
@@ -23,31 +25,10 @@ export interface MergeRequestWatchItem extends MergeRequestReviewTarget {
   labels: string[];
 }
 
-export interface MergeRequestWatchPrimitives {
-  listReady: () => Promise<MergeRequestWatchItem[]>;
-  claim: (item: MergeRequestWatchItem) => Promise<void>;
-  review: (item: MergeRequestWatchItem) => Promise<void>;
-  markReviewed: (item: MergeRequestWatchItem) => Promise<void>;
-  onFailure: (item: MergeRequestWatchItem, error: unknown) => Promise<void>;
-}
-
-export interface MergeRequestWatchTick {
-  reviewed: string[];
-  failed: string[];
-  skipped: string[];
-}
-
-export interface WatchMergeRequestsOnceOptions {
-  concurrency?: number;
-  log?: (line: string) => void;
-  phase?: string;
-}
-
-export interface WatchMergeRequestsLoopOptions extends WatchMergeRequestsOnceOptions {
-  intervalMs?: number;
-  once?: boolean;
-  signal?: AbortSignal;
-}
+export type MergeRequestWatchPrimitives = ReviewWatchPrimitives<MergeRequestWatchItem>;
+export type MergeRequestWatchTick = ReviewWatchTick;
+export type WatchMergeRequestsOnceOptions = ReviewWatchOnceOptions;
+export type WatchMergeRequestsLoopOptions = ReviewWatchLoopOptions;
 
 export interface GitLabMergeRequestWatchOptions {
   project: string;
@@ -76,7 +57,6 @@ interface GlabMrNoteItem {
   author?: { username?: string } | null;
 }
 
-const INCOMPLETE_RETRY_LIMIT = 3;
 const NOTES_PER_PAGE = 100;
 const NOTE_PAGES = 5;
 const MR_INCOMPLETE_CAP_MARKER_RE = /^<!--[ \t]*taskcell-mr-review-incomplete-cap:[ \t]*([a-fA-F0-9]+)[ \t]*-->$/gm;
@@ -149,10 +129,9 @@ async function hasExistingReviewForHead(
 async function incompleteReviewAttempts(
   glab: GlabRunner,
   item: MergeRequestWatchItem,
-): Promise<{ attempts: number; capPosted: boolean }> {
+): Promise<{ attempts: number; capPosted: boolean; stop: boolean }> {
   const self = await glabUser(glab);
-  let attempts = 0;
-  let capPosted = false;
+  const bodies: string[] = [];
   for (let page = 1; page <= NOTE_PAGES; page++) {
     const out = await glab([
       'api',
@@ -160,25 +139,16 @@ async function incompleteReviewAttempts(
     ]);
     const notes = JSON.parse(out) as GlabMrNoteItem[];
     if (!Array.isArray(notes)) throw new Error('the response is not a list of notes');
-    attempts += notes.filter(
-      (note) =>
-        !note.system &&
-        note.author?.username === self &&
-        note.body !== undefined &&
-        note.body !== null &&
-        hasMergeRequestReviewIncompleteMarker(note.body, item.sha),
-    ).length;
-    capPosted ||= notes.some(
-      (note) =>
-        !note.system &&
-        note.author?.username === self &&
-        note.body !== undefined &&
-        note.body !== null &&
-        Array.from(note.body.matchAll(MR_INCOMPLETE_CAP_MARKER_RE)).some((match) => match[1] === item.sha),
-    );
+    // GitLab notes carry no association: the one trusted author is the glab user (Taskcell's own notes).
+    for (const note of notes) {
+      if (note.system || note.body === undefined || note.body === null) continue;
+      if (classifyAuthor(note.author?.username ?? '', undefined, { botLogins: [self] }) === 'untrusted') continue;
+      bodies.push(note.body);
+    }
     if (notes.length < NOTES_PER_PAGE) break;
   }
-  return { attempts, capPosted };
+  // The failure note that carries this attempt's marker is posted after this check: count it.
+  return incompleteCapState(bodies, item.sha, hasMergeRequestReviewIncompleteMarker, MR_INCOMPLETE_CAP_MARKER_RE, 1);
 }
 
 /**
@@ -247,7 +217,7 @@ export function gitlabMergeRequestWatchPrimitives(
       if (incomplete && item.sha !== '') {
         try {
           const state = await incompleteReviewAttempts(glab, item);
-          terminal = state.capPosted || state.attempts + 1 >= INCOMPLETE_RETRY_LIMIT;
+          terminal = state.stop;
           capDue = terminal && !state.capPosted;
         } catch (countError) {
           log?.(`watch-mrs ${mrId(item)}: incomplete-attempt count failed -> retrying (${failureReason(countError)})`);
@@ -284,72 +254,18 @@ export function gitlabMergeRequestWatchPrimitives(
   };
 }
 
-type MrWatchKind = 'reviewed' | 'failed' | 'skipped';
-
 /** Run one MR-watch poll: list, claim, review, and mark each ready MR. */
-export async function watchMergeRequestsOnce(
+export function watchMergeRequestsOnce(
   primitives: MergeRequestWatchPrimitives,
   opts: WatchMergeRequestsOnceOptions = {},
 ): Promise<MergeRequestWatchTick> {
-  const phase = opts.phase ?? 'watch-mrs';
-  const ready = await primitives.listReady();
-  opts.log?.(`${phase}: poll -> ${ready.length} ready`);
-  const results = await fanOut(
-    ready,
-    async (item): Promise<{ id: string; kind: MrWatchKind }> => {
-      const id = mrId(item);
-      try {
-        await primitives.claim(item);
-        opts.log?.(`${phase} ${id}: claim -> reviewing`);
-      } catch {
-        opts.log?.(`${phase} ${id}: skipped -> already claimed`);
-        return { id, kind: 'skipped' };
-      }
-      try {
-        await primitives.review(item);
-        await primitives.markReviewed(item);
-        opts.log?.(`${phase} ${id}: reviewed -> marked`);
-        return { id, kind: 'reviewed' };
-      } catch (error) {
-        try {
-          await primitives.onFailure(item, error);
-        } catch (restoreError) {
-          opts.log?.(`${phase} ${id}: restore failed -> manual label check (${failureReason(restoreError)})`);
-        }
-        opts.log?.(`${phase} ${id}: failed -> retry later (${failureReason(error)})`);
-        return { id, kind: 'failed' };
-      }
-    },
-    opts.concurrency !== undefined ? { concurrency: opts.concurrency } : {},
-  );
-  const ids = (kind: MrWatchKind): string[] =>
-    results.flatMap((o) => (o.status === 'fulfilled' && o.value.kind === kind ? [o.value.id] : []));
-  return { reviewed: ids('reviewed'), failed: ids('failed'), skipped: ids('skipped') };
+  return reviewWatchOnce(primitives, mrId, { phase: 'watch-mrs', ...opts });
 }
 
-function delay(ms: number, signal?: AbortSignal): Promise<void> {
-  if (signal?.aborted === true) return Promise.resolve();
-  return new Promise((resolve) => {
-    const onAbort = (): void => { clearTimeout(timer); resolve(); };
-    // Detach on the timer path too, or a long-lived signal gains one listener per tick.
-    const timer = setTimeout(() => { signal?.removeEventListener('abort', onAbort); resolve(); }, ms);
-    signal?.addEventListener('abort', onAbort, { once: true });
-  });
-}
-
-/** Poll GitLab MRs until stopped, running the MR review loop for each ready MR. */
-export async function watchMergeRequests(
+/** Poll GitLab MRs until stopped, running the MR review loop for each ready MR. Returns the last tick so `--once` callers can report failures truthfully. */
+export function watchMergeRequests(
   primitives: MergeRequestWatchPrimitives,
   opts: WatchMergeRequestsLoopOptions = {},
-): Promise<void> {
-  const intervalMs = opts.intervalMs ?? 60_000;
-  for (;;) {
-    if (opts.signal?.aborted === true) return;
-    const tick = await watchMergeRequestsOnce(primitives, opts);
-    opts.log?.(
-      `watch-mrs: ${tick.reviewed.length} reviewed, ${tick.failed.length} failed, ${tick.skipped.length} skipped.`,
-    );
-    if (opts.once === true) return;
-    await delay(intervalMs, opts.signal);
-  }
+): Promise<MergeRequestWatchTick | undefined> {
+  return reviewWatchLoop(primitives, mrId, { phase: 'watch-mrs', ...opts });
 }

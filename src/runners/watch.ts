@@ -5,6 +5,7 @@ import type { WatchGithubOptions, WatchGithubSpecOptions, WatchGithubProjectOpti
 import { gitlabWatchPrimitives, gitlabSpecPrimitives } from './gitlab.js';
 import type { WatchGitlabOptions, WatchGitlabSpecOptions } from './gitlab.js';
 import { fanOut } from '../pipeline/fan-out.js';
+import { delay } from './review-watch.js';
 import { failureReason } from '../core/errors.js';
 import type { WatchPrimitives, SpecWatchPrimitives } from './watch-shared.js';
 
@@ -232,22 +233,6 @@ export async function specOnce(primitives: SpecWatchPrimitives, opts: SpecOnceOp
   const ids = (kind: SpecKind): string[] =>
     results.flatMap((o) => (o.status === 'fulfilled' && o.value.kind === kind ? [o.value.id] : []));
   return { advanced: ids('advanced'), needsInfo: ids('needsInfo'), failed: ids('failed'), skipped: ids('skipped'), deferred: ids('deferred') };
-}
-
-function delay(ms: number, signal?: AbortSignal): Promise<void> {
-  if (signal?.aborted === true) return Promise.resolve();
-  return new Promise((resolve) => {
-    const onAbort = (): void => {
-      clearTimeout(timer);
-      resolve();
-    };
-    // Detach on the timer path too, or a long-lived signal gains one listener per tick.
-    const timer = setTimeout(() => {
-      signal?.removeEventListener('abort', onAbort);
-      resolve();
-    }, ms);
-    signal?.addEventListener('abort', onAbort, { once: true });
-  });
 }
 
 interface LoopControls {
