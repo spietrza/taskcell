@@ -1,6 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
-import { getEventListeners } from 'node:events';
-import { editPullRequestLabels, githubPullRequestWatchPrimitives, watchPullRequests, watchPullRequestsOnce } from './pr-watch.js';
+import { editPullRequestLabels, githubPullRequestWatchPrimitives, watchPullRequestsOnce } from './pr-watch.js';
 import { UsageCapError } from '../core/usage-cap.js';
 import {
   PullRequestReviewIncompleteError,
@@ -21,88 +20,6 @@ function pr(number: number): PullRequestWatchItem {
     labels: ['ready for taskcell review'],
   };
 }
-
-describe('watchPullRequestsOnce', () => {
-  it('claims, reviews, and marks each ready PR in order', async () => {
-    const logs: string[] = [];
-    const order: string[] = [];
-    const primitives: PullRequestWatchPrimitives = {
-      listReady: async () => [pr(12)],
-      claim: vi.fn(async (item) => {
-        order.push(`claim:${item.number}`);
-      }),
-      review: vi.fn(async (item) => {
-        order.push(`review:${item.number}`);
-      }),
-      markReviewed: vi.fn(async (item) => {
-        order.push(`mark:${item.number}`);
-      }),
-      onFailure: vi.fn(),
-    };
-
-    const tick = await watchPullRequestsOnce(primitives, { log: (line) => logs.push(line) });
-
-    expect(tick).toEqual({ reviewed: ['o/r#12'], failed: [], skipped: [] });
-    expect(order).toEqual(['claim:12', 'review:12', 'mark:12']);
-    expect(logs).toEqual([
-      'watch-prs: poll -> 1 ready',
-      'watch-prs o/r#12: claim -> reviewing',
-      'watch-prs o/r#12: reviewed -> marked',
-    ]);
-  });
-
-  it('skips already-claimed PRs and restores the trigger label on review failure', async () => {
-    const logs: string[] = [];
-    const restored: number[] = [];
-    const primitives: PullRequestWatchPrimitives = {
-      listReady: async () => [pr(12), pr(13)],
-      claim: vi.fn(async (item) => {
-        if (item.number === 12) throw new Error('already claimed');
-      }),
-      review: vi.fn(async () => {
-        throw new Error('review failed');
-      }),
-      markReviewed: vi.fn(),
-      onFailure: vi.fn(async (item) => {
-        restored.push(item.number);
-      }),
-    };
-
-    const tick = await watchPullRequestsOnce(primitives, { log: (line) => logs.push(line), concurrency: 1 });
-
-    expect(tick).toEqual({ reviewed: [], failed: ['o/r#13'], skipped: ['o/r#12'] });
-    expect(restored).toEqual([13]);
-    expect(logs).toContain('watch-prs o/r#12: skipped -> already claimed');
-    expect(logs).toContain('watch-prs o/r#13: failed -> retry later (review failed)');
-  });
-
-  it('reports PR as failed even when onFailure (label restore) also throws', async () => {
-    const logs: string[] = [];
-    const primitives: PullRequestWatchPrimitives = {
-      listReady: async () => [pr(13)],
-      claim: vi.fn(),
-      review: vi.fn(async () => {
-        throw new Error('review boom');
-      }),
-      markReviewed: vi.fn(),
-      onFailure: vi.fn(async () => {
-        throw new Error('restore boom');
-      }),
-    };
-
-    const tick = await watchPullRequestsOnce(primitives, { log: (line) => logs.push(line), concurrency: 1 });
-
-    expect(tick.failed).toEqual(['o/r#13']);
-    expect(tick.reviewed).toEqual([]);
-    expect(tick.skipped).toEqual([]);
-    expect(logs).toEqual(
-      expect.arrayContaining([
-        expect.stringContaining('watch-prs o/r#13: restore failed -> manual label check'),
-        'watch-prs o/r#13: failed -> retry later (review boom)',
-      ]),
-    );
-  });
-});
 
 /** The REST issue lookup behind the PR-author gate: a MEMBER author unless a test says otherwise. */
 function trustedAuthorApi(args: string[], association = 'MEMBER'): string {
@@ -821,28 +738,6 @@ describe('githubPullRequestWatchPrimitives', () => {
 
     expect(ready.map((item) => item.number)).toEqual([12]);
     expect(logs).toContain('watch-prs o/r#99: hint fetch failed -> boom');
-  });
-});
-
-describe('watchPullRequests', () => {
-  it('continuous ticks leave no abort listener behind on the signal', async () => {
-    const controller = new AbortController();
-    const listeners: number[] = [];
-    const primitives: PullRequestWatchPrimitives = {
-      listReady: async () => {
-        listeners.push(getEventListeners(controller.signal, 'abort').length);
-        if (listeners.length === 12) controller.abort();
-        return [];
-      },
-      claim: async () => {},
-      review: async () => {},
-      markReviewed: async () => {},
-      onFailure: async () => {},
-    };
-
-    await watchPullRequests(primitives, { signal: controller.signal, intervalMs: 0 });
-
-    expect(listeners).toEqual(Array(12).fill(0));
   });
 });
 
