@@ -8,6 +8,10 @@
 </p>
 
 <p align="center">
+  <a href="https://www.producthunt.com/products/taskcell?embed=true&amp;utm_source=badge-featured&amp;utm_medium=badge&amp;utm_campaign=badge-taskcell"><img src="https://api.producthunt.com/widgets/embed-image/v1/featured.svg?post_id=1323310&amp;theme=neutral" alt="Taskcell on Product Hunt" width="250" height="54"></a>
+</p>
+
+<p align="center">
   <a href="https://github.com/spietrza/taskcell/actions/workflows/ci.yml"><img src="https://github.com/spietrza/taskcell/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-8B5CF6.svg" alt="License: MIT"></a>
   <a href="https://www.bestpractices.dev/projects/16734"><img src="https://www.bestpractices.dev/projects/16734/badge" alt="OpenSSF Best Practices"></a>
