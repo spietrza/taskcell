@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { gitlabMergeRequestWatchPrimitives } from './mr-watch.js';
+import { gitlabMergeRequestWatchPrimitives, watchMergeRequestsOnce } from './mr-watch.js';
 import { UsageCapError } from '../core/usage-cap.js';
 import { MergeRequestReviewIncompleteError, mergeRequestReviewIncompleteMarker } from './mr-review.js';
 
@@ -40,6 +40,7 @@ describe('gitlabMergeRequestWatchPrimitives', () => {
     const mr = (iid: number, label: string) => ({ iid, title: 'T', draft: false, author: { username: 'alice' }, sha: `s${iid}`, labels: [label] });
     const glab = async (args: string[]) => {
       calls.push(args);
+      if (args[0] === 'api' && args[1] === 'user') return JSON.stringify({ username: 'taskcell-bot' });
       if (args[1] !== 'list') return '[]';
       const label = args[args.indexOf('--label') + 1]!;
       // MR 3 carries both spellings, so both lists return it.
@@ -71,6 +72,34 @@ describe('gitlabMergeRequestWatchPrimitives', () => {
     expect(updateCall).toContain('taskcell::reviewing');
   });
 
+  it('listReady reports a failed sha lookup and a failed dedup check as list failures, without reviewing those MRs', async () => {
+    const listed = JSON.stringify([
+      { iid: 1, title: 'T', draft: false, author: { username: 'alice' }, labels: [] },
+      { iid: 2, title: 'T', draft: false, author: { username: 'alice' }, sha: 'abc', labels: [] },
+    ]);
+    const glab = async (args: string[]): Promise<string> => {
+      if (args[0] === 'mr' && args[1] === 'list') return listed;
+      if (args[0] === 'mr' && args[1] === 'view') throw new Error('500');
+      if (args[0] === 'api') throw new Error('502');
+      return '';
+    };
+    const primitives = gitlabMergeRequestWatchPrimitives({ project: 'g/p', label: 'l', reviewingLabel: 'r', reviewedLabel: 'd', glab, reviewOne: async () => {} });
+    expect(await primitives.listReady()).toEqual([]);
+    expect(primitives.takeListFailures?.().sort()).toEqual(['g/p!1', 'g/p!2']);
+    const clean = makeGlab();
+    const ok = gitlabMergeRequestWatchPrimitives({ project: 'g/p', label: 'l', reviewingLabel: 'r', reviewedLabel: 'd', glab: clean.glab, reviewOne: async () => {} });
+    await ok.listReady();
+    expect(ok.takeListFailures?.()).toEqual([]);
+  });
+
+  it('a usage-cap pause is not a failed item, a real review failure is', async () => {
+    const listed = JSON.stringify([{ iid: 1, title: 'T', draft: false, author: { username: 'alice' }, sha: 'abc', labels: [] }]);
+    const run = (reviewOne: () => Promise<void>) =>
+      watchMergeRequestsOnce(gitlabMergeRequestWatchPrimitives({ project: 'g/p', label: 'l', reviewingLabel: 'r', reviewedLabel: 'd', glab: makeGlab(listed).glab, reviewOne }));
+    expect(await run(async () => { throw new UsageCapError('claude', 95, 90, new Date('2026-11-09T05:00:00Z')); })).toEqual({ reviewed: [], failed: [], skipped: [] });
+    expect((await run(async () => { throw new Error('boom'); })).failed).toEqual(['g/p!1']);
+  });
+
   describe('onFailure', () => {
     const item = { project: 'g/p', iid: 1, title: 'T', draft: false, author: 'alice', sha: 'abc', labels: [] };
     const primitivesWith = (glab: (args: string[]) => Promise<string>) =>
@@ -97,6 +126,15 @@ describe('gitlabMergeRequestWatchPrimitives', () => {
       const note = calls.find((c) => c[0] === 'mr' && c[1] === 'note');
       expect(note?.at(-1)).toContain('usage cap');
       expect(note?.at(-1)).not.toContain('review failed');
+    });
+
+    it('ignores a cap marker from a non-self author, so the incomplete attempt still re-queues the MR', async () => {
+      const notes = JSON.stringify([{ system: false, author: { username: 'mallory' }, body: '<!-- taskcell-mr-review-incomplete-cap: abc -->' }]);
+      const { glab, calls } = makeGlab('[]', notes);
+      const incomplete = new MergeRequestReviewIncompleteError({ ...item, description: '', webUrl: '', sourceBranch: 'b', targetBranch: 'main', diff: '' });
+      await primitivesWith(glab).onFailure(item, incomplete);
+      expect(update(calls)).toEqual(['mr', 'update', '1', '--repo', 'g/p', '--unlabel', 'taskcell::reviewing', '--unlabel', 'vanguard::reviewing', '--label', 'ready for review']);
+      expect(calls.find((c) => c[0] === 'mr' && c[1] === 'note')?.at(-1)).not.toContain('taskcell-mr-review-incomplete-cap');
     });
 
     it('restores the trigger label after an incomplete review, so the next sweep retries', async () => {

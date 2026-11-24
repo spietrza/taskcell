@@ -105,6 +105,7 @@ async function hasExistingReviewForHead(
   glab: GlabRunner,
   item: MergeRequestWatchItem,
   log?: (line: string) => void,
+  onFailure?: () => void,
 ): Promise<boolean> {
   if (item.sha === '') {
     // glab mr list omitted sha — dedup disabled; MR may be re-reviewed on each poll
@@ -114,9 +115,10 @@ async function hasExistingReviewForHead(
   try {
     return await hasMergeRequestReviewForHead(item, item.sha, glab);
   } catch (err) {
-    // best-effort: transient failure → re-review rather than skip
-    log?.(`watch-mrs ${mrId(item)}: dedup check failed (${String(err)}), will re-review`);
-    return false;
+    // Undecidable: skip it (reported as a list failure) rather than review an MR that may already have a verdict.
+    log?.(`watch-mrs ${mrId(item)}: dedup check failed (${String(err)}), skipping`);
+    onFailure?.();
+    return true;
   }
 }
 
@@ -150,8 +152,11 @@ export function gitlabMergeRequestWatchPrimitives(
 ): MergeRequestWatchPrimitives {
   const glab = opts.glab ?? defaultGlabRunner;
   const log = opts.log;
+  let listFailures: string[] = [];
   return {
+    takeListFailures: () => listFailures,
     listReady: async () => {
+      listFailures = [];
       // A trigger label renamed from `vanguard` to `taskcell`: list under both spellings, so an MR still carrying the old one runs.
       const listed = new Map<number, MergeRequestWatchItem>();
       for (const form of labelForms(opts.label)) {
@@ -168,21 +173,23 @@ export function gitlabMergeRequestWatchPrimitives(
       const candidates = [...listed.values()];
       // glab mr list may omit sha; enrich from mr view so dedup works correctly.
       const enriched = await Promise.all(
-        candidates.map(async (item): Promise<MergeRequestWatchItem> => {
+        candidates.map(async (item): Promise<MergeRequestWatchItem | undefined> => {
           if (item.sha !== '') return item;
           try {
             const view = JSON.parse(
               await glab(['mr', 'view', String(item.iid), '--repo', opts.project, '--output', 'json']),
             ) as { sha?: string };
             return { ...item, sha: view.sha ?? '' };
-          } catch {
-            return item;
+          } catch (err) {
+            log?.(`watch-mrs ${mrId(item)}: sha lookup failed (${failureReason(err)})`);
+            listFailures.push(mrId(item));
+            return undefined;
           }
         }),
       );
       const ready = await Promise.all(
         enriched.map(async (item): Promise<MergeRequestWatchItem | undefined> =>
-          (await hasExistingReviewForHead(glab, item, log)) ? undefined : item,
+          item === undefined || (await hasExistingReviewForHead(glab, item, log, () => listFailures.push(mrId(item)))) ? undefined : item,
         ),
       );
       return ready.filter((item): item is MergeRequestWatchItem => item !== undefined);

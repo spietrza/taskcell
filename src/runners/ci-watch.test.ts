@@ -64,11 +64,12 @@ describe('ci-watch', () => {
     ['pending checks', { number: 1, checks: [...FAIL, { name: 'b', bucket: 'pending' }] }],
     ['passing checks', { number: 1, checks: [{ name: 'a', bucket: 'pass' }] }],
     ['cancelled checks', { number: 1, checks: [{ name: 'a', bucket: 'cancel' }] }],
+    ['skipped and cancelled checks', { number: 1, checks: [{ name: 'a', bucket: 'skipping' }, { name: 'b', bucket: 'cancel' }] }],
     ['no required checks', { number: 1, checks: 'none' }],
     ['a draft', { number: 1, isDraft: true }],
     ['a fork PR', { number: 1, isCrossRepository: true }],
     ['a non-factory branch', { number: 1, headRefName: 'feat/1' }],
-    ...['needs revision', 'taskcell:revising', 'vanguard:reviewing', 'vanguard:running', 'Taskcell:Reviewing', 'taskcell:rate-limited'].map((l): [string, Pr] => [`label ${l}`, { number: 1, labels: [l] }]),
+    ...['needs revision', 'taskcell:revising', 'vanguard:reviewing', 'vanguard:running', 'Taskcell:Reviewing', 'Needs Revision', 'TASKCELL:RATE-LIMITED', 'taskcell:rate-limited'].map((l): [string, Pr] => [`label ${l}`, { number: 1, labels: [l] }]),
   ];
   it.each(quiet)('leaves %s alone', async (_n, pr) => {
     expect(writes((await run([pr])).calls)).toEqual([]);
@@ -96,5 +97,11 @@ describe('ci-watch', () => {
     expect(out).not.toContain('```');
     expect(out.split('\n').length).toBeLessThanOrEqual(80);
     expect(ciLogTail('y'.repeat(20000)).length).toBe(8000);
+  });
+
+  it('drops a partial first line after slicing the tail', () => {
+    const out = ciLogTail('```\n' + ('a'.repeat(149) + '\n').repeat(100));
+    expect(out.length).toBeLessThanOrEqual(8000);
+    expect(out.split('\n').filter(Boolean).every((l) => l === 'a'.repeat(149))).toBe(true);
   });
 });

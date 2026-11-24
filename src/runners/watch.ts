@@ -5,7 +5,7 @@ import type { WatchGithubOptions, WatchGithubSpecOptions, WatchGithubProjectOpti
 import { gitlabWatchPrimitives, gitlabSpecPrimitives } from './gitlab.js';
 import type { WatchGitlabOptions, WatchGitlabSpecOptions } from './gitlab.js';
 import { fanOut } from '../pipeline/fan-out.js';
-import { delay } from './review-watch.js';
+import { delay } from '../core/delay.js';
 import { failureReason } from '../core/errors.js';
 import type { WatchPrimitives, SpecWatchPrimitives } from './watch-shared.js';
 

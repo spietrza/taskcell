@@ -37,7 +37,10 @@ export interface CiWatchContext {
 /** Log text is agent-influenced: neutralise HTML comments and fence breaks, then keep the tail. */
 export function ciLogTail(log: string): string {
   const escaped = log.replaceAll('<!--', '<\\!--').replaceAll('```', '``​`');
-  return escaped.split('\n').slice(-MAX_LOG_LINES).join('\n').slice(-MAX_LOG_CHARS);
+  const tail = escaped.split('\n').slice(-MAX_LOG_LINES).join('\n');
+  const sliced = tail.slice(-MAX_LOG_CHARS);
+  // A cut mid-line leaves a partial first line (possibly a bare fence opener): drop it.
+  return sliced.length < tail.length && tail[tail.length - sliced.length - 1] !== '\n' ? sliced.slice(sliced.indexOf('\n') + 1) : sliced;
 }
 
 const runIdOf = (link: string | undefined): string | undefined => /\/actions\/runs\/(\d+)(?:\/|$)/.exec(link ?? '')?.[1];
@@ -91,7 +94,8 @@ export async function watchCiFailures(ctx: CiWatchContext): Promise<void> {
     const id = `${repoSlug}#${pr.number}`;
     const say = (line: string): void => log(`resume-rate-limited ${id}: ci-watch ${line}`);
     const labels = (pr.labels ?? []).flatMap((l) => (l.name === undefined ? [] : [l.name]));
-    if (pr.isDraft || hasInFlightLabel(labels) || SKIP_LABELS.some((l) => hasLabel(labels, l))) continue;
+    const lower = labels.map((n) => n.toLowerCase());
+    if (pr.isDraft || hasInFlightLabel(labels) || SKIP_LABELS.some((l) => hasLabel(lower, l))) continue;
     try {
       const checks = await requiredChecks(repoSlug, String(pr.number), gh).catch((e: unknown) => {
         say(`skip -> checks unreadable: ${failureReason(e)}`);
