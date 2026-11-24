@@ -228,7 +228,9 @@ const showResult = () => {
   const live = root.dataset.checkout === 'live' && r.plan.id;
   byId('r-plan-link').textContent = live ? r.plan.buy : r.plan.action;
   byId('r-plan-link').href = live ? `/checkout?plan=${r.plan.id}&period=monthly&lang=${root.lang}` : r.plan.id ? `/hosting/?plan=${r.plan.id}` : 'https://github.com/spietrza/taskcell/issues';
-  byId('r-planned').hidden = !r.plan.id;
+  // The Worker drops the planned hint with CHECKOUT=live.
+  const planned = byId('r-planned');
+  if (planned) planned.hidden = !r.plan.id;
   fill(byId('r-promises'), r.promises);
   steps.forEach((s) => (s.hidden = true));
   byId('quiz-meter').hidden = true;

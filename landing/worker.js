@@ -62,8 +62,9 @@ export default {
         el.setAttribute('data-currency', currencyFor(country));
         if (checkout) el.setAttribute('data-checkout', checkout);
       },
-    }).on('meta[data-live], meta[data-planned]', {
-      // A <meta> cannot be hidden by CSS: keep the description that fits the mode. The rest of the live copy is hidden by site.css.
+    }).on('[data-live], [data-planned]', {
+      // Copy for the other CHECKOUT mode leaves the HTML, so search engines, agents and <title>/<meta> (which CSS cannot hide)
+      // only see what fits the mode. site.css hides the same copy on pages served without the Worker.
       element: (el) => {
         if (el.hasAttribute('data-live') !== (checkout === 'live')) el.remove();
       },

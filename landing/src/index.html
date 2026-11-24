@@ -472,10 +472,11 @@ taskcell hub --repo ../app
 
 <section class="section wrap" id="server" aria-labelledby="server-h">
   <div class="head">
-    <p class="eyebrow" data-reveal>Dedicated server · planned</p>
+    <p class="eyebrow" data-reveal>Dedicated server<span data-planned> · planned</span></p>
     <h2 id="server-h" data-reveal class="d1">A server of your own on every hosted plan</h2>
   </div>
-  <p class="intro d2" data-reveal>Planned with hosting, not open yet. The factory would run on a machine you share with no other customer, and we would maintain it.</p>
+  <p class="intro d2" data-reveal data-planned>Planned with hosting, not open yet. The factory would run on a machine you share with no other customer, and we would maintain it.</p>
+  <p class="intro d2" data-reveal data-live>Included with every hosted plan. The factory runs on a machine you share with no other customer, and we maintain it.</p>
   <div class="server">
     <div>
       <ul class="pairs">
@@ -484,10 +485,10 @@ taskcell hub --repo ../app
         <li data-reveal class="d3"><b>Customers on the machine</b><span>one, you</span></li>
         <li data-reveal class="d4"><b>Model keys</b><span>your own</span></li>
       </ul>
-      <p class="plans-note" data-reveal>None of this exists yet. Today you can run the Hub on a server of your own: see <a href="#self-host">Self-host</a>.</p>
+      <p class="plans-note" data-reveal data-planned>None of this exists yet. Today you can run the Hub on a server of your own: see <a href="#self-host">Self-host</a>.</p>
     </div>
     <div class="ticket d2" data-reveal role="img" aria-label="A sample of the planned server panel: one customer, a backup every day at 03:00, your own model keys, and a maintenance log of daily backups and two factory updates.">
-      <div class="ticket-head"><b>Dedicated server</b><span class="tag">Sample · planned</span></div>
+      <div class="ticket-head"><b>Dedicated server</b><span class="tag">Sample<span data-planned> · planned</span></span></div>
       <dl>
         <dt>Customer</dt><dd>one, you</dd>
         <dt>Backup</dt><dd>daily at 03:00</dd>
@@ -519,7 +520,7 @@ taskcell hub --repo ../app
   <ul class="pairs holds" id="quiz-holds" aria-label="What the result holds">
     <li><b>Readiness</b><span>one of three levels</span></li>
     <li><b>Fix first</b><span>a line per problem</span></li>
-    <li><b>The plan that fits</b><span>with its planned price</span></li>
+    <li><b>The plan that fits</b><span>with its <span data-planned>planned </span>price</span></li>
     <li><b>What you get</b><span>3 or 4 points</span></li>
   </ul>
   <p class="plans-note" id="quiz-nojs">This check runs in your browser and needs JavaScript.</p>

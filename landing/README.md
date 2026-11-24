@@ -62,7 +62,7 @@ The Worker writes the visitor's currency on `<html data-currency>`: złoty in Po
 
 - unset: nobody; `/checkout` answers with the request page.
 - `test` (the current value): only links that carry `test=1`, against the Stripe sandbox. Open the site as `https://taskcell.dev/?checkout=test` and the plan buttons lead to a sandbox checkout; for everyone else they keep leading to the request page.
-- `live`: everybody, against the live account. The Worker sets `<html data-checkout="live">`, and the pages swap their copy (`data-live` / `data-planned` in `site.css`): plan buttons say "Subscribe to …" / "Buy …" (PL "Subskrybuj" / "Kup"), the quiz links to the plan's checkout, the notice after a payment has no test wording and "nothing can be bought" is gone. Still true: no server is started for an order, so set it only when hosting opens. `llms.txt` is static and still says hosting cannot be bought; edit it by hand when you switch.
+- `live`: everybody, against the live account. The Worker sets `<html data-checkout="live">` and removes the copy marked for the other mode (`data-live` / `data-planned`; `site.css` hides it too, and `checkout-check.mjs` checks the served pages): plan buttons say "Subscribe to …" / "Buy …" (PL "Subskrybuj" / "Kup"), the quiz links to the plan's checkout, the notice after a payment has no test wording and "nothing can be bought" is gone. Still true: no server is started for an order, so set it only when hosting opens. `llms.txt` is static and still says hosting cannot be bought; edit it by hand when you switch.
 
 The hosting page shows support@taskcell.dev in every mode.
 
