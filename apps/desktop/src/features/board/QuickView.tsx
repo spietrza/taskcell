@@ -197,7 +197,16 @@ export function QuickView({
   const repoPath = task.repoPath ?? project;
   const [run, setRun] = useState<RunState | null>(null);
   // The hub's answer: the card's Needs-you item, if one waits.
-  const item = task.view?.waiting ?? null;
+  const waiting = task.view?.waiting ?? null;
+  // The lists carry no comments: the opened item's last one is read here (a card's question comes with the list).
+  const [fetched, setFetched] = useState<({ id: string } & Pick<NeedsYouItem, 'lastComment' | 'ask'>) | null>(null);
+  useEffect(() => {
+    if (waiting === null || waiting.kind === 'card' || waiting.lastComment !== undefined) return;
+    let alive = true;
+    hub().call('needs_you_comment', { repoPath, id: waiting.id, kind: waiting.kind }).then((c) => alive && setFetched({ id: waiting.id, ...c }), () => {});
+    return () => { alive = false; };
+  }, [repoPath, waiting?.id, waiting?.kind]);
+  const item = waiting !== null && fetched?.id === waiting.id ? { ...waiting, ...fetched } : waiting;
   const [cfg, , cfgStatus] = useAppConfig(repoPath);
 
   // The run list is cheap; the latest record (stages, diffs) is read for the receipt and the station notes.
@@ -332,6 +341,9 @@ export function QuickView({
 
       <div className="flex min-h-0 flex-1 flex-col gap-6 overflow-y-auto overscroll-contain px-4 py-4">
         <PausedPanel repoPath={repoPath} task={task} onRetried={onChanged} />
+        {item === null && task.view?.waitingUnchecked === true && (
+          <p className="text-sm text-muted-foreground">Could not check whether this card waits for you.</p>
+        )}
         {item !== null && (
           <div className="space-y-2">
             {/* The one orange thing here: the card waits for the user. */}

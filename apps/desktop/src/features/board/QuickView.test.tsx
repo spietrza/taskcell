@@ -17,6 +17,7 @@ const listNeedsYou = vi.fn<HubCall<'list_needs_you'>>();
 const apiListSkills = vi.fn<HubCall<'list_skills'>>(async () => ({ skills: ['db', 'release'] }));
 const apiSetTaskSkills = vi.fn<HubCall<'set_task_skills'>>(async ({ skills }) => ({ skills }));
 const readAppConfigStrict = vi.fn<HubCall<'read_app_config_strict'>>(async () => ({}));
+const needsYouComment = vi.fn<HubCall<'needs_you_comment'>>(async () => ({}));
 let hubCall: ReturnType<typeof stubHubCalls>;
 
 const PR = 'https://github.com/o/r/pull/9';
@@ -32,6 +33,7 @@ beforeEach(() => {
   hubCall = stubHubCalls({
     list_runs: listRuns,
     list_needs_you: listNeedsYou,
+    needs_you_comment: needsYouComment,
     reply_needs_you: async () => undefined,
     merge_needs_you: async () => undefined,
     list_skills: apiListSkills,
@@ -45,6 +47,18 @@ beforeEach(() => {
 afterEach(() => vi.restoreAllMocks());
 
 describe('QuickView', () => {
+  test('the opened item\'s last comment is fetched, as the list carries none', async () => {
+    vi.mocked(needsYouComment).mockResolvedValueOnce({ lastComment: { author: 'bot', body: 'Which branch?' } });
+    open();
+    expect(await screen.findByText('Which branch?')).toBeInTheDocument();
+    expect(hubCall).toHaveBeenCalledWith('needs_you_comment', { repoPath: '/repo', id: 'o/r#9', kind: 'pr' });
+  });
+
+  test('says it could not check when the hub could not read what waits', async () => {
+    open({ ...task, view: { place: { at: 5, failed: false }, waitingUnchecked: true } });
+    expect(await screen.findByText('Could not check whether this card waits for you.')).toBeInTheDocument();
+  });
+
   test('a delivered card whose run stopped to ask: Done with the Board\'s warning, the stop station marked, the run "stopped to ask"', async () => {
     vi.mocked(listRuns).mockResolvedValue([{ ...summary, taskId: 'hub-4', anyFailed: true, asked: 'Which file?', prUrl: undefined } as RunSummary]);
     vi.mocked(listNeedsYou).mockResolvedValue({ items: [] });

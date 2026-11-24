@@ -26,6 +26,7 @@ beforeEach(() => {
     list_tasks: mockListTasks,
     list_runs: async () => [],
     list_needs_you: listNeedsYou,
+    needs_you_comment: async () => ({}),
     retry_paused_task: async () => ({ label: 'ready for agent' }),
     list_skills: async () => ({ skills: ['db', 'release'] }),
     set_task_skills: async ({ skills }) => ({ skills }),
