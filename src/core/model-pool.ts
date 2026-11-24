@@ -24,7 +24,7 @@ export type ModelPick = 'config' | 'rotation' | 'skip-limit' | 'fallback' | 'lab
 export class ModelPoolError extends Error {}
 
 const WEIGHT_RE = /:(\d+)\s*$/;
-// Same shape as a repo custom provider name (args.ts CUSTOM_NAME_RE), so every valid custom can join a pool.
+// Same shape as a repo custom provider name (cli/flags.ts CUSTOM_NAME_RE), so every valid custom can join a pool.
 const PROVIDER_RE = /^[a-z0-9][a-z0-9._-]*$/;
 const MODEL_RE = /^[A-Za-z0-9][A-Za-z0-9._:/-]{0,79}$/;
 

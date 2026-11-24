@@ -148,3 +148,8 @@ export const isReviewHeading = (line: string): boolean => line === REVIEW_HEADIN
 
 /** True when `body` opens with the review heading in either spelling. */
 export const hasReviewHeading = (body: string): boolean => body.startsWith(REVIEW_HEADING) || body.startsWith(LEGACY_REVIEW_HEADING);
+
+/** Default label names the GitHub loop routes on (the CLI's `--spec-label` / `--agent-label` / `--needs-info-label` defaults). */
+export const DEFAULT_GITHUB_SPEC_LABEL = 'ready for spec';
+export const DEFAULT_GITHUB_AGENT_LABEL = 'ready for agent';
+export const DEFAULT_GITHUB_NEEDS_INFO_LABEL = 'needs info';

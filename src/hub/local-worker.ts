@@ -6,8 +6,8 @@
 import { mkdir, readFile, rename, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { keyedLock } from '../core/keyed-lock.js';
-import { hasLabel } from '../core/labels.js';
-import { DEFAULT_GITHUB_AGENT_LABEL, parseCli } from '../cli/args.js';
+import { hasLabel, DEFAULT_GITHUB_AGENT_LABEL } from '../core/labels.js';
+import { parseCli } from '../cli/parse.js';
 import { runPreflight, type PreflightCommand } from '../cli/preflight.js';
 import { GITHUB_CLAIMED_LABEL, GITHUB_RATE_LIMITED_LABEL, GITHUB_REVIEW_LABEL, GITHUB_WAITING_LABEL } from '../github-labels.js';
 import { parseGitlabProjectFromRemote } from '../runners/gitlab.js';

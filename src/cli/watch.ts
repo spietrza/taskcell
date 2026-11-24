@@ -1,3 +1,5 @@
+import { DEFAULT_LINEAR_AGENT_STATE } from './flags.js';
+import { DEFAULT_GITHUB_AGENT_LABEL } from '../core/labels.js';
 import { watchLinear, watchGithub, watchGithubProject, watchLinearLoopV1, watchGithubLoopV1, watchGitlab, watchGitlabLoopV1 } from '../runners/watch.js';
 import { githubDepsFromEnv } from '../runners/github.js';
 import { gitlabDepsFromEnv } from '../runners/gitlab.js';
@@ -16,7 +18,6 @@ import { GITLAB_CLAIMED_LABEL, GITLAB_REVIEW_LABEL, GITLAB_SPEC_CLAIMED_LABEL } 
 import { formatPreflightReport, preflightFailed, runPreflight } from './preflight.js';
 import type { AgentAuth } from '../agents/auth.js';
 import type { SandboxContext } from '../sandbox/sandbox-context.js';
-import { DEFAULT_GITHUB_AGENT_LABEL, DEFAULT_LINEAR_AGENT_STATE } from './args.js';
 import type { Command } from './args.js';
 import type { RunSpecGeneratorDeps } from '../runners/spec.js';
 
