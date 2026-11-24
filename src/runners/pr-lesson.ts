@@ -74,14 +74,14 @@ function isBlocking(body: string, state: string | undefined): boolean {
 export async function fetchPrHistory(
   repo: string,
   number: number,
-  opts: { allowedAuthors?: readonly string[]; gh?: GhRunner } = {},
+  opts: { allowedAuthors?: readonly string[]; botLogins?: readonly string[]; gh?: GhRunner } = {},
 ): Promise<PrHistory> {
   const gh = opts.gh ?? defaultGhRunner;
   const pr = JSON.parse(
     await gh(['pr', 'view', String(number), '--repo', repo, '--json', 'number,url,title,state,labels,files,additions,deletions,reviews,comments']),
   ) as GhLessonPr;
   const trusted = (a: GhAuthored): boolean =>
-    classifyAuthor(a.author?.login ?? '', a.authorAssociation ?? '', { allowedAuthors: opts.allowedAuthors }) !== 'untrusted';
+    classifyAuthor(a.author?.login ?? '', a.authorAssociation ?? '', { allowedAuthors: opts.allowedAuthors, botLogins: opts.botLogins }) !== 'untrusted';
   const reviews = (pr.reviews ?? []).filter(trusted);
   const comments = (pr.comments ?? []).filter(trusted);
   const notes = [

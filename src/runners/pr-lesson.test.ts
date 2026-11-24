@@ -28,6 +28,12 @@ const cleanReview = { ...blockingReview, body: '## Taskcell Review\n\nVerdict: N
 const MODEL_REPLY = `<lessons>{"lessons":[{"rule":"Exclude every state dir from .dockerignore","why":"run transcripts leaked into images","evidence":"${URL}","paths":["src/core/**"],"stage":"implement"}]}</lessons>`;
 
 describe('fetchPrHistory', () => {
+  it('treats the configured App identity as trusted for lesson dedupe', async () => {
+    const json = prJson({ comments: [{ author: { login: 'taskcell' }, authorAssociation: 'CONTRIBUTOR', url: `${URL}#issuecomment-4`, body: `Lesson.\n${LESSON_MARKER}` }] });
+    expect((await fetchPrHistory('o/r', 9, { gh: gh(json) })).hasLessonComment).toBe(false);
+    expect((await fetchPrHistory('o/r', 9, { gh: gh(json), botLogins: ['taskcell'] })).hasLessonComment).toBe(true);
+  });
+
   it('reads the legacy verify-failed label on a GitHub PR', async () => {
     const h = await fetchPrHistory('o/r', 9, { gh: gh(prJson({ labels: [{ name: 'vanguard:verify-failed' }] })) });
     expect(h.verifyFailed).toBe(true);
