@@ -8,6 +8,7 @@ const plan = (id, name, limits) => ({
   name: `${name}, ${money(PRICES[id])} a month`,
   note: `${limits} ${money(PRICES[id] * YEARLY)} a month when billed yearly.`,
   action: `Request ${name}`,
+  buy: `Subscribe to ${name}`,
 });
 const PLANS = {
   1: plan('solo', 'Solo', '1 run at a time, 1 person.'),
