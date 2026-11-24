@@ -1,6 +1,8 @@
 // Hub commands: starting, queueing and cancelling runs. One module per feature — contract, validation and handler live here;
 // `pnpm gen:wire` derives Commands, COMMAND_NAMES and dispatch from it (see CONTRIBUTING.md).
 import { invokeCoreMethod, validateCoreMethod, type CreateRunParams as CoreCreateRunParams } from '../../sidecar/sidecar.js';
+import { readAppConfig } from '../app-config.js';
+import { chainForRun } from '../fallback-chain.js';
 import { auditActorOf, reportAuditFailure, type AuditAction, type AuditOutcome } from '../audit.js';
 import type { Capabilities, CreateRunParams, CreateRunResult } from '../../wire.js';
 import { defineCommands, requireString, optionalString, actorOf, outcomeOf } from '../command-kit.js';
@@ -45,8 +47,8 @@ export const commands = defineCommands<RunSessionCommands>({
       };
       // The credential is resolved from the server-side switch and the caller's identity, BEFORE the
       // run is queued or claims the slot: a `user only` run with no saved credential is refused here.
-      const credential = ctx.userCredentials !== undefined ? await ctx.userCredentials.resolveForRun(ctx.user, validated.provider) : undefined;
-      return await ctx.runSession.createRun({ ...validated, startedBy }, {
+      const { credential, flags } = await chainForRun({ configDir: ctx.configDir, repoPath: real, cfg: await readAppConfig(real), user: ctx.user, provider: validated.provider, credentials: ctx.userCredentials });
+      return await ctx.runSession.createRun({ ...validated, startedBy, ...flags }, {
         onStarted: (id) => log('run-start', id, 'ok'),
         onQueued: (id) => log('run-queue', id, 'ok'),
         onRefused: (id) => log('run-start', id, 'refused'),

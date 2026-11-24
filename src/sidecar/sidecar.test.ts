@@ -335,4 +335,16 @@ describe('run-store protocol', () => {
     expect(dep).not.toHaveBeenCalled();
     expect(JSON.parse(out[0]!)).toMatchObject({ id: 'bad', error: { kind: 'bad-request' } });
   });
+
+  it.each([
+    ['fallbackProvider', { fallbackProvider: 'codex' }],
+    ['fallbackModel', { fallbackModel: 'gpt-6-sol' }],
+  ])('createRun from a client carrying %s is bad-request: the fallback chain is server-set', async (_label, extra) => {
+    let reached = false;
+    const deps = stubDeps({ createRun: async () => { reached = true; return {}; } });
+    const { write, out } = collect();
+    await runSidecar(lines(JSON.stringify({ id: 'fb', method: 'createRun', params: { issueRef: 'gh-1', repoPath: '/repo', ...extra } })), write, deps);
+    expect(JSON.parse(out[0]!)).toMatchObject({ id: 'fb', error: { kind: 'bad-request', message: expect.stringContaining('set by the hub') } });
+    expect(reached).toBe(false);
+  });
 });

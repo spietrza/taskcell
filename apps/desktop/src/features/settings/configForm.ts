@@ -4,7 +4,7 @@ import { useAppConfig, useCallerCapabilities } from '../../hooks';
 import { useDiscardGuard } from '../../navGuard';
 import { customProviderRowError, customProviderRows } from './customProviders';
 import type { AppConfig } from '../../taskcell-output';
-import { appConfigRangeErrors, type CustomProviderSpec } from '../../wire';
+import { appConfigRangeErrors, fallbackChainErrors, type CustomProviderSpec } from '../../wire';
 import { errorMessage } from '../../errors';
 
 /**
@@ -44,7 +44,9 @@ export function useConfigForm(project: string) {
   // over the file; after a FAILED read ('error' = the file exists but does not parse), a save
   // would replace the user's hand-edited JSON with defaults. Invalid custom rows also block.
   const rangeErrors = appConfigRangeErrors(cfg);
-  const savable = dirty && cfgStatus === 'ready' && customsValid && Object.keys(rangeErrors).length === 0;
+  const chainErrors = fallbackChainErrors(cfg.fallbackChain, { primary: cfg.provider || 'claude' });
+  const chainValid = chainErrors.list === undefined && chainErrors.rows.every((r) => r === undefined);
+  const savable = dirty && cfgStatus === 'ready' && customsValid && Object.keys(rangeErrors).length === 0 && chainValid;
 
   // Latest cfg, readable after an await (the save closure's `cfg` is the render's snapshot).
   const cfgRef = useRef(cfg);

@@ -7,11 +7,12 @@ import { hub } from '../../transport';
 import { STATIONS, STATION_LABEL, STATION_SHORT, type Station } from '../../stations';
 import { effectiveRunLocation, resolveTaskSource, runLocationLabel, taskSourceLabel } from '../../platform';
 import { errorClause } from '../../errors';
-import { appConfigRangeErrors } from '../../wire';
+import { appConfigRangeErrors, fallbackChainErrors, type FallbackEntry } from '../../wire';
 import { Field, Select } from '../settings/fields';
 import { useConfigForm } from '../settings/configForm';
 import { PROVIDER_CHOICES, providerLabel } from '../settings/customProviders';
 import { AutoMerge } from '../settings/AutoMerge';
+import { FallbackChain } from '../settings/FallbackChain';
 import { WorkflowEditor } from '../workflow/WorkflowEditor';
 import { setUrlParam, urlParam } from '../../screenUrl';
 import { AutoRun } from './AutoRun';
@@ -58,6 +59,19 @@ export function LineEditor({ project }: { project: string }) {
   }, [station, phone]);
   const [flowNames, setFlowNames] = useState<string[]>([]);
   const [published, setPublished] = useState(0);
+  // The team default a project without its own chain inherits (the team that lists this repository and sets one).
+  const [teamChain, setTeamChain] = useState<FallbackEntry[] | undefined>();
+  useEffect(() => {
+    let live = true;
+    void hub()
+      .call('list_teams', undefined)
+      .then((teams) => {
+        const held = (Array.isArray(teams) ? teams : []).filter((t) => t.repositories.includes(project) && t.fallbackChain !== undefined);
+        if (live) setTeamChain(held.length === 1 ? held[0]!.fallbackChain : undefined);
+      })
+      .catch(() => undefined);
+    return () => { live = false; };
+  }, [project]);
 
   useEffect(() => {
     let live = true;
@@ -81,10 +95,16 @@ export function LineEditor({ project }: { project: string }) {
   const healthyCustomNames = customs.filter((_, i) => customErrors[i] === undefined).map((r) => r.name);
   const providerOptions = [...PROVIDER_CHOICES, ...healthyCustomNames];
   const taskSource = resolveTaskSource(cfg);
+  const engine = cfg.provider || 'claude';
+  // An entry must run on a stored credential: meridian and keyless customs cannot, and the Engine itself is row 0.
+  const chainProviders = [...PROVIDER_CHOICES, ...healthyCustomNames].filter((p) => p !== 'meridian');
+  const chainErrors = fallbackChainErrors(cfg.fallbackChain, { primary: engine, providers: chainProviders });
+  const chainValid = chainErrors.list === undefined && chainErrors.rows.every((r) => r === undefined);
   const runner = runLocationLabel(effectiveRunLocation(taskSource, cfg.runLocation));
   // Errors in fields only General edits still block Publish: say where to fix them.
   const generalErrors = [
     ...(customsValid ? [] : ['custom providers']),
+    ...(chainValid ? [] : ['fallback chain']),
     ...(['concurrency', 'usageCapPct'] as const).filter((k) => appConfigRangeErrors(cfg)[k] !== undefined),
   ];
 
@@ -114,6 +134,11 @@ export function LineEditor({ project }: { project: string }) {
             <Cell>
               <Field label="Engine" hint="— which model service runs the stages">
                 <Select value={cfg.provider ?? ''} onChange={(v) => set('provider', v || undefined)} options={providerOptions} danglingLabel={(v) => (providerLabel(v) !== v ? providerLabel(v) : `${v} (not configured)`)} />
+              </Field>
+            </Cell>
+            <Cell>
+              <Field label="Fallback chain" hint="— where a run continues when the Engine hits a provider limit">
+                <FallbackChain engine={engine} chain={cfg.fallbackChain} providers={chainProviders} inherited={teamChain} onChange={(c) => set('fallbackChain', c)} />
               </Field>
             </Cell>
             <Cell>

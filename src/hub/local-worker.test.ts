@@ -207,3 +207,12 @@ test('a pick-up runs with the project\'s flow (--flow)', async () => {
   await sweepLocalWorkers(ctxOf(repo, session, async () => issues(5)));
   expect(params[0]).toEqual(expect.objectContaining({ issueRef: '5', flow: 'my-flow' }));
 });
+
+test('a pick-up carries the project\'s fallback chain (--fallback-provider / --fallback-model)', async () => {
+  const repo = await githubRepo({ fallbackChain: [{ provider: 'codex' }, { provider: 'cursor', model: 'm1' }] });
+  await setLocalWorker(cfg, repo, true, undefined, deps());
+  const params: unknown[] = [];
+  const session = { createRun: (p: unknown, hooks?: { onStarted?: (id: string) => void }) => { params.push(p); hooks?.onStarted?.('run-1'); return new Promise<CreateRunResult>(() => {}); } } as unknown as RunSession;
+  await sweepLocalWorkers(ctxOf(repo, session, async () => issues(5)));
+  expect(params[0]).toEqual(expect.objectContaining({ issueRef: '5', fallbackProvider: 'codex,cursor', fallbackModel: ',m1' }));
+});

@@ -14,6 +14,7 @@ import { parseGitlabProjectFromRemote } from '../runners/gitlab.js';
 import { BadRequestError, type CreateRunResult } from '../sidecar/sidecar.js';
 import { defaultGhRunner, editGithubLabels, isTrustedIssueAuthor, type GhRunner } from '../tasks/github.js';
 import type { LocalWorkerState } from '../wire.js';
+import { chainForRun } from './fallback-chain.js';
 import { configuredFlow, readAppConfig } from './app-config.js';
 import { PROVIDER_NAMES, type CredentialService } from './credentials.js';
 import { defaultExec, GITHUB_REPO_SLUG, type FactoryExec } from './enable-factory.js';
@@ -188,9 +189,9 @@ async function startIssue(ctx: LocalWorkerContext, repoPath: string, number: num
   return new Promise<string | Error>((resolve) => {
     void (async () => {
       try {
-        const credential = ctx.userCredentials !== undefined ? await ctx.userCredentials.resolveForRun(undefined, provider) : undefined;
+        const { credential, flags } = await chainForRun({ configDir: ctx.configDir, repoPath, cfg: config, user: undefined, provider, credentials: ctx.userCredentials });
         run = ctx.runSession.createRun(
-          { issueRef: String(number), repoPath, transport: 'github', startedBy: LOCAL_WORKER_LOGIN, ...(provider !== undefined ? { provider } : {}), ...(flow !== undefined ? { flow } : {}) },
+          { issueRef: String(number), repoPath, transport: 'github', startedBy: LOCAL_WORKER_LOGIN, ...(provider !== undefined ? { provider } : {}), ...(flow !== undefined ? { flow } : {}), ...flags },
           { onStarted: (id) => resolve(id), onQueued: (id) => resolve(id) },
           credential,
         );

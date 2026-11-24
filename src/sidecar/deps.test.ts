@@ -549,3 +549,37 @@ describe('createRun registers a stored CODEX_AUTH_JSON\'s inner tokens for the s
     for (const v of Object.values(tokens)) expect(after).not.toContain(v);
   });
 });
+
+describe('createRun with a hub fallback chain', () => {
+  it('passes fallbackProvider/fallbackModel into RunOptions and the auth choice; checkRun accepts the same params', async () => {
+    const repoPath = await plainRepo();
+    const deps = productionDeps();
+    const credential = { source: 'instance' as const, env: { CLAUDE_CODE_OAUTH_TOKEN: 'sk-ant-oat01-x', CODEX_API_KEY: 'ck', CURSOR_API_KEY: 'cu' } };
+    const params = { issueRef: 'o/r#1', repoPath, provider: 'claude', fallbackProvider: 'codex,cursor', fallbackModel: 'gpt-6-sol,' };
+    await expect(deps.checkRun!(params, credential)).resolves.toBeUndefined();
+    await expect(deps.createRun(params, () => {}, credential)).resolves.toEqual({ prUrl: 'https://example/pr/1' });
+    const [, opts] = runGithubIssue.mock.calls[0] ?? [];
+    expect(opts).toMatchObject({ provider: 'claude', fallbackProvider: 'codex,cursor', fallbackModel: 'gpt-6-sol,' });
+    expect(githubDepsFromEnv).toHaveBeenCalledWith(repoPath, undefined, expect.objectContaining({ fallbackProvider: 'codex,cursor' }), expect.anything());
+  });
+
+  it('an entry the user credential cannot fund is dropped with a warning, never refusing the run', async () => {
+    const repoPath = await plainRepo();
+    const deps = productionDeps();
+    const events: RunEvent[] = [];
+    vi.stubEnv('CURSOR_API_KEY', 'host-cursor');
+    const credential = { source: 'user' as const, env: { CLAUDE_CODE_OAUTH_TOKEN: 'sk-ant-oat01-x', CODEX_API_KEY: 'ck' } };
+    await expect(deps.createRun({ issueRef: 'o/r#1', repoPath, provider: 'claude', fallbackProvider: 'cursor,codex' }, (e) => events.push(e), credential)).resolves.toEqual({ prUrl: 'https://example/pr/1' });
+    const [, opts] = runGithubIssue.mock.calls[0] ?? [];
+    expect(opts).toMatchObject({ fallbackProvider: 'codex' });
+    expect(events).toContainEqual({ type: 'warning', message: 'fallback entry cursor skipped: no stored credential for it' });
+  });
+
+  it('a chain on the proxy-ineligible side keeps the run proxied when every entry can sit behind the proxy', async () => {
+    const repoPath = await plainRepo();
+    const deps = productionDeps();
+    const credential = { source: 'instance' as const, env: { CLAUDE_CODE_OAUTH_TOKEN: 'sk-ant-oat01-x', CODEX_API_KEY: 'ck' } };
+    await deps.createRun({ issueRef: 'o/r#1', repoPath, provider: 'claude', fallbackProvider: 'codex' }, () => {}, credential);
+    expect(startSandboxContext).toHaveBeenCalledWith(expect.objectContaining({ egress: true }));
+  });
+});

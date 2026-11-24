@@ -36,6 +36,8 @@ taskcell run --github o/r#1 --plan --review-model opus   # plan on opus, impleme
 
 ### Model pools per stage
 
+> The Hub sets the same fallback list per project: see [hub.md](hub.md#fallback-chain-on-a-provider-limit).
+
 `--provider-model`, `--review-model` and `--escalate-model` (on `run` and `watch`; `--provider-model`/`--review-model` also on `revise-pr`; and the reusable workflows' `provider-model` / `review-model` / `escalate-model` inputs, which pass the value through) take either one model, as before, or a **pool** of weighted `provider/model` entries:
 
 ```sh

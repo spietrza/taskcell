@@ -245,7 +245,11 @@ export function RunList({
       </>,
       // A CI run has no local record to open: its PR/MR link is the way in.
       ci ? undefined : () => onSelect(r),
-      ci ? (
+      r.ranOn !== undefined ? (
+        <Chip color="secondary" variant="outlined" title={[`ran on ${r.ranOn.entry}`, ...(r.ranOn.skipped ?? [])].join(' · ')}>
+          fallback: {r.ranOn.entry.split('/')[0]}
+        </Chip>
+      ) : ci ? (
         <span className="flex items-center gap-2 text-xs">
           <Chip color="secondary" variant="outlined">run in CI</Chip>
           <span className="tabular-nums text-muted-foreground" {...estTitle(costLabel(r))}>{costLabel(r)}</span>

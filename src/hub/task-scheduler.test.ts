@@ -55,3 +55,28 @@ test('a finished run clears the reason an earlier end left on the task', async (
   expect(task).toMatchObject({ status: 'done', result: 'branch chore/a' });
   expect(task!.reason).toBeUndefined();
 });
+
+test('a hub task start carries the project\'s fallback chain as server-set run params', async () => {
+  const { writeAppConfig } = await import('./app-config.js');
+  const { sweepHubBoards } = await import('./task-scheduler.js');
+  const project = await mkdtemp(join(tmpdir(), 'hub-sched-repo-'));
+  try {
+    await writeAppConfig(project, { taskSource: 'hub', fallbackChain: [{ provider: 'codex', model: 'gpt-6-sol' }, { provider: 'cursor' }] });
+    await createHubTask(dir, project, { title: 'A', owner });
+    const params: unknown[] = [];
+    const checked: unknown[] = [];
+    await sweepHubBoards({
+      scheduler: schedulerState(),
+      configDir: dir,
+      allowlist: { assertAllowed: async (p: string) => p } as never,
+      runSession: { createRun: (p: unknown, hooks?: { onStarted?: (id: string) => void }) => { params.push(p); hooks?.onStarted?.('run-1'); return new Promise(() => {}); } } as never,
+      deps: { checkRun: async (p) => { checked.push(p); } },
+      recheckCaller: async (c) => c,
+    });
+    const expected = { issueRef: 'hub-1', transport: 'hub', fallbackProvider: 'codex,cursor', fallbackModel: 'gpt-6-sol,' };
+    expect(params[0]).toMatchObject(expected);
+    expect(checked[0]).toMatchObject(expected);
+  } finally {
+    await rm(project, { recursive: true, force: true });
+  }
+});

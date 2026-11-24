@@ -556,6 +556,28 @@ describe('runSourcedIssue', () => {
       expect(publishForReview).not.toHaveBeenCalled();
     });
 
+    it('Hub fallback chain: a limit moves the run to the next entry, then the next, and parks only when every entry is out', async () => {
+      const repo = await mkdtemp(join(tmpdir(), 'pool-chain-'));
+      try {
+        const deps = { repoPath: repo, provider: 'claude' as const, fallbackProvider: 'codex,cursor' };
+        // Run 1: the Engine (and its in-run fallback, entry 1) hit the limit: the run continues on entry 2 without parking.
+        limitOnce();
+        await runSourcedIssue('group/project#1', deps, fakeAdapter([], STAGES));
+        expect(picked().map((c) => c.provider)).toEqual(['claude', 'cursor']);
+        expect(publishForReview).toHaveBeenCalledTimes(1);
+        expect([...(await readCooldowns(repo)).keys()].sort()).toEqual(['claude/', 'codex/']);
+        // Run 2: only entry 2 has quota; it hits the limit too, so every entry is out: the limit error is rethrown (the park path).
+        vi.mocked(selectAgents).mockClear();
+        limitOnce();
+        await expect(runSourcedIssue('group/project#2', deps, fakeAdapter([], STAGES))).rejects.toBeInstanceOf(ProviderLimitError);
+        expect(picked().map((c) => c.provider)).toEqual(['cursor']);
+        expect([...(await readCooldowns(repo)).keys()].sort()).toEqual(['claude/', 'codex/', 'cursor/']);
+        expect(publishForReview).toHaveBeenCalledTimes(1);
+      } finally {
+        await rm(repo, { recursive: true, force: true });
+      }
+    });
+
     it('a simplifier limit cools the run-level entry, not the flow implementer pool named like the tier', async () => {
       const repo = await mkdtemp(join(tmpdir(), 'pool-flow-'));
       try {

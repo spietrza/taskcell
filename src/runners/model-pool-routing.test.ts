@@ -60,7 +60,7 @@ describe('stagePicks', () => {
     const res = { taskId: 't', completed: true, exitReason: 'completed', turns: 1, worktreePath: '/w', worktreePreserved: false, finalText: '' } as const;
     const picks = { implementer: { provider: 'codex', model: 'gpt-6-sol', pick: 'rotation' as const }, fallback: { provider: 'claude', model: 'sonnet', pick: 'skip-limit' as const } };
     expect(stagePicks([{ name: 'implementer', result: res, providerName: 'claude', model: 'sonnet' }], picks, 'codex')).toEqual({
-      implementer: { provider: 'claude', model: 'sonnet', pick: 'skip-limit' },
+      implementer: { provider: 'claude', model: 'sonnet', pick: 'skip-limit', skipped: [{ entry: 'codex/gpt-6-sol' }] },
     });
     expect(stagePicks([{ name: 'implementer', result: res, providerName: 'codex', model: 'gpt-6-sol' }], picks, 'codex').implementer?.pick).toBe('rotation');
   });

@@ -4,6 +4,9 @@ import { useNavGuardRegistry } from '../../navGuard';
 import { SETTINGS_SECTIONS, type SettingsSection } from './sections';
 import { Settings } from './Settings';
 import { Members, type TeamScreen } from './Members';
+import { TeamFallbackChain } from './FallbackChain';
+import { PROVIDER_CHOICES } from './customProviders';
+import { useCallerCapabilities } from '../../hooks';
 import { LineEditor } from '../line/LineEditor';
 import { AuditLog } from '../audit/AuditLog';
 import { Lessons } from '../lessons/Lessons';
@@ -89,6 +92,7 @@ export function SettingsScreen({
                 <p className="text-sm text-muted-foreground">Members and repositories of the team, shared by every project in it. Changes apply at once.</p>
               </div>
               <Members {...teamScreen} />
+              <TeamChain {...teamScreen} />
             </section>
           )}
           <CredentialsPanel />
@@ -121,4 +125,10 @@ export function SettingsScreen({
       )}
     </div>
   );
+}
+
+/** The team's default fallback chain; only an admin edits it. */
+function TeamChain({ team, onTeam }: TeamScreen) {
+  const admin = useCallerCapabilities(undefined, JSON.stringify(team.members))?.teamRoles[team.id] === 'admin';
+  return <TeamFallbackChain key={JSON.stringify(team.fallbackChain ?? [])} team={team} providers={PROVIDER_CHOICES.filter((p) => p !== 'meridian')} admin={admin} onTeam={onTeam} />;
 }

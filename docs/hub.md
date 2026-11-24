@@ -591,6 +591,19 @@ A run started from the Board or New card switches to Runs by itself and opens in
 
 The tab icon is the Taskcell cell logo (`apps/desktop/public/favicon.svg`, with `favicon.ico` as the fallback), served by `taskcell hub` from the UI build.
 
+## Fallback chain on a provider limit
+
+By default a run that hits a provider usage or rate limit is parked (see "Paused by a provider limit") until the limit resets. A user with a second model or provider can say "on a limit, continue on the next one": Settings → Line → Cell → **Fallback chain** is an ordered list of `provider/model` entries (**Add fallback**, move up / move down, remove). Row 1 is the project's Engine and is read-only; the entries follow it. The list is saved as `fallbackChain` in `.taskcell/app.json` with the rest of the project's config. A project that never sets one inherits the **team default** (Settings → Team & hub → Fallback chain, set by a team admin with `set_team_fallback_chain`); **Use team default** on a project removes its own list, and an explicit empty list means none. If two teams that list the repository both set a default, none applies.
+
+- **What happens.** The hub resolves the chain when it starts a run (a run started from the app, a hub-board task, the local worker) and passes it to the engine as `--fallback-provider` / `--fallback-model`; the engine's own routing and cool-down logic do the rest (no second mechanism). On a structured limit the run records a cool-down for the entry in `.taskcell/model-pool-cooldowns.json` and continues on the next entry that still has quota. It is parked exactly as before only when every entry is out. See [cli.md](cli.md#model-pools-per-stage). A client cannot set the chain: `fallbackProvider` / `fallbackModel` in `api_create_run` are refused.
+- **Credentials.** Each entry uses a credential already saved in the hub (Settings → credentials). An entry whose provider has no stored key is skipped, with a warning in the run, and never refuses the run; a run on your own credentials never falls back to the instance's keys. `meridian` and keyless custom providers cannot be entries.
+- **Which stages.** The chain is a run-level list, the same scope as `--fallback-provider`: the implementer and every stage on the primary provider. It never moves the review: set the review engine under Review. A flow stage with its own model pool keeps it; the chain applies to stages without one.
+- **Same transport.** A provider that shares the Engine's transport slot (for example claude → zai) cannot take over inside the same run; it is reached by a new attempt after the limit, which repeats the work.
+- **Self-hosted workers.** The generated `taskcell watch` command and compose snippet (Enable factory → Self-hosted) carry the chain flags and name the chain's credentials. CI runs are not affected: the factory workflows keep their `fallback-provider` input.
+- **What you see.** The run detail names, per stage, the entry it ran on and the entry that hit its limit (with its reset time when known); the Runs list marks a run that moved with a **fallback: <provider>** chip. Both come from the run record's `modelPick` (`pick`: `fallback` or `skip-limit`, `skipped`).
+
+A chain holds at most 8 entries, no duplicates, and a single entry on the Engine's own provider is refused (add a second entry or pick another provider).
+
 ## Paused by a provider limit
 
 When a run ends on a provider usage or rate limit, the issue or pull request gets `taskcell:rate-limited` (or the older `vanguard:rate-limited`) and a comment or review carrying a hidden `taskcell-rate-limited until=<ISO time> trigger="…"` marker; the scheduled `resume-rate-limited` retries it after that time. The Board's `list_tasks` / `list_tasks_all` read this from labels and the marker only (no model call) and return `paused: { reason: 'provider-limit', until?, trigger? }` on the card. The time comes from the newest valid marker by an author the scheduled resume also trusts: the GitHub Actions identity (`github-actions`), a login ending in `[bot]`, or a repository owner, member or collaborator; a marker from an outside commenter is ignored. Paused pull requests come from `gh pr list --label`, once per spelling of the rate-limited label, only for projects whose task source is GitHub; their cards open the pull request and offer no issue actions (skills, full page, Retry now). One `list_tasks` or `list_tasks_all` call reads markers for at most 30 paused cards in total, shared across repositories; the others still show as paused without a time. Paused-PR lists and marker reads are reused for 45 seconds per repository (expired entries are dropped on the next read; the read budget is still spent on a reused read), and a successful Retry now flushes that repository's entries.
@@ -912,6 +925,8 @@ that option's commands, and remembers the choice in the browser with the rest of
 An `export` line only takes effect for a hub started after it: the hub reads its environment at
 start. After exporting, restart the hub (or save the key in Settings → credentials, where that
 exists) and then press **Check again**.
+
+Optional last step: to keep runs going when one model hits its limit, save a second provider's credential and add it under Settings → Line → Cell → Fallback chain (see "Fallback chain on a provider limit").
 
 ## Adding skills from a repository
 
