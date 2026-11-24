@@ -53,9 +53,6 @@ export function labelValue(label: string, prefix: string): string | undefined {
   return current.startsWith(currentLabel(prefix)) ? current.slice(currentLabel(prefix).length) : undefined;
 }
 
-/** `taskcell-x` → both marker names, for building comment-marker regexes: `(?:taskcell|vanguard)-x`. */
-export const MARKER_PREFIX_RE = '(?:taskcell|vanguard)';
-
 const IN_FLIGHT: ReadonlySet<string> = new Set(['taskcell:running', 'taskcell:revising', 'taskcell:reviewing']);
 
 /** True when `labels` carries an in-flight label (running, revising, reviewing) in either spelling, any case. */

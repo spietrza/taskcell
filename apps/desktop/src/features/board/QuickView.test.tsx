@@ -7,10 +7,11 @@ import { stubHubCalls, type HubCall } from '../../testHub';
 vi.mock('../../ipc', () => ({
   callerCapabilities: vi.fn(async () => ({ mutationsAllowed: true, owner: true, admin: true, canAddProject: { allowed: true }, teamRoles: {} })),
   readRun: vi.fn(),
+  apiCapabilitiesCached: vi.fn(async () => ({ flows: [{ name: 'plan', label: 'Plan' }] })),
   hubTaskStart: vi.fn(async (_repo: string, id: string) => ({ id })),
   fetchSpec: vi.fn(async () => 'The issue body.'),
 }));
-import { hubTaskStart, readRun } from '../../ipc';
+import { callerCapabilities, hubTaskStart, readRun } from '../../ipc';
 
 const listRuns = vi.fn<HubCall<'list_runs'>>();
 const listNeedsYou = vi.fn<HubCall<'list_needs_you'>>();
@@ -39,6 +40,7 @@ beforeEach(() => {
     list_skills: apiListSkills,
     set_task_skills: apiSetTaskSkills,
     read_app_config_strict: readAppConfigStrict,
+    api_list_flows: async () => ({ flows: [] }),
   });
   vi.mocked(listRuns).mockResolvedValue([summary]);
   vi.mocked(readRun).mockResolvedValue(detail);
@@ -260,5 +262,40 @@ describe('waitingWhy', () => {
   test('plain words', () => {
     expect(waitingWhy({ kind: 'pr' })).toBe('Pull request ready');
     expect(waitingWhy({ kind: 'issue' })).toBe('Question for you');
+  });
+});
+
+describe('QuickView run with flow', () => {
+  const todo: QuickTask = { id: 'hub-3', title: 'H', column: 'queued', state: 'queued' };
+  const show = (): ReturnType<typeof render> => render(<QuickView task={todo} project="/repo" onClose={() => {}} onFullPage={() => {}} onChanged={() => {}} />);
+  test('a to-do hub card offers Run with flow… in start mode and starts with the chosen flow', async () => {
+    vi.mocked(listRuns).mockResolvedValue([]);
+    show();
+    fireEvent.click(await screen.findByRole('button', { name: 'Run with flow…' }));
+    fireEvent.click(await within(await screen.findByRole('list', { name: 'Flows' })).findByRole('button', { name: 'Plan' }));
+    await waitFor(() => expect(hubTaskStart).toHaveBeenCalledWith('/repo', 'hub-3', 'plan'));
+  });
+  test('it is hidden when the caller cannot start tasks', async () => {
+    vi.mocked(listRuns).mockResolvedValue([]);
+    vi.mocked(callerCapabilities).mockResolvedValueOnce({ mutationsAllowed: true, owner: false, admin: false, canAddProject: { allowed: true }, teamRoles: {}, project: { canStartTask: { allowed: false } } } as never);
+    show();
+    await screen.findByRole('button', { name: 'Start run' });
+    await waitFor(() => expect(screen.queryByRole('button', { name: 'Run with flow…' })).toBeNull());
+  });
+});
+
+describe('QuickView last-good and refetch', () => {
+  test('hints that a shown item may be out of date', async () => {
+    open({ ...task, view: { place: { at: 5, failed: false }, waiting: item({}), waitingUnchecked: true } });
+    expect(await screen.findByText('Could not check GitHub; this may be out of date.')).toBeInTheDocument();
+  });
+
+  test('refetches the last comment when the item\'s update time changes', async () => {
+    vi.mocked(needsYouComment).mockResolvedValueOnce({ lastComment: { author: 'bot', body: 'First?' } }).mockResolvedValueOnce({ lastComment: { author: 'bot', body: 'Second?' } });
+    const view = (updatedAt: string): QuickTask => ({ ...task, view: { place: { at: 5, failed: false }, waiting: item({ updatedAt }) } });
+    const { rerender } = open(view('1'));
+    expect(await screen.findByText('First?')).toBeInTheDocument();
+    rerender(<QuickView task={view('2')} project="/repo" onClose={() => {}} onFullPage={() => {}} />);
+    expect(await screen.findByText('Second?')).toBeInTheDocument();
   });
 });

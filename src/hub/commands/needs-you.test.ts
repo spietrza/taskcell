@@ -102,3 +102,64 @@ test('needs_you_comment reads one item\'s last comment and refuses another repos
   await expect(dispatchRpc(ctx, 'needs_you_comment', { repoPath: repo, id: 'other/repo#4', kind: 'issue' })).rejects.toThrow('not an item of allowed/repo');
   await expect(dispatchRpc(ctx, 'needs_you_comment', { repoPath: repo, id: 'allowed/repo#4', kind: 'x' })).rejects.toThrow("kind must be 'issue' or 'pr'");
 });
+
+test('needs_you_comment refuses an item that is not waiting', async () => {
+  const { forgetBoardWaiting } = await import('../asking.js');
+  const repo = await tmpGitRepo('https://github.com/allowed/repo.git');
+  const { ctx } = await makeCtx(repo, { gh: fakeGh([]) });
+  forgetBoardWaiting(repo);
+  await expect(dispatchRpc(ctx, 'needs_you_comment', { repoPath: repo, id: 'allowed/repo#99', kind: 'issue' })).rejects.toThrow('not waiting');
+  await expect(dispatchRpc(ctx, 'needs_you_comment', { repoPath: repo, id: 'allowed/repo#4', kind: 'pr' })).rejects.toThrow('not waiting');
+});
+
+test('the first read after a drop is kept briefly, so the next read refreshes', async () => {
+  const { forgetBoardWaiting } = await import('../asking.js');
+  const repo = await tmpGitRepo('https://github.com/allowed/repo.git');
+  const calls: string[][] = [];
+  const { ctx } = await makeCtx(repo, { gh: fakeGh(calls) });
+  forgetBoardWaiting(repo);
+  await dispatchRpc(ctx, 'list_needs_you', { repoPath: repo });
+  const lists = (): number => calls.filter((c) => c[1] === 'list').length;
+  const n = lists();
+  const now = vi.spyOn(Date, 'now');
+  try {
+    now.mockReturnValue(Date.now() + 5_000);
+    await dispatchRpc(ctx, 'list_needs_you', { repoPath: repo });
+    expect(lists()).toBeGreaterThan(n);
+    const m = lists();
+    now.mockReturnValue(Date.now() + 10_000);
+    await dispatchRpc(ctx, 'list_needs_you', { repoPath: repo });
+    expect(lists()).toBe(m);
+  } finally {
+    now.mockRestore();
+  }
+});
+
+test('last-good items keep their comments through an outage, without per-item retries, and expire', async () => {
+  const { forgetBoardWaiting } = await import('../asking.js');
+  const repo = await tmpGitRepo('https://github.com/allowed/repo.git');
+  const calls: string[][] = [];
+  let down = false;
+  const { ctx } = await makeCtx(repo, { gh: fakeGh(calls, { fail: () => down }) });
+  forgetBoardWaiting(repo);
+  const t0 = Date.now();
+  const list = (): Promise<{ items: { lastComment?: { body: string } }[]; unchecked?: true }> => dispatchRpc(ctx, 'list_needs_you', { repoPath: repo }) as never;
+  expect((await list()).items[0]?.lastComment?.body).toBe('Which file?');
+  down = true;
+  const now = vi.spyOn(Date, 'now');
+  try {
+    now.mockReturnValue(t0 + 61_000);
+    const before = calls.length;
+    const out = await list();
+    expect(out.unchecked).toBe(true);
+    expect(out.items[0]?.lastComment?.body).toBe('Which file?');
+    // the failed list, and nothing per item (no `api user`, no comment views)
+    expect(calls.slice(before).filter((c) => c[0] === 'api' || c[1] === 'view')).toEqual([]);
+    now.mockReturnValue(t0 + 11 * 60_000);
+    const old = await list();
+    expect(old.unchecked).toBe(true);
+    expect(old.items).toEqual([]);
+  } finally {
+    now.mockRestore();
+  }
+});

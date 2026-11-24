@@ -74,7 +74,12 @@ function isBlocking(body: string, state: string | undefined): boolean {
 export async function fetchPrHistory(
   repo: string,
   number: number,
-  opts: { allowedAuthors?: readonly string[]; gh?: GhRunner } = {},
+  opts: {
+    allowedAuthors?: readonly string[];
+    /** The App's slug: its lesson marker counts for dedupe only, its comments never become trusted input. */
+    appSlug?: string | undefined;
+    gh?: GhRunner;
+  } = {},
 ): Promise<PrHistory> {
   const gh = opts.gh ?? defaultGhRunner;
   const pr = JSON.parse(
@@ -101,9 +106,26 @@ export async function fetchPrHistory(
     additions: pr.additions ?? 0,
     deletions: pr.deletions ?? 0,
     notes,
-    // Trusted authors only: a forged marker from anyone else must not suppress the lesson.
-    hasLessonComment: comments.some((c) => hasMarker('lesson', c.body ?? '')),
+    // Trusted authors and the App identity only: a forged marker from anyone else must not suppress the lesson.
+    hasLessonComment: comments.some((c) => hasMarker('lesson', c.body ?? '')) || (await hasAppLessonComment(gh, repo, number, opts.appSlug)),
   };
+}
+
+/**
+ * True when the App posted a lesson marker. `gh pr view` reports an App comment's author as the bare slug, which any
+ * user can register, so read REST, where only the App itself is `user.type: Bot` with login `<slug>[bot]`.
+ */
+async function hasAppLessonComment(gh: GhRunner, repo: string, number: number, appSlug: string | undefined): Promise<boolean> {
+  const slug = appSlug?.trim().toLowerCase() ?? '';
+  if (slug === '') return false;
+  const botLogin = `${slug}[bot]`;
+  const pages = JSON.parse(await gh(['api', '--paginate', '--slurp', `repos/${repo}/issues/${number}/comments?per_page=100`])) as {
+    user?: { login?: string; type?: string } | null;
+    body?: string | null;
+  }[][];
+  return pages
+    .flat()
+    .some((c) => c.user?.type === 'Bot' && c.user.login?.toLowerCase() === botLogin && hasMarker('lesson', c.body ?? ''));
 }
 
 interface GlabLessonMr {

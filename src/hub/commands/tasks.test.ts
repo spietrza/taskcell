@@ -424,10 +424,13 @@ describe('needs-you cache', () => {
     const now = vi.spyOn(Date, 'now');
     const t0 = Date.now();
     try {
+      // The first read after a drop is kept briefly; the one after it is kept for the full TTL.
+      await dispatchRpc(ctx, 'list_tasks', { repoPath: repo });
+      now.mockReturnValue(t0 + 5_000);
       await dispatchRpc(ctx, 'list_tasks', { repoPath: repo });
       const first = calls.length;
       expect(first).toBeGreaterThan(0);
-      now.mockReturnValue(t0 + 20_000);
+      now.mockReturnValue(t0 + 25_000);
       await dispatchRpc(ctx, 'list_tasks', { repoPath: repo });
       await dispatchRpc(ctx, 'list_needs_you', { repoPath: repo });
       expect(calls.length).toBe(first);

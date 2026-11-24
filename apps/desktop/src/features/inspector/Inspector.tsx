@@ -3,7 +3,7 @@ import { Button, PAGE_CLASS, cn } from '@/ui';
 import { FilePlus, RefreshCw } from 'lucide-react';
 import { canUseFleet, isDemoMode, subscribe, hub } from '../../transport';
 import { DEMO_READ_ONLY_MESSAGE } from '../../errors';
-import { listRunsAll, listTasksAll, readRun, apiCapabilitiesCached, type Capabilities, type CreateRunParams } from '../../ipc';
+import { listRunsAll, listTasksAll, readRun, readRunEvents, apiCapabilitiesCached, type Capabilities, type CreateRunParams } from '../../ipc';
 import { RunList, activeKey, runKey } from './RunList';
 import { projectColor } from '../../color';
 import { RunPane } from './RunPane';
@@ -12,6 +12,7 @@ import { setUrlParam, urlParam } from '../../screenUrl';
 import { CostBreakdown } from './CostBreakdown';
 import { ConflictStats } from './ConflictStats';
 import { RunDetail } from './RunDetail';
+import { foldRunEvents } from './runStages';
 import { LiveRun } from './LiveRun';
 import { RemoteRuns } from './RemoteRuns';
 import { Fleet } from '../fleet/Fleet';
@@ -106,6 +107,19 @@ export function Inspector({
   const [error, setError] = useState<string | null>(null);
   // A live run under "All repositories" is held to its own repository's budget.
   const [cfg] = useAppConfig(liveRun?.repoPath ?? project);
+  // The opened record's flow, from its event log (the plain detail view; on Runs the pane reads it).
+  const [detailFlow, setDetailFlow] = useState<string | undefined>();
+  useEffect(() => {
+    setDetailFlow(undefined);
+    if (!detail || screen === 'runs') return;
+    let alive = true;
+    readRunEvents(detailRepo, detail.taskId, detail.timestamp)
+      .then((r) => alive && setDetailFlow(foldRunEvents(r.events).flow))
+      .catch(() => {});
+    return () => {
+      alive = false;
+    };
+  }, [detail?.taskId, detail?.timestamp, detailRepo, screen]);
   const [loading, setLoading] = useState(false);
   // The first load has answered (a `?run=` link waits for it, not for a list that may stay empty).
   const [loaded, setLoaded] = useState(false);
@@ -683,7 +697,7 @@ export function Inspector({
         // A CI run imported from Settings opens as the plain detail; on Runs the record is the split view's right pane.
         <div ref={detailRef} tabIndex={-1} className="flex min-h-0 flex-1 flex-col gap-3 outline-none">
           <CardAnswer project={detailRepo} taskId={detail.taskId} showQuestion />
-          <RunDetail detail={detail} project={detailRepo} />
+          <RunDetail detail={detail} project={detailRepo} flow={detailFlow} />
         </div>
       ) : liveRun && screen !== 'runs' ? (
         <div className="flex min-h-0 flex-1 flex-col">

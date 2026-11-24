@@ -98,3 +98,13 @@ test('a changed gate config says why it matters', () => {
   expect(screen.getByRole('note')).toHaveAttribute('title', 'This run changed a file your test commands come from. Check it before merging.');
   expect(screen.getByRole('note')).toHaveTextContent('Gate config changed: package.json');
 });
+
+test('shows the flow line when the run has a flow, and none without', () => {
+  const detail: RunDetailT = { taskId: 'task-1', timestamp: 't', stages: [stage()] };
+  const { unmount } = render(<RunDetail detail={detail} project="/repo" flow="plan" />);
+  expect(screen.getByText('plan')).toBeInTheDocument();
+  expect(screen.getByText(/^Flow/)).toBeInTheDocument();
+  unmount();
+  render(<RunDetail detail={detail} project="/repo" />);
+  expect(screen.queryByText(/^Flow/)).toBeNull();
+});
