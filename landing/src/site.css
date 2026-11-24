@@ -70,6 +70,8 @@ code, pre { font-family: var(--font-mono); }
 .launch a { display: block; padding: 12px var(--edge); color: inherit; text-decoration: none; }
 .launch a:hover span { text-decoration: underline; }
 .launch a:focus-visible { outline-color: var(--accent-ink); outline-offset: -4px; }
+.ph-badge { display: inline-block; margin-top: 20px; line-height: 0; }
+.ph-badge img { display: block; max-width: 100%; height: auto; }
 
 .wrap { display: grid; grid-template-columns: repeat(12, minmax(0, 1fr)); column-gap: 20px; padding: 0 var(--edge); }
 /* Gutter grows past --page so content stays centred and capped; backgrounds stay full-bleed. */
