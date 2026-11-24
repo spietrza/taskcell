@@ -1,7 +1,7 @@
 // Hub commands: the "Needs you" read model and its reply/merge actions. One module per feature — contract, validation and handler live here;
 // `pnpm gen:wire` derives Commands, COMMAND_NAMES and dispatch from it (see CONTRIBUTING.md).
 import { BadRequestError } from '../../sidecar/sidecar.js';
-import { mergeNeedsYou, MAX_COMMENT_FETCHES, needsYouComment, replyNeedsYou } from '../needs-you.js';
+import { itemNumber, mergeNeedsYou, MAX_COMMENT_FETCHES, needsYouComment, replyNeedsYou } from '../needs-you.js';
 import { readAppConfig } from '../app-config.js';
 import { answerCard, cachedNeedsYou, forgetBoardWaiting } from '../asking.js';
 import * as projects from '../projects.js';
@@ -44,7 +44,11 @@ export const commands = defineCommands<NeedsYouCommands>({
     if (kind !== 'issue' && kind !== 'pr') throw new BadRequestError("kind must be 'issue' or 'pr'");
     const repoSlug = await githubSlug(real);
     if (repoSlug === undefined) throw new BadRequestError('needs_you_comment: this project has no GitHub remote');
-    return needsYouComment(repoSlug, requireString(args, 'id'), kind, ctx.gh);
+    const id = requireString(args, 'id');
+    itemNumber(repoSlug, id);
+    // Only an item that waits: the comment of any other issue or PR is not the hub's to hand out.
+    if (!(await cachedNeedsYou(ctx.configDir, real, ctx.gh)).items.some((i) => i.id === id && i.kind === kind)) throw new BadRequestError(`${id} is not waiting for you`);
+    return needsYouComment(repoSlug, id, kind, ctx.gh);
   },
   list_needs_you_all: async ({ ctx, allow, scope }) => {
     // Named as registered (the path the UI knows the project by), not as resolved.

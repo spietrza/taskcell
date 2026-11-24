@@ -199,14 +199,15 @@ export function QuickView({
   // The hub's answer: the card's Needs-you item, if one waits.
   const waiting = task.view?.waiting ?? null;
   // The lists carry no comments: the opened item's last one is read here (a card's question comes with the list).
-  const [fetched, setFetched] = useState<({ id: string } & Pick<NeedsYouItem, 'lastComment' | 'ask'>) | null>(null);
+  const [fetched, setFetched] = useState<({ id: string; updatedAt?: string | undefined } & Pick<NeedsYouItem, 'lastComment' | 'ask'>) | null>(null);
   useEffect(() => {
     if (waiting === null || waiting.kind === 'card' || waiting.lastComment !== undefined) return;
     let alive = true;
-    hub().call('needs_you_comment', { repoPath, id: waiting.id, kind: waiting.kind }).then((c) => alive && setFetched({ id: waiting.id, ...c }), () => {});
+    hub().call('needs_you_comment', { repoPath, id: waiting.id, kind: waiting.kind }).then((c) => alive && setFetched({ id: waiting.id, updatedAt: waiting.updatedAt, ...c }), () => {});
     return () => { alive = false; };
-  }, [repoPath, waiting?.id, waiting?.kind]);
-  const item = waiting !== null && fetched?.id === waiting.id ? { ...waiting, ...fetched } : waiting;
+    // The item changing on the tracker (a new factory comment) refetches it, not only a new id.
+  }, [repoPath, waiting?.id, waiting?.kind, waiting?.updatedAt]);
+  const item = waiting !== null && fetched?.id === waiting.id && fetched.updatedAt === waiting.updatedAt ? { ...waiting, ...fetched } : waiting;
   const [cfg, , cfgStatus] = useAppConfig(repoPath);
 
   // The run list is cheap; the latest record (stages, diffs) is read for the receipt and the station notes.
@@ -341,8 +342,10 @@ export function QuickView({
 
       <div className="flex min-h-0 flex-1 flex-col gap-6 overflow-y-auto overscroll-contain px-4 py-4">
         <PausedPanel repoPath={repoPath} task={task} onRetried={onChanged} />
-        {item === null && task.view?.waitingUnchecked === true && (
-          <p className="text-sm text-muted-foreground">Could not check whether this card waits for you.</p>
+        {task.view?.waitingUnchecked === true && (
+          <p className="text-sm text-muted-foreground">
+            {item === null ? 'Could not check whether this card waits for you.' : 'Could not check GitHub; this may be out of date.'}
+          </p>
         )}
         {item !== null && (
           <div className="space-y-2">
