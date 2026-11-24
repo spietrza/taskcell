@@ -224,8 +224,10 @@ const showResult = () => {
   byId('r-plan-note').textContent = r.plan.note;
   byId('r-alt').textContent = r.alt;
   byId('r-alt').hidden = !r.alt;
-  byId('r-plan-link').textContent = r.plan.action;
-  byId('r-plan-link').href = r.plan.id ? `/hosting/?plan=${r.plan.id}` : 'https://github.com/spietrza/taskcell/issues';
+  // With CHECKOUT=live (the Worker sets data-checkout) the plan link is its checkout, not the request page.
+  const live = root.dataset.checkout === 'live' && r.plan.id;
+  byId('r-plan-link').textContent = live ? r.plan.buy : r.plan.action;
+  byId('r-plan-link').href = live ? `/checkout?plan=${r.plan.id}&period=monthly&lang=${root.lang}` : r.plan.id ? `/hosting/?plan=${r.plan.id}` : 'https://github.com/spietrza/taskcell/issues';
   byId('r-planned').hidden = !r.plan.id;
   fill(byId('r-promises'), r.promises);
   steps.forEach((s) => (s.hidden = true));

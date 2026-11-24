@@ -62,6 +62,11 @@ export default {
         el.setAttribute('data-currency', currencyFor(country));
         if (checkout) el.setAttribute('data-checkout', checkout);
       },
+    }).on('meta[data-live], meta[data-planned]', {
+      // A <meta> cannot be hidden by CSS: keep the description that fits the mode. The rest of the live copy is hidden by site.css.
+      element: (el) => {
+        if (el.hasAttribute('data-live') !== (checkout === 'live')) el.remove();
+      },
     }).on('[data-score]', {
       // Only pages that show a score wait for it; an unknown or failed value keeps the page's own text.
       element: async (el) => {

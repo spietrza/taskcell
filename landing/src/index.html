@@ -59,11 +59,13 @@
     <div class="cta">
       <a class="btn" href="https://github.com/spietrza/taskcell">Get it on GitHub</a>
       <a class="btn ghost" href="#ready">Check your repository</a>
-      <small>Open source, MIT. Your machine, your AI plan. Or let us run it for you: <a href="#pricing">hosting is planned, from €14 a month</a>.</small>
+      <small data-planned>Open source, MIT. Your machine, your AI plan. Or let us run it for you: <a href="#pricing">hosting is planned, from €14 a month</a>.</small>
+      <small data-live>Open source, MIT. Your machine, your AI plan. Or let us run it for you: <a href="#pricing">hosting from €14 a month</a>.</small>
     </div>
     <ul class="chips" aria-label="What it runs on">
       <li class="chip">Self-hosted</li>
-      <li class="chip"><a href="#pricing">Hosted by us: planned</a></li>
+      <li class="chip" data-planned><a href="#pricing">Hosted by us: planned</a></li>
+      <li class="chip" data-live><a href="#pricing">Hosted by us</a></li>
       <li class="chip">Claude Code · Codex · Cursor</li>
       <li class="chip">GitHub · GitLab · Linear</li>
     </ul>
@@ -383,19 +385,22 @@ taskcell hub --repo ../app
   <ul class="coming" aria-label="Beta and coming">
     <li data-reveal class="d1 beta"><b>iPhone app</b>New in 1.17, connects to your own Hub. Not in the App Store yet: <a href="mailto:support@taskcell.dev?subject=iPhone%20beta">write to us</a> and we'll invite you to test it.</li>
     <li data-reveal class="d2"><b>Desktop app</b>The Hub as a native app, starting with macOS.</li>
-    <li data-reveal class="d3"><b>Hosting</b>Not open yet. The <a href="#pricing">planned prices</a> are below.</li>
+    <li data-reveal class="d3" data-planned><b>Hosting</b>Not open yet. The <a href="#pricing">planned prices</a> are below.</li>
+    <li data-reveal class="d3" data-live><b>Hosting</b>Open. See the <a href="#pricing">prices</a> below.</li>
   </ul>
 </section>
 
 <section class="section wrap" id="pricing" aria-labelledby="price-h">
   <div class="head">
     <p class="eyebrow" data-reveal>Pricing</p>
-    <h2 id="price-h" data-reveal class="d1">Free on your machine. Hosting is planned.</h2>
+    <h2 id="price-h" data-reveal class="d1">Free on your machine. <span data-planned>Hosting is planned.</span><span data-live>Hosting is open.</span></h2>
   </div>
-  <p class="intro d2" data-reveal>Self-hosting costs nothing and works today. Hosting is not open yet: the prices below are what we plan to charge, and paying yearly takes 20% off.</p>
+  <p class="intro d2" data-reveal data-planned>Self-hosting costs nothing and works today. Hosting is not open yet: the prices below are what we plan to charge, and paying yearly takes 20% off.</p>
+  <p class="intro d2" data-reveal data-live>Self-hosting costs nothing and works today. Hosting is open: paying yearly takes 20% off.</p>
 
   <div class="price-bar" data-reveal>
-    <p><b>Hosting is not open yet.</b> These are planned prices. Nothing here can be bought today; the buttons take you to a request page.</p>
+    <p data-planned><b>Hosting is not open yet.</b> These are planned prices. Nothing here can be bought today; the buttons take you to a request page.</p>
+    <p data-live><b>Hosting is open.</b> Pick a plan and pay by card; prices include VAT.</p>
     <fieldset class="seg" id="billing" hidden>
       <legend class="sr">Billing period</legend>
       <label><input type="radio" name="billing" value="monthly" checked>Monthly</label>
@@ -418,7 +423,7 @@ taskcell hub --repo ../app
       <a class="btn" href="#install">Install it yourself</a>
     </li>
     <li data-reveal class="d2">
-      <span class="tag">Planned</span>
+      <span class="tag" data-planned>Planned</span>
       <h3>Solo</h3>
       <p class="price" data-plan="solo" data-price="14"><span>€14</span><small>/month</small></p>
       <p class="per" data-per>Billed monthly</p>
@@ -428,10 +433,10 @@ taskcell hub --repo ../app
         <li>A dedicated server, backed up daily</li>
         <li>Updates done for you</li>
       </ul>
-      <a class="btn ghost" href="/hosting/?plan=solo">Request Solo</a>
+      <a class="btn ghost" href="/hosting/?plan=solo"><span data-planned>Request Solo</span><span data-live>Subscribe to Solo</span></a>
     </li>
     <li data-reveal class="d3">
-      <span class="tag">Planned</span>
+      <span class="tag" data-planned>Planned</span>
       <h3>Team</h3>
       <p class="price" data-plan="team" data-price="39"><span>€39</span><small>/month</small></p>
       <p class="per" data-per>Billed monthly</p>
@@ -441,10 +446,10 @@ taskcell hub --repo ../app
         <li>A dedicated server, backed up daily</li>
         <li>Updates done for you</li>
       </ul>
-      <a class="btn ghost" href="/hosting/?plan=team">Request Team</a>
+      <a class="btn ghost" href="/hosting/?plan=team"><span data-planned>Request Team</span><span data-live>Subscribe to Team</span></a>
     </li>
     <li data-reveal class="d4">
-      <span class="tag">Planned</span>
+      <span class="tag" data-planned>Planned</span>
       <h3>Pro</h3>
       <p class="price" data-plan="pro" data-price="79"><span>€79</span><small>/month</small></p>
       <p class="per" data-per>Billed monthly</p>
@@ -454,14 +459,14 @@ taskcell hub --repo ../app
         <li>A dedicated server, backed up daily</li>
         <li>Updates done for you</li>
       </ul>
-      <a class="btn ghost" href="/hosting/?plan=pro">Request Pro</a>
+      <a class="btn ghost" href="/hosting/?plan=pro"><span data-planned>Request Pro</span><span data-live>Subscribe to Pro</span></a>
     </li>
   </ul>
 
   <p class="plans-note" data-reveal>On every hosted plan the models run on <a href="#keys">your own keys</a>, and we add no margin to what they cost.</p>
   <div class="report pass" data-reveal>
     <p><b>7-day Solo pass, €8.</b> If you stay, the €8 is credited toward your first month.</p>
-    <a class="btn ghost" href="/hosting/?plan=pass">Request the 7-day pass</a>
+    <a class="btn ghost" href="/hosting/?plan=pass"><span data-planned>Request the 7-day pass</span><span data-live>Buy the 7-day pass</span></a>
   </div>
 </section>
 
@@ -602,7 +607,7 @@ taskcell hub --repo ../app
         <p id="r-plan-note"></p>
         <p id="r-alt" hidden></p>
         <a class="btn" id="r-plan-link" href="/hosting/"></a>
-        <p class="hint" id="r-planned">A planned price. Hosting is not open yet.</p>
+        <p class="hint" id="r-planned" data-planned>A planned price. Hosting is not open yet.</p>
       </div>
       <div>
         <p class="cmd-label">What you get</p>

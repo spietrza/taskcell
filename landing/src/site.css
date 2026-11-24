@@ -62,6 +62,8 @@ code, pre { font-family: var(--font-mono); }
 ::selection { background: var(--accent); color: var(--accent-ink); }
 :focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
 [hidden] { display: none !important; }
+/* Copy that depends on CHECKOUT: the Worker sets <html data-checkout="live"> (data-live shows only then, data-planned only otherwise). */
+html:not([data-checkout="live"]) [data-live], html[data-checkout="live"] [data-planned] { display: none !important; }
 .sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
 .skip { position: absolute; left: var(--m); top: -100px; z-index: 20; padding: 10px 16px; background: var(--accent); color: var(--accent-ink); font-weight: 700; text-decoration: none; }
 .skip:focus { top: 12px; }
