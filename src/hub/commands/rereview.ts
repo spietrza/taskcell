@@ -33,7 +33,7 @@ export const commands = defineCommands<RereviewCommands>({
     if (pr.state !== 'OPEN') throw new BadRequestError(`${id} is not open`);
     if (pr.isCrossRepository) throw new BadRequestError(`${id} is from a fork`);
     if (!isFactoryBranch(pr.headRefName)) throw new BadRequestError(`${id} is not on a factory branch`);
-    if (hasInFlightLabel(have)) throw new BadRequestError(`${id} is being reviewed or revised`);
+    if (hasInFlightLabel(have)) throw new BadRequestError(`${id} is being reviewed, revised or run`);
     // The spelling the repo already has (a workflow may gate on the old name only); created only when it has neither.
     const [trigger = REVIEW_TRIGGER_LABEL] = await resolveAdds([REVIEW_TRIGGER_LABEL], repoSlug, gh, [REVIEW_TRIGGER_LABEL]);
     const remove = await resolveRemovals([REVIEWED_LABEL, trigger], async () => have);

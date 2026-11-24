@@ -1,6 +1,7 @@
 // Slack answers: a reply in the thread of a posted question becomes its answer, over Socket Mode (outbound websocket,
 // no public endpoint). A mapped Slack user acts as that hub user with a NON-owner caller, through the same dispatchRpc
 // call the UI makes (visibility, write gate, audit). Server mode only. See docs/hub.md "Slack".
+import { setTimeout as sleep } from 'node:timers/promises';
 import type { Caller } from './teams.js';
 import { dispatchRpc, type RpcContext } from './rpc.js';
 import type { Actor } from './audit.js';
@@ -11,6 +12,7 @@ import { findSlackThread, slackEscape } from './slack.js';
 const MAX_ANSWER = 10_000;
 const MAX_SEEN = 1000;
 const TIMEOUT_MS = 15_000;
+const REPLY_TIMEOUT_MS = 120_000;
 const BACKOFF_START_MS = 1000;
 const BACKOFF_MAX_MS = 60_000;
 
@@ -29,7 +31,12 @@ export interface SlackAnswerConfig {
   WebSocketImpl?: typeof WebSocket;
   /** First reconnect delay (tests); doubles to 60 s. */
   backoffStartMs?: number;
+  /** Longest one reply may hold its thread's queue (tests); 120 s by default. */
+  replyTimeoutMs?: number;
 }
+
+/** A note for the channel never shows a server path. */
+const stripPaths = (s: string): string => s.replace(/\b[A-Za-z]:\\[^\s'"`]+/g, '[path]').replace(/(?<![\w/:])\/[^\s'"`/]+(?:\/[^\s'"`]*)+/g, '[path]');
 
 export function parseSlackUsers(raw: string | undefined): Map<string, string> {
   const map = new Map<string, string>();
@@ -61,7 +68,8 @@ export function startSlackAnswers(cfg: SlackAnswerConfig): { close(): void } {
   const users = parseSlackUsers(cfg.users);
   const seen = new Set<string>();
   let stopped = false;
-  let chain: Promise<void> = Promise.resolve(); // one reply at a time: the next sees the previous answer
+  const chains = new Map<string, Promise<void>>(); // per thread, one reply at a time (the next sees the previous answer, unless that one timed out)
+  const replyTimeout = cfg.replyTimeoutMs ?? REPLY_TIMEOUT_MS;
   let ws: WebSocket | undefined;
   let timer: NodeJS.Timeout | undefined;
   const start = cfg.backoffStartMs ?? BACKOFF_START_MS;
@@ -102,7 +110,7 @@ export function startSlackAnswers(cfg: SlackAnswerConfig): { close(): void } {
     } catch (e) {
       // Only a caller-correctable refusal (bad request, forbidden) shows the hub's words; an internal fault stays in the hub.
       const { kind: errKind, message } = classifyError(e);
-      await note(cfg.channel, ev.thread_ts, errKind === 'bad-request' ? redactForPublish(message) : 'the hub could not take this answer');
+      await note(cfg.channel, ev.thread_ts, errKind === 'bad-request' ? stripPaths(redactForPublish(message)) : 'the hub could not take this answer');
     }
   };
 
@@ -124,7 +132,18 @@ export function startSlackAnswers(cfg: SlackAnswerConfig): { close(): void } {
         if (seen.size > MAX_SEEN) seen.delete(seen.values().next().value as string);
       }
       const event = env.payload.event;
-      chain = chain.then(() => handle(event)).catch(() => undefined);
+      const key = typeof event.thread_ts === 'string' ? event.thread_ts : '';
+      // A hung reply holds only its own thread, and only until the timeout (a timed-out reply is abandoned, not cancelled).
+      const run = async (): Promise<void> => {
+        const ac = new AbortController();
+        const limit = sleep(replyTimeout, undefined, { signal: ac.signal, ref: false }).catch(() => undefined);
+        await Promise.race([handle(event), limit]).finally(() => ac.abort());
+      };
+      const next = (chains.get(key) ?? Promise.resolve()).then(run).catch(() => undefined);
+      chains.set(key, next);
+      void next.then(() => {
+        if (chains.get(key) === next) chains.delete(key);
+      });
     }
   };
 

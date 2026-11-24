@@ -1,4 +1,4 @@
-import { setTimeout as timeout } from 'node:timers/promises';
+import { delay } from '../core/delay.js';
 import { execa } from 'execa';
 import { hostGitArgs } from '../worktree/host-git.js';
 import { runAgent } from '../core/taskcell.js';
@@ -200,14 +200,6 @@ export interface RunStagesOptions {
  * account that just refused) and the rate-limit hand-back takes over.
  */
 export const MAX_RATE_LIMIT_WAIT_MS = 5 * 60 * 1000;
-
-/**
- * Abortable wait. Cancellation resolves rather than throwing: the caller's next step is the retry,
- * which carries the same signal and fails there on its own terms.
- */
-async function delay(ms: number, signal?: AbortSignal): Promise<void> {
-  await timeout(ms, undefined, signal !== undefined ? { signal } : {}).catch(() => undefined);
-}
 
 /** Sandbox dir for the fork scorer: a throwaway cwd so any stray write never touches the worktree. */
 const SCORER_WORKDIR = '/tmp';
