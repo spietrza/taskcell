@@ -43,7 +43,7 @@ assert.deepEqual([calls[7].form.customer, calls[7].form.currency], [undefined, '
 // The Worker's page rewrite per CHECKOUT mode, on the built pages (run after build.mjs). Node has no HTMLRewriter, so a
 // small one stands in: it knows the selectors worker.js uses (tag, #id, [attr], comma lists) and what its handlers call.
 const VOID = new Set(['area', 'base', 'br', 'col', 'embed', 'hr', 'img', 'input', 'link', 'meta', 'source', 'track', 'wbr']);
-const TOKEN = /<!--[\s\S]*?-->|<(script|style)\b[^>]*>[\s\S]*?<\/\1>|<(\/?)([a-zA-Z][\w-]*)((?:\s+[^\s=>/]+(?:=(?:"[^"]*"|'[^']*'|[^\s>]+))?)*)\s*\/?>/g;
+const TOKEN = /<!--[\s\S]*?-->|<(script|style)\b[^>]*>[\s\S]*?<\/\1>|<(\/?)([a-zA-Z][\w-]*)((?:\s+[^\s=>/"']+(?:=(?:"[^"]*"|'[^']*'|[^\s>"'=]+))?)*)\s*\/?>/g;
 const matches = (sel, tag, attrs) =>
   sel.split(',').map((s) => s.trim()).some((s) =>
     s.startsWith('#') ? attrs.get('id') === s.slice(1) : s.startsWith('[') ? attrs.has(s.slice(1, -1)) : s === tag);
