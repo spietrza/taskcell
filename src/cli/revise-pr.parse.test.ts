@@ -22,9 +22,9 @@ describe('parseCli revise-pr', () => {
   });
 
   it('parses revise-pr --fallback-provider / --fallback-model, and rejects the same bad combinations as run', () => {
-    const cmd = parseCli(['revise-pr', 'o/r#12', '--provider', 'claude', '--fallback-provider', 'codex', '--fallback-model', 'gpt-5.6-sol'], '/work');
+    const cmd = parseCli(['revise-pr', 'o/r#12', '--provider', 'claude', '--fallback-provider', 'codex', '--fallback-model', 'gpt-6-sol'], '/work');
     expect(cmd.kind === 'revise-pr' && cmd.fallbackProvider).toBe('codex');
-    expect(cmd.kind === 'revise-pr' && cmd.fallbackModel).toBe('gpt-5.6-sol');
+    expect(cmd.kind === 'revise-pr' && cmd.fallbackModel).toBe('gpt-6-sol');
     const without = parseCli(['revise-pr', 'o/r#12'], '/work');
     expect(without.kind === 'revise-pr' && 'fallbackProvider' in without).toBe(false);
     expect(parseCli(['revise-pr', 'o/r#12', '--fallback-provider', 'bogus'], '/work')).toMatchObject({ kind: 'error', message: expect.stringContaining('Unknown fallback-provider "bogus"') });
