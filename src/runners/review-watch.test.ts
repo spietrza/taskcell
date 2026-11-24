@@ -88,6 +88,22 @@ describe('reviewWatchOnce (fake adapter)', () => {
     expect(tick).toEqual({ reviewed: [], failed: ['h#2'], skipped: [] });
     expect(restored).toEqual([1, 2]);
   });
+
+  it('counts a usage-cap pause as failed when parking it failed', async () => {
+    const tick = await reviewWatchOnce(
+      quiet({
+        listReady: async () => [{ id: 1 }],
+        review: async () => {
+          throw new UsageCapError('claude', 95, 90, new Date('2026-11-09T05:00:00Z'));
+        },
+        onFailure: async () => {
+          throw new Error('label edit refused');
+        },
+      }),
+      idOf,
+    );
+    expect(tick.failed).toEqual(['h#1']);
+  });
 });
 
 describe('incompleteCapState', () => {

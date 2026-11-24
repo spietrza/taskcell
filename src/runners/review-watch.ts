@@ -81,13 +81,16 @@ export async function reviewWatchOnce<T>(
         opts.log?.(`${phase} ${id}: reviewed -> marked`);
         return { id, kind: 'reviewed' };
       } catch (error) {
+        let parked = true;
         try {
           await primitives.onFailure(item, error);
         } catch (restoreError) {
+          parked = false;
           opts.log?.(`${phase} ${id}: restore failed -> manual label check (${failureReason(restoreError)})`);
         }
         // A usage-cap pause is not a failure: the adapter parked the item, and a re-run would hit the cap again.
-        if (error instanceof UsageCapError) {
+        // A pause whose park failed stays a failure, so `--once` goes red and the stuck label gets a look.
+        if (error instanceof UsageCapError && parked) {
           opts.log?.(`${phase} ${id}: paused -> usage cap (${failureReason(error)})`);
           return { id, kind: 'paused' };
         }
