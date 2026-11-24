@@ -140,6 +140,7 @@ export const COMMAND_NAMES = [
   'local_worker_state',
   'merge_needs_you',
   'migrate_labels',
+  'needs_you_comment',
   'pull_checkout',
   'read_app_config',
   'read_app_config_strict',

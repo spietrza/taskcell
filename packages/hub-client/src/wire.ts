@@ -384,6 +384,8 @@ export interface CardView {
   run?: CardRun;
   /** The card's Needs-you item (its pull request, its question, its issue), if one waits. */
   waiting?: NeedsYouItem;
+  /** The hub could not check GitHub for what waits (rate limit, offline): `waiting` is the last good read, if any. */
+  waitingUnchecked?: true;
 }
 
 /** The scheduler's answer for one hub-board task; `label` is pre-rendered ("waits until Tue 18.11 (Europe/Berlin)"). */
@@ -1423,7 +1425,9 @@ export interface Commands {
   /** HUB_ONLY: rename the repo's old `vanguard:*` labels to `taskcell:*` (as `taskcell migrate-labels`). Dry-run unless `apply`. */
   migrate_labels: { args: { repoPath: string; apply?: boolean }; result: MigrateLabelsReport };
   /** HUB_ONLY: the hub "Needs you" read model (src/hub/needs-you.ts) — `gh` and labels only, no model call. */
-  list_needs_you: { args: { repoPath: string }; result: { items: NeedsYouItem[] } };
+  list_needs_you: { args: { repoPath: string }; result: { items: NeedsYouItem[]; unchecked?: true } };
+  /** HUB_ONLY: the factory's last comment on one waiting issue or PR (the lists carry none), for the view of the item that is opened. */
+  needs_you_comment: { args: { repoPath: string; id: string; kind: 'issue' | 'pr' }; result: { lastComment?: { author: string; body: string }; ask?: 'question' | 'too-vague' } };
   /** HUB_ONLY: `list_needs_you` across every hub repository, each item stamped with its repository. */
   list_needs_you_all: { args: { teamId?: string } | undefined; result: { items: (NeedsYouItem & RepoStamp)[]; failures: RepoReadFailure[] } };
   /** HUB_ONLY: post a reply with the caller's own `gh` identity and move the item on. `card`: answer a card whose run stopped
@@ -1635,6 +1639,7 @@ export const COMMAND_NAMES = [
   'local_worker_state',
   'merge_needs_you',
   'migrate_labels',
+  'needs_you_comment',
   'pull_checkout',
   'read_app_config',
   'read_app_config_strict',

@@ -188,6 +188,7 @@ const commandHandlers = {
   ],
   read_issue_history: () => ({ repo: 'acme/app', issue: 1, prs: [], entries: [], chains: [], unavailable: [] }),
   list_needs_you: () => ({ items: waitingNeedsYou }),
+  needs_you_comment: () => ({}),
   list_lessons: () => ({ lessons: mockLessons, branchFound: true }),
   list_repo_skills: () => ({ skills: [] }),
   update_skill_pr: () => ({ prUrl: 'https://github.com/acme/app/pull/1' }),

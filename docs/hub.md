@@ -546,8 +546,11 @@ repositories, using `gh` and labels only — no model call (`src/hub/needs-you.t
 
 Each item shows the factory's own last comment (its `gh` user, the CI identity, or a configured bot
 login), redacted for secrets and rendered as plain text. Every list is filtered on GitHub's side and
-capped at 100; only the first 30 items fetch their last comment, and a failed fetch drops just that
-comment, not the list.
+capped at 100. The read is kept for 60 s per repository and shared with the Board's cards (the Board itself fetches no
+comments; the open quick view reads its item's with `needs_you_comment`). Home's lists fetch the first 30 items' last
+comments once per kept read, and a failed fetch drops just that comment, not the list. A failed GitHub read is kept for
+15 s: the last good items come back flagged unchecked (a failure entry in `list_needs_you_all`, a "Could not check
+whether this card waits for you" note in the quick view).
 
 `reply_needs_you` posts the reply as the hub's `gh` user, then hands the item back to the factory:
 a Task moves from `needs info` to the project's trigger label (`label` in `.taskcell/app.json`, else

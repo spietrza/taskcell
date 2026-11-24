@@ -7,6 +7,8 @@ import type { CostBreakdown, CostPeriod, CostRow, RunSummary } from '../wire.js'
 
 /** A `git fetch` per Home/Runs refresh would be slow: the branch is re-read at most this often. */
 const TTL_MS = 60_000;
+/** The metrics-branch `git fetch` can hang (a slow or unreachable remote): a board listing waits at most this long for it. */
+export const CI_READ_TIMEOUT_MS = 10_000;
 const DAY_MS = 24 * 60 * 60 * 1000;
 export const NO_BRANCH_HINT = 'Run `taskcell metrics push` from your CI workflow (it writes the taskcell-metrics branch) and CI runs will show up here.';
 
@@ -40,10 +42,19 @@ function parseCiRecords(text: string): CiRecord[] {
 }
 
 /** The branch's run_complete records; undefined when the repo has no metrics branch (or it holds none). */
-export async function readCiRecords(repoPath: string, now: number = Date.now()): Promise<CiRecord[] | undefined> {
+export async function readCiRecords(
+  repoPath: string,
+  now: number = Date.now(),
+  readText: (repoPath: string) => Promise<string> = readBranchMetrics,
+  timeoutMs: number = CI_READ_TIMEOUT_MS,
+): Promise<CiRecord[] | undefined> {
   const hit = cache.get(repoPath);
   if (hit !== undefined && now - hit.at < TTL_MS) return hit.read;
-  const read = readBranchMetrics(repoPath).then(
+  let timer: NodeJS.Timeout | undefined;
+  const timeout = new Promise<string>((_, reject) => {
+    timer = setTimeout(() => reject(new Error('metrics branch fetch timed out')), timeoutMs);
+  });
+  const read = Promise.race([readText(repoPath), timeout]).finally(() => clearTimeout(timer)).then(
     (text) => (text === '' ? undefined : parseCiRecords(text)),
     () => undefined,
   );
