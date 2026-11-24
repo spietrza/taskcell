@@ -25,7 +25,6 @@ import type {
   FactoryProviderId,
   FactoryState,
   FactoryVerifyResult,
-  NeedsYouItem,
   SpawnInfo,
   StartTaskResult,
 } from './wire';
@@ -202,8 +201,13 @@ export function removeProject(path: string): Promise<Project[]> {
 
 /** Hub-only: the "Needs you" read model (src/hub/needs-you.ts) — items waiting on a human, gh/labels
  *  only, no model call. Empty on a project with no GitHub remote. */
-export function listNeedsYou(repoPath: string): Promise<{ items: NeedsYouItem[] }> {
+export function listNeedsYou(repoPath: string): Promise<Commands['list_needs_you']['result']> {
   return call('list_needs_you', { repoPath });
+}
+
+/** HUB_ONLY: the factory's last comment on one waiting issue or PR; the lists carry none. */
+export function needsYouComment(repoPath: string, id: string, kind: 'issue' | 'pr'): Promise<Commands['needs_you_comment']['result']> {
+  return call('needs_you_comment', { repoPath, id, kind });
 }
 
 /** HUB_ONLY: `listNeedsYou` for every repository. */

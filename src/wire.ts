@@ -383,6 +383,8 @@ export interface CardView {
   run?: CardRun;
   /** The card's Needs-you item (its pull request, its question, its issue), if one waits. */
   waiting?: NeedsYouItem;
+  /** The hub could not check GitHub for what waits (rate limit, offline): `waiting` is the last good read, if any. */
+  waitingUnchecked?: true;
 }
 
 /** The scheduler's answer for one hub-board task; `label` is pre-rendered ("waits until Tue 18.11 (Europe/Berlin)"). */

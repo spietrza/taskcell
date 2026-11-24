@@ -15,8 +15,7 @@ import { FLOWS } from '../../api/capabilities.js';
 import { listHubBoard } from '../hub-board.js';
 import { HUB_TASK_ID, MAX_BLOCKED_BY, MAX_BODY_LENGTH, MAX_TITLE_LENGTH, createHubTask, editHubTask, listHubTasks, removeHubTask, updateHubTask, type HubTaskOwner } from '../hub-tasks.js';
 import { withCardViews } from '../card-view.js';
-import { boardWaiting, forgetBoardWaiting } from '../asking.js';
-import { MAX_COMMENT_FETCHES } from '../needs-you.js';
+import { cachedNeedsYou, forgetBoardWaiting } from '../asking.js';
 import { defaultRunsRoot, listRunSummaries } from '../runs.js';
 import { withCiRuns } from '../ci-metrics.js';
 import { startGithubTask, triggerLabelsFor } from '../start-task.js';
@@ -74,13 +73,13 @@ async function withPaused(ctx: RpcContext, real: string, tasks: BoardTask[], bud
 }
 
 /** Each card with its view: where it sits, its newest run and its waiting item (src/hub/card-view.ts). Local state is best effort: a run list that cannot be read leaves the cards placed by their column. */
-async function withViews<T extends BoardTask>(ctx: RpcContext, real: string, tasks: T[], commentBudget?: { remaining: number }): Promise<T[]> {
+async function withViews<T extends BoardTask>(ctx: RpcContext, real: string, tasks: T[]): Promise<T[]> {
   const [runs, needsYou] = await Promise.all([
     // CI-imported runs too (as list_runs): a run in GitHub Actions gives its card the PR address, never its place or its run.
     listRunSummaries(defaultRunsRoot(real)).then((local) => withCiRuns(real, local)).catch(() => []),
-    boardWaiting(ctx.configDir, real, { ...(commentBudget !== undefined ? { commentBudget } : {}), ...(ctx.gh !== undefined ? { gh: ctx.gh } : {}) }),
+    cachedNeedsYou(ctx.configDir, real, ctx.gh),
   ]);
-  return withCardViews(tasks, runs, needsYou);
+  return withCardViews(tasks, runs, needsYou.items, needsYou.unchecked === true);
 }
 
 /** GitHub's cap on a label name. */
@@ -247,8 +246,6 @@ export const commands = defineCommands<TasksCommands>({
   list_tasks_all: async ({ ctx, allow, scope }) => {
     let capped = false;
     const budget = markerReadBudget();
-    // One comment-fetch budget for every repository's waiting items, as list_needs_you_all.
-    const commentBudget = { remaining: MAX_COMMENT_FETCHES };
     const hubBoards: string[] = [];
     // Named as registered (the path the UI knows the project by), not as resolved.
     const registered = new Map<string, string>();
@@ -264,9 +261,9 @@ export const commands = defineCommands<TasksCommands>({
         capped ||= r.capped;
         if (r.hubBoard === true) {
           hubBoards.push(registered.get(real) ?? real);
-          return withViews(ctx, real, r.tasks, commentBudget);
+          return withViews(ctx, real, r.tasks);
         }
-        return withViews(ctx, real, await withPaused(ctx, real, r.tasks, budget), commentBudget);
+        return withViews(ctx, real, await withPaused(ctx, real, r.tasks, budget));
       },
       await scope(),
     );
