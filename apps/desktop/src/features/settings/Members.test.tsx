@@ -1,18 +1,14 @@
-import { beforeEach, test, expect, vi } from 'vitest';
+import { afterEach, beforeEach, test, expect, vi } from 'vitest';
 import { render, screen, waitFor, fireEvent } from '@testing-library/react';
 import { Members } from './Members';
 import * as ipc from '../../ipc';
+import { stubHubCalls } from '../../testHub';
 import type { Project } from '../../taskcell-output';
 import type { Team } from '../../wire';
 
 const mocks = vi.hoisted(() => ({ role: 'admin' as 'admin' | 'member' }));
 vi.mock('../../ipc', () => ({
   callerCapabilities: vi.fn(async () => ({ mutationsAllowed: true, owner: false, admin: false, canAddProject: { allowed: false }, teamRoles: { t: mocks.role, default: mocks.role } })),
-  teamAddMember: vi.fn(),
-  teamSetRole: vi.fn(),
-  teamRemoveMember: vi.fn(),
-  teamAddRepository: vi.fn(),
-  teamRemoveRepository: vi.fn(),
 }));
 
 const team: Team = {
@@ -32,6 +28,7 @@ const show = (t: Team = team, extra: { onTeam?: (t: Team) => void; confirmRemove
 };
 
 beforeEach(() => vi.clearAllMocks());
+afterEach(() => vi.restoreAllMocks());
 
 test('an admin sees the controls', async () => {
   mocks.role = 'admin';
@@ -60,9 +57,8 @@ test('an admin adds a member, changes a role and removes a member', async () => 
   mocks.role = 'admin';
   const onTeam = vi.fn();
   const updated = { ...team, members: [...team.members, { login: 'cy', role: 'member' as const }] };
-  vi.mocked(ipc.teamAddMember).mockResolvedValue(updated);
-  vi.mocked(ipc.teamSetRole).mockResolvedValue(team);
-  vi.mocked(ipc.teamRemoveMember).mockResolvedValue(team);
+  // `add_team_member` both adds a member and sets a role.
+  const spy = stubHubCalls({ add_team_member: ({ login }) => (login === 'cy' ? updated : team), remove_team_member: () => team });
   show(team, { onTeam });
   // An empty login cannot be submitted, and the form says what a login is.
   expect(await screen.findByRole('button', { name: 'Add member' })).toBeDisabled();
@@ -70,22 +66,22 @@ test('an admin adds a member, changes a role and removes a member', async () => 
   fireEvent.change(await screen.findByRole('textbox', { name: 'Login' }), { target: { value: 'cy' } });
   fireEvent.click(screen.getByRole('button', { name: 'Add member' }));
   await waitFor(() => expect(onTeam).toHaveBeenCalledWith(updated));
-  expect(ipc.teamAddMember).toHaveBeenCalledWith('t', 'cy', 'member');
+  expect(spy).toHaveBeenCalledWith('add_team_member', { teamId: 't', login: 'cy', role: 'member' });
   fireEvent.change(screen.getByRole('combobox', { name: 'Role of bob' }), { target: { value: 'admin' } });
-  await waitFor(() => expect(ipc.teamSetRole).toHaveBeenCalledWith('t', 'bob', 'admin'));
+  await waitFor(() => expect(spy).toHaveBeenCalledWith('add_team_member', { teamId: 't', login: 'bob', role: 'admin' }));
   // Remove asks inline first; Cancel leaves the member.
   fireEvent.click(screen.getByRole('button', { name: 'Remove bob' }));
-  expect(ipc.teamRemoveMember).not.toHaveBeenCalled();
+  expect(spy).not.toHaveBeenCalledWith('remove_team_member', expect.anything());
   fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
   fireEvent.click(screen.getByRole('button', { name: 'Remove bob' }));
   fireEvent.click(screen.getByRole('button', { name: 'Confirm removing bob' }));
-  await waitFor(() => expect(ipc.teamRemoveMember).toHaveBeenCalledWith('t', 'bob'));
+  await waitFor(() => expect(spy).toHaveBeenCalledWith('remove_team_member', { teamId: 't', login: 'bob' }));
 });
 
 test('the last-admin refusal is shown and the team is unchanged', async () => {
   mocks.role = 'admin';
   const onTeam = vi.fn();
-  vi.mocked(ipc.teamRemoveMember).mockRejectedValue('the last admin cannot be removed');
+  stubHubCalls({ remove_team_member: () => Promise.reject('the last admin cannot be removed') });
   show(team, { onTeam });
   fireEvent.click(await screen.findByRole('button', { name: 'Remove ann' }));
   fireEvent.click(screen.getByRole('button', { name: 'Confirm removing ann' }));
@@ -96,19 +92,21 @@ test('the last-admin refusal is shown and the team is unchanged', async () => {
 test('an admin adds and removes repositories; removing asks first', async () => {
   mocks.role = 'admin';
   const onTeam = vi.fn();
-  vi.mocked(ipc.teamAddRepository).mockResolvedValue({ ...team, repositories: ['/r/app', '/r/lib'] });
-  vi.mocked(ipc.teamRemoveRepository).mockResolvedValue({ ...team, repositories: [] });
+  const spy = stubHubCalls({
+    add_team_repository: () => ({ ...team, repositories: ['/r/app', '/r/lib'] }),
+    remove_team_repository: () => ({ ...team, repositories: [] }),
+  });
   const confirmRemoveRepo = vi.fn(() => false);
   show(team, { onTeam, confirmRemoveRepo });
   fireEvent.change(await screen.findByRole('combobox', { name: 'Repository to add' }), { target: { value: '/r/lib' } });
   fireEvent.click(screen.getByRole('button', { name: 'Add repository' }));
-  await waitFor(() => expect(ipc.teamAddRepository).toHaveBeenCalledWith('t', '/r/lib'));
+  await waitFor(() => expect(spy).toHaveBeenCalledWith('add_team_repository', { teamId: 't', path: '/r/lib' }));
   fireEvent.click(screen.getByRole('button', { name: 'Remove repository app' }));
   expect(confirmRemoveRepo).toHaveBeenCalledWith('/r/app');
-  expect(ipc.teamRemoveRepository).not.toHaveBeenCalled();
+  expect(spy).not.toHaveBeenCalledWith('remove_team_repository', expect.anything());
   confirmRemoveRepo.mockReturnValue(true);
   fireEvent.click(screen.getByRole('button', { name: 'Remove repository app' }));
-  await waitFor(() => expect(ipc.teamRemoveRepository).toHaveBeenCalledWith('t', '/r/app'));
+  await waitFor(() => expect(spy).toHaveBeenCalledWith('remove_team_repository', { teamId: 't', path: '/r/app' }));
 });
 
 test('the default team offers no repository edits, and the role is re-read after an edit', async () => {

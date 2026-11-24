@@ -1,9 +1,14 @@
 import { act, render, screen } from '@testing-library/react';
-import { expect, test, vi } from 'vitest';
+import { afterEach, beforeEach, expect, test, vi } from 'vitest';
 import { ConflictStats } from './ConflictStats';
+import { stubHubCalls } from '../../testHub';
 
-const conflictStats = vi.hoisted(() => vi.fn());
-vi.mock('../../ipc', () => ({ conflictStats }));
+const conflictStats = vi.fn();
+beforeEach(() => {
+  conflictStats.mockReset();
+  stubHubCalls({ conflict_stats: (args) => conflictStats(args) });
+});
+afterEach(() => vi.restoreAllMocks());
 
 test('shows the conflict totals and top files', async () => {
   conflictStats.mockResolvedValue({

@@ -2,7 +2,8 @@ import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { Box, FileText, GitPullRequest, ListChecks, Lock, ScanEye, Tag, type LucideIcon } from 'lucide-react';
 import { Button, CodeBlock, Input, cn } from '@/ui';
 import { gateProps, usePhone } from '../../hooks';
-import { apiCapabilitiesCached, apiListFlows } from '../../ipc';
+import { apiCapabilitiesCached } from '../../ipc';
+import { hub } from '../../transport';
 import { STATIONS, STATION_LABEL, STATION_SHORT, type Station } from '../../stations';
 import { effectiveRunLocation, resolveTaskSource, runLocationLabel, taskSourceLabel } from '../../platform';
 import { errorClause } from '../../errors';
@@ -62,7 +63,7 @@ export function LineEditor({ project }: { project: string }) {
     let live = true;
     void (async () => {
       try {
-        const [caps, repo] = await Promise.all([apiCapabilitiesCached(), apiListFlows(project)]);
+        const [caps, repo] = await Promise.all([apiCapabilitiesCached(), hub().call('api_list_flows', { repoPath: project })]);
         const names = [...caps.flows.map((f) => f.name), ...repo.flows.flatMap((f) => (f.name !== undefined && f.error === undefined ? [f.name] : []))];
         if (live) setFlowNames([...new Set(names)]);
       } catch {

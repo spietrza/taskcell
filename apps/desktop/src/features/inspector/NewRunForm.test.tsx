@@ -1,18 +1,25 @@
-import { test, expect, vi, beforeEach } from 'vitest';
+import { test, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { flowOptionsFrom, issueRefFrom, providerOptionsFrom, NewRunForm } from './NewRunForm';
-import * as ipc from '../../ipc';
-import type { Capabilities } from '../../ipc';
+import type { Capabilities, RepoFlowInfo, RepoProviderInfo } from '../../ipc';
+import { stubHubCalls } from '../../testHub';
 
-vi.mock('../../ipc.js', () => ({
-  apiListFlows: vi.fn(async () => ({ flows: [] })),
-  apiListProviders: vi.fn(async () => ({ providers: [] })),
-  apiListSkills: vi.fn(async () => ({ skills: ['ponytail', 'simplify'] })),
-}));
+// The form's hub commands, as positional fakes the hub stub forwards to.
+const api = {
+  apiListFlows: vi.fn(async (_repoPath: string): Promise<{ flows: RepoFlowInfo[] }> => ({ flows: [] })),
+  apiListProviders: vi.fn(async (_repoPath: string): Promise<{ providers: RepoProviderInfo[] }> => ({ providers: [] })),
+  apiListSkills: vi.fn(async (_repoPath: string): Promise<{ skills: string[] }> => ({ skills: ['ponytail', 'simplify'] })),
+};
 
 beforeEach(() => {
   window.__TASKCELL_HUB__ = true;
+  stubHubCalls({
+    api_list_flows: ({ repoPath }) => api.apiListFlows(repoPath),
+    api_list_providers: ({ repoPath }) => api.apiListProviders(repoPath),
+    list_skills: ({ repoPath }) => api.apiListSkills(repoPath),
+  });
 });
+afterEach(() => vi.restoreAllMocks());
 
 const caps: Capabilities = {
   providers: ['claude', 'codex'],
@@ -27,7 +34,7 @@ const caps: Capabilities = {
 
 test('Run is disabled until issueRef is non-blank', async () => {
   render(<NewRunForm capabilities={caps} project="/repo" onRun={vi.fn()} onCancel={() => {}} />);
-  await waitFor(() => expect(ipc.apiListFlows).toHaveBeenCalled());
+  await waitFor(() => expect(api.apiListFlows).toHaveBeenCalled());
   const run = screen.getByRole('button', { name: /^run$/i });
   expect(run).toBeDisabled();
   fireEvent.change(screen.getByPlaceholderText(/issue/i), { target: { value: '322' } });
@@ -36,7 +43,7 @@ test('Run is disabled until issueRef is non-blank', async () => {
 
 test('Run is disabled when maxTurns is not a positive integer', async () => {
   render(<NewRunForm capabilities={caps} project="/repo" onRun={vi.fn()} onCancel={() => {}} />);
-  await waitFor(() => expect(ipc.apiListFlows).toHaveBeenCalled());
+  await waitFor(() => expect(api.apiListFlows).toHaveBeenCalled());
   fireEvent.change(screen.getByPlaceholderText(/issue/i), { target: { value: '322' } });
   const run = screen.getByRole('button', { name: /^run$/i });
   expect(run).not.toBeDisabled();
@@ -48,7 +55,7 @@ test('Run is disabled when maxTurns is not a positive integer', async () => {
 test('Run calls onRun with repoPath=project and defaulted fields', async () => {
   const onRun = vi.fn();
   render(<NewRunForm capabilities={caps} project="/repo" onRun={onRun} onCancel={() => {}} />);
-  await waitFor(() => expect(ipc.apiListFlows).toHaveBeenCalled());
+  await waitFor(() => expect(api.apiListFlows).toHaveBeenCalled());
   fireEvent.change(screen.getByPlaceholderText(/issue/i), { target: { value: '322' } });
   fireEvent.click(screen.getByRole('button', { name: /^run$/i }));
   expect(onRun).toHaveBeenCalledWith(
@@ -81,11 +88,11 @@ test('flowOptionsFrom merges built-ins with healthy repo flows and never offers 
 
 test('the form fetches repo flows fresh for its project on open (S5)', async () => {
   render(<NewRunForm capabilities={caps} project="/repo" onRun={vi.fn()} onCancel={() => {}} />);
-  await waitFor(() => expect(ipc.apiListFlows).toHaveBeenCalledWith('/repo'));
+  await waitFor(() => expect(api.apiListFlows).toHaveBeenCalledWith('/repo'));
 });
 
 test('listFlows failure degrades to built-ins with a notice — the form never disappears', async () => {
-  vi.mocked(ipc.apiListFlows).mockRejectedValueOnce('sidecar dead');
+  vi.mocked(api.apiListFlows).mockRejectedValueOnce('sidecar dead');
   render(<NewRunForm capabilities={caps} project="/repo" onRun={vi.fn()} onCancel={() => {}} />);
   expect(await screen.findByText(/repo flows unavailable/)).toBeInTheDocument();
   expect(screen.getByRole('button', { name: /^run$/i })).toBeInTheDocument();
@@ -119,13 +126,13 @@ test('providerOptionsFrom keeps a saved legacy meridian value and hides it other
 });
 
 test('the form fetches repo providers fresh for its project on open (S6)', async () => {
-  vi.mocked(ipc.apiListProviders).mockResolvedValueOnce({ providers: [{ index: 0, name: 'my-proxy' }] });
+  vi.mocked(api.apiListProviders).mockResolvedValueOnce({ providers: [{ index: 0, name: 'my-proxy' }] });
   render(<NewRunForm capabilities={caps} project="/repo" onRun={vi.fn()} onCancel={() => {}} />);
-  await waitFor(() => expect(ipc.apiListProviders).toHaveBeenCalledWith('/repo'));
+  await waitFor(() => expect(api.apiListProviders).toHaveBeenCalledWith('/repo'));
 });
 
 test('listProviders failure degrades to built-ins with a notice — the form never disappears (S6)', async () => {
-  vi.mocked(ipc.apiListProviders).mockRejectedValueOnce(new Error('sidecar down'));
+  vi.mocked(api.apiListProviders).mockRejectedValueOnce(new Error('sidecar down'));
   render(<NewRunForm capabilities={caps} project="/repo" onRun={vi.fn()} onCancel={() => {}} />);
   await waitFor(() => expect(screen.getByText(/repo providers unavailable/i)).toBeInTheDocument());
   expect(screen.getByRole('button', { name: /^run$/i })).toBeInTheDocument();
@@ -133,7 +140,7 @@ test('listProviders failure degrades to built-ins with a notice — the form nev
 
 test('an issue ref with a space is refused with a reason', async () => {
   render(<NewRunForm capabilities={caps} project="/repo" onRun={vi.fn()} onCancel={() => {}} />);
-  await waitFor(() => expect(ipc.apiListFlows).toHaveBeenCalled());
+  await waitFor(() => expect(api.apiListFlows).toHaveBeenCalled());
   fireEvent.change(screen.getByPlaceholderText(/issue/i), { target: { value: 'abc def' } });
   expect(screen.getByRole('button', { name: /^run$/i })).toBeDisabled();
   expect(screen.getByRole('alert')).toHaveTextContent('An issue ref has no spaces');
@@ -149,7 +156,7 @@ test('opened from a card, the form carries that card\'s ref and tracker, under a
   expect(issueRefFrom('DEMO-104')).toEqual({ issueRef: 'DEMO-104' });
   const onRun = vi.fn();
   render(<NewRunForm capabilities={caps} project="/repo" taskId="gl-42" onRun={onRun} onCancel={() => {}} />);
-  await waitFor(() => expect(ipc.apiListFlows).toHaveBeenCalled());
+  await waitFor(() => expect(api.apiListFlows).toHaveBeenCalled());
   expect(screen.getByRole('heading', { name: 'New run' })).toBeInTheDocument();
   for (const label of ['Card source', 'Provider', 'Flow']) expect(screen.getByText(label)).toBeInTheDocument();
   expect(screen.getByLabelText('Issue ref')).toHaveValue('42');
@@ -159,7 +166,7 @@ test('opened from a card, the form carries that card\'s ref and tracker, under a
 
 test('each select has an accessible name matching its visible label', async () => {
   render(<NewRunForm capabilities={caps} project="/repo" onRun={vi.fn()} onCancel={() => {}} />);
-  await waitFor(() => expect(ipc.apiListFlows).toHaveBeenCalled());
+  await waitFor(() => expect(api.apiListFlows).toHaveBeenCalled());
   for (const name of ['Card source', 'Provider', 'Flow']) expect(screen.getByRole('combobox', { name })).toBeInTheDocument();
 });
 
@@ -197,7 +204,7 @@ test('a run with no card skills and nothing ticked sends no skills, so the issue
 });
 
 test('when the skills cannot be listed the picker says why and keeps the card\'s skills untickable', async () => {
-  vi.mocked(ipc.apiListSkills).mockRejectedValueOnce(new Error('skills.lock.json does not match code-review'));
+  vi.mocked(api.apiListSkills).mockRejectedValueOnce(new Error('skills.lock.json does not match code-review'));
   render(<NewRunForm capabilities={caps} project="/repo" taskId="gh-5" taskSkills={['ponytail']} onRun={vi.fn()} onCancel={() => {}} />);
   fireEvent.click(screen.getByText('Advanced'));
   expect(await screen.findByRole('status')).toHaveTextContent('skills unavailable — skills.lock.json does not match code-review');

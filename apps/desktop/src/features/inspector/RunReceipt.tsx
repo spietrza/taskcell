@@ -1,7 +1,8 @@
 import { useEffect, useState } from 'react';
 import { Button, cn } from '@/ui';
 import { MessageSquare, ReceiptText } from 'lucide-react';
-import { listNeedsYou, type NeedsYouItem } from '../../ipc';
+import type { NeedsYouItem } from '../../ipc';
+import { hub } from '../../transport';
 import { receiptRows } from '../board/receipt';
 import type { StageStatus, StageStep } from '../board/stageLine';
 import { stationNote, type NoteContext } from '../board/stationNotes';
@@ -64,7 +65,7 @@ export function RunReceipt({ detail, project, merged, cost, live = false }: { de
     let alive = true;
     setItem(null);
     if (prUrl === undefined || merged || live) return;
-    listNeedsYou(project)
+    hub().call('list_needs_you', { repoPath: project })
       .then((r) => alive && setItem(r.items.find((i) => i.kind === 'pr' && i.url === prUrl) ?? null))
       .catch(() => {});
     return () => {

@@ -1,9 +1,9 @@
 import { useState } from 'react';
 import { ErrorNote } from '@/ui';
-import { readCostBreakdown } from '../../ipc';
 import { useAsync } from '../../hooks';
 import { costKindNote, EST_COST_NOTE, rowCostLabel, totalCostLabel as totalLabel } from '../../cost';
 import type { CostPeriod, CostRow } from '../../wire';
+import { hub } from '../../transport';
 
 const PERIODS: { id: CostPeriod; label: string }[] = [
   { id: '7d', label: '7 days' },
@@ -35,7 +35,7 @@ function Rows({ title, rows }: { title: string; rows: CostRow[] }) {
 /** What a project's CI runs cost (its metrics branch), by model and by stage, for a period. */
 export function CostBreakdown({ project }: { project: string }) {
   const [period, setPeriod] = useState<CostPeriod>('30d');
-  const { data, error, loading } = useAsync(() => readCostBreakdown(project, period), [project, period]);
+  const { data, error, loading } = useAsync(() => hub().call('read_cost_breakdown', { repoPath: project, period }), [project, period]);
 
   return (
     <section aria-label="CI cost" className="mb-3 shrink-0 rounded-lg border border-border p-3">

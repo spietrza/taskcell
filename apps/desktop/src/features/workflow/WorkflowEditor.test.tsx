@@ -1,8 +1,9 @@
-import { test, expect, vi, beforeEach } from 'vitest';
+import { test, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { WorkflowEditor } from './WorkflowEditor.js';
 import * as ipc from '../../ipc.js';
-import type { FlowDoc } from '../../ipc.js';
+import type { FlowDoc, RepoFlowInfo } from '../../ipc.js';
+import { stubHubCalls } from '../../testHub.js';
 
 const DOC: FlowDoc = {
   name: 'my-flow',
@@ -23,18 +24,30 @@ vi.mock('../../ipc.js', () => ({
     transports: ['github'],
     defaults: { provider: 'claude', maxTurns: 30, maxCostUsd: 5, baseBranch: 'main' },
   })),
-  apiListFlows: vi.fn(async () => ({
+}));
+
+// The editor's flow-file hub commands, as positional fakes the hub stub forwards to.
+const api = {
+  apiListFlows: vi.fn(async (_repoPath: string): Promise<{ flows: RepoFlowInfo[] }> => ({
     flows: [
       { file: 'my-flow.hcl', name: 'my-flow', label: 'Mine' },
       { file: 'odd.hcl', name: 'odd', label: 'Odd', error: 'unknown stage "nope"' },
       { file: 'broken.hcl', error: 'expected exactly one flow block' },
     ],
   })),
-  apiReadFlow: vi.fn(async () => ({ doc: DOC, source: 'RAW SOURCE' })),
-  apiWriteFlow: vi.fn(async () => ({ source: 'CANONICAL' })),
-}));
+  apiReadFlow: vi.fn(async (_repoPath: string, _file: string): Promise<{ doc: FlowDoc; source: string }> => ({ doc: DOC, source: 'RAW SOURCE' })),
+  apiWriteFlow: vi.fn(async (_repoPath: string, _file: string, _doc: FlowDoc): Promise<{ source: string }> => ({ source: 'CANONICAL' })),
+};
 
-beforeEach(() => vi.clearAllMocks());
+beforeEach(() => {
+  vi.clearAllMocks();
+  stubHubCalls({
+    api_list_flows: ({ repoPath }) => api.apiListFlows(repoPath),
+    api_read_flow: ({ repoPath, file }) => api.apiReadFlow(repoPath, file),
+    api_write_flow: ({ repoPath, file, doc }) => api.apiWriteFlow(repoPath, file, doc),
+  });
+});
+afterEach(() => vi.restoreAllMocks());
 
 async function openMyFlow(): Promise<void> {
   render(<WorkflowEditor project="/repo" />);
@@ -53,7 +66,7 @@ test('rail: openable entries are buttons, unparseable ones are disabled, invalid
 
 test('selecting a flow loads it: stages on the canvas, loop chip read-only, unknown stage warned', async () => {
   await openMyFlow();
-  expect(vi.mocked(ipc.apiReadFlow)).toHaveBeenCalledWith('/repo', 'my-flow.hcl');
+  expect(vi.mocked(api.apiReadFlow)).toHaveBeenCalledWith('/repo', 'my-flow.hcl');
   expect(screen.getByText('ghost')).toBeInTheDocument();
   expect(screen.getByText(/not in library — pick a name or add a ref/)).toBeInTheDocument();
   expect(screen.getByText(/until reviewer_pass/)).toBeInTheDocument();
@@ -68,7 +81,7 @@ test('save sends the edited doc (meta + loops verbatim) and swaps the source tab
   fireEvent.click(screen.getByRole('button', { name: /^save$/i }));
 
   await waitFor(() =>
-    expect(vi.mocked(ipc.apiWriteFlow)).toHaveBeenCalledWith('/repo', 'my-flow.hcl', {
+    expect(vi.mocked(api.apiWriteFlow)).toHaveBeenCalledWith('/repo', 'my-flow.hcl', {
       ...DOC,
       stages: [{ name: 'planner', overrides: { model: 'sonnet' } }, DOC.stages[1]],
     }),
@@ -78,7 +91,7 @@ test('save sends the edited doc (meta + loops verbatim) and swaps the source tab
 });
 
 test('a rejected save keeps the edits + dirty flag and shows the message inline', async () => {
-  vi.mocked(ipc.apiWriteFlow).mockRejectedValueOnce('flow "my-flow" is already declared in other.hcl');
+  vi.mocked(api.apiWriteFlow).mockRejectedValueOnce('flow "my-flow" is already declared in other.hcl');
   await openMyFlow();
   fireEvent.click(screen.getByRole('button', { name: 'select planner' }));
   fireEvent.change(screen.getByLabelText(/model/), { target: { value: 'sonnet' } });
@@ -121,7 +134,7 @@ test('adding a palette stage makes a new flow saveable', async () => {
   expect(screen.getByRole('button', { name: /^save$/i })).not.toBeDisabled();
   fireEvent.click(screen.getByRole('button', { name: /^save$/i }));
   await waitFor(() =>
-    expect(vi.mocked(ipc.apiWriteFlow)).toHaveBeenCalledWith('/repo', 'fresh.hcl', {
+    expect(vi.mocked(api.apiWriteFlow)).toHaveBeenCalledWith('/repo', 'fresh.hcl', {
       name: 'fresh',
       label: 'fresh',
       stages: [{ name: 'implementer', overrides: {} }],
@@ -131,7 +144,7 @@ test('adding a palette stage makes a new flow saveable', async () => {
 });
 
 test('listFlows failure shows the message but the screen stays usable', async () => {
-  vi.mocked(ipc.apiListFlows).mockRejectedValueOnce('sidecar dead');
+  vi.mocked(api.apiListFlows).mockRejectedValueOnce('sidecar dead');
   render(<WorkflowEditor project="/repo" />);
   expect(await screen.findByText(/sidecar dead/)).toBeInTheDocument();
   expect(screen.getByPlaceholderText('new-flow-name')).toBeInTheDocument();
@@ -141,7 +154,7 @@ test('a slower earlier read cannot clobber a later selection (open race, review 
   const slowA = { name: 'my-flow', label: 'A', stages: [{ name: 'planner', overrides: {} }], loops: [] };
   const fastB = { name: 'odd', label: 'B', stages: [{ name: 'implementer', overrides: {} }], loops: [] };
   let releaseA: (v: { doc: FlowDoc; source: string }) => void = () => {};
-  vi.mocked(ipc.apiReadFlow)
+  vi.mocked(api.apiReadFlow)
     .mockImplementationOnce(() => new Promise((res) => (releaseA = res))) // my-flow: hangs
     .mockImplementationOnce(async () => ({ doc: fastB, source: 'B SOURCE' })); // odd: instant
 
@@ -160,8 +173,8 @@ test('a save completing after switching flows cannot clobber the newly opened fl
   vi.spyOn(window, 'confirm').mockReturnValue(true); // the switch discards intentionally here
   const flowB = { name: 'odd', label: 'B', stages: [{ name: 'implementer', overrides: {} }], loops: [] };
   let releaseSave: (v: { source: string }) => void = () => {};
-  vi.mocked(ipc.apiWriteFlow).mockImplementationOnce(() => new Promise((res) => (releaseSave = res)));
-  vi.mocked(ipc.apiReadFlow)
+  vi.mocked(api.apiWriteFlow).mockImplementationOnce(() => new Promise((res) => (releaseSave = res)));
+  vi.mocked(api.apiReadFlow)
     .mockImplementationOnce(async () => ({ doc: DOC, source: 'A RAW' }))
     .mockImplementationOnce(async () => ({ doc: flowB, source: 'B RAW' }));
 
@@ -184,10 +197,10 @@ test('a save completing after switching flows cannot clobber the newly opened fl
 test('a hung save on one flow must not block saving another (review #338 r2 finding 1)', async () => {
   vi.spyOn(window, 'confirm').mockReturnValue(true); // the switch discards intentionally here
   const flowB = { name: 'odd', label: 'B', stages: [{ name: 'implementer', overrides: {} }], loops: [] };
-  vi.mocked(ipc.apiWriteFlow)
+  vi.mocked(api.apiWriteFlow)
     .mockImplementationOnce(() => new Promise(() => {})) // flow A's save: hangs forever
     .mockImplementationOnce(async () => ({ source: 'B CANONICAL' }));
-  vi.mocked(ipc.apiReadFlow)
+  vi.mocked(api.apiReadFlow)
     .mockImplementationOnce(async () => ({ doc: DOC, source: 'A RAW' }))
     .mockImplementationOnce(async () => ({ doc: flowB, source: 'B RAW' }));
 
@@ -205,7 +218,7 @@ test('a hung save on one flow must not block saving another (review #338 r2 find
   fireEvent.click(screen.getByRole('button', { name: /^save$/i }));
 
   await waitFor(() =>
-    expect(vi.mocked(ipc.apiWriteFlow)).toHaveBeenCalledWith('/repo', 'odd.hcl', {
+    expect(vi.mocked(api.apiWriteFlow)).toHaveBeenCalledWith('/repo', 'odd.hcl', {
       ...flowB,
       stages: [{ name: 'implementer', overrides: { model: 'haiku' } }],
     }),
@@ -231,12 +244,12 @@ test('dirty edits are not silently discarded by a rail click (review #338 r3 fin
 
     fireEvent.click(screen.getByText('odd')); // decline the discard
     expect(confirmSpy).toHaveBeenCalledWith(expect.stringMatching(/discard unsaved changes/i));
-    expect(vi.mocked(ipc.apiReadFlow)).toHaveBeenCalledTimes(1); // no second read — still on my-flow
+    expect(vi.mocked(api.apiReadFlow)).toHaveBeenCalledTimes(1); // no second read — still on my-flow
     expect(screen.getByText(/model=sonnet/)).toBeInTheDocument(); // the edit survived
 
     confirmSpy.mockReturnValue(true); // accept the discard
     fireEvent.click(screen.getByText('odd'));
-    await waitFor(() => expect(vi.mocked(ipc.apiReadFlow)).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(vi.mocked(api.apiReadFlow)).toHaveBeenCalledTimes(2));
   } finally {
     confirmSpy.mockRestore();
   }
@@ -260,7 +273,7 @@ test('clicking the already-open flow is a no-op — it must not reload over dirt
 
     fireEvent.click(screen.getByText('my-flow')); // same entry
     expect(confirmSpy).not.toHaveBeenCalled();
-    expect(vi.mocked(ipc.apiReadFlow)).toHaveBeenCalledTimes(1); // no re-read
+    expect(vi.mocked(api.apiReadFlow)).toHaveBeenCalledTimes(1); // no re-read
     expect(screen.getByText(/model=sonnet/)).toBeInTheDocument(); // edits intact
     expect(screen.getByText('unsaved')).toBeInTheDocument();
   } finally {
@@ -270,7 +283,7 @@ test('clicking the already-open flow is a no-op — it must not reload over dirt
 
 test('edits made during an in-flight save stay dirty (r4 finding 2)', async () => {
   let releaseSave: (v: { source: string }) => void = () => {};
-  vi.mocked(ipc.apiWriteFlow).mockImplementationOnce(() => new Promise((res) => (releaseSave = res)));
+  vi.mocked(api.apiWriteFlow).mockImplementationOnce(() => new Promise((res) => (releaseSave = res)));
   await openMyFlow();
   fireEvent.click(screen.getByRole('button', { name: 'select planner' }));
   fireEvent.change(screen.getByLabelText(/model/), { target: { value: 'sonnet' } });
@@ -293,7 +306,7 @@ test('create rejects a name whose FILE already exists even when unparseable (r4 
 });
 
 test('a failed load can be retried by clicking the same rail entry again (review #338 r5 finding 1)', async () => {
-  vi.mocked(ipc.apiReadFlow)
+  vi.mocked(api.apiReadFlow)
     .mockRejectedValueOnce('transient parse hiccup')
     .mockResolvedValueOnce({ doc: DOC, source: 'RAW SOURCE' });
   render(<WorkflowEditor project="/repo" />);
@@ -303,7 +316,7 @@ test('a failed load can be retried by clicking the same rail entry again (review
 
   fireEvent.click(screen.getByText('my-flow')); // retry — must NOT be eaten by the same-file no-op
   await screen.findByTestId('stage-block-0');
-  expect(vi.mocked(ipc.apiReadFlow)).toHaveBeenCalledTimes(2);
+  expect(vi.mocked(api.apiReadFlow)).toHaveBeenCalledTimes(2);
 });
 
 const BUILTIN_CAPS = {
@@ -335,6 +348,6 @@ test('built-in flows are listed read-only; one with a doc can be duplicated into
 
   fireEvent.change(name, { target: { value: 'my-copy' } });
   fireEvent.click(dup);
-  await waitFor(() => expect(vi.mocked(ipc.apiWriteFlow)).toHaveBeenCalledWith('/repo', 'my-copy.hcl', { ...BUILTIN_CAPS.flows[1]!.doc, name: 'my-copy' }));
-  await waitFor(() => expect(vi.mocked(ipc.apiReadFlow)).toHaveBeenCalledWith('/repo', 'my-copy.hcl'));
+  await waitFor(() => expect(vi.mocked(api.apiWriteFlow)).toHaveBeenCalledWith('/repo', 'my-copy.hcl', { ...BUILTIN_CAPS.flows[1]!.doc, name: 'my-copy' }));
+  await waitFor(() => expect(vi.mocked(api.apiReadFlow)).toHaveBeenCalledWith('/repo', 'my-copy.hcl'));
 });

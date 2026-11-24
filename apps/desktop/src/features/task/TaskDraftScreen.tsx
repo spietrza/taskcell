@@ -1,19 +1,8 @@
 import { useEffect, useReducer, useRef, useState } from 'react';
 import { MessageSquare } from 'lucide-react';
 import { Button, InlineEdit } from '@/ui';
-import {
-  apiComplete,
-  apiCancelComplete,
-  apiCreateTask,
-  apiListBranches,
-  apiListRepoFiles,
-  apiReadRepoFile,
-  writeDraftAsset,
-  clearDraftAssets,
-  listDrafts,
-  readDraft,
-  readAppConfig,
-} from '../../ipc.js';
+import { apiComplete, apiCreateTask, writeDraftAsset } from '../../ipc.js';
+import { hub } from '../../transport.js';
 import { MAX_INLINE_TOTAL_BYTES, MAX_IMAGE_BYTES, MAX_IMAGE_TOTAL_BYTES } from '../../wire.js';
 import type { CompleteAttachment } from '../../wire.js';
 import type { ComposerAttachment } from './ChatPane.js';
@@ -169,7 +158,7 @@ export function TaskDraftScreen({
   viewingRef.current = drawerOpen && panel === 'chat';
 
   useEffect(() => {
-    void readAppConfig(project)
+    void hub().call('read_app_config', { repoPath: project })
       .then((cfg) => {
         setSource(isTransport(cfg.source ?? 'github') ? (cfg.source ?? 'github') : undefined);
         const resolved = cfg.chatModel ?? DEFAULT_CHAT_MODEL;
@@ -188,7 +177,7 @@ export function TaskDraftScreen({
       });
     // Tracked files for the composer's `@`-mention autocomplete (Editor UX 7/7). A failure just
     // leaves the picker empty — mentions are an affordance, never a precondition.
-    void apiListRepoFiles(project)
+    void hub().call('api_list_repo_files', { repoPath: project })
       .then((r) => setMentionFiles(r.files))
       .catch(() => setMentionFiles([]));
   }, [project]);
@@ -274,11 +263,11 @@ export function TaskDraftScreen({
   // otherwise. Open tabs are filtered to drafts that still exist and still parse.
   useEffect(() => {
     let alive = true;
-    void listDrafts(project)
+    void hub().call('list_drafts', { repoPath: project })
       .then(async (ids) => {
         const loaded: DraftEntry[] = await Promise.all(
           ids.map(async (id) => {
-            const raw = await readDraft(project, id).catch(() => undefined);
+            const raw = await hub().call('read_draft', { repoPath: project, id }).catch(() => undefined);
             const data = raw !== undefined ? parseDraft(raw) : undefined;
             return data !== undefined ? { id, data } : { id };
           }),
@@ -557,7 +546,7 @@ export function TaskDraftScreen({
       if (seen.has(rel) || !tracked.has(rel)) continue;
       seen.add(rel);
       try {
-        const { content, truncated } = await apiReadRepoFile(project, rel);
+        const { content, truncated } = await hub().call('api_read_repo_file', { repoPath: project, path: rel });
         // A file over the 64KB cap is inlined head-only; annotate it so the model isn't misled into
         // treating the truncated head as the whole file (review r7).
         const annotated = truncated ? `${content}\n\n… (truncated at 64KB)` : content;
@@ -651,7 +640,7 @@ export function TaskDraftScreen({
       })
       .then(async (resolved) => {
         if (!cancelledCalls.current.has(callId)) accept(true); // resolution succeeded — clear chips
-        const cfg = await readAppConfig(project);
+        const cfg = await hub().call('read_app_config', { repoPath: project });
         if (cancelledCalls.current.has(callId)) return { res: {} as Awaited<ReturnType<typeof apiComplete>>, resolvedModel: '' };
         const res = await apiComplete(
           project,
@@ -731,7 +720,7 @@ export function TaskDraftScreen({
     const meta = sendMeta.current.get(id);
     if (meta === undefined) return;
     cancelledCalls.current.add(meta.callId);
-    void apiCancelComplete(meta.callId);
+    void hub().call('api_cancel_complete', { callId: meta.callId });
     // Release the turn's slot NOW, not in the abandoned promise's .finally: until the killed child's
     // promise settles there is a real window where a switch-away-and-back would re-seed the reducer
     // from pendingTurns with busy: true — and the cancelled promise early-returns without ever
@@ -790,7 +779,7 @@ export function TaskDraftScreen({
   useEffect(() => {
     if (!confirming) return;
     let live = true;
-    apiListBranches(project)
+    hub().call('list_branches', { repoPath: project })
       .then((r) => live && setBranches(r.branches))
       .catch(() => live && setBranches([]));
     return () => {
@@ -820,7 +809,7 @@ export function TaskDraftScreen({
         // Filing is terminal for editing: the pasted-image assets already rode the chat that
         // produced this task, so drop them now rather than leak them for the archived draft's life
         // (review r5). Best-effort — a failed cleanup must not fail the (successful) create.
-        void clearDraftAssets(project, id).catch(() => {});
+        void hub().call('clear_draft_assets', { repoPath: project, id }).catch(() => {});
         setEntries((prev) =>
           prev.map((e) =>
             e.id === id && e.data !== undefined ? { ...e, data: { ...e.data, archived: true, created: task } } : e,

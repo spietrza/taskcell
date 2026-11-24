@@ -1,16 +1,21 @@
-import { test, expect, vi, beforeEach } from 'vitest';
+import { test, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { WorkflowEditor } from './WorkflowEditor';
-import * as ipc from '../../ipc';
+import type { FlowDoc, RepoFlowInfo } from '../../ipc';
+import { stubHubCalls } from '../../testHub';
 
-vi.mock('../../ipc.js', () => ({
-  apiListFlows: vi.fn(async () => ({ flows: [{ file: 'my-flow.hcl', name: 'my-flow', label: 'Mine' }] })),
-  apiReadFlow: vi.fn(async () => ({
+// The editor's flow-file hub commands, as positional fakes the hub stub forwards to.
+const api = {
+  apiListFlows: vi.fn(async (_repoPath: string): Promise<{ flows: RepoFlowInfo[] }> => ({ flows: [{ file: 'my-flow.hcl', name: 'my-flow', label: 'Mine' }] })),
+  apiReadFlow: vi.fn(async (_repoPath: string, _file: string): Promise<{ doc: FlowDoc; source: string }> => ({
     doc: { name: 'my-flow', label: 'Mine', stages: [{ name: 'planner', overrides: {} }], loops: [] },
     source: 'flow "my-flow" {}',
   })),
-  apiWriteFlow: vi.fn(async () => ({ source: 'flow "renamed" {}' })),
-  apiDeleteFlow: vi.fn(async () => {}),
+  apiWriteFlow: vi.fn(async (_repoPath: string, _file: string, _doc: FlowDoc): Promise<{ source: string }> => ({ source: 'flow "renamed" {}' })),
+  apiDeleteFlow: vi.fn(async (_repoPath: string, _file: string): Promise<void> => {}),
+};
+
+vi.mock('../../ipc.js', () => ({
   apiCapabilitiesCached: vi.fn(async () => ({
     providers: ['claude'],
     flows: [{ name: 'plan', label: 'Plan' }],
@@ -22,16 +27,23 @@ vi.mock('../../ipc.js', () => ({
 
 beforeEach(() => {
   vi.clearAllMocks();
+  stubHubCalls({
+    api_list_flows: ({ repoPath }) => api.apiListFlows(repoPath),
+    api_read_flow: ({ repoPath, file }) => api.apiReadFlow(repoPath, file),
+    api_write_flow: ({ repoPath, file, doc }) => api.apiWriteFlow(repoPath, file, doc),
+    api_delete_flow: ({ repoPath, file }) => api.apiDeleteFlow(repoPath, file),
+  });
 });
+afterEach(() => vi.restoreAllMocks());
 
 test('delete confirms, calls apiDeleteFlow, and resets an editor that had the flow open', async () => {
   const confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(true);
   render(<WorkflowEditor project="/repo" />);
   fireEvent.click(await screen.findByRole('button', { name: 'open my-flow' }));
-  await waitFor(() => expect(ipc.apiReadFlow).toHaveBeenCalled());
+  await waitFor(() => expect(api.apiReadFlow).toHaveBeenCalled());
 
   fireEvent.click(screen.getByRole('button', { name: 'delete my-flow' }));
-  await waitFor(() => expect(ipc.apiDeleteFlow).toHaveBeenCalledWith('/repo', 'my-flow.hcl'));
+  await waitFor(() => expect(api.apiDeleteFlow).toHaveBeenCalledWith('/repo', 'my-flow.hcl'));
   // editor reset: the open-file chip is gone
   await waitFor(() => expect(screen.queryByText('.taskcell/flows/my-flow.hcl')).not.toBeInTheDocument());
   confirmSpy.mockRestore();
@@ -42,7 +54,7 @@ test('delete cancelled at the confirm never calls the API', async () => {
   render(<WorkflowEditor project="/repo" />);
   await screen.findByRole('button', { name: 'delete my-flow' });
   fireEvent.click(screen.getByRole('button', { name: 'delete my-flow' }));
-  expect(ipc.apiDeleteFlow).not.toHaveBeenCalled();
+  expect(api.apiDeleteFlow).not.toHaveBeenCalled();
   confirmSpy.mockRestore();
 });
 
@@ -53,50 +65,50 @@ test('rename composes write-BEFORE-delete with the on-disk doc and the new name'
   fireEvent.click(screen.getByRole('button', { name: 'confirm rename' }));
 
   await waitFor(() =>
-    expect(ipc.apiWriteFlow).toHaveBeenCalledWith('/repo', 'renamed.hcl', {
+    expect(api.apiWriteFlow).toHaveBeenCalledWith('/repo', 'renamed.hcl', {
       name: 'renamed',
       label: 'Mine',
       stages: [{ name: 'planner', overrides: {} }],
       loops: [],
     }),
   );
-  await waitFor(() => expect(ipc.apiDeleteFlow).toHaveBeenCalledWith('/repo', 'my-flow.hcl'));
+  await waitFor(() => expect(api.apiDeleteFlow).toHaveBeenCalledWith('/repo', 'my-flow.hcl'));
   // order pinned: the write happened before the delete
-  const writeOrder = vi.mocked(ipc.apiWriteFlow).mock.invocationCallOrder[0]!;
-  const deleteOrder = vi.mocked(ipc.apiDeleteFlow).mock.invocationCallOrder[0]!;
+  const writeOrder = vi.mocked(api.apiWriteFlow).mock.invocationCallOrder[0]!;
+  const deleteOrder = vi.mocked(api.apiDeleteFlow).mock.invocationCallOrder[0]!;
   expect(writeOrder).toBeLessThan(deleteOrder);
 });
 
 test('a failed WRITE leaves the old flow untouched (no delete, error surfaced)', async () => {
-  vi.mocked(ipc.apiWriteFlow).mockRejectedValueOnce(new Error('flow "renamed" is already declared in other.hcl'));
+  vi.mocked(api.apiWriteFlow).mockRejectedValueOnce(new Error('flow "renamed" is already declared in other.hcl'));
   render(<WorkflowEditor project="/repo" />);
   fireEvent.click(await screen.findByRole('button', { name: 'rename my-flow' }));
   fireEvent.change(screen.getByLabelText('rename my-flow'), { target: { value: 'renamed' } });
   fireEvent.click(screen.getByRole('button', { name: 'confirm rename' }));
   await waitFor(() => expect(screen.getByText(/already declared/)).toBeInTheDocument());
-  expect(ipc.apiDeleteFlow).not.toHaveBeenCalled();
+  expect(api.apiDeleteFlow).not.toHaveBeenCalled();
 });
 
 test('a failed DELETE after a successful write says both files exist (never lossy)', async () => {
-  vi.mocked(ipc.apiDeleteFlow).mockRejectedValueOnce(new Error('EACCES'));
+  vi.mocked(api.apiDeleteFlow).mockRejectedValueOnce(new Error('EACCES'));
   render(<WorkflowEditor project="/repo" />);
   fireEvent.click(await screen.findByRole('button', { name: 'rename my-flow' }));
   fireEvent.change(screen.getByLabelText('rename my-flow'), { target: { value: 'renamed' } });
   fireEvent.click(screen.getByRole('button', { name: 'confirm rename' }));
   await waitFor(() => expect(screen.getByText(/both files exist/)).toBeInTheDocument());
-  expect(ipc.apiWriteFlow).toHaveBeenCalled();
+  expect(api.apiWriteFlow).toHaveBeenCalled();
 });
 
 test('renaming the OPEN dirty flow is refused — save or discard first', async () => {
   render(<WorkflowEditor project="/repo" />);
   fireEvent.click(await screen.findByRole('button', { name: 'open my-flow' }));
-  await waitFor(() => expect(ipc.apiReadFlow).toHaveBeenCalled());
+  await waitFor(() => expect(api.apiReadFlow).toHaveBeenCalled());
   fireEvent.click(screen.getByRole('button', { name: /^implementer$/ })); // dirty it
   fireEvent.click(screen.getByRole('button', { name: 'rename my-flow' }));
   fireEvent.change(screen.getByLabelText('rename my-flow'), { target: { value: 'renamed' } });
   fireEvent.click(screen.getByRole('button', { name: 'confirm rename' }));
   await waitFor(() => expect(screen.getByText(/save or discard/)).toBeInTheDocument());
-  expect(ipc.apiWriteFlow).not.toHaveBeenCalled();
+  expect(api.apiWriteFlow).not.toHaveBeenCalled();
 });
 
 test('rename target validates against taken names, excluding the renamed file itself', async () => {
@@ -118,8 +130,8 @@ test('rename target validates against taken names, excluding the renamed file it
 test('renaming a flow to its own file basename never deletes the file it just wrote', async () => {
   // Once-scoped: mockResolvedValue would outlive clearAllMocks (which clears calls, not impls)
   // and bleed x/y.hcl into later tests.
-  vi.mocked(ipc.apiListFlows).mockResolvedValueOnce({ flows: [{ file: 'y.hcl', name: 'x', label: 'X' }] });
-  vi.mocked(ipc.apiReadFlow).mockResolvedValueOnce({
+  vi.mocked(api.apiListFlows).mockResolvedValueOnce({ flows: [{ file: 'y.hcl', name: 'x', label: 'X' }] });
+  vi.mocked(api.apiReadFlow).mockResolvedValueOnce({
     doc: { name: 'x', label: 'X', stages: [{ name: 'planner', overrides: {} }], loops: [] },
     source: 'flow "x" {}',
   });
@@ -127,8 +139,8 @@ test('renaming a flow to its own file basename never deletes the file it just wr
   fireEvent.click(await screen.findByRole('button', { name: 'rename x' }));
   fireEvent.change(screen.getByLabelText('rename x'), { target: { value: 'y' } });
   fireEvent.click(screen.getByRole('button', { name: 'confirm rename' }));
-  await waitFor(() => expect(ipc.apiWriteFlow).toHaveBeenCalledWith('/repo', 'y.hcl', expect.objectContaining({ name: 'y' })));
-  expect(ipc.apiDeleteFlow).not.toHaveBeenCalled();
+  await waitFor(() => expect(api.apiWriteFlow).toHaveBeenCalledWith('/repo', 'y.hcl', expect.objectContaining({ name: 'y' })));
+  expect(api.apiDeleteFlow).not.toHaveBeenCalled();
 });
 
 test('a double-click on confirm rename fires ONE write→delete sequence (in-flight guard)', async () => {
@@ -138,9 +150,9 @@ test('a double-click on confirm rename fires ONE write→delete sequence (in-fli
   const confirm = screen.getByRole('button', { name: 'confirm rename' });
   fireEvent.click(confirm);
   fireEvent.click(confirm);
-  await waitFor(() => expect(ipc.apiDeleteFlow).toHaveBeenCalled());
-  expect(vi.mocked(ipc.apiWriteFlow)).toHaveBeenCalledTimes(1);
-  expect(vi.mocked(ipc.apiDeleteFlow)).toHaveBeenCalledTimes(1);
+  await waitFor(() => expect(api.apiDeleteFlow).toHaveBeenCalled());
+  expect(vi.mocked(api.apiWriteFlow)).toHaveBeenCalledTimes(1);
+  expect(vi.mocked(api.apiDeleteFlow)).toHaveBeenCalledTimes(1);
 });
 
 // #345 r3 BLOCKING: renameFlow set opBusy and never cleared it — the FIRST rename (success or
@@ -150,18 +162,18 @@ test('a second, independent rename after the first resolves still works (opBusy 
   fireEvent.click(await screen.findByRole('button', { name: 'rename my-flow' }));
   fireEvent.change(screen.getByLabelText('rename my-flow'), { target: { value: 'renamed' } });
   fireEvent.click(screen.getByRole('button', { name: 'confirm rename' }));
-  await waitFor(() => expect(ipc.apiDeleteFlow).toHaveBeenCalledTimes(1));
+  await waitFor(() => expect(api.apiDeleteFlow).toHaveBeenCalledTimes(1));
 
   // the list still shows my-flow (mock is static) — rename again
   fireEvent.click(await screen.findByRole('button', { name: 'rename my-flow' }));
   fireEvent.change(screen.getByLabelText('rename my-flow'), { target: { value: 'again' } });
   fireEvent.click(screen.getByRole('button', { name: 'confirm rename' }));
-  await waitFor(() => expect(vi.mocked(ipc.apiWriteFlow)).toHaveBeenCalledTimes(2));
-  await waitFor(() => expect(vi.mocked(ipc.apiDeleteFlow)).toHaveBeenCalledTimes(2));
+  await waitFor(() => expect(vi.mocked(api.apiWriteFlow)).toHaveBeenCalledTimes(2));
+  await waitFor(() => expect(vi.mocked(api.apiDeleteFlow)).toHaveBeenCalledTimes(2));
 });
 
 test('a FAILED rename releases the lock — delete afterwards still works', async () => {
-  vi.mocked(ipc.apiWriteFlow).mockRejectedValueOnce(new Error('flow "renamed" is already declared in other.hcl'));
+  vi.mocked(api.apiWriteFlow).mockRejectedValueOnce(new Error('flow "renamed" is already declared in other.hcl'));
   const confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(true);
   render(<WorkflowEditor project="/repo" />);
   fireEvent.click(await screen.findByRole('button', { name: 'rename my-flow' }));
@@ -172,6 +184,6 @@ test('a FAILED rename releases the lock — delete afterwards still works', asyn
   // the rename input stays open for retry — cancel it, then the delete affordance is back
   fireEvent.click(screen.getByRole('button', { name: 'cancel rename' }));
   fireEvent.click(screen.getByRole('button', { name: 'delete my-flow' }));
-  await waitFor(() => expect(ipc.apiDeleteFlow).toHaveBeenCalledWith('/repo', 'my-flow.hcl'));
+  await waitFor(() => expect(api.apiDeleteFlow).toHaveBeenCalledWith('/repo', 'my-flow.hcl'));
   confirmSpy.mockRestore();
 });

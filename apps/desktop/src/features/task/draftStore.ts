@@ -1,4 +1,4 @@
-import { deleteDraft, readDraft, writeDraft } from '../../ipc.js';
+import { hub } from '../../transport.js';
 import { titleFromDoc } from './docTask.js';
 import type { ChatMsg } from './useDocChat.js';
 
@@ -159,14 +159,15 @@ export class DraftWriter {
     return chain;
   }
 
-  private stamp(d: DraftData): string {
-    return JSON.stringify({ ...d, updatedAt: new Date().toISOString() });
+  /** Write `d` to the draft's file, stamped with `updatedAt`. */
+  private write(id: string, d: DraftData): Promise<void> {
+    return hub().call('write_draft', { repoPath: this.repoPath, id, content: JSON.stringify({ ...d, updatedAt: new Date().toISOString() }) });
   }
 
   /** Immediate write of a snapshot. Supersedes any armed debounce for this id (see class doc). */
   writeNow(id: string, data: DraftData): Promise<boolean> {
     this.discard(id);
-    return this.enqueue(id, () => writeDraft(this.repoPath, id, this.stamp(data)));
+    return this.enqueue(id, () => this.write(id, data));
   }
 
   /** Debounced write for body keystrokes. Re-arming replaces both the timer and the snapshot. */
@@ -189,7 +190,7 @@ export class DraftWriter {
     this.timers.delete(id);
     const data = this.pendingData.get(id);
     this.pendingData.delete(id);
-    if (data !== undefined) void this.enqueue(id, () => writeDraft(this.repoPath, id, this.stamp(data)));
+    if (data !== undefined) void this.enqueue(id, () => this.write(id, data));
   }
 
   /** Drop a pending debounce without writing (delete path). */
@@ -216,10 +217,10 @@ export class DraftWriter {
   update(id: string, mutate: (d: DraftData) => DraftData): Promise<'written' | 'skipped' | 'failed'> {
     let wrote = false;
     return this.enqueue(id, async () => {
-      const raw = await readDraft(this.repoPath, id).catch(() => undefined);
+      const raw = await hub().call('read_draft', { repoPath: this.repoPath, id }).catch(() => undefined);
       const current = raw !== undefined ? parseDraft(raw) : undefined;
       if (current === undefined) return;
-      await writeDraft(this.repoPath, id, this.stamp(mutate(current)));
+      await this.write(id, mutate(current));
       wrote = true;
     }).then((ok) => (ok ? (wrote ? 'written' : 'skipped') : 'failed'));
   }
@@ -227,7 +228,7 @@ export class DraftWriter {
   /** Cancel the draft's pending save and delete its file; queued after in-flight writes, so it wins. */
   deleteNow(id: string): Promise<boolean> {
     this.discard(id);
-    return this.enqueue(id, () => deleteDraft(this.repoPath, id));
+    return this.enqueue(id, () => hub().call('delete_draft', { repoPath: this.repoPath, id }));
   }
 
   /** True while a debounce is armed or a write is in flight. Introspection only — the close path

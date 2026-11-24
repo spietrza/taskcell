@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState, type Dispatch, type SetStateAction } from 'react';
-import { callerCapabilities, readAppConfigStrict } from './ipc';
+import { callerCapabilities } from './ipc';
+import { hub } from './transport';
 import type { CallerCapabilities, CallerCapability } from './wire';
 import { errorMessage } from './errors';
 import type { AppConfig } from './taskcell-output';
@@ -58,7 +59,7 @@ export function useAppConfig(
   useEffect(() => {
     let live = true;
     setStatus('loading');
-    readAppConfigStrict(project)
+    hub().call('read_app_config_strict', { repoPath: project })
       .then((c) => {
         if (!live) return;
         setCfg(c);

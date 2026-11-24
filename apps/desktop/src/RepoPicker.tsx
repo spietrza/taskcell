@@ -1,8 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { ArrowUp, FolderGit2, Folder } from 'lucide-react';
 import { Button, Input, Tabs, useFocusTrap } from '@/ui';
-import { browseDirs } from './ipc';
-import { subscribe } from './transport';
+import { hub, subscribe } from './transport';
 import { errorMessage } from './errors';
 import type { DirListing } from './taskcell-output';
 
@@ -44,7 +43,7 @@ export function RepoPicker({
 
   const navigate = async (path?: string, isGitRepo = false): Promise<void> => {
     try {
-      const next = await browseDirs(path);
+      const next = await hub().call('browse_dirs', { path });
       setListing(next);
       setCurrentIsGit(next.isGitRepo ?? isGitRepo);
       setError(null);

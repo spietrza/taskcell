@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState } from 'react';
 import { Button, Chip, Tabs } from '@/ui';
 import { ArrowLeft, Clock, GitBranch, RefreshCw, Square } from 'lucide-react';
-import { readSession, tailRunEvents } from '../../ipc';
+import { tailRunEvents } from '../../ipc';
+import { hub } from '../../transport';
 import type { RunTail } from '../../../../../packages/hub-client/src/runTail';
 import { ExternalLink, hostName, issueUrl } from '../../components/ExternalLink';
 import { AgentQuestion } from '../../components/AgentQuestion';
@@ -90,7 +91,7 @@ export function RunPane({
     // A run listed from its launch has no session file yet: its stage line comes from the event log alone.
     if (!active || active.sessionFile === '') return;
     let alive = true;
-    readSession(active.sessionFile)
+    hub().call('read_session', { sessionFile: active.sessionFile })
       .then((d) => alive && setSession(d))
       .catch(() => {});
     return () => {

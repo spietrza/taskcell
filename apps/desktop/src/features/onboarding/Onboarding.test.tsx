@@ -1,17 +1,21 @@
-import { describe, expect, test, vi, beforeEach } from 'vitest';
+import { afterEach, describe, expect, test, vi, beforeEach } from 'vitest';
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { Onboarding } from './Onboarding';
 import { EMPTY_STORED } from './steps';
-import { setupStatus } from '../../ipc';
+import { stubHubCalls } from '../../testHub';
+import type { SetupStatus } from '../../wire';
 
-vi.mock('../../ipc', () => ({
-  setupStatus: vi.fn(async () => ({
-    tools: [{ id: 'gh', state: 'ready' }, { id: 'glab', state: 'missing' }, { id: 'linear', state: 'needs-login' }],
-    models: { claude: false, codex: false },
-  })),
-}));
+const DETECTED: SetupStatus = {
+  tools: [{ id: 'gh', state: 'ready' }, { id: 'glab', state: 'missing' }, { id: 'linear', state: 'needs-login' }],
+  models: { claude: false, codex: false },
+};
+const stubSetup = (status: SetupStatus = DETECTED) => stubHubCalls({ setup_status: () => status });
 
-beforeEach(() => localStorage.clear());
+beforeEach(() => {
+  localStorage.clear();
+  stubSetup();
+});
+afterEach(() => vi.restoreAllMocks());
 
 describe('Onboarding', () => {
   test('shows detected auth, run-this commands, and lets a step be skipped', async () => {
@@ -40,7 +44,7 @@ describe('Onboarding', () => {
   });
 
   test('a Codex sign-in file with no credential: the step is not Done, and the guide shows the export that makes it usable', async () => {
-    vi.mocked(setupStatus).mockResolvedValueOnce({ tools: [], models: { claude: false, codex: false }, codexSignInFile: true });
+    stubSetup({ tools: [], models: { claude: false, codex: false }, codexSignInFile: true });
     render(<Onboarding projectCount={0} stored={{ ...EMPTY_STORED, model: 'codex' }} onStored={() => {}} onAddRepo={() => {}} onClose={() => {}} />);
     expect(await screen.findByText(/hub runs do not read it until it is set as CODEX_AUTH_JSON/)).toBeInTheDocument();
     expect(screen.getByText(/Codex: not found/)).toBeInTheDocument();
@@ -50,7 +54,7 @@ describe('Onboarding', () => {
   });
 
   test('a credential store that cannot be read shows its reason on the model step', async () => {
-    vi.mocked(setupStatus).mockResolvedValueOnce({ tools: [], models: { claude: false, codex: false }, credentialReason: 'credential store cannot be decrypted' });
+    stubSetup({ tools: [], models: { claude: false, codex: false }, credentialReason: 'credential store cannot be decrypted' });
     render(<Onboarding projectCount={0} stored={EMPTY_STORED} onStored={() => {}} onAddRepo={() => {}} onClose={() => {}} />);
     expect(await screen.findByRole('alert')).toHaveTextContent('credential store cannot be decrypted');
   });

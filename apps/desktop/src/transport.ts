@@ -4,17 +4,18 @@
 // "Local hub"). The one exception is the in-browser fixture backend (dev/mockBackend.ts), which answers
 // every command without a hub: demo mode, and the dev server's mock (`window.__TASKCELL_MOCK__`).
 import {
-  decodeResponse,
   decodeEvent,
+  encodeError,
+  encodeResult,
   STREAM_RESET_EVENT,
   HUB_TOKEN_HEADER,
   HUB_EVENTS_SESSION_PATH,
   HUB_TOKEN_FRAGMENT_PARAM,
   HUB_TOKEN_REJECTED,
   isHubTokenRejected,
-  isHubSignInRequired,
 } from './hub-wire';
-import { createHubClient } from '../../../packages/hub-client/src/client';
+import { createHubClient, type HubClient, type HubResponse, type HubSubscription } from '../../../packages/hub-client/src/client';
+import { createHubSession, type HubSession, type StreamAdapter } from '../../../packages/hub-client/src/session';
 
 /** Stops a `subscribe()` listener. */
 export type UnlistenFn = () => void;
@@ -63,7 +64,6 @@ const restartHandlers = new Set<() => void>();
  * a network drop the probe below can't attribute to the hub's own token — gets this neutral signal
  * instead of the (wrong, misleading) "the hub restarted" wording. */
 const connectionIssueHandlers = new Set<() => void>();
-const EVENT_SOURCE_CLOSED = 2;
 
 const HUB_TOKEN_STORAGE_KEY = 'vanguard-hub-token';
 
@@ -86,6 +86,12 @@ function stripFragmentToken(): void {
 /** The hub answered the held token with its own 401; cleared when a new token is stored. */
 let heldTokenRefused = false;
 
+/** A new token is stored: the refusal is over, and the session's stream, stopped by it, reopens. */
+function tokenRenewed(): void {
+  heldTokenRefused = false;
+  current?.session.resume();
+}
+
 /** A fragment token that turned up on an open page whose own token had not been refused: kept in memory
  * only, and used if the hub then refuses the held one (`adoptPendingToken`). */
 let pendingToken: string | null = null;
@@ -103,7 +109,7 @@ function takeFragmentToken(launch: boolean): void {
     } catch {
       return; // Storage blocked: keep the fragment, `hubToken()` reads it from there instead.
     }
-    heldTokenRefused = false;
+    tokenRenewed();
     pendingToken = null;
   } else {
     pendingToken = token;
@@ -121,7 +127,7 @@ function adoptPendingToken(): boolean {
   } catch {
     return false;
   }
-  heldTokenRefused = false;
+  tokenRenewed();
   return true;
 }
 
@@ -237,186 +243,144 @@ export function onHubConnectionIssue(handler: () => void): Promise<UnlistenFn> {
 }
 
 /** `/events` closing tells a browser `EventSource` only that the connection is dead, never why —
- * `readyState` has no status code or body. Re-probe the same URL with a plain `fetch`, which does:
- * only the hub's own `HUB_TOKEN_REJECTED` envelope on a 401 means "reload fixes this"; any other
- * status (a Host-check 403, a reverse proxy's 502) or a thrown network error means the connection
- * just died, which is `onHubConnectionIssue`'s neutral signal instead. */
-async function probeHubRestart(): Promise<boolean> {
+ * `readyState` has no status code or body. Re-probe the same URL with a plain `fetch`, which does: the session
+ * tells the hub's own `HUB_TOKEN_REJECTED` envelope on a 401 ("reload fixes this") from any other status (a
+ * Host-check 403, a reverse proxy's 502) or a thrown network error, which is just a dead connection. */
+async function probeEvents(): Promise<{ status?: number; body?: unknown }> {
   try {
     const response = await fetch('/events');
     if (response.status !== 401) {
       void response.body?.cancel();
-      return false;
+      return { status: response.status };
     }
-    const body: unknown = await response.json();
-    if (isHubSignInRequired(body)) redirectToSignIn();
-    return isHubTokenRejected(body);
+    return { status: 401, body: await response.json().catch(() => ({})) }; // an unreadable body is not the hub's own envelope
   } catch {
-    return false;
+    return {};
   }
 }
 
-const hubClient = createHubClient({ token: hubToken });
+const rawClient = createHubClient({ token: hubToken });
 
-async function hubInvoke<T>(cmd: string, args?: Record<string, unknown>): Promise<T> {
+/** `POST /rpc/<cmd>` with this tab's token. */
+async function hubRequest(cmd: string, args?: Record<string, unknown>): Promise<HubResponse> {
   const sent = hubToken();
   // A refused token stays refused until a new one arrives (a pasted launch URL, captured just above): asking the hub
   // again only fills its audit log with refused sign-ins. The restart banner is already up.
-  if (heldTokenRefused) throw HUB_TOKEN_REJECTED;
-  let { status, body } = await hubClient.request(cmd, args);
+  if (heldTokenRefused) return encodeError({ message: HUB_TOKEN_REJECTED, kind: 'bad-request' }, 401);
+  let response = await rawClient.request(cmd, args);
   // The hub refused the held token while a pasted one waits (the hub restarted): take it and ask once more.
   // A call that was in flight when another one took it finds the stored token changed, and asks again too.
-  if (status === 401 && isHubTokenRejected(body) && (adoptPendingToken() || hubToken() !== sent)) {
-    ({ status, body } = await hubClient.request(cmd, args));
+  if (response.status === 401 && isHubTokenRejected(response.body) && (adoptPendingToken() || hubToken() !== sent)) {
+    response = await rawClient.request(cmd, args);
   }
-  // Only the hub's own 401 envelope means "this page's token is dead"; a reverse proxy's 401 is a
-  // different problem, and telling the operator to reload would be wrong (docs/hub.md).
-  if (status === 401 && isHubTokenRejected(body)) notifyHubRestarted();
-  if (status === 401 && isHubSignInRequired(body)) redirectToSignIn();
-  if (status >= 200 && status < 300) reloadAfterReconnect();
-  return decodeResponse<T>(status, body);
+  if (response.status >= 200 && response.status < 300) reloadAfterReconnect();
+  return response;
 }
 
-export async function invoke<T>(cmd: string, args?: Record<string, unknown>): Promise<T> {
-  if (usesFixtureBackend()) {
-    const { handle, handleDemo } = await import('./dev/mockBackend');
-    return (isDemoMode() ? handleDemo(cmd, args) : handle(cmd, args)) as T;
-  }
-  return hubInvoke<T>(cmd, args);
-}
-
-/** One lazily created `EventSource('/events')` shared by every `subscribe()` call, routed by event
- * name. Module-level so every caller — regardless of which component mounted first — shares it. It
- * authenticates with the cookie `POST /events/session` sets (hub-wire.ts), so the token never goes
- * into the URL; `hubSourceOpening` covers the gap while that request is in flight. */
-let hubSource: EventSource | undefined;
-let hubSourceOpening = false;
-interface HubSubscription {
-  listener: (ev: MessageEvent) => void;
-  handlers: Set<(event: { payload: unknown }) => void>;
-}
-const hubSubscriptions = new Map<string, HubSubscription>();
-
-/** Callbacks re-run on `stream-reset` (src/hub/events.ts): a reconnect gap too large for the ring
- * buffer to replay, so the realtime stream alone can no longer be trusted — each callback re-fetches
- * its own snapshot (e.g. listRuns/listActive) to recover whatever the gap may have dropped (#491). */
-const resyncHandlers = new Set<() => void>();
-
-/** Trade the token for the `/events` cookie. `'restarted'` only for the hub's own token-rejected
- * 401 (a reload with the new launch URL fixes it); any other non-2xx — a Host-check 403, a reverse
- * proxy's 502 or 401 — or a network error is `'issue'`. */
-async function openEventsSession(): Promise<'ok' | 'restarted' | 'issue'> {
+/** Trade the token for the `/events` cookie; on failure the status and body, for the session to classify. */
+async function openEventsSession(): Promise<{ ok: true } | { ok: false; status?: number; body?: unknown }> {
   try {
     const response = await fetch(HUB_EVENTS_SESSION_PATH, { method: 'POST', headers: { [HUB_TOKEN_HEADER]: hubToken() } });
     if (response.ok) {
       void response.body?.cancel();
-      return 'ok';
+      return { ok: true };
     }
-    if (response.status === 401) {
-      const body: unknown = await response.json().catch(() => undefined);
-      if (isHubSignInRequired(body)) redirectToSignIn();
-      if (isHubTokenRejected(body)) return 'restarted';
-    }
-    // A 401 body was already read above (stream locked/disturbed); cancelling it would reject unhandled.
-    if (!response.bodyUsed) void response.body?.cancel().catch(() => undefined);
-    return 'issue';
+    if (response.status === 401) return { ok: false, status: 401, body: await response.json().catch(() => ({})) }; // an unreadable body is not the hub's own envelope
+    void response.body?.cancel().catch(() => undefined);
+    return { ok: false, status: response.status };
   } catch {
-    return 'issue';
+    return { ok: false };
   }
 }
 
-/** Open the shared `EventSource` on first use (after its cookie) and wire its one `stream-reset`
- * listener — attached once per instance, independent of which named subscriptions come and go.
- * Subscriptions registered while the session request is in flight are attached when it opens. A
- * failed session request notifies instead of opening; the next subscribe retries it. */
-function ensureHubSource(): void {
-  if (hubSource || hubSourceOpening) return;
-  hubToken(); // takes a pasted launch URL
-  if (heldTokenRefused) return; // as for an RPC: no session request on a refused token
-  hubSourceOpening = true;
-  void openEventsSession()
-    // As for an RPC: a refused token with a pasted one waiting is retried once with that one.
-    .then((outcome) => (outcome === 'restarted' && adoptPendingToken() ? openEventsSession() : outcome))
-    .then((outcome) => {
-      hubSourceOpening = false;
-      if (outcome === 'restarted') return notifyHubRestarted();
-      if (outcome === 'issue') return notifyHubConnectionIssue();
-      if (hubSubscriptions.size === 0 && resyncHandlers.size === 0) return;
-      openHubSource();
-    });
-}
-
-function openHubSource(): void {
-  const source = new EventSource('/events');
-  source.addEventListener(STREAM_RESET_EVENT, () => {
-    for (const h of resyncHandlers) h();
-  });
-  // An `error` on a live stream is a transient drop the browser retries on its own; CLOSED means it
-  // gave up for good — which a restarted hub's 401 on `/events` looks like from here, but so does a
-  // 403 from the Host check or a reverse proxy's 502. Probe to tell those apart before notifying.
-  source.addEventListener('error', () => {
-    if (source.readyState !== EVENT_SOURCE_CLOSED) return;
-    void probeHubRestart().then((restarted) => {
-      if (restarted) notifyHubRestarted();
-      else notifyHubConnectionIssue();
-    });
-  });
-  for (const [name, sub] of hubSubscriptions) source.addEventListener(name, sub.listener);
-  hubSource = source;
-}
-
-/** Close the shared `EventSource` once nothing — named subscription or resync callback — still needs it. */
-function closeHubSourceIfIdle(): void {
-  if (hubSubscriptions.size === 0 && resyncHandlers.size === 0 && hubSource) {
-    hubSource.close();
-    hubSource = undefined;
-  }
-}
-
-function hubSubscribe<T>(name: string, handler: (event: { payload: T }) => void): Promise<UnlistenFn> {
-  ensureHubSource();
-  let sub = hubSubscriptions.get(name);
-  if (!sub) {
-    const handlers = new Set<(event: { payload: unknown }) => void>();
-    const listener = (ev: MessageEvent): void => {
-      const decoded = decodeEvent(name, ev.data);
-      if (decoded.reset) return; // handled by the dedicated stream-reset listener, never reached here
-      const event = { payload: decoded.payload };
-      for (const h of handlers) h(event);
-    };
-    sub = { listener, handlers };
-    hubSubscriptions.set(name, sub);
-    hubSource?.addEventListener(name, listener);
-  }
-  sub.handlers.add(handler as (event: { payload: unknown }) => void);
-
-  const unlisten: UnlistenFn = () => {
-    sub!.handlers.delete(handler as (event: { payload: unknown }) => void);
-    if (sub!.handlers.size === 0) {
-      hubSource?.removeEventListener(name, sub!.listener);
-      hubSubscriptions.delete(name);
-    }
-    closeHubSourceIfIdle();
-  };
-  return Promise.resolve(unlisten);
-}
-
-export function subscribe<T>(name: string, handler: (event: { payload: T }) => void): Promise<UnlistenFn> {
-  if (usesFixtureBackend()) return Promise.resolve(() => {});
-  return hubSubscribe<T>(name, handler);
-}
+/** The events the UI listens to by name: an `EventSource` needs each registered (`stream-reset` apart). */
+const STREAM_EVENTS = ['vanguard:changed', 'api:event', 'vanguard:clone-progress', 'spawn:output', 'spawn:exit'];
+const EVENT_SOURCE_CLOSED = 2;
 
 /**
- * Register a callback to re-run when the hub's SSE stream reports a `stream-reset` (#491) — a
- * reconnect gap the replay ring couldn't cover.
+ * The stream adapter of a browser: an `EventSource('/events')` authenticated by the cookie `POST /events/session`
+ * sets (so the token never goes into the URL). The browser retries a dropped connection itself; each re-open is
+ * reported as `onOpen` and the session turns it into a catch-up. It gives up for good (CLOSED) on a 401 or a
+ * failed handshake, which is probed (`probeEvents`) because `EventSource` never says why; the session then
+ * classifies the status and retries with backoff.
  */
-export function onStreamReset(handler: () => void): Promise<UnlistenFn> {
-  if (usesFixtureBackend()) return Promise.resolve(() => {});
-  ensureHubSource();
-  resyncHandlers.add(handler);
-  const unlisten: UnlistenFn = () => {
-    resyncHandlers.delete(handler);
-    closeHubSourceIfIdle();
+const eventSourceStream: StreamAdapter = (handlers) => {
+  let closed = false;
+  let source: EventSource | undefined;
+  const failed = (status?: number, body?: unknown): void => {
+    if (!closed) handlers.onError?.(status === undefined ? 'event stream failed' : `request failed with status ${status}`, { ...(status !== undefined ? { status } : {}), ...(body !== undefined ? { body } : {}) });
   };
-  return Promise.resolve(unlisten);
+  void (async () => {
+    if (heldTokenRefused) return failed(401, encodeError({ message: HUB_TOKEN_REJECTED, kind: 'bad-request' }, 401).body);
+    hubToken(); // takes a pasted launch URL
+    let outcome = await openEventsSession();
+    // As for an RPC: a refused token with a pasted one waiting is retried once with that one.
+    if (!outcome.ok && isHubTokenRejected(outcome.body) && adoptPendingToken()) outcome = await openEventsSession();
+    if (closed) return;
+    if (!outcome.ok) return failed(outcome.status, outcome.body);
+    const es = new EventSource('/events');
+    source = es;
+    es.addEventListener('open', () => handlers.onOpen?.());
+    es.addEventListener(STREAM_RESET_EVENT, () => handlers.onReset?.());
+    for (const name of STREAM_EVENTS) {
+      es.addEventListener(name, (ev) => {
+        const decoded = decodeEvent(name, (ev as MessageEvent).data);
+        if (!decoded.reset) handlers.onEvent(name, decoded.payload);
+      });
+    }
+    es.addEventListener('error', () => {
+      if (es.readyState !== EVENT_SOURCE_CLOSED) return;
+      void probeEvents().then(({ status, body }) => failed(status, body));
+    });
+  })();
+  return Object.defineProperty(
+    () => {
+      closed = true;
+      source?.close();
+    },
+    'lastEventId',
+    { get: () => undefined },
+  ) as HubSubscription;
+};
+
+/** Answers every command from the in-browser fixtures (dev/mockBackend.ts) and has no event stream. */
+function fixtureClient(demo: boolean): Pick<HubClient, 'request' | 'subscribe'> {
+  return {
+    request: async (cmd, args) => {
+      const { handle, handleDemo } = await import('./dev/mockBackend');
+      try {
+        return { status: 200, body: encodeResult(await (demo ? handleDemo(cmd, args) : handle(cmd, args))) };
+      } catch (err) {
+        return encodeError({ message: err instanceof Error ? err.message : String(err), kind: 'bad-request' });
+      }
+    },
+    subscribe: () => Object.assign(() => {}, { lastEventId: undefined }),
+  };
+}
+
+function createSession(mode: 'hub' | 'demo' | 'mock'): HubSession {
+  return createHubSession({
+    client: mode === 'hub' ? { request: hubRequest, subscribe: eventSourceStream } : fixtureClient(mode === 'demo'),
+    onRefused: (reason) => (reason === 'sign-in-required' ? redirectToSignIn() : notifyHubRestarted()),
+    onConnectionIssue: notifyHubConnectionIssue,
+  });
+}
+
+let current: { mode: 'hub' | 'demo' | 'mock'; session: HubSession } | undefined;
+
+/** The page's one hub session: the shared stream, typed `call`, live reads and the refusal signals. In demo mode and
+ *  the dev server's mock it is the same session over the fixture adapter (no hub, no stream). */
+export function hub(): HubSession {
+  const mode = isDemoMode() ? 'demo' : isMockMode() ? 'mock' : 'hub';
+  if (current?.mode !== mode) {
+    current?.session.close();
+    current = { mode, session: createSession(mode) };
+  }
+  return current.session;
+}
+
+/** Listen to one named event of the shared stream. */
+export function subscribe<T>(name: string, handler: (event: { payload: T }) => void): Promise<UnlistenFn> {
+  const stop = hub().subscribe({ onEvent: (n, payload) => n === name && handler({ payload: payload as T }) });
+  return Promise.resolve(() => stop());
 }

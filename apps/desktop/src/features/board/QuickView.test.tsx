@@ -1,23 +1,24 @@
-import { beforeEach, describe, expect, test, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { QuickView, waitingWhy, type QuickTask } from './QuickView';
 import type { NeedsYouItem, RunDetail, RunSummary } from '../../wire';
+import { stubHubCalls, type HubCall } from '../../testHub';
 
 vi.mock('../../ipc', () => ({
   callerCapabilities: vi.fn(async () => ({ mutationsAllowed: true, owner: true, admin: true, canAddProject: { allowed: true }, teamRoles: {} })),
-  listRuns: vi.fn(),
   readRun: vi.fn(),
-  listNeedsYou: vi.fn(),
-  needsYouComment: vi.fn(async () => ({})),
-  replyNeedsYou: vi.fn(),
-  mergeNeedsYou: vi.fn(),
-  apiListSkills: vi.fn(async () => ({ skills: ['db', 'release'] })),
-  apiSetTaskSkills: vi.fn(async (_repo: string, _id: string, skills: string[]) => ({ skills })),
-  readAppConfigStrict: vi.fn(async () => ({})),
   hubTaskStart: vi.fn(async (_repo: string, id: string) => ({ id })),
   fetchSpec: vi.fn(async () => 'The issue body.'),
 }));
-import { hubTaskStart, apiListSkills, apiSetTaskSkills, listNeedsYou, needsYouComment, listRuns, readAppConfigStrict, readRun } from '../../ipc';
+import { hubTaskStart, readRun } from '../../ipc';
+
+const listRuns = vi.fn<HubCall<'list_runs'>>();
+const listNeedsYou = vi.fn<HubCall<'list_needs_you'>>();
+const apiListSkills = vi.fn<HubCall<'list_skills'>>(async () => ({ skills: ['db', 'release'] }));
+const apiSetTaskSkills = vi.fn<HubCall<'set_task_skills'>>(async ({ skills }) => ({ skills }));
+const readAppConfigStrict = vi.fn<HubCall<'read_app_config_strict'>>(async () => ({}));
+const needsYouComment = vi.fn<HubCall<'needs_you_comment'>>(async () => ({}));
+let hubCall: ReturnType<typeof stubHubCalls>;
 
 const PR = 'https://github.com/o/r/pull/9';
 const item = (over: Partial<NeedsYouItem>): NeedsYouItem => ({ id: 'o/r#9', kind: 'pr', number: 9, repoSlug: 'o/r', title: 'T', url: PR, reason: 'taskcell:needs-human-review', baseRef: 'main', ...over });
@@ -29,17 +30,28 @@ const open = (t: QuickTask = task): ReturnType<typeof render> => render(<QuickVi
 
 beforeEach(() => {
   window.__TASKCELL_HUB__ = true;
+  hubCall = stubHubCalls({
+    list_runs: listRuns,
+    list_needs_you: listNeedsYou,
+    needs_you_comment: needsYouComment,
+    reply_needs_you: async () => undefined,
+    merge_needs_you: async () => undefined,
+    list_skills: apiListSkills,
+    set_task_skills: apiSetTaskSkills,
+    read_app_config_strict: readAppConfigStrict,
+  });
   vi.mocked(listRuns).mockResolvedValue([summary]);
   vi.mocked(readRun).mockResolvedValue(detail);
   vi.mocked(listNeedsYou).mockResolvedValue({ items: [item({})] });
 });
+afterEach(() => vi.restoreAllMocks());
 
 describe('QuickView', () => {
   test('the opened item\'s last comment is fetched, as the list carries none', async () => {
     vi.mocked(needsYouComment).mockResolvedValueOnce({ lastComment: { author: 'bot', body: 'Which branch?' } });
     open();
     expect(await screen.findByText('Which branch?')).toBeInTheDocument();
-    expect(needsYouComment).toHaveBeenCalledWith('/repo', 'o/r#9', 'pr');
+    expect(hubCall).toHaveBeenCalledWith('needs_you_comment', { repoPath: '/repo', id: 'o/r#9', kind: 'pr' });
   });
 
   test('says it could not check when the hub could not read what waits', async () => {
@@ -197,7 +209,7 @@ describe('QuickView skills', () => {
     fireEvent.click(within(section).getByLabelText('db'));
     fireEvent.click(within(section).getByRole('button', { name: 'Save skills' }));
     await vi.waitFor(() => expect(onSkillsSaved).toHaveBeenCalledWith(['release']));
-    expect(apiSetTaskSkills).toHaveBeenCalledWith('/repo', 'gh-7', ['release']);
+    expect(hubCall).toHaveBeenCalledWith('set_task_skills', { repoPath: '/repo', taskId: 'gh-7', skills: ['release'] });
   });
 
   test('a refused save and an unreadable skill list both say why', async () => {
@@ -217,7 +229,7 @@ describe('QuickView skills', () => {
     const section = await screen.findByRole('region', { name: 'Skills' });
     fireEvent.click(await within(section).findByLabelText('release'));
     fireEvent.click(within(section).getByRole('button', { name: 'Save skills' }));
-    await vi.waitFor(() => expect(apiSetTaskSkills).toHaveBeenCalledWith('/repo', 'hub-3', ['db', 'release']));
+    await vi.waitFor(() => expect(hubCall).toHaveBeenCalledWith('set_task_skills', { repoPath: '/repo', taskId: 'hub-3', skills: ['db', 'release'] }));
   });
   test('the invalid-entries card explains itself and offers neither Schedule nor Full page', async () => {
     const { source: _source, ...hubCard } = task;

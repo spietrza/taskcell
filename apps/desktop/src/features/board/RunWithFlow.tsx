@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Button } from '@/ui';
-import { apiCapabilitiesCached, apiListFlows, hubTaskRetry, hubTaskStart } from '../../ipc';
+import { apiCapabilitiesCached, hubTaskRetry, hubTaskStart } from '../../ipc';
+import { hub } from '../../transport';
 import { errorMessage } from '../../errors';
 import { useCallerCapabilities } from '../../hooks';
 import { flowOptionsFrom } from '../inspector/NewRunForm';
@@ -19,7 +20,7 @@ export function RunWithFlow({ repoPath, taskId, mode, onDone }: { repoPath: stri
     if (!open) return;
     let live = true;
     // Fresh on every open: a flow saved in the editor is runnable at once. A failed repo read still offers the built-ins.
-    Promise.all([apiCapabilitiesCached(), apiListFlows(repoPath).then((r) => r.flows, () => 'error' as const)])
+    Promise.all([apiCapabilitiesCached(), hub().call('api_list_flows', { repoPath }).then((r) => r.flows, () => 'error' as const)])
       .then(([caps, repoFlows]) => live && setFlows(flowOptionsFrom(caps, repoFlows)))
       .catch((e: unknown) => live && setError(errorMessage(e)));
     return () => {

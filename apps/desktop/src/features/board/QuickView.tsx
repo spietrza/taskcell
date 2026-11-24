@@ -1,10 +1,10 @@
 import { useEffect, useState, type ReactNode, type Ref } from 'react';
 import { Button, LINK_CLASS, Timestamp, cn } from '@/ui';
 import { Check, Circle, CircleDot, Play, X } from 'lucide-react';
-import { apiSetTaskSkills, fetchSpec, hubTaskStart, listRuns, needsYouComment, readRun, type NeedsYouItem } from '../../ipc';
+import { fetchSpec, hubTaskStart, readRun, type NeedsYouItem } from '../../ipc';
 import { errorMessage } from '../../errors';
 import { useAppConfig, useAsync } from '../../hooks';
-import { isDemoLink } from '../../transport';
+import { hub, isDemoLink } from '../../transport';
 import type { BoardTask, RepoStamp, RunDetail, RunSummary } from '../../wire';
 import { STATION_SHORT, STATIONS, stationOf } from '../../stations';
 import { taskSourceLabel } from '../../platform';
@@ -104,7 +104,7 @@ function CardSkills({ task, repoPath, onSaved, onOpenSkills }: { task: QuickTask
   const save = (): void => {
     setBusy(true);
     setError(null);
-    apiSetTaskSkills(repoPath, task.id, skills)
+    hub().call('set_task_skills', { repoPath, taskId: task.id, skills })
       .then((r) => {
         setSaved(r.skills);
         setSkills(r.skills);
@@ -199,14 +199,14 @@ export function QuickView({
   // The hub's answer: the card's Needs-you item, if one waits.
   const waiting = task.view?.waiting ?? null;
   // The lists carry no comments: the opened item's last one is read here (a card's question comes with the list).
-  const [fetched, setFetched] = useState<{ id: string; lastComment?: NeedsYouItem['lastComment']; ask?: NeedsYouItem['ask'] } | null>(null);
+  const [fetched, setFetched] = useState<({ id: string } & Pick<NeedsYouItem, 'lastComment' | 'ask'>) | null>(null);
   useEffect(() => {
     if (waiting === null || waiting.kind === 'card' || waiting.lastComment !== undefined) return;
     let alive = true;
-    needsYouComment(repoPath, waiting.id, waiting.kind).then((c) => alive && setFetched({ id: waiting.id, ...c }), () => {});
+    hub().call('needs_you_comment', { repoPath, id: waiting.id, kind: waiting.kind }).then((c) => alive && setFetched({ id: waiting.id, ...c }), () => {});
     return () => { alive = false; };
   }, [repoPath, waiting?.id, waiting?.kind]);
-  const item = waiting !== null && fetched?.id === waiting.id ? { ...waiting, ...fetched, id: waiting.id } : waiting;
+  const item = waiting !== null && fetched?.id === waiting.id ? { ...waiting, ...fetched } : waiting;
   const [cfg, , cfgStatus] = useAppConfig(repoPath);
 
   // The run list is cheap; the latest record (stages, diffs) is read for the receipt and the station notes.
@@ -216,7 +216,7 @@ export function QuickView({
     const key = taskRefKey(task.id);
     void (async () => {
       try {
-        const runs = (await listRuns(repoPath)).filter((r) => taskRefKey(r.taskId) === key);
+        const runs = (await hub().call('list_runs', { repoPath })).filter((r) => taskRefKey(r.taskId) === key);
         const latest = runs[0];
         const state: RunState = { runs };
         if (latest !== undefined && latest.source !== 'ci') {

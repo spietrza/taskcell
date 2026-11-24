@@ -1,12 +1,12 @@
-import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, test, vi, type MockInstance } from 'vitest';
 import { render, screen, fireEvent, within } from '@testing-library/react';
 import { RepoPicker } from './RepoPicker';
 import type { DirListing } from './taskcell-output';
 
-vi.mock('./ipc', () => ({ browseDirs: vi.fn() }));
-vi.mock('./transport', () => ({ subscribe: vi.fn().mockResolvedValue(() => {}) }));
-import { browseDirs } from './ipc';
-const mockBrowseDirs = vi.mocked(browseDirs);
+vi.mock('./transport', async (orig) => ({ ...(await orig<typeof import('./transport')>()), subscribe: vi.fn().mockResolvedValue(() => {}) }));
+import { stubHubCalls } from './testHub';
+const mockBrowseDirs = vi.fn<(path?: string) => Promise<DirListing>>();
+let hubCall: MockInstance;
 
 const ROOT: DirListing = {
   path: '/root',
@@ -32,9 +32,14 @@ function install(): void {
 
 // The Tabs primitive reads matchMedia on mount; jsdom has none.
 beforeEach(() => {
+  mockBrowseDirs.mockReset();
+  hubCall = stubHubCalls({ browse_dirs: ({ path }) => mockBrowseDirs(path) });
   vi.stubGlobal('matchMedia', vi.fn(() => ({ matches: false, addEventListener: vi.fn(), removeEventListener: vi.fn() })));
 });
-afterEach(() => vi.unstubAllGlobals());
+afterEach(() => {
+  vi.unstubAllGlobals();
+  vi.restoreAllMocks();
+});
 
 describe('RepoPicker', () => {
   test('on Windows the parent of a drive root lists the drives, and a drive opens from there', async () => {
@@ -51,7 +56,7 @@ describe('RepoPicker', () => {
     await screen.findByText('C:\\');
     fireEvent.click(screen.getByLabelText('Parent directory'));
     expect(await screen.findByText('D:\\')).toBeInTheDocument();
-    expect(mockBrowseDirs).toHaveBeenLastCalledWith('drives:');
+    expect(hubCall).toHaveBeenLastCalledWith('browse_dirs', { path: 'drives:' });
   });
 
   test('a failed first listing is shown, with the folder tabs kept', async () => {
@@ -120,7 +125,7 @@ describe('RepoPicker', () => {
     fireEvent.change(screen.getByLabelText('Folder path'), { target: { value: ` ${OTHER_DRIVE.path} ` } });
     fireEvent.click(screen.getByRole('button', { name: 'Go' }));
     await screen.findByText(OTHER_DRIVE.path);
-    expect(mockBrowseDirs).toHaveBeenLastCalledWith(OTHER_DRIVE.path);
+    expect(hubCall).toHaveBeenLastCalledWith('browse_dirs', { path: OTHER_DRIVE.path });
 
     fireEvent.click(screen.getByRole('button', { name: /add this repo/i }));
     expect(onAdd).toHaveBeenCalledWith(OTHER_DRIVE.path);
