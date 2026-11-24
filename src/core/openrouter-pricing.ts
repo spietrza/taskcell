@@ -32,7 +32,8 @@ export const PRICED_MODELS = {
 // of OPENROUTER_PRICING: that table is also the bare-name map of `--provider openrouter`, which
 // runs the Claude CLI and must keep rejecting a bare `gpt-*` name.
 export const CODEX_PRICED_MODELS = {
-  // The review model the docs recommend.
+  // The review model the docs recommend (checked 2026-11-24); gpt-5.6-sol is being retired.
+  'gpt-6-sol': { input: 2, output: 10, cacheRead: 0.2, openRouterModel: 'openai/gpt-6-sol' },
   'gpt-5.6-sol': { input: 4.4, output: 22, cacheRead: 0.44, openRouterModel: 'openai/gpt-5.6-sol' },
   'gpt-6.1-sol': { input: 2, output: 10, cacheRead: 0.1, openRouterModel: 'openai/gpt-6.1-sol' },
   'gpt-6.1-terra': { input: 1, output: 5, cacheRead: 0.05, openRouterModel: 'openai/gpt-6.1-terra' },

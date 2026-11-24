@@ -191,7 +191,7 @@ jobs:
       pinned-only: true # one run per labelled PR (the per-PR concurrency group above)
       author: YOUR_LOGIN
       provider: codex
-      review-model: gpt-5.6-sol
+      review-model: gpt-6-sol
       fallback-provider: claude
       fallback-model: opus
     secrets:
@@ -396,10 +396,10 @@ Models are set once, in the `with:` block of your implement caller — globally 
 |---|---|---|
 | Plan (spec) | `spec-model` | `opus` |
 | Implement + simplify | `provider` / `provider-model` | `claude` / `sonnet` |
-| Review | `review-provider` (+ `review-model`) | `codex` / `gpt-5.6-sol` |
+| Review | `review-provider` (+ `review-model`) | `codex` / `gpt-6-sol` |
 | Escalation | `escalate-model` | `claude-fable-5-1` (example; off unless set) |
 
-To change which models run, edit the caller's `with:` block. A cross-provider reviewer (e.g. Codex) takes its own model names — never pass it an Anthropic model name. On a ChatGPT subscription only Codex-flavoured names work (e.g. `gpt-5.6-sol`); a bare `gpt-5.6` is rejected with a 400.
+To change which models run, edit the caller's `with:` block. A cross-provider reviewer (e.g. Codex) takes its own model names — never pass it an Anthropic model name. On a ChatGPT subscription only Codex-flavoured names work (e.g. `gpt-6-sol`); a bare `gpt-6` is rejected with a 400, and `gpt-6-sol` needs Codex CLI 0.169 or newer.
 
 ### Full: cross-provider on a Codex subscription
 
@@ -418,7 +418,7 @@ To run **Opus** spec / **Sonnet** impl / **Codex** review with Codex on a ChatGP
          provider-model: sonnet
          spec-model: opus
          review-provider: codex
-         review-model: gpt-5.6-sol
+         review-model: gpt-6-sol
        secrets:
          CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
          CODEX_AUTH_JSON: ${{ secrets.CODEX_AUTH_JSON }}

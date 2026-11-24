@@ -67,9 +67,9 @@ describe('estimateOpenRouterCost', () => {
     expect(estimateOpenRouterCost(usage, 'claude-sonnet-4-6')).toBeCloseTo(18.3, 6);
     // claude-haiku-4-5-20251001: (1 + 5 + 0.1) = 6.1
     expect(estimateOpenRouterCost(usage, 'claude-haiku-4-5-20251001')).toBeCloseTo(6.1, 6);
-    // gpt-5.6-sol, the documented Codex review model. Codex counts the cached 1M inside the 1M input,
-    // so no input is left at the full rate: (0 * 4.4 + 22 + 0.44) = 22.44
-    expect(estimateOpenRouterCost(usage, 'gpt-5.6-sol', true)).toBeCloseTo(22.44, 6);
+    // gpt-6-sol, the documented Codex review model. Codex counts the cached 1M inside the 1M input,
+    // so no input is left at the full rate: (0 * 2 + 10 + 0.2) = 10.2
+    expect(estimateOpenRouterCost(usage, 'gpt-6-sol', true)).toBeCloseTo(10.2, 6);
     // 1M input of which 0.9M cached, on gpt-5: 0.1 * 1.25 + 0.9 * 0.125 = 0.2375
     expect(estimateOpenRouterCost({ inputTokens: 1_000_000, outputTokens: 0, cacheReadInputTokens: 900_000 }, 'gpt-5', true)).toBeCloseTo(0.2375, 6);
     // Without the provider flag (a Claude-CLI gateway serving `gpt-5`), the name is not priced, as before.

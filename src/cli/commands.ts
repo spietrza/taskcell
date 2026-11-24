@@ -35,7 +35,7 @@ const OPT = {
   'fallback-provider': str('<name>', 'Retry on this provider when the primary one fails (outage, limit, revoked credential); a comma list (codex,cursor) is a fallback chain'),
   'fallback-model': str('<model>', 'Model for every stage that fell back (default: that provider\'s default); a comma list pairs with --fallback-provider'),
   'usage-cap': str('<pct>', 'Stop starting work once the provider\'s plan window is at/over this % (1-100; env TASKCELL_USAGE_CAP_PCT)'),
-  'provider-model': str('<m>', 'Model for the implementer/simplifier stages (default: provider\'s default), or a weighted pool: claude/sonnet:3,codex/gpt-5.6-sol:1'),
+  'provider-model': str('<m>', 'Model for the implementer/simplifier stages (default: provider\'s default), or a weighted pool: claude/sonnet:3,codex/gpt-6-sol:1'),
   'review-model': str('<m>', 'Model for the review stage (default: provider\'s default), or a pool as for --provider-model'),
   'escalate-model': str('<m>', 'Model for the 2nd and later gate repairs (default: stay on the implementer model)'),
   'no-simplify': bool('Skip the simplifier stage (lean: implement -> review only)'),

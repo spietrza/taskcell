@@ -85,8 +85,8 @@ describe('parseCli run', () => {
   });
 
   it('accepts model pools on --provider-model/--review-model/--escalate-model and refuses bad ones', () => {
-    const run = parseCli(['run', '--linear', 'TES-1', '--provider-model', 'claude/sonnet:3, codex/gpt-5.6-sol:1', '--review-model', 'codex/gpt-5.6-sol:1'], '/work');
-    expect(run).toMatchObject({ kind: 'run', providerModel: 'claude/sonnet:3, codex/gpt-5.6-sol:1', reviewModel: 'codex/gpt-5.6-sol:1' });
+    const run = parseCli(['run', '--linear', 'TES-1', '--provider-model', 'claude/sonnet:3, codex/gpt-6-sol:1', '--review-model', 'codex/gpt-6-sol:1'], '/work');
+    expect(run).toMatchObject({ kind: 'run', providerModel: 'claude/sonnet:3, codex/gpt-6-sol:1', reviewModel: 'codex/gpt-6-sol:1' });
     expect(parseCli(['run', '--linear', 'TES-1', '--provider-model', 'openrouter/auto'], '/work')).toMatchObject({ kind: 'run', providerModel: 'openrouter/auto' });
     expect(parseCli(['run', '--linear', 'TES-1', '--provider-model', 'claude/sonnet:0'], '/work')).toMatchObject({ kind: 'error', message: expect.stringContaining('positive integer weight') });
     expect(parseCli(['run', '--linear', 'TES-1', '--escalate-model', 'sonnet:2'], '/work')).toMatchObject({ kind: 'error', message: expect.stringContaining('provider/model[:weight]') });
@@ -94,14 +94,14 @@ describe('parseCli run', () => {
   });
 
   it('accepts a --fallback-provider list and refuses an unknown entry in it', () => {
-    expect(parseCli(['run', '--linear', 'TES-1', '--fallback-provider', 'codex,cursor', '--fallback-model', 'gpt-5.6-sol,'], '/work')).toMatchObject({ kind: 'run', fallbackProvider: 'codex,cursor' });
+    expect(parseCli(['run', '--linear', 'TES-1', '--fallback-provider', 'codex,cursor', '--fallback-model', 'gpt-6-sol,'], '/work')).toMatchObject({ kind: 'run', fallbackProvider: 'codex,cursor' });
     expect(parseCli(['run', '--linear', 'TES-1', '--fallback-provider', 'codex,bogus'], '/work')).toMatchObject({ kind: 'error', message: expect.stringContaining('Unknown fallback-provider "bogus"') });
   });
 
   it('parses --fallback-provider / --fallback-model on run and watch, and rejects an unknown one or a model without a provider', () => {
-    const run = parseCli(['run', '--linear', 'TES-1', '--provider', 'claude', '--fallback-provider', 'codex', '--fallback-model', 'gpt-5.6-sol'], '/work');
+    const run = parseCli(['run', '--linear', 'TES-1', '--provider', 'claude', '--fallback-provider', 'codex', '--fallback-model', 'gpt-6-sol'], '/work');
     expect(run.kind === 'run' && run.fallbackProvider).toBe('codex');
-    expect(run.kind === 'run' && run.fallbackModel).toBe('gpt-5.6-sol');
+    expect(run.kind === 'run' && run.fallbackModel).toBe('gpt-6-sol');
     const watch = parseCli(['watch', '--source', 'github', '--github-repo', 'o/r', '--fallback-provider', 'codex'], '/work');
     expect(watch.kind === 'watch' && watch.fallbackProvider).toBe('codex');
     expect(parseCli(['run', '--linear', 'TES-1', '--fallback-provider', 'bogus'], '/work')).toMatchObject({ kind: 'error', message: expect.stringContaining('Unknown fallback-provider "bogus"') });

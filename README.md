@@ -139,7 +139,7 @@ The flags work on `run` and `watch`; in the GitHub Actions workflows the same na
 
 ```bash
 --spec-model opus --provider claude --provider-model sonnet \
---review-provider codex --review-model gpt-5.6-sol \
+--review-provider codex --review-model gpt-6-sol \
 --escalate-model claude-fable-5-2
 ```
 

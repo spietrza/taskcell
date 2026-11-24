@@ -443,10 +443,10 @@ describe('runSourcedIssue', () => {
       injectAnthropicAuth: false,
     } as never);
     const adapter = fakeAdapter([], STAGES);
-    await runSourcedIssue('group/project#1', { repoPath: '/repo', fallbackProvider: 'codex', fallbackModel: 'gpt-5.6-sol' }, adapter);
+    await runSourcedIssue('group/project#1', { repoPath: '/repo', fallbackProvider: 'codex', fallbackModel: 'gpt-6-sol' }, adapter);
     const assembled = runStages.mock.calls[0]?.[1] as PipelineStage[];
     const implementer = assembled.find((st) => st.name === 'implementer');
-    expect(implementer?.fallback).toEqual({ provider: { name: 'codex' }, model: 'gpt-5.6-sol' });
+    expect(implementer?.fallback).toEqual({ provider: { name: 'codex' }, model: 'gpt-6-sol' });
     expect(assembled.filter((st) => st.provider === undefined).every((st) => st.fallback?.provider.name === 'codex')).toBe(true);
     expect(assembled.filter((st) => st.provider !== undefined).every((st) => st.fallback?.provider.name !== 'codex')).toBe(true);
     expect(vi.mocked(prepareContext).mock.calls.at(-1)?.[0]).toEqual(expect.objectContaining({ fallbackAgentName: 'codex' }));
@@ -461,7 +461,7 @@ describe('runSourcedIssue', () => {
       injectAnthropicAuth: false,
     } as never);
     runStages.mockResolvedValueOnce([
-      { ...stageOutcome('implementer', 'sess-1'), providerName: 'codex', model: 'gpt-5.6-sol' },
+      { ...stageOutcome('implementer', 'sess-1'), providerName: 'codex', model: 'gpt-6-sol' },
       stageOutcome('reviewer'),
     ]);
     vi.mocked(resolveVerifyCommand).mockResolvedValue('npm test');
@@ -469,14 +469,14 @@ describe('runSourcedIssue', () => {
       .mockResolvedValueOnce({ passed: false } as never)
       .mockResolvedValueOnce({ passed: false } as never)
       .mockResolvedValueOnce({ passed: true } as never);
-    runAgent.mockResolvedValue({ sessionId: 'sess-1', completed: true, exitReason: 'completed', turns: 2, model: 'gpt-5.6-sol' } as never);
+    runAgent.mockResolvedValue({ sessionId: 'sess-1', completed: true, exitReason: 'completed', turns: 2, model: 'gpt-6-sol' } as never);
 
     const adapter = fakeAdapter([], STAGES);
     await runSourcedIssue('group/project#1', { repoPath: '/repo', fallbackProvider: 'codex', escalateModel: 'claude-fable-5' }, adapter);
 
     expect(runAgent).toHaveBeenCalledTimes(2);
     for (const call of runAgent.mock.calls) {
-      expect(call[1]).toMatchObject({ agent: { name: 'codex' }, resumeSessionId: 'sess-1', model: 'gpt-5.6-sol' });
+      expect(call[1]).toMatchObject({ agent: { name: 'codex' }, resumeSessionId: 'sess-1', model: 'gpt-6-sol' });
     }
   });
 
@@ -560,7 +560,7 @@ describe('runSourcedIssue', () => {
       const repo = await mkdtemp(join(tmpdir(), 'pool-flow-'));
       try {
         const stages: PipelineStage[] = [
-          { ...STAGES[0]!, model: 'claude/sonnet:1, codex/gpt-5.6-sol:1' },
+          { ...STAGES[0]!, model: 'claude/sonnet:1, codex/gpt-6-sol:1' },
           { name: 'simplifier', promptTemplate: '', maxTurns: 10 },
           STAGES[1]!,
         ];
