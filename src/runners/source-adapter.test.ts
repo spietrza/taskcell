@@ -508,6 +508,17 @@ describe('runSourcedIssue', () => {
     const picked = (): Array<{ provider?: string; providerModel?: string; fallbackProvider?: string }> =>
       vi.mocked(selectAgents).mock.calls.map(([choice]) => choice);
 
+    it('agent selection receives the resolved pool entry, and a limit re-runs the task on the next same-provider entry', async () => {
+      limitOnce();
+      await runSourcedIssue('group/project#1', { repoPath: '/repo', providerModel: 'claude/sonnet:1, claude/opus:1' }, fakeAdapter([], STAGES));
+      // Each attempt hands selectAgents one resolved entry, never the pool spec; the retry moved to the other entry.
+      const choices = picked();
+      expect(choices.map((c) => c.provider)).toEqual(['claude', 'claude']);
+      expect(choices.map((c) => c.providerModel).sort()).toEqual(['opus', 'sonnet']);
+      expect(runStages).toHaveBeenCalledTimes(2);
+      expect(publishForReview).toHaveBeenCalledTimes(1);
+    });
+
     it('once the pool and its in-run fallback are out, the task moves down the fallback chain', async () => {
       limitOnce();
       await runSourcedIssue('group/project#1', { repoPath: '/repo', providerModel: 'claude/sonnet:1', fallbackProvider: 'codex,cursor' }, fakeAdapter([], STAGES));
