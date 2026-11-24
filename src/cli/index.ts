@@ -21,7 +21,7 @@ async function main(): Promise<void> {
     process.exitCode = 1;
     return;
   }
-  await dispatch(command.kind, command);
+  await dispatch(command);
 }
 
 main().catch((error: unknown) => {

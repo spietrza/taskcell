@@ -26,9 +26,9 @@ import { parseRevisePrCommand } from './revise-pr.parse.js';
 import { parseWatchPrsCommand } from './watch-prs.parse.js';
 import { parseDoctorPrsCommand } from './doctor-prs.parse.js';
 import { parseReviewMrCommand } from './review-mr.parse.js';
-import { parseWatchMrsCommand } from './watch-mrs.parse.js';
+import { parseWatchMrsCommand, parseDoctorMrsCommand } from './watch-mrs.parse.js';
 import { parseRunCommand } from './run.parse.js';
-import { parseWatchCommand } from './watch.parse.js';
+import { parseWatchCommand, parseDoctorCommand } from './watch.parse.js';
 
 export interface Parser {
   /** False for commands that never pick a provider: they skip the provider-pair validation. */
@@ -61,10 +61,10 @@ export const PARSERS: Record<CommandName, Parser> = {
   'doctor-prs': parser(true, parseDoctorPrsCommand),
   'review-mr': parser(true, parseReviewMrCommand),
   'watch-mrs': parser(true, parseWatchMrsCommand),
-  'doctor-mrs': parser(true, parseWatchMrsCommand),
+  'doctor-mrs': parser(true, parseDoctorMrsCommand),
   run: parser(true, parseRunCommand),
   watch: parser(true, parseWatchCommand),
-  doctor: parser(true, parseWatchCommand),
+  doctor: parser(true, parseDoctorCommand),
 };
 
 const isCommandName = (name: string): name is CommandName => Object.hasOwn(PARSERS, name);
