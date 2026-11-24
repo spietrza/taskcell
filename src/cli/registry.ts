@@ -1,20 +1,16 @@
 /**
  * How each parsed command runs, by its `kind`: a full map, so a new command kind without a runner is a type
  * error. Only the CLI entry (index.ts) imports this module; the parse step (parsers.ts) never reaches a runner.
- * Module members are read at call time (namespace imports), so a command's module is not evaluated for
- * another command's run.
+ * The namespace imports below are evaluated on every CLI start; approve, lessons, skills, audit and history
+ * (like hub, doctor-mrs, sidecar and complete) are loaded by a dynamic import in their runner instead, so
+ * they stay unevaluated for other commands' runs and `--help`.
  */
 import type { Command } from './args.js';
 import { resolveForkScorerConfig } from '../runners/source-adapter.js';
 import { resumeRateLimited } from '../runners/resume-rate-limited.js';
 import { migrateLabels } from '../runners/migrate-labels.js';
 import * as stats from './stats.js';
-import * as approve from './approve.js';
 import * as metrics from './metrics.js';
-import * as lessons from './lessons.js';
-import * as skills from './skills.js';
-import * as audit from './audit.js';
-import * as history from './history.js';
 import * as memory from './memory.js';
 import * as evalCmd from './eval.js';
 import * as gc from './gc.js';
@@ -74,16 +70,16 @@ export const RUNNERS: { readonly [K in RunnableKind]: (command: RunnableCommand[
   'doctor-mrs': async (c) => (await import('./doctor-mrs.js')).doctorMrsCommand(c),
   eval: (c) => evalCmd.evalCommand(c),
   metrics: (c) => metrics.metricsCommand(c),
-  approve: (c) => approve.approveCommand(c),
+  approve: async (c) => (await import('./approve.js')).approveCommand(c),
   stats: (c) => stats.statsCommand(c),
-  lessons: (c) => lessons.lessonsCommand(c),
+  lessons: async (c) => (await import('./lessons.js')).lessonsCommand(c),
   skills: async (c) => {
-    process.exitCode = await skills.skillsCommand(c);
+    process.exitCode = await (await import('./skills.js')).skillsCommand(c);
   },
   audit: async (c) => {
-    process.exitCode = await audit.auditCommand(c);
+    process.exitCode = await (await import('./audit.js')).auditCommand(c);
   },
-  history: (c) => history.historyCommand(c),
+  history: async (c) => (await import('./history.js')).historyCommand(c),
   memory: (c) => memory.memoryCommand(c),
   gc: async (c) => {
     const report = await gc.runGc(c);
@@ -142,7 +138,7 @@ export const RUNNERS: { readonly [K in RunnableKind]: (command: RunnableCommand[
   },
 };
 
-/** Run a parsed command on its kind's runner (the kind and the command are passed together so they stay paired). */
-export function dispatch<K extends RunnableKind>(kind: K, command: RunnableCommand[K]): Promise<void> {
-  return RUNNERS[kind](command);
+/** Run a parsed command on its kind's runner; the kind is read from the command, so the pair cannot be mismatched. */
+export function dispatch(command: RunnableCommand[RunnableKind]): Promise<void> {
+  return (RUNNERS[command.kind] as (c: typeof command) => Promise<void>)(command);
 }
