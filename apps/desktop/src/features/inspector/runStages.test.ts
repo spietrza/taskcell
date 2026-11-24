@@ -122,3 +122,8 @@ test('Tests in a live run: running once Code is done, passed with its time once 
   expect(withGateSteps(st, proof, undefined, 7000)[1]).toEqual({ name: 'tests', label: 'Gates', phase: 'done', ms: 7000 });
   expect(withGateSteps(st, { ...proof, passed: false }, undefined, 7000)[1]).toMatchObject({ phase: 'failed', note: 'Failed' });
 });
+
+test('the flow the run-start event names is read, and absent when it names none', () => {
+  expect(foldRunEvents([ev('2026-11-16T10:00:00.000Z', { type: 'run-start', taskId: 't', flow: 'plan', stages: ['implement'] })]).flow).toBe('plan');
+  expect(foldRunEvents([start]).flow).toBeUndefined();
+});

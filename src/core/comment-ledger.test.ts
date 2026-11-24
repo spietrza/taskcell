@@ -40,6 +40,9 @@ const TABLE: { kind: string; payload: unknown; legacy: string | undefined; white
   { kind: 'waiting', payload: { trigger: 'ready for agent', kind: 'error' }, legacy: '<!-- vanguard:waiting trigger="ready for agent" kind="error" -->', authors: 'trusted' },
   { kind: 'overlap', payload: { until, refs: [{ kind: 'pr', number: 7 }] }, legacy: `<!-- vanguard:overlap until="${until.toISOString()}" refs="pr:7" -->`, authors: 'trusted' },
   { kind: 'skills', payload: ['a', 'b'], legacy: '<!-- vanguard-skills: a,b -->', authors: 'anyone' },
+  ...['gate-config-start', 'gate-config-end', 'skills-block-start', 'skills-block-end', 'pr-body-items-start', 'pr-body-items-end'].map(
+    (kind) => ({ kind, payload: true, legacy: undefined, authors: 'anyone' as const }),
+  ),
 ];
 
 describe('comment ledger, one row per marker kind', () => {
@@ -87,6 +90,21 @@ describe('merge-only payload', () => {
 });
 
 describe('stripAllMarkers', () => {
+  it.each(TABLE)('$kind: strips it with and without a space before -->', ({ kind, payload }) => {
+    const text = writeMarker(kind, payload);
+    for (const variant of [text, text.replace(/ -->$/, '-->')]) {
+      expect(hasMarker(kind, variant)).toBe(true);
+      const out = stripAllMarkers(`a\n${variant}\nb`);
+      expect(hasMarker(kind, out)).toBe(false);
+      expect(out).not.toMatch(/<!--/);
+    }
+  });
+
+  it('strips an anywhere marker closed with no space, and keeps a longer name', () => {
+    expect(stripAllMarkers('x <!--taskcell-lesson--> y <!-- taskcell-revision-cap--> z')).toBe('x  y  z');
+    expect(stripAllMarkers('<!-- taskcell-lesson-more -->')).toBe('<!-- taskcell-lesson-more -->');
+  });
+
   it('strips a declaration added later, with no other change', () => {
     const text = '<!-- taskcell-brand-new: 7 -->';
     expect(stripAllMarkers(text)).toBe(text);
