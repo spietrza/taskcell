@@ -83,7 +83,7 @@ function newestPrUrls(runs: readonly RunSummary[]): Map<string, { timestamp: str
  * itself. `needsYou`: the repository's waiting items.
  * A card in Review or failed sits where its newest local run left it; any other card by its column.
  */
-export function withCardViews<T extends BoardTask>(tasks: readonly T[], runs: readonly RunSummary[], needsYou: readonly NeedsYouItem[]): T[] {
+export function withCardViews<T extends BoardTask>(tasks: readonly T[], runs: readonly RunSummary[], needsYou: readonly NeedsYouItem[], unchecked = false): T[] {
   const done = new Set(tasks.filter((t) => t.column === 'done').map((t) => taskRefKey(t.id)));
   const newest = newestRuns(markDone(runs, done));
   const prUrls = newestPrUrls(runs);
@@ -99,6 +99,7 @@ export function withCardViews<T extends BoardTask>(tasks: readonly T[], runs: re
       place,
       ...(run !== undefined && outcome !== undefined ? { run: { ...outcome, timestamp: run.timestamp, ...(run.prUrl !== undefined ? { prUrl: run.prUrl } : {}) } } : {}),
       ...(waiting !== undefined ? { waiting } : {}),
+      ...(unchecked ? { waitingUnchecked: true as const } : {}),
     };
     return { ...task, view };
   });

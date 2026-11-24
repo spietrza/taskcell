@@ -8,6 +8,7 @@ vi.mock('../../ipc', () => ({
   listRuns: vi.fn(),
   readRun: vi.fn(),
   listNeedsYou: vi.fn(),
+  needsYouComment: vi.fn(async () => ({})),
   replyNeedsYou: vi.fn(),
   mergeNeedsYou: vi.fn(),
   apiListSkills: vi.fn(async () => ({ skills: ['db', 'release'] })),
@@ -16,7 +17,7 @@ vi.mock('../../ipc', () => ({
   hubTaskStart: vi.fn(async (_repo: string, id: string) => ({ id })),
   fetchSpec: vi.fn(async () => 'The issue body.'),
 }));
-import { hubTaskStart, apiListSkills, apiSetTaskSkills, listNeedsYou, listRuns, readAppConfigStrict, readRun } from '../../ipc';
+import { hubTaskStart, apiListSkills, apiSetTaskSkills, listNeedsYou, needsYouComment, listRuns, readAppConfigStrict, readRun } from '../../ipc';
 
 const PR = 'https://github.com/o/r/pull/9';
 const item = (over: Partial<NeedsYouItem>): NeedsYouItem => ({ id: 'o/r#9', kind: 'pr', number: 9, repoSlug: 'o/r', title: 'T', url: PR, reason: 'taskcell:needs-human-review', baseRef: 'main', ...over });
@@ -34,6 +35,18 @@ beforeEach(() => {
 });
 
 describe('QuickView', () => {
+  test('the opened item\'s last comment is fetched, as the list carries none', async () => {
+    vi.mocked(needsYouComment).mockResolvedValueOnce({ lastComment: { author: 'bot', body: 'Which branch?' } });
+    open();
+    expect(await screen.findByText('Which branch?')).toBeInTheDocument();
+    expect(needsYouComment).toHaveBeenCalledWith('/repo', 'o/r#9', 'pr');
+  });
+
+  test('says it could not check when the hub could not read what waits', async () => {
+    open({ ...task, view: { place: { at: 5, failed: false }, waitingUnchecked: true } });
+    expect(await screen.findByText('Could not check whether this card waits for you.')).toBeInTheDocument();
+  });
+
   test('a delivered card whose run stopped to ask: Done with the Board\'s warning, the stop station marked, the run "stopped to ask"', async () => {
     vi.mocked(listRuns).mockResolvedValue([{ ...summary, taskId: 'hub-4', anyFailed: true, asked: 'Which file?', prUrl: undefined } as RunSummary]);
     vi.mocked(listNeedsYou).mockResolvedValue({ items: [] });
