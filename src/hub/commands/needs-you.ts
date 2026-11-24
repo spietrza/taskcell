@@ -1,9 +1,9 @@
 // Hub commands: the "Needs you" read model and its reply/merge actions. One module per feature — contract, validation and handler live here;
 // `pnpm gen:wire` derives Commands, COMMAND_NAMES and dispatch from it (see CONTRIBUTING.md).
 import { BadRequestError } from '../../sidecar/sidecar.js';
-import { listNeedsYou, mergeNeedsYou, replyNeedsYou, MAX_COMMENT_FETCHES } from '../needs-you.js';
+import { mergeNeedsYou, replyNeedsYou, MAX_COMMENT_FETCHES } from '../needs-you.js';
 import { readAppConfig } from '../app-config.js';
-import { answerCard, askingCards, type GithubAnswerTarget } from '../asking.js';
+import { answerCard, forgetBoardWaiting, repoNeedsYou } from '../asking.js';
 import * as projects from '../projects.js';
 import type { MigrateLabelsReport, NeedsYouItem, RepoReadFailure, RepoStamp } from '../../wire.js';
 import { migrateLabels } from '../../runners/migrate-labels.js';
@@ -23,13 +23,6 @@ export interface NeedsYouCommands {
   merge_needs_you: { args: { repoPath: string; id: string }; result: void };
 }
 
-/** A GitHub card's answer target: the repository and its configured trigger label (app.json `label`). */
-async function answerTarget(real: string, repoSlug: string | undefined): Promise<GithubAnswerTarget | undefined> {
-  if (repoSlug === undefined) return undefined;
-  const { label } = await readAppConfig(real);
-  return { repoSlug, ...(label?.trim() ? { agentLabel: label } : {}) };
-}
-
 export const commands = defineCommands<NeedsYouCommands>({
   migrate_labels: async ({ args, allow }) => {
     const real = await allow(requireString(args, 'repoPath'));
@@ -40,9 +33,7 @@ export const commands = defineCommands<NeedsYouCommands>({
   },
   list_needs_you: async ({ ctx, args, allow }) => {
     const real = await allow(requireString(args, 'repoPath'));
-    const repoSlug = await githubSlug(real);
-    // Cards whose run stopped to ask come from run records; a repository without a GitHub remote has only those.
-    return { items: [...(repoSlug === undefined ? [] : await listNeedsYou(repoSlug)), ...(await askingCards(ctx.configDir, real, await answerTarget(real, repoSlug)))] };
+    return { items: await repoNeedsYou(ctx.configDir, real) };
   },
   list_needs_you_all: async ({ ctx, allow, scope }) => {
     // One comment-fetch budget for every repository, not MAX_COMMENT_FETCHES each.
@@ -50,10 +41,7 @@ export const commands = defineCommands<NeedsYouCommands>({
     const { items, failures } = await projects.listAcrossProjects(
       ctx.configDir,
       allow,
-      async (real) => {
-        const repoSlug = await githubSlug(real);
-        return [...(repoSlug === undefined ? [] : await listNeedsYou(repoSlug, undefined, { commentBudget })), ...(await askingCards(ctx.configDir, real, await answerTarget(real, repoSlug)))];
-      },
+      (real) => repoNeedsYou(ctx.configDir, real, { commentBudget }),
       await scope(),
     );
     return { items, failures };
@@ -67,7 +55,12 @@ export const commands = defineCommands<NeedsYouCommands>({
     const repoSlug = await githubSlug(real);
     if (kind === 'card') {
       const { label } = await readAppConfig(real);
-      await answerCard({ configDir: ctx.configDir, repoPath: real, id, body, owner: { actor: actorOf(ctx), caller }, ...(repoSlug !== undefined ? { repoSlug } : {}), ...(label?.trim() ? { agentLabel: label } : {}) });
+      // The board's kept read of what waits is dropped either way: answered, the item no longer waits.
+      try {
+        await answerCard({ configDir: ctx.configDir, repoPath: real, id, body, owner: { actor: actorOf(ctx), caller }, ...(repoSlug !== undefined ? { repoSlug } : {}), ...(label?.trim() ? { agentLabel: label } : {}) });
+      } finally {
+        forgetBoardWaiting(real);
+      }
       return null;
     }
     if (repoSlug === undefined) throw new BadRequestError('reply_needs_you: this project has no GitHub remote');
@@ -75,7 +68,11 @@ export const commands = defineCommands<NeedsYouCommands>({
     // naming any other repo, so a reply can only ever touch a registered project.
     // The repo's configured trigger label (app.json `label`, as api_create_task applies), else the default.
     const { label } = await readAppConfig(real);
-    await replyNeedsYou(repoSlug, id, kind, body, undefined, label?.trim() ? label : undefined);
+    try {
+      await replyNeedsYou(repoSlug, id, kind, body, undefined, label?.trim() ? label : undefined);
+    } finally {
+      forgetBoardWaiting(real);
+    }
     return null;
   },
   merge_needs_you: async ({ args, allow }) => {
@@ -83,7 +80,11 @@ export const commands = defineCommands<NeedsYouCommands>({
     const id = requireString(args, 'id');
     const repoSlug = await githubSlug(real);
     if (repoSlug === undefined) throw new BadRequestError('merge_needs_you: this project has no GitHub remote');
-    await mergeNeedsYou(repoSlug, id);
+    try {
+      await mergeNeedsYou(repoSlug, id);
+    } finally {
+      forgetBoardWaiting(real);
+    }
     return null;
   },
 }, {

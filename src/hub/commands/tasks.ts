@@ -14,6 +14,10 @@ import { listRepoFlows, unknownFlowError } from '../../flows/repo.js';
 import { FLOWS } from '../../api/capabilities.js';
 import { listHubBoard } from '../hub-board.js';
 import { HUB_TASK_ID, MAX_BLOCKED_BY, MAX_BODY_LENGTH, MAX_TITLE_LENGTH, createHubTask, editHubTask, listHubTasks, removeHubTask, updateHubTask, type HubTaskOwner } from '../hub-tasks.js';
+import { withCardViews } from '../card-view.js';
+import { boardWaiting, forgetBoardWaiting } from '../asking.js';
+import { MAX_COMMENT_FETCHES } from '../needs-you.js';
+import { defaultRunsRoot, listRunSummaries } from '../runs.js';
 import { startGithubTask, triggerLabelsFor } from '../start-task.js';
 import { markerReadBudget, retryPausedTask, withPausedTasks, type MarkerReadBudget } from '../paused.js';
 import type { BoardTask, CreatedTask, RepoReadFailure, RepoStamp, RetryPausedResult, StartTaskResult } from '../../wire.js';
@@ -22,6 +26,7 @@ import { defineCommands, requireString, requireMatch, optionalString, optionalNu
 export interface TasksCommands {
   /** `hubBoard`: the project's task source is the hub's own board (its cards are created and scheduled in the hub). */
   list_tasks: { args: { repoPath: string }; result: { tasks: BoardTask[]; capped: boolean; hubBoard?: true } };
+  // Every card in both lists carries its `view` (src/hub/card-view.ts): its place on the line, its newest run, its waiting item.
   /** HUB_ONLY: `list_tasks` across every hub repository, each card stamped with its repository. `hubBoards`: the repositories whose task source is the hub board. */
   list_tasks_all: { args: { teamId?: string } | undefined; result: { tasks: (BoardTask & RepoStamp)[]; capped: boolean; failures: RepoReadFailure[]; hubBoards?: string[] } };
   fetch_spec: { args: { repoPath: string; taskId: string }; result: { spec: string } };
@@ -65,6 +70,15 @@ async function withPaused(ctx: RpcContext, real: string, tasks: BoardTask[], bud
   if (((await readAppConfig(real)).source ?? 'github') !== 'github') return tasks;
   const slug = await githubSlug(real);
   return slug === undefined ? tasks : withPausedTasks(slug, tasks, ctx.gh, budget);
+}
+
+/** Each card with its view: where it sits, its newest run and its waiting item (src/hub/card-view.ts). Local state is best effort: a run list that cannot be read leaves the cards placed by their column. */
+async function withViews<T extends BoardTask>(ctx: RpcContext, real: string, tasks: T[], commentBudget?: { remaining: number }): Promise<T[]> {
+  const [runs, needsYou] = await Promise.all([
+    listRunSummaries(defaultRunsRoot(real)).catch(() => []),
+    boardWaiting(ctx.configDir, real, { ...(commentBudget !== undefined ? { commentBudget } : {}), ...(ctx.gh !== undefined ? { gh: ctx.gh } : {}) }),
+  ]);
+  return withCardViews(tasks, runs, needsYou);
 }
 
 /** GitHub's cap on a label name. */
@@ -225,11 +239,14 @@ export const commands = defineCommands<TasksCommands>({
   list_tasks: async ({ ctx, args, allow }) => {
     const real = await allow(requireString(args, 'repoPath'));
     const r = await boardOf(ctx, real);
-    return r.hubBoard === true ? r : { ...r, tasks: await withPaused(ctx, real, r.tasks, markerReadBudget()) };
+    const tasks = r.hubBoard === true ? r.tasks : await withPaused(ctx, real, r.tasks, markerReadBudget());
+    return { ...r, tasks: await withViews(ctx, real, tasks) };
   },
   list_tasks_all: async ({ ctx, allow, scope }) => {
     let capped = false;
     const budget = markerReadBudget();
+    // One comment-fetch budget for every repository's waiting items, as list_needs_you_all.
+    const commentBudget = { remaining: MAX_COMMENT_FETCHES };
     const hubBoards: string[] = [];
     // Named as registered (the path the UI knows the project by), not as resolved.
     const registered = new Map<string, string>();
@@ -245,9 +262,9 @@ export const commands = defineCommands<TasksCommands>({
         capped ||= r.capped;
         if (r.hubBoard === true) {
           hubBoards.push(registered.get(real) ?? real);
-          return r.tasks;
+          return withViews(ctx, real, r.tasks, commentBudget);
         }
-        return withPaused(ctx, real, r.tasks, budget);
+        return withViews(ctx, real, await withPaused(ctx, real, r.tasks, budget), commentBudget);
       },
       await scope(),
     );
@@ -335,6 +352,8 @@ export const commands = defineCommands<TasksCommands>({
       else delete t.flow;
     });
     if (task === undefined) throw new BadRequestError(`no hub task ${id}`);
+    // The card moved on: its waiting item, if any, no longer waits.
+    forgetBoardWaiting(real);
     return { id };
   },
   hub_task_start: async (call) => {
@@ -349,6 +368,8 @@ export const commands = defineCommands<TasksCommands>({
       if (flow !== undefined) t.flow = flow;
     });
     if (task === undefined) throw new BadRequestError(`no hub task ${id}`);
+    // The card moved on: its waiting item, if any, no longer waits.
+    forgetBoardWaiting(real);
     return { id };
   },
   hub_task_accept: async (call) => {
@@ -361,6 +382,8 @@ export const commands = defineCommands<TasksCommands>({
       delete t.reason;
     });
     if (task === undefined) throw new BadRequestError(`no hub task ${id}`);
+    // The card moved on: its waiting item, if any, no longer waits.
+    forgetBoardWaiting(real);
     return { id };
   },
   hub_task_archive: async (call) => {

@@ -1,6 +1,5 @@
-import { listRuns, readRunRecords, runsRoot } from '../core/run-store.js';
+import { listRuns, newestRuns, readRunRecords, runsRoot } from '../core/run-store.js';
 import type { BoardChip, RunDetail } from '../wire.js';
-import { taskRefKey } from './board.js';
 
 /** Latest run verdicts in pipeline order; historical records never imply a review pass. */
 export function boardChipsFor(detail: RunDetail): BoardChip[] {
@@ -27,12 +26,7 @@ export function boardChipsFor(detail: RunDetail): BoardChip[] {
 
 export async function latestRunChips(repoPath: string): Promise<Map<string, BoardChip[]>> {
   const root = runsRoot(repoPath);
-  // listRuns is newest-first and fingerprint-cached: keep each task's first (newest) run only.
-  const latest = new Map<string, { taskId: string; timestamp: string }>();
-  for (const run of await listRuns(root)) {
-    const key = taskRefKey(run.taskId);
-    if (!latest.has(key)) latest.set(key, run);
-  }
+  const latest = newestRuns(await listRuns(root));
   const out = new Map<string, BoardChip[]>();
   await Promise.all([...latest].map(async ([key, run]) => {
     try {

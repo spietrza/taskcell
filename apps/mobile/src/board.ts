@@ -1,8 +1,6 @@
 import type { HubClient } from '../../../packages/hub-client/src/client';
-import type { BoardTask, RepoReadFailure, RepoStamp, RunSummary } from '../../../packages/hub-client/src/wire';
-import { taskRefKey } from '../../../packages/hub-client/src/taskref';
-import { runStateWord } from '../../../packages/hub-client/src/runLabels';
-import { STATION_SHORT, cardStationOf } from '../../../packages/hub-client/src/stations';
+import type { BoardTask, RepoReadFailure, RepoStamp } from '../../../packages/hub-client/src/wire';
+import { STATION_SHORT, stationOf } from '../../../packages/hub-client/src/stations';
 import { ageOf } from './needsYou';
 
 export type HubTask = BoardTask & Partial<RepoStamp>;
@@ -17,7 +15,7 @@ export const COLUMNS = [
   { key: 'done', label: 'Done' },
 ] as const;
 
-/** The column of a station index (`cardStationOf(...).at`; 6 is past the line); as the desktop's `COLUMN_OF_STATION`. */
+/** The column of a station index (the hub's `view.place.at`; 6 is past the line); as the desktop's `COLUMN_OF_STATION`. */
 const COLUMN_OF_STATION = ['card', 'spec', 'cell', 'gates', 'review', 'review', 'done'] as const;
 
 export interface Card {
@@ -40,27 +38,14 @@ export interface Card {
 
 const https = (u: string | undefined): string | null => (u !== undefined && /^https:\/\//.test(u) ? u : null);
 
-/** Each card's newest local run (runs come newest first), keyed by card id; as the desktop's `newestRuns`. */
-export type HubRun = RunSummary & Partial<RepoStamp>;
+export const boardColumn = (t: HubTask): string => COLUMN_OF_STATION[(t.view?.place ?? stationOf(t)).at] ?? 'done';
 
-/** A card's key in the runs map: its repository too, since two repositories can both have `gh-3`. */
-const runKey = (repoPath: string | undefined, taskId: string): string => `${repoPath ?? ''}|${taskRefKey(taskId)}`;
-
-export function newestRuns(runs: readonly HubRun[]): Map<string, RunSummary> {
-  const out = new Map<string, RunSummary>();
-  for (const r of runs) if (r.source !== 'ci' && !out.has(runKey(r.repoPath, r.taskId))) out.set(runKey(r.repoPath, r.taskId), r);
-  return out;
-}
-
-export const boardColumn = (t: HubTask, run?: RunSummary): string => COLUMN_OF_STATION[cardStationOf(t, run).at] ?? 'done';
-
-/** Hub tasks → cards, in the desktop's column order (the hub's order inside a column). */
-export function toCards(tasks: readonly HubTask[], runs: readonly HubRun[], now: number = Date.now()): Card[] {
-  const last = newestRuns(runs);
+/** Hub tasks → cards, in the desktop's column order (the hub's order inside a column). The hub places each card (`view`). */
+export function toCards(tasks: readonly HubTask[], now: number = Date.now()): Card[] {
   const order = (c: Card): number => COLUMNS.findIndex((x) => x.key === c.column);
   return tasks
     .map((task): Card => {
-      const run = last.get(runKey(task.repoPath, task.id));
+      const run = task.view?.run;
       // A claimed or running card's live state is its stage; the last delivered run is history, so it shows no PR/result.
       const live = task.column === 'queued' || task.column === 'claimed' || task.column === 'running';
       const finished = run !== undefined && !live ? run : undefined;
@@ -68,13 +53,13 @@ export function toCards(tasks: readonly HubTask[], runs: readonly HubRun[], now:
         id: `${task.repoPath ?? ''}|${task.id}`,
         title: task.title,
         repo: task.repoName || '',
-        column: boardColumn(task, run),
-        status: finished ? runStateWord(finished) : task.state,
+        column: boardColumn(task),
+        status: finished ? finished.state : task.state,
         age: ageOf(run?.timestamp, now),
         prUrl: https(finished?.prUrl),
         issueUrl: https(task.url),
         labels: task.labels ?? [],
-        runStatus: run ? runStateWord(run) : null,
+        runStatus: run ? run.state : null,
         task,
       };
     })
@@ -87,11 +72,8 @@ export interface BoardData {
   capped: boolean;
 }
 
-/** The hub's tasks of every repository, with their runs (which place a card in Review / Done). Runs are optional: a failed read leaves cards placed by their column. */
+/** The hub's tasks of every repository, each already placed by the hub (its newest run and waiting item ride on the card). */
 export async function loadBoard(client: HubClient): Promise<BoardData> {
-  const [{ tasks, capped, failures }, runs] = await Promise.all([
-    client.call('list_tasks_all'),
-    client.call('list_runs_all').then((r) => r.runs, () => [] as HubRun[]),
-  ]);
-  return { cards: toCards(tasks, runs), failures: failures ?? [], capped };
+  const { tasks, capped, failures } = await client.call('list_tasks_all');
+  return { cards: toCards(tasks), failures: failures ?? [], capped };
 }

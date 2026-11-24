@@ -20,6 +20,7 @@ import { ciRunUrl, diffUrlFor, httpsUrl } from './links.js';
 import { reviewVerdictOf } from '../pipeline/review-verdict.js';
 import { parseSkillsUsed, sanitizeSkillIds } from './skills-used.js';
 import { parseMetrics } from './stats.js';
+import { taskRefKey } from '../tasks/board.js';
 import { workflowPaths } from './taskcell.js';
 import type { DecisionProbeResult } from './decision-probe.js';
 import type { BaseMergeEvent } from './conflict-stats.js';
@@ -184,6 +185,21 @@ async function tryReadProofPassed(path: string): Promise<boolean | undefined> {
   }
 }
 
+/**
+ * Each card's newest local run, keyed by its board id (`taskRefKey`: `gh-owner-repo-904` and `gh-904` are one card).
+ * CI-imported runs are never a card's run. Newest by timestamp, whatever order `runs` come in.
+ */
+export function newestRuns<T extends Pick<RunSummary, 'taskId' | 'timestamp' | 'source'>>(runs: readonly T[]): Map<string, T> {
+  const out = new Map<string, T>();
+  for (const r of runs) {
+    if (r.source === 'ci') continue;
+    const key = taskRefKey(r.taskId);
+    const held = out.get(key);
+    if (held === undefined || held.timestamp < r.timestamp) out.set(key, r);
+  }
+  return out;
+}
+
 async function parseRunSummaries(root: string): Promise<RunSummary[]> {
   const summaries: RunSummary[] = [];
 
@@ -238,7 +254,7 @@ async function parseRunSummaries(root: string): Promise<RunSummary[]> {
       const asked = stoppedEarly === undefined ? undefined : askedText(stoppedEarly.finalText);
       // shortcut: only a proof stamped with the run's own timestamp counts (not readRunDetail's fallback for older runs).
       const proofName = `${sanitizeTimestamp(timestamp)}.proof.json`;
-      const verifyFailed = files.some((f) => f.name === proofName) && (await tryReadProofPassed(join(taskPath, proofName))) === false;
+      const proofPassed = files.some((f) => f.name === proofName) ? await tryReadProofPassed(join(taskPath, proofName)) : undefined;
       summaries.push({
         taskId: first.taskId,
         timestamp,
@@ -255,7 +271,8 @@ async function parseRunSummaries(root: string): Promise<RunSummary[]> {
         ...(trigger !== undefined ? { trigger } : {}),
         ...(extraAttempts > 0 ? { extraAttempts } : {}),
         ...(failedStage !== undefined ? { failedStage } : {}),
-        ...(verifyFailed ? { verifyFailed: true as const } : {}),
+        ...(proofPassed === false ? { verifyFailed: true as const } : {}),
+        ...(proofPassed === true ? { verifyPassed: true as const } : {}),
         ...(asked !== undefined ? { asked } : {}),
       });
     }

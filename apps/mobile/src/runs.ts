@@ -1,6 +1,5 @@
 import type { HubClient } from '../../../packages/hub-client/src/client';
 import type { RepoStamp, RunDetail, RunSummary } from '../../../packages/hub-client/src/wire';
-import { runStateWord } from '../../../packages/hub-client/src/runLabels';
 import { tailRun } from '../../../packages/hub-client/src/runTail';
 import { ageOf } from './needsYou';
 
@@ -77,7 +76,7 @@ export async function loadRuns(client: HubClient, now: number = Date.now()): Pro
       repoPath: r.repoPath,
       ...taskOf(r.repoPath, r.taskId),
       repo: r.repoName,
-      status: runStateWord(r),
+      status: r.outcome?.state ?? 'unknown',
       active: false,
       cost: costOf(r),
       age: ageOf(r.timestamp, now),

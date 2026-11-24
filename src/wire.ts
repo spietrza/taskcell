@@ -346,6 +346,43 @@ export interface BoardTask {
   schedule?: TaskSchedule;
   /** The hub's time zone, for dates shown on the card. */
   timeZone?: string;
+  /** Where the card sits and what its newest run and its waiting item say; set by the hub's `list_tasks` / `list_tasks_all` (src/hub/card-view.ts), the one place that decides it. */
+  view?: CardView;
+}
+
+/**
+ * A place on the line: `at` is the station index (0 card … 5 pull request; 6 = past the line, done); `failed` marks that
+ * station red. `passed`: stations after `at` the records show passed all the same (a run that stopped to ask after its gates ran green).
+ */
+export interface CardPlace {
+  at: number;
+  failed: boolean;
+  passed?: number[];
+}
+
+/** A run's outcome, derived once by the hub: the Runs row, the run page and the card read the same. */
+export interface RunOutcome {
+  /** The state word ("PR open", "failed", "Waiting for your answer"...). */
+  state: string;
+  /** Where the run left its card on the line. */
+  place: CardPlace;
+}
+
+/** A card's newest local run (CI-imported runs are never it). */
+export interface CardRun extends RunOutcome {
+  timestamp: string;
+  /** The run's pull request / merge request address. Absent when it opened none. */
+  prUrl?: string;
+}
+
+/** One card as the line shows it: the join of the card, its newest local run and its waiting needs-you item. */
+export interface CardView {
+  /** The station the card sits at: its newest run's place once it is in Review or failed, else its column's. */
+  place: CardPlace;
+  /** Absent ⇒ the card has no local run. */
+  run?: CardRun;
+  /** The card's Needs-you item (its pull request, its question, its issue), if one waits. */
+  waiting?: NeedsYouItem;
 }
 
 /** The scheduler's answer for one hub-board task; `label` is pre-rendered ("waits until Tue 18.11 (Europe/Berlin)"). */
@@ -573,6 +610,10 @@ export interface RunSummary {
   failedStage?: string;
   /** The run's own proof says its verify command failed. */
   verifyFailed?: true;
+  /** The run's own proof says its verify command passed. */
+  verifyPassed?: true;
+  /** The run's outcome (state word and place on the line), set by the hub's list commands once it knows the card is done. */
+  outcome?: RunOutcome;
   /** The implementer stopped on its own before finishing (`exitReason: 'incomplete'`): the end of its last reply, which
    *  holds what it asks the person. Untrusted agent text, render as plain text. */
   asked?: string;
@@ -694,6 +735,8 @@ export interface RunDetail {
   /** The pull/merge request's diff page ("Files changed" / "Changes"). */
   diffUrl?: string;
   ciUrl?: string;
+  /** The outcome the run's Runs row shows (one derivation, src/hub/card-view.ts); set by the hub's `read_run`. */
+  outcome?: RunOutcome;
 }
 
 /** A CI run, as returned by `gh run list` (src/hub/remote.ts) / Tauri's `list_remote_runs`. */

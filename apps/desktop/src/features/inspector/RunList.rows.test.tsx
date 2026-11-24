@@ -1,3 +1,4 @@
+import { withOutcome } from '../../dev/fixtureOutcome';
 import { test, expect, vi } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
 import { RunList, runKey } from './RunList';
@@ -8,7 +9,7 @@ const noop = (): void => {};
 test('a row shows the repository, the board title with the issue number, a PR chip and the age; the open run\'s row is marked', () => {
   const run = { taskId: 'gh-acme-shop-214', timestamp: '2026-07-06T19:12:02.123Z', stages: ['implementer'], totalCostUsd: 0.1, anyFailed: false, prUrl: 'https://github.com/o/r/pull/5', repoPath: '/r/shop', repoName: 'shop' };
   const titles = new Map([['/r/shop|gh-214', 'CSV export skips corrections']]);
-  render(<RunList runs={[run]} active={[]} showRepo titles={titles} selected={runKey('/r/shop', run.taskId, run.timestamp)} onSelect={noop} onOpenActive={noop} />);
+  render(<RunList runs={[run].map(withOutcome)} active={[]} showRepo titles={titles} selected={runKey('/r/shop', run.taskId, run.timestamp)} onSelect={noop} onOpenActive={noop} />);
   const row = screen.getByTestId('run-row');
   expect(row).toHaveTextContent('shop');
   expect(row).toHaveTextContent('gh-214CSV export skips corrections');
@@ -32,7 +33,7 @@ test('every row shows its station: an open PR on PR, a failed gate red on Gates,
     { ...base, taskId: 'gh-1', stages: ['implementer'], prUrl: 'https://github.com/o/r/pull/5' },
     { ...base, taskId: 'gh-2', stages: ['implementer', 'verify'], verifyFailed: true as const },
   ];
-  render(<RunList runs={runs} active={[{ taskId: 'gh-3', sessionFile: '/x', lastActivityMs: Date.now() }]} onSelect={noop} onOpenActive={noop} />);
+  render(<RunList runs={runs.map(withOutcome)} active={[{ taskId: 'gh-3', sessionFile: '/x', lastActivityMs: Date.now() }]} onSelect={noop} onOpenActive={noop} />);
   const [live, pr, failed] = screen.getAllByTestId('run-row');
   expect(live!.querySelector('[role="img"]')).toHaveAttribute('aria-label', 'Station: Sealed cell');
   expect(pr!.querySelector('[role="img"]')).toHaveAttribute('aria-label', 'Station: Pull request');
@@ -42,7 +43,7 @@ test('every row shows its station: an open PR on PR, a failed gate red on Gates,
 test('a row\'s avatar is its project\'s colour and initials, and the card id comes before the title', () => {
   const run = { taskId: 'gh-acme-shop-214', timestamp: '2026-07-06T19:12:02.123Z', stages: [], totalCostUsd: 0, anyFailed: false, repoPath: '/r/shop' };
   const titles = new Map([['/r/shop|gh-214', 'A very long title that truncates']]);
-  render(<RunList runs={[run]} active={[]} titles={titles} identity={(p) => (p === '/r/shop' ? { name: 'acme-shop', color: '#112233' } : undefined)} onSelect={noop} onOpenActive={noop} />);
+  render(<RunList runs={[run].map(withOutcome)} active={[]} titles={titles} identity={(p) => (p === '/r/shop' ? { name: 'acme-shop', color: '#112233' } : undefined)} onSelect={noop} onOpenActive={noop} />);
   const row = screen.getByTestId('run-row');
   const avatar = row.querySelector('[aria-hidden]') as HTMLElement;
   expect(avatar).toHaveTextContent('AS');
@@ -52,6 +53,6 @@ test('a row\'s avatar is its project\'s colour and initials, and the card id com
 
 test('an identity\'s own initials win: projects that share a name prefix read apart', () => {
   const run = { taskId: 'hub-4', timestamp: '2026-07-06T19:12:02.123Z', stages: [], totalCostUsd: 0, anyFailed: false, repoPath: '/r/local' };
-  render(<RunList runs={[run]} active={[]} identity={() => ({ name: 'taskcell-demo-local', color: '#112233', initials: 'LO' })} onSelect={noop} onOpenActive={noop} />);
+  render(<RunList runs={[run].map(withOutcome)} active={[]} identity={() => ({ name: 'taskcell-demo-local', color: '#112233', initials: 'LO' })} onSelect={noop} onOpenActive={noop} />);
   expect(screen.getByTestId('run-row').querySelector('[aria-hidden]')).toHaveTextContent('LO');
 });

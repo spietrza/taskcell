@@ -249,7 +249,9 @@ describe('hub <-> browser transport integration', () => {
   test('listRuns() deep-equals listRunSummaries(); readRun() has proof defined', async () => {
     const runs = await listRuns(repo);
     const direct = await listRunSummaries(defaultRunsRoot(repo));
-    expect(runs).toEqual(direct);
+    // The hub adds each row's outcome (state word and place); the records are otherwise the store's own.
+    expect(runs.map(({ outcome: _outcome, ...r }) => r)).toEqual(direct);
+    expect(runs[0]?.outcome).toBeDefined();
     expect(runs).toHaveLength(1);
 
     const detail = await readRun(repo, { source: { kind: 'local' }, taskId: TASK_ID, timestamp: TIMESTAMP });

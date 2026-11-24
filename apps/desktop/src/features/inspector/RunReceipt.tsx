@@ -6,7 +6,6 @@ import { receiptRows } from '../board/receipt';
 import type { StageStatus, StageStep } from '../board/stageLine';
 import { stationNote, type NoteContext } from '../board/stationNotes';
 import { STATION_SHORT } from '../../stations';
-import { matchNeedsYou } from '../board/QuickView';
 import { MergeButton, ReplyBox } from '../needs-you/NeedsYou';
 import type { RunDetail } from '../../wire';
 
@@ -66,7 +65,7 @@ export function RunReceipt({ detail, project, merged, cost, live = false }: { de
     setItem(null);
     if (prUrl === undefined || merged || live) return;
     listNeedsYou(project)
-      .then((r) => alive && setItem(matchNeedsYou(r.items, { id: detail.taskId }, prUrl)))
+      .then((r) => alive && setItem(r.items.find((i) => i.kind === 'pr' && i.url === prUrl) ?? null))
       .catch(() => {});
     return () => {
       alive = false;

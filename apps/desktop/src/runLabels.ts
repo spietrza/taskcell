@@ -1,8 +1,9 @@
 import { taskRefKey } from './features/board/taskref';
-import { ASKED_WORDS, runStateWord } from '../../../packages/hub-client/src/runLabels';
+import type { RunOutcome } from './wire';
+import { ASKED_WORDS } from '../../../packages/hub-client/src/run-labels';
 
 // Shared with the mobile app: lives in packages/hub-client.
-export { ASKED_WORDS, runStateWord };
+export { ASKED_WORDS };
 
 /** Who started a run, when that is a person: the hub's shared `token` identity and the local worker are not, so they show nothing. */
 export function startedByLabel(startedBy: string | undefined): string | undefined {
@@ -63,3 +64,6 @@ export function askedOf(
   const r = detail?.stages.find((s) => s.record.stage === 'implementer' && s.record.exitReason === 'incomplete' && s.record.stoppedBy === undefined)?.record;
   return r?.finalText?.trim() || undefined;
 }
+
+/** A run's outcome as the hub derived it (list_runs / read_run); "unknown" when a hub did not send one. */
+export const outcomeOf = (r: { outcome?: RunOutcome }): RunOutcome => r.outcome ?? { state: 'unknown', place: { at: 5, failed: false } };

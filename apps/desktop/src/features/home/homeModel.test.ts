@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'vitest';
 import type { ActivityEvent, BoardTask, FactoryState, LocalWorkerState, Project } from '../../wire';
-import { activityText, cantStart, floorRows, movingRows, stateCounts, thisWeek, type Card, type RunRow, type StampedActive, type StampedNeeds } from './homeModel';
+import { activityText, cantStart, floorRows, movingRows, stateCounts, thisWeek, type Card, type RunRow, type StampedActive } from './homeModel';
 
 const NOW = Date.parse('2026-11-17T12:00:00Z');
 const DAY = 24 * 3600 * 1000;
@@ -51,30 +51,31 @@ describe('movingRows', () => {
 describe('floorRows', () => {
   const a = project('a');
 
-  test('counts open cards per station; done cards are not drawn; a PR run moves Review on to the PR', () => {
-    const tasks = [card('gh-1', 'queued'), card('gh-2', 'running'), card('gh-3', 'verify-failed'), card('gh-4', 'review'), card('gh-5', 'review'), card('gh-6', 'done')];
-    const { rows } = floorRows([a], tasks, [run('gh-5', DAY, { prUrl: 'https://x/pull/5' })], [], NOW);
+  test('counts open cards per station from the places the hub sent; done cards are not drawn', () => {
+    const at = (n: number, failed = false) => ({ view: { place: { at: n, failed } } });
+    const tasks = [card('gh-1', 'queued', at(0)), card('gh-2', 'running', at(2)), card('gh-3', 'verify-failed', at(3, true)), card('gh-4', 'review', at(4)), card('gh-5', 'review', at(5)), card('gh-6', 'done', at(6))];
+    const { rows } = floorRows([a], tasks, [], NOW);
     expect(rows[0]!.open).toBe(5);
     expect(rows[0]!.stations.map((s) => s.n)).toEqual([1, 0, 1, 1, 1, 1]);
     expect(rows[0]!.stations[3]!.failed).toBe(1);
   });
 
-  test('a card that is also in the inbox is marked waiting, matched within its own repository', () => {
-    const tasks = [card('gh-7', 'review', { source: 'github' }), card('gh-7', 'review', { source: 'github', repoPath: '/r/b', repoName: 'b' })];
-    const needs: StampedNeeds[] = [{ id: 'o/a#7', kind: 'issue', number: 7, repoSlug: 'o/a', title: 't', url: '', reason: 'needs info', repoPath: '/r/a', repoName: 'a' }];
-    const { rows } = floorRows([a, project('b')], tasks, [], needs, NOW);
+  test('a card whose view carries a waiting item is marked waiting', () => {
+    const waiting = { id: 'o/a#7', kind: 'issue' as const, number: 7, repoSlug: 'o/a', title: 't', url: '', reason: 'needs info' };
+    const tasks = [card('gh-7', 'review', { view: { place: { at: 4, failed: false }, waiting } }), card('gh-7', 'review', { repoPath: '/r/b', repoName: 'b', view: { place: { at: 4, failed: false } } })];
+    const { rows } = floorRows([a, project('b')], tasks, [], NOW);
     expect(rows.find((r) => r.name === 'a')!.stations[4]!.waiting).toBe(1);
     expect(rows.find((r) => r.name === 'b')!.stations[4]!.waiting).toBe(0);
   });
 
   test('projects with no open card and no run this week fold into the idle count; busiest first', () => {
-    const { rows, idle } = floorRows([project('idle'), a, project('b')], [card('gh-1', 'queued'), card('gh-2', 'queued'), card('gh-3', 'queued', { repoPath: '/r/b', repoName: 'b' })], [], [], NOW);
+    const { rows, idle } = floorRows([project('idle'), a, project('b')], [card('gh-1', 'queued'), card('gh-2', 'queued'), card('gh-3', 'queued', { repoPath: '/r/b', repoName: 'b' })], [], NOW);
     expect(rows.map((r) => r.name)).toEqual(['a', 'b']);
     expect(idle).toBe(1);
   });
 
   test('spend is this week only', () => {
-    const { rows } = floorRows([a], [], [run('gh-1', DAY, { totalCostUsd: 2 }), run('gh-2', 8 * DAY, { totalCostUsd: 5 })], [], NOW);
+    const { rows } = floorRows([a], [], [run('gh-1', DAY, { totalCostUsd: 2 }), run('gh-2', 8 * DAY, { totalCostUsd: 5 })], NOW);
     expect(rows[0]!.spendWeek).toBe(2);
     expect(rows[0]!.runsWeek).toBe(1);
   });

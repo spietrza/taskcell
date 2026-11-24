@@ -1,9 +1,8 @@
 import type { ActivityEvent, BoardTask, FactoryState, LocalWorkerState, NeedsYouItem, Project, RepoStamp, RunSummary, ActiveRun } from '../../wire';
 import { runsOn } from '../../platform';
 import { titleKey } from '../../runLabels';
-import { STATIONS, STATION_SHORT, cardStationOf } from '../../stations';
+import { STATIONS, STATION_SHORT, stationOf } from '../../stations';
 import { stageLabel } from '../inspector/runStages';
-import { matchNeedsYou } from '../board/QuickView';
 import { retryWords } from '../board/paused';
 import { relTime } from '../../time';
 
@@ -44,7 +43,7 @@ function statusLine(t: Card): string {
   if (t.schedule !== undefined) return t.schedule.label;
   if (t.column === 'claimed') return 'Writing the spec.';
   // A moving card has no finished run yet: the one mapping places it by its column.
-  const station = STATIONS[cardStationOf(t, undefined).at] ?? 'cell';
+  const station = STATIONS[stationOf(t).at] ?? 'cell';
   return t.stage === undefined ? `${STATION_SHORT[station]}.` : `${STATION_SHORT[station]}: ${stageLabel(t.stage)}`;
 }
 
@@ -91,30 +90,20 @@ export function floorRows(
   projects: readonly Project[],
   tasks: readonly Card[],
   runs: readonly RunRow[],
-  needs: readonly StampedNeeds[],
   now: number = Date.now(),
 ): { rows: FloorRow[]; idle: number } {
-  const prUrls = new Map<string, string>();
-  for (const r of runs) if (r.prUrl !== undefined) prUrls.set(titleKey(r.repoPath, r.taskId), r.prUrl);
-  // Each card's newest local run: a finished card sits where that run left it (the Runs row's mapping).
-  const latest = new Map<string, RunRow>();
-  for (const r of runs) {
-    const k = titleKey(r.repoPath, r.taskId);
-    if (r.source !== 'ci' && (latest.get(k)?.timestamp ?? '') < r.timestamp) latest.set(k, r);
-  }
   const rows: FloorRow[] = [];
   for (const p of projects) {
     const stations = STATIONS.map((): FloorStation => ({ n: 0, failed: 0, waiting: 0 }));
     const mine = tasks.filter((t) => t.repoPath === p.path && t.column !== 'done');
-    const mineNeeds = needs.filter((i) => i.repoPath === p.path);
     for (const t of mine) {
-      const prUrl = prUrls.get(titleKey(t.repoPath, t.id));
-      const { at, failed } = cardStationOf(t, latest.get(titleKey(t.repoPath, t.id)), { prExists: prUrl !== undefined });
+      // Where the card sits and whether it waits for the person: the hub's answer.
+      const { at, failed } = t.view?.place ?? stationOf(t);
       const s = stations[at];
       if (!s) continue;
       s.n += 1;
       if (failed) s.failed += 1;
-      if (matchNeedsYou(mineNeeds, t, prUrl) !== null) s.waiting += 1;
+      if (t.view?.waiting !== undefined) s.waiting += 1;
     }
     const week = runs.filter((r) => r.repoPath === p.path && now - Date.parse(r.timestamp) <= WEEK_MS);
     if (mine.length === 0 && week.length === 0) continue;
