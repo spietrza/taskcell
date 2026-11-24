@@ -32,7 +32,11 @@ export function RunWithFlow({ repoPath, taskId, mode, onDone }: { repoPath: stri
   const run = (flow: string): void => {
     setBusy(true);
     setError(null);
-    (mode === 'start' ? hubTaskStart(repoPath, taskId, flow) : hubTaskRetry(repoPath, taskId, flow)).then(onDone, (e: unknown) => {
+    (mode === 'start' ? hubTaskStart(repoPath, taskId, flow) : hubTaskRetry(repoPath, taskId, flow)).then(() => {
+      setBusy(false);
+      setOpen(false);
+      onDone();
+    }, (e: unknown) => {
       setError(errorMessage(e));
       setBusy(false);
     });
