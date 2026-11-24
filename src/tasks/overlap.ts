@@ -1,3 +1,5 @@
+import { parseMarkers, writeMarker } from '../core/comment-ledger.js';
+import type { OverlapPayload } from '../core/comment-ledger.js';
 import { labelForms } from '../core/labels.js';
 import { parseSpecManifest } from '../pipeline/conformance-gate.js';
 import { FACTORY_BRANCH_PREFIXES, isFactoryBranch } from '../worktree/manager.js';
@@ -52,20 +54,13 @@ export function isSharedPath(path: string): boolean {
 
 /** Marker on the hold comment: `until` is when the hold stops (fixed at the first hold), `refs` the `pr:N` / `run:N` it waits for. */
 export const overlapMarker = (until: Date, holds: readonly OverlapHold[]): string =>
-  `<!-- taskcell:overlap until="${until.toISOString()}" refs="${holds.map((h) => `${h.kind}:${h.number}`).join(',')}" -->`;
-const OVERLAP_MARKER_RE = /<!-- (?:taskcell|vanguard):overlap until="([^"]+)" refs="([^"]*)" -->/;
+  writeMarker('overlap', { until, refs: holds.map((h) => ({ kind: h.kind, number: h.number })) });
 
 /** The first overlap marker among comment bodies (pass newest first for the latest). */
 export function findOverlapMarker(bodies: readonly string[]): { until: Date; refs: { kind: 'pr' | 'run'; number: number }[] } | undefined {
   for (const body of bodies) {
-    const m = OVERLAP_MARKER_RE.exec(body);
-    const until = m === null ? undefined : new Date(m[1]!);
-    if (m === null || until === undefined || Number.isNaN(until.getTime())) continue;
-    const refs = m[2]!.split(',').flatMap((ref) => {
-      const parsed = /^(pr|run):(\d+)$/.exec(ref);
-      return parsed === null ? [] : [{ kind: parsed[1] as 'pr' | 'run', number: Number(parsed[2]) }];
-    });
-    return { until, refs };
+    const marker = parseMarkers<OverlapPayload>('overlap', body)[0];
+    if (marker !== undefined) return marker;
   }
   return undefined;
 }

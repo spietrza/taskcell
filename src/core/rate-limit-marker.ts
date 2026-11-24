@@ -4,6 +4,7 @@
  * it back up to hours later, long after the run's own process and logs are gone.
  */
 
+import { parseMarkers, writeMarker } from './comment-ledger.js';
 import { AgentError, ProviderLimitError, isRateLimitError, rateLimitResetDelayMs } from './errors.js';
 import { UsageCapError, usageCapMessage } from './usage-cap.js';
 
@@ -43,21 +44,12 @@ export interface RateLimitedMarker {
 
 /** Hidden marker recording when a stage may retry and which label starts it again. */
 export function rateLimitedMarker(until: Date, trigger: string): string {
-  return `<!-- taskcell-rate-limited until=${until.toISOString()} trigger="${trigger}" -->`;
+  return writeMarker('rate-limited', { until, trigger });
 }
-
-const RATE_LIMITED_MARKER_RE = /<!--\s*(?:taskcell|vanguard)-rate-limited\s+until=(\S+)\s+trigger="([^"]*)"\s*-->/g;
 
 /** Parse a single rate-limited marker out of a comment body, or undefined when absent or malformed. */
 export function parseRateLimitedMarker(body: string): RateLimitedMarker | undefined {
-  let found: RateLimitedMarker | undefined;
-  for (const match of body.matchAll(RATE_LIMITED_MARKER_RE)) {
-    const until = new Date(match[1]!);
-    const trigger = match[2]!.trim();
-    if (Number.isNaN(until.getTime()) || trigger === '' || trigger.length > 50 || /[\r\n]/.test(trigger)) continue;
-    found = { until, trigger };
-  }
-  return found;
+  return parseMarkers<RateLimitedMarker>('rate-limited', body).at(-1);
 }
 
 /** The newest marker among comment bodies in chronological (oldest-first) order, as `gh` lists them. */

@@ -1,10 +1,10 @@
 import { failureReason } from '../core/errors.js';
+import { reviewedAtHead, writeMarker } from '../core/comment-ledger.js';
+import type { LedgerComment } from '../core/comment-ledger.js';
 import { isRateLimitHold, rateLimitHold } from '../core/rate-limit-marker.js';
 import {
   PullRequestReviewIncompleteError,
   commentPullRequest,
-  hasPullRequestReviewIncompleteHeadMarker,
-  hasPullRequestReviewMarker,
 } from './pr-review.js';
 import { defaultGhRunner, isTrustedIssueAuthor } from '../tasks/github.js';
 import { classifyAuthor, describeIgnoredAuthor, isBotLogin } from '../tasks/comment-trust.js';
@@ -95,7 +95,6 @@ export async function passWithPinnedRetry(
   }
   return { tick, pinUnreviewed: retried && tick !== undefined && !tick.reviewed.includes(pin.id) };
 }
-const PR_INCOMPLETE_CAP_MARKER_RE = /^<!--[ \t]*taskcell-pr-review-incomplete-cap:[ \t]*([a-fA-F0-9]+)[ \t]*-->$/gm;
 
 function prId(item: PullRequestWatchItem): string {
   return `${item.repoSlug}#${item.number}`;
@@ -196,23 +195,18 @@ async function hasExistingReviewForHead(gh: GhRunner, item: PullRequestWatchItem
     const out = await gh(['pr', 'view', String(item.number), '--repo', item.repoSlug, '--json', 'comments,reviews']);
     const view = JSON.parse(out) as GhPullRequestReviewView;
     // Only a trusted author's marker counts: anyone can post the marker text to suppress a review.
-    return [...(view.comments ?? []), ...(view.reviews ?? [])].some(
-      (entry) =>
-        classifyAuthor(entry.author?.login ?? '', entry.authorAssociation ?? '', { allowedAuthors }) !== 'untrusted' &&
-        hasPullRequestReviewMarker(entry.body ?? '', item.headRefOid),
-    );
+    return reviewedAtHead(ledgerEntries(view, allowedAuthors), item.headRefOid, 'pr');
   } catch {
     return false;
   }
 }
 
-function trustedReviewBodies(view: GhPullRequestReviewView, allowedAuthors?: readonly string[]): string[] {
-  return [...(view.comments ?? []), ...(view.reviews ?? [])].flatMap((entry) =>
-    classifyAuthor(entry.author?.login ?? '', entry.authorAssociation ?? '', { allowedAuthors }) !== 'untrusted' &&
-    entry.body !== undefined && entry.body !== null
-      ? [entry.body]
-      : [],
-  );
+/** The PR's comments and reviews as the ledger reads them: an author the adapter does not trust is `untrusted`, so its markers never count. */
+function ledgerEntries(view: GhPullRequestReviewView, allowedAuthors?: readonly string[]): LedgerComment[] {
+  return [...(view.comments ?? []), ...(view.reviews ?? [])].map((entry) => ({
+    body: entry.body ?? '',
+    author: classifyAuthor(entry.author?.login ?? '', entry.authorAssociation ?? '', { allowedAuthors }) !== 'untrusted' ? 'trusted' : 'untrusted',
+  }));
 }
 
 async function incompleteReviewState(
@@ -221,8 +215,7 @@ async function incompleteReviewState(
   allowedAuthors?: readonly string[],
 ): Promise<{ attempts: number; capPosted: boolean; stop: boolean }> {
   const out = await gh(['pr', 'view', String(item.number), '--repo', item.repoSlug, '--json', 'comments,reviews']);
-  const bodies = trustedReviewBodies(JSON.parse(out) as GhPullRequestReviewView, allowedAuthors);
-  return incompleteCapState(bodies, item.headRefOid, hasPullRequestReviewIncompleteHeadMarker, PR_INCOMPLETE_CAP_MARKER_RE);
+  return incompleteCapState(ledgerEntries(JSON.parse(out) as GhPullRequestReviewView, allowedAuthors), item.headRefOid, 'pr');
 }
 
 /**
@@ -329,7 +322,7 @@ export function githubPullRequestWatchPrimitives(opts: GitHubPullRequestWatchOpt
               try {
                 await commentPullRequest(
                   item,
-                  `Taskcell stopped automatic review retries after ${INCOMPLETE_RETRY_LIMIT} incomplete attempts for head ${item.headRefOid.slice(0, 7)}. Remove and re-add the "${opts.label}" label to re-trigger the review.\n\n<!-- taskcell-pr-review-incomplete-cap: ${item.headRefOid} -->`,
+                  `Taskcell stopped automatic review retries after ${INCOMPLETE_RETRY_LIMIT} incomplete attempts for head ${item.headRefOid.slice(0, 7)}. Remove and re-add the "${opts.label}" label to re-trigger the review.\n\n${writeMarker('pr-review-incomplete-cap', item.headRefOid)}`,
                   gh,
                 );
               } catch (commentError) {
