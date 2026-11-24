@@ -1,4 +1,4 @@
-import type { Exhaustive, SharedRunOptions } from './args.js';
+import type { Exhaustive, SharedRunOptions } from './flags.js';
 
 /**
  * Every shared RunOptions flag set to a non-default value. The run/watch deps-threading tests assert

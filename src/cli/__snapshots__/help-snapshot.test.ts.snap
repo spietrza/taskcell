@@ -1,0 +1,1139 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`--help output > approve help is unchanged 1`] = `
+"taskcell approve [PR number] [options]
+
+  Compute a deterministic APPROVE/ESCALATE decision for a factory PR; shadow mode (default) never merges.
+
+  Options:
+    --repo <path>         Repo checkout to work in (default: cwd)
+    --github-repo <o/r>   Repo slug — the approver never infers the repo it judges
+    --branch <name>       Metrics branch to read or write (default: taskcell-metrics)
+    --json                Machine-readable JSON output
+    --dry-run             Report what would happen without changing anything
+    --pr <n>              PR number (bare positional also accepted)
+    --mode <shadow|act>   shadow (default) only records and comments; act merges (see docs/autonomous-loop.md)
+    --review-run-id <id>  Removed: act mode reads the run stamp on the review itself; passing it is an error
+    --help                Print help for this command"
+`;
+
+exports[`--help output > audit help is unchanged 1`] = `
+"taskcell audit verify|export [options]
+
+  verify | export the hash-chained audit streams (hub, run-events, metrics, decisions, lessons); see docs/audit.md.
+
+  Options:
+    --repo <path>         Repo checkout to work in (default: cwd)
+    --since <date>        Only entries at or after this date or window
+    --branch <name>       Metrics branch to read or write (default: taskcell-metrics)
+    --config-dir <dir>    The hub config dir holding the hub audit log (default: the hub's own)
+    --stream <name>       One of hub, run-events, metrics, decisions, lessons (default: all)
+    --until <date>        (export) Only entries up to this date
+    --format <jsonl|csv>  (export) Output format (default: jsonl)
+    --help                Print help for this command"
+`;
+
+exports[`--help output > doctor help is unchanged 1`] = `
+"taskcell doctor [options]
+
+  Check whether watch can run AFK before any issue is claimed; takes the same flags as watch.
+
+  Options:
+    --provider <claude|codex|cursor|zai|openrouter|meridian>         Provider that runs every stage (default: claude)
+    --review-provider <claude|codex|cursor|zai|openrouter|meridian>  Run only the review stage on this provider (cross-provider review)
+    --fallback-provider <name>                                       Retry on this provider when the primary one fails (outage, limit, revoked credential); a comma list (codex,cursor) is a fallback chain
+    --fallback-model <model>                                         Model for every stage that fell back (default: that provider's default); a comma list pairs with --fallback-provider
+    --usage-cap <pct>                                                Stop starting work once the provider's plan window is at/over this % (1-100; env TASKCELL_USAGE_CAP_PCT)
+    --provider-model <m>                                             Model for the implementer/simplifier stages (default: provider's default), or a weighted pool: claude/sonnet:3,codex/gpt-5.6-sol:1
+    --review-model <m>                                               Model for the review stage (default: provider's default), or a pool as for --provider-model
+    --escalate-model <m>                                             Model for the 2nd and later gate repairs (default: stay on the implementer model)
+    --no-simplify                                                    Skip the simplifier stage (lean: implement -> review only)
+    --verify <cmd>                                                   Verification command for Proof of Work (overrides TASKCELL_VERIFY_CMD and auto-detect)
+    --visual-proof <cmd>                                             Visual proof command for UI artifacts (overrides TASKCELL_VISUAL_PROOF_CMD)
+    --conformance                                                    Run the conformance pass (planner-tier model checks the diff against the spec; opt-in)
+    --conformance-model <m>                                          Model for the conformance stage (default: same as implementer)
+    --commit-author <a>                                              Git author "Name <email>"; also enables white-label mode (no Taskcell branding)
+    --plan                                                           Add a dedicated planning stage first (opus, high effort); same as --flow plan
+    --flow <name>                                                    Run a named workflow (e.g. flow-b: plan -> implement -> adversary -> repair)
+    --base <branch>                                                  Base branch to branch off and target the PR at (default: main)
+    --max-turns <n>                                                  Override the agent turn cap
+    --max-repair-iterations <n>                                      Override the conformance/verify repair loop-back cap (default: 2)
+    --skills <dir>                                                   Skills directory, merged with the repo's .github/vanguard-skills/
+    --pnpm-store                                                     Mount a persistent pnpm store, one per repo (see docs/cli.md)
+    --feedback-authors <a,b>                                         Logins trusted beyond OWNER/MEMBER/COLLABORATOR
+    --spec-model <m>                                                 Model for the tech-spec stage
+    --repo <path>                                                    Repo checkout to work in (default: cwd)
+    --github-repo <o/r>                                              GitHub repo slug (owner/repo)
+    --gitlab-project <g/p>                                           GitLab project path (group/project)
+    --label <name>                                                   Trigger label
+    --trigger-state <x>                                              Status option name for ready items (project default "Todo"; linear: state type, default "unstarted")
+    --trigger-state-name <x>                                         Linear display state name matching --trigger-state
+    --claimed-state <x>                                              Status/label set on claim (github: label taskcell:running)
+    --review-state <x>                                               Status/label set after a PR opens (github: label taskcell:needs-human-review)
+    --spec-claimed-label <l>                                         (loop-v1, github/gitlab) Label set while an issue is being specced
+    --dependency-repos <o/r,o/r>                                     Other repos a \`Depends on\` reference may be read from (default: only the watched repo)
+    --concurrency <n>                                                Max items processed at once (default: 2)
+    --interval <seconds>                                             Poll interval (default: 60)
+    --once                                                           Do a single pass
+    --egress                                                         Run the sandbox with allow-listed network egress
+    --llm-proxy                                                      Hold model credentials in a host sidecar instead of the sandbox
+    --source <linear|github|project|gitlab>                          Task source (default: linear; github when --github-repo is given)
+    --project <number>                                               (--source project) GitHub Projects v2 project number
+    --team <KEY>                                                     (linear) limit to a team
+    --max-tasks <n>                                                  Cap the ready tasks claimed per poll, for each phase (default: unlimited)
+    --issue <ref>                                                    (--source github) Run only this issue (owner/repo#n or a bare number); implies --once
+    --loop-v1                                                        Use Loop v1 defaults (routing labels / states for the spec and agent passes)
+    --spec-label <l>                                                 (loop-v1, github/gitlab) Label that triggers the spec pass
+    --agent-label <l>                                                (loop-v1, github/gitlab) Label that triggers the agent pass
+    --needs-info-label <l>                                           (loop-v1, github/gitlab) Label set when the spec needs information
+    --spec-state <x>                                                 (loop-v1, linear) State type that triggers the spec pass
+    --spec-state-name <x>                                            (loop-v1, linear) State name the spec pass reverts to
+    --agent-state <x>                                                (loop-v1, linear) State the spec pass advances specced issues into
+    --needs-info-state <x>                                           (loop-v1, linear) State set when the spec needs information
+    --spec-claimed-state <x>                                         (loop-v1, linear) State set while an issue is being specced
+    --spec-only                                                      Run only the spec pass (needs loop-v1 and a review --agent-label/--agent-state other than the build trigger)
+    --fix                                                            Install the repo-pinned agent CLIs in the sandbox image if it is stale, then re-check
+    --help                                                           Print help for this command"
+`;
+
+exports[`--help output > doctor-mrs help is unchanged 1`] = `
+"taskcell doctor-mrs [options]
+
+  Check whether watch-mrs can run AFK before any MR is claimed.
+
+  Options:
+    --repo <path>                                             Repo checkout to work in (default: cwd)
+    --gitlab-project <g/p>                                    GitLab project path (group/project)
+    --label <name>                                            Trigger label
+    --reviewing-label <l>                                     Label added while an item is being reviewed
+    --reviewed-label <l>                                      Label added after review succeeds
+    --author <login>                                          Only review items opened by this author
+    --provider <claude|codex|cursor|zai|openrouter|meridian>  Provider that runs every stage (default: claude)
+    --review-model <m>                                        Model for the review stage (default: provider's default), or a pool as for --provider-model
+    --llm-proxy                                               Hold model credentials in a host sidecar instead of the sandbox
+    --help                                                    Print help for this command"
+`;
+
+exports[`--help output > doctor-prs help is unchanged 1`] = `
+"taskcell doctor-prs [options]
+
+  Check whether watch-prs can run AFK before any PR is claimed.
+
+  Options:
+    --repo <path>                                             Repo checkout to work in (default: cwd)
+    --github-repo <o/r>                                       GitHub repo slug (owner/repo)
+    --label <name>                                            Trigger label
+    --reviewing-label <l>                                     Label added while an item is being reviewed
+    --reviewed-label <l>                                      Label added after review succeeds
+    --provider <claude|codex|cursor|zai|openrouter|meridian>  Provider that runs every stage (default: claude)
+    --llm-proxy                                               Hold model credentials in a host sidecar instead of the sandbox
+    --help                                                    Print help for this command"
+`;
+
+exports[`--help output > eval help is unchanged 1`] = `
+"taskcell eval [options]
+
+  Run the committed eval corpus and print a per-kind pass-rate report.
+
+  Options:
+    --repo <path>           Repo checkout to work in (default: cwd)
+    --json                  Machine-readable JSON output
+    --limit <n>             Maximum number of entries
+    --out <file>            Write the result to this local file instead of posting it
+    --github-repo <o/r>     GitHub repo slug (owner/repo)
+    --since <date>          Only entries at or after this date or window
+    --branch <name>         Metrics branch to read or write (default: taskcell-metrics)
+    --judge-model <m>       Model for the judge (default: a Haiku model, or a decision model)
+    --produce-model <m>     Model under test (default: claude-sonnet-5-5)
+    --suggest               Draft eval-corpus candidates from retrospective memory instead of running the corpus
+    --markdown              With --suggest: force markdown output
+    --baseline <file|main>  Gate against a saved baseline: a local file, or "main" for the latest on the metrics branch
+    --max-drop <points>     Max tolerated drop in overall pass rate, in points (default 5; with --baseline)
+    --allow-corpus-change   Compare against a baseline whose corpus hash differs, instead of refusing
+    --save-baseline         Publish this result as the new baseline
+    --help                  Print help for this command"
+`;
+
+exports[`--help output > gc help is unchanged 1`] = `
+"taskcell gc [options]
+
+  Reap stale sandbox containers, prune worktrees, and (with --remote) delete merged remote chore/taskcell-* branches.
+
+  Options:
+    --repo <path>          Repo checkout to work in (default: cwd)
+    --dry-run              Report what would happen without changing anything
+    --max-age-hours <n>    Only reap resources older than n hours (default: 6)
+    --remote <owner/repo>  Also delete merged remote chore/taskcell-* (or chore/vanguard-*) branches (needs gh)
+    --abandoned            Also delete branches whose PR is closed-unmerged
+    --help                 Print help for this command"
+`;
+
+exports[`--help output > history help is unchanged 1`] = `
+"taskcell history <owner/repo#N> [options]
+
+  One issue's history over the audit streams (trigger, runs, reviews, approver, merge).
+
+  Options:
+    --repo <path>       Repo checkout to work in (default: cwd)
+    --config-dir <dir>  The hub config dir holding the hub audit log (default: the hub's own)
+    --branch <name>     Metrics branch to read or write (default: taskcell-metrics)
+    --json              Machine-readable JSON output
+    --offline           Do not ask the Git host (no label/comment/merge events)
+    --help              Print help for this command"
+`;
+
+exports[`--help output > hub help is unchanged 1`] = `
+"taskcell hub [rotate-token] [options]
+
+  Serve the Inspector UI over HTTP/SSE; "hub rotate-token --token-file <path>" writes a new token.
+
+  Options:
+    --repo <path>                 Repo checkout to work in (default: cwd)
+    --host <addr>                 Address to bind (env TASKCELL_HUB_HOST; default: 127.0.0.1)
+    --port <port>                 Port to bind, 1-65535 (env TASKCELL_HUB_PORT; default: 7777)
+    --ui-dir <dir>                Serve the Inspector UI from this directory instead of the bundled one
+    --no-open                     Do not open the browser
+    --demo                        Open a read-only demo project on bundled sample data (touches no repo, remote or hub store)
+    --token-file <path>           Keep one token across restarts (env TASKCELL_HUB_TOKEN_FILE; created 0600 if missing)
+    --allowed-host <host>         Extra Host header accepted on a non-loopback bind (repeatable)
+    --admin-github-login <login>  GitHub login granted admin access (repeatable)
+    --help                        Print help for this command"
+`;
+
+exports[`--help output > lessons help is unchanged 1`] = `
+"taskcell lessons record|list|dismiss <id> [options]
+
+  record: distil 0-3 lessons from a closed factory PR or MR; list | dismiss <id>: show or dismiss live lessons.
+
+  Options:
+    --repo <path>             Repo checkout to work in (default: cwd)
+    --branch <name>           Metrics branch to read or write (default: taskcell-metrics)
+    --json                    Machine-readable JSON output
+    --github-repo <o/r>       GitHub repo slug (owner/repo)
+    --gitlab-project <g/p>    GitLab project path (group/project)
+    --pr <n>                  PR number
+    --dry-run                 Report what would happen without changing anything
+    --provider-model <m>      Model for the implementer/simplifier stages (default: provider's default), or a weighted pool: claude/sonnet:3,codex/gpt-5.6-sol:1
+    --feedback-authors <a,b>  Logins trusted beyond OWNER/MEMBER/COLLABORATOR
+    --mr <n>                  (record) GitLab MR number, with --gitlab-project
+    --help                    Print help for this command"
+`;
+
+exports[`--help output > memory help is unchanged 1`] = `
+"taskcell memory [options]
+
+  Refresh .taskcell/memory/retrospective.md from run artifacts and print it.
+
+  Options:
+    --repo <path>  Repo checkout to work in (default: cwd)
+    --limit <n>    Maximum number of entries
+    --json         Machine-readable JSON output
+    --help         Print help for this command"
+`;
+
+exports[`--help output > metrics help is unchanged 1`] = `
+"taskcell metrics push [options]
+
+  metrics push: append this checkout's metrics.jsonl lines to the orphan metrics branch and push (idempotent).
+
+  Options:
+    --repo <path>    Repo checkout to work in (default: cwd)
+    --branch <name>  Metrics branch to read or write (default: taskcell-metrics)
+    --help           Print help for this command"
+`;
+
+exports[`--help output > migrate-labels help is unchanged 1`] = `
+"taskcell migrate-labels [options]
+
+  Rename a repo's old vanguard:* labels to taskcell:* (dry-run by default).
+
+  Options:
+    --github-repo <o/r>  GitHub repo slug (owner/repo)
+    --apply              Rename the labels
+    --help               Print help for this command"
+`;
+
+exports[`--help output > research help is unchanged 1`] = `
+"taskcell research <issue ref> [options]
+
+  Research a GitHub issue and post the findings as a comment.
+
+  Options:
+    --repo <path>                                             Repo checkout to work in (default: cwd)
+    --github-repo <o/r>                                       GitHub repo slug (owner/repo)
+    --github <ref>                                            GitHub issue or PR ref: owner/repo#n, URL, or a bare number with --github-repo
+    --provider <claude|codex|cursor|zai|openrouter|meridian>  Provider that runs every stage (default: claude)
+    --usage-cap <pct>                                         Stop starting work once the provider's plan window is at/over this % (1-100; env TASKCELL_USAGE_CAP_PCT)
+    --egress                                                  Run the sandbox with allow-listed network egress
+    --llm-proxy                                               Hold model credentials in a host sidecar instead of the sandbox
+    --commit-author <a>                                       Git author "Name <email>"; also enables white-label mode (no Taskcell branding)
+    --web                                                     Declare that web egress is available (web-research mode)
+    --research-model <m>                                      Model for the research stage
+    --help                                                    Print help for this command"
+`;
+
+exports[`--help output > resume-rate-limited help is unchanged 1`] = `
+"taskcell resume-rate-limited [options]
+
+  Re-apply the trigger label on issues/PRs a provider limit or an unmet dependency parked, once clear.
+
+  Options:
+    --github-repo <o/r>           GitHub repo slug (owner/repo)
+    --dry-run                     Report what would happen without changing anything
+    --trigger-labels <a,b>        Custom trigger labels to re-apply
+    --dependency-repos <o/r,o/r>  Other repos a \`Depends on\` reference may be read from (default: only the watched repo)
+    --claimed-state <x>           As given to watch
+    --review-state <x>            As given to watch
+    --spec-claimed-label <l>      As given to watch
+    --no-ci-watch                 Do not revise factory PRs whose required checks failed (default: on; needs a user token)
+    --help                        Print help for this command"
+`;
+
+exports[`--help output > review-mr help is unchanged 1`] = `
+"taskcell review-mr [options]
+
+  Review an existing GitLab MR and post a non-blocking review comment.
+
+  Options:
+    --repo <path>                                             Repo checkout to work in (default: cwd)
+    --provider <claude|codex|cursor|zai|openrouter|meridian>  Provider that runs every stage (default: claude)
+    --review-model <m>                                        Model for the review stage (default: provider's default), or a pool as for --provider-model
+    --max-turns <n>                                           Override the agent turn cap
+    --usage-cap <pct>                                         Stop starting work once the provider's plan window is at/over this % (1-100; env TASKCELL_USAGE_CAP_PCT)
+    --egress                                                  Run the sandbox with allow-listed network egress
+    --llm-proxy                                               Hold model credentials in a host sidecar instead of the sandbox
+    --skills <dir>                                            Skills directory, merged with the repo's .github/vanguard-skills/
+    --gitlab-project <g/p>                                    GitLab project path (group/project)
+    --mr <iid>                                                GitLab MR IID (integer)
+    --help                                                    Print help for this command"
+`;
+
+exports[`--help output > review-pr help is unchanged 1`] = `
+"taskcell review-pr <PR ref> [options]
+
+  Review an existing GitHub PR and post a non-blocking review comment.
+
+  Options:
+    --repo <path>                                             Repo checkout to work in (default: cwd)
+    --provider <claude|codex|cursor|zai|openrouter|meridian>  Provider that runs every stage (default: claude)
+    --review-model <m>                                        Model for the review stage (default: provider's default), or a pool as for --provider-model
+    --max-turns <n>                                           Override the agent turn cap
+    --usage-cap <pct>                                         Stop starting work once the provider's plan window is at/over this % (1-100; env TASKCELL_USAGE_CAP_PCT)
+    --egress                                                  Run the sandbox with allow-listed network egress
+    --llm-proxy                                               Hold model credentials in a host sidecar instead of the sandbox
+    --skills <dir>                                            Skills directory, merged with the repo's .github/vanguard-skills/
+    --github-repo <o/r>                                       GitHub repo slug (owner/repo)
+    --github <ref>                                            GitHub issue or PR ref: owner/repo#n, URL, or a bare number with --github-repo
+    --feedback-authors <a,b>                                  Logins trusted beyond OWNER/MEMBER/COLLABORATOR
+    --out <file>                                              Write the review to this local file instead of posting a PR comment
+    --github-pr <n>                                           PR number (or pass the PR as a positional)
+    --help                                                    Print help for this command"
+`;
+
+exports[`--help output > revise-pr help is unchanged 1`] = `
+"taskcell revise-pr <PR ref> [options]
+
+  Apply human review feedback on a Taskcell draft PR and hand it back ready to merge.
+
+  Options:
+    --repo <path>                                             Repo checkout to work in (default: cwd)
+    --github-repo <o/r>                                       GitHub repo slug (owner/repo)
+    --github <ref>                                            GitHub issue or PR ref: owner/repo#n, URL, or a bare number with --github-repo
+    --feedback-authors <a,b>                                  Logins trusted beyond OWNER/MEMBER/COLLABORATOR
+    --provider <claude|codex|cursor|zai|openrouter|meridian>  Provider that runs every stage (default: claude)
+    --fallback-provider <name>                                Retry on this provider when the primary one fails (outage, limit, revoked credential); a comma list (codex,cursor) is a fallback chain
+    --fallback-model <model>                                  Model for every stage that fell back (default: that provider's default); a comma list pairs with --fallback-provider
+    --provider-model <m>                                      Model for the implementer/simplifier stages (default: provider's default), or a weighted pool: claude/sonnet:3,codex/gpt-5.6-sol:1
+    --review-model <m>                                        Model for the review stage (default: provider's default), or a pool as for --provider-model
+    --usage-cap <pct>                                         Stop starting work once the provider's plan window is at/over this % (1-100; env TASKCELL_USAGE_CAP_PCT)
+    --egress                                                  Run the sandbox with allow-listed network egress
+    --llm-proxy                                               Hold model credentials in a host sidecar instead of the sandbox
+    --skills <dir>                                            Skills directory, merged with the repo's .github/vanguard-skills/
+    --commit-author <a>                                       Git author "Name <email>"; also enables white-label mode (no Taskcell branding)
+    --out <file>                                              Dry-run: write the diff and proposed thread replies to this file; push and comment nothing
+    --github-pr <n>                                           PR number (or pass the PR as a positional)
+    --max-rounds <n>                                          Maximum revision rounds
+    --help                                                    Print help for this command"
+`;
+
+exports[`--help output > run help is unchanged 1`] = `
+"taskcell run [options]
+
+  Run an agent on a task and open a draft PR for review (exactly one of --linear, --github, --gitlab, --project).
+
+  Options:
+    --provider <claude|codex|cursor|zai|openrouter|meridian>         Provider that runs every stage (default: claude)
+    --review-provider <claude|codex|cursor|zai|openrouter|meridian>  Run only the review stage on this provider (cross-provider review)
+    --fallback-provider <name>                                       Retry on this provider when the primary one fails (outage, limit, revoked credential); a comma list (codex,cursor) is a fallback chain
+    --fallback-model <model>                                         Model for every stage that fell back (default: that provider's default); a comma list pairs with --fallback-provider
+    --usage-cap <pct>                                                Stop starting work once the provider's plan window is at/over this % (1-100; env TASKCELL_USAGE_CAP_PCT)
+    --provider-model <m>                                             Model for the implementer/simplifier stages (default: provider's default), or a weighted pool: claude/sonnet:3,codex/gpt-5.6-sol:1
+    --review-model <m>                                               Model for the review stage (default: provider's default), or a pool as for --provider-model
+    --escalate-model <m>                                             Model for the 2nd and later gate repairs (default: stay on the implementer model)
+    --no-simplify                                                    Skip the simplifier stage (lean: implement -> review only)
+    --verify <cmd>                                                   Verification command for Proof of Work (overrides TASKCELL_VERIFY_CMD and auto-detect)
+    --visual-proof <cmd>                                             Visual proof command for UI artifacts (overrides TASKCELL_VISUAL_PROOF_CMD)
+    --conformance                                                    Run the conformance pass (planner-tier model checks the diff against the spec; opt-in)
+    --conformance-model <m>                                          Model for the conformance stage (default: same as implementer)
+    --commit-author <a>                                              Git author "Name <email>"; also enables white-label mode (no Taskcell branding)
+    --plan                                                           Add a dedicated planning stage first (opus, high effort); same as --flow plan
+    --flow <name>                                                    Run a named workflow (e.g. flow-b: plan -> implement -> adversary -> repair)
+    --base <branch>                                                  Base branch to branch off and target the PR at (default: main)
+    --max-turns <n>                                                  Override the agent turn cap
+    --max-repair-iterations <n>                                      Override the conformance/verify repair loop-back cap (default: 2)
+    --skills <dir>                                                   Skills directory, merged with the repo's .github/vanguard-skills/
+    --pnpm-store                                                     Mount a persistent pnpm store, one per repo (see docs/cli.md)
+    --feedback-authors <a,b>                                         Logins trusted beyond OWNER/MEMBER/COLLABORATOR
+    --repo <path>                                                    Repo checkout to work in (default: cwd)
+    --github-repo <o/r>                                              GitHub repo slug for a bare --github number (default: detected from origin)
+    --label <name>                                                   Trigger label
+    --github <ref>                                                   GitHub issue or PR ref: owner/repo#n, URL, or a bare number with --github-repo
+    --gitlab-project <g/p>                                           GitLab project path (group/project)
+    --concurrency <n>                                                Max items processed at once (default: 2)
+    --egress                                                         Run the sandbox with allow-listed network egress
+    --llm-proxy                                                      Hold model credentials in a host sidecar instead of the sandbox
+    --linear <id>                                                    Linear issue id
+    --gitlab <ref>                                                   GitLab issue ref
+    --project <number>                                               GitHub Projects v2 board number: run every ready item
+    --parent                                                         (--linear) Run the sub-issues of a parent issue
+    --gc-before                                                      Reap stale sandboxes before starting
+    --reuse                                                          Reuse an existing worktree/branch for the task
+    --fork <n>                                                       Run the implementer n times (n>=2) and keep the best variant
+    --fork-scorer <llm|decision>                                     Scorer for --fork variants (default: llm)
+    --spec-file <file>                                               Use this tech spec instead of fetching one (single-issue runs only)
+    --skill <name>                                                   Named skill to apply (repeatable; single-issue runs only)
+    --help                                                           Print help for this command"
+`;
+
+exports[`--help output > skills help is unchanged 1`] = `
+"taskcell skills list|check|add <git-url>[#ref]|remove <name>|update [name] [options]
+
+  list | check | add | remove | update the repo's pinned skills; see docs/skills.md.
+
+  Options:
+    --repo <path>       Repo checkout to work in (default: cwd)
+    --dry-run           Report what would happen without changing anything
+    --base <branch>     (update --pr) Branch the PR targets
+    --dir <skills dir>  Skills directory (default: <repo>/skills)
+    --strict            (check) exit 1 on outdated or modified skills
+    --path <dir>        (add) Subdirectory of the source holding the skill
+    --name <name>       (add) Name to pin the skill under
+    --pr                (update) Open a PR with the SKILL.md diff instead of editing in place
+    --force             (update) Update even when the pinned commit can no longer be fetched
+    --help              Print help for this command"
+`;
+
+exports[`--help output > spec help is unchanged 1`] = `
+"taskcell spec <issue ref> [options]
+
+  Write a tech spec for a GitHub issue and post it as an issue comment.
+
+  Options:
+    --repo <path>                                             Repo checkout to work in (default: cwd)
+    --github-repo <o/r>                                       GitHub repo slug (owner/repo)
+    --github <ref>                                            GitHub issue or PR ref: owner/repo#n, URL, or a bare number with --github-repo
+    --provider <claude|codex|cursor|zai|openrouter|meridian>  Provider that runs every stage (default: claude)
+    --usage-cap <pct>                                         Stop starting work once the provider's plan window is at/over this % (1-100; env TASKCELL_USAGE_CAP_PCT)
+    --egress                                                  Run the sandbox with allow-listed network egress
+    --llm-proxy                                               Hold model credentials in a host sidecar instead of the sandbox
+    --skills <dir>                                            Skills directory, merged with the repo's .github/vanguard-skills/
+    --spec-model <m>                                          Model for the tech-spec stage
+    --max-turns <n>                                           Override the agent turn cap
+    --base <branch>                                           Branch the spec worktree is cut from (default: main)
+    --out <file>                                              Write the spec to this local file instead of posting an issue comment (pairs with run --spec-file)
+    --commit-author <a>                                       Git author "Name <email>"; also enables white-label mode (no Taskcell branding)
+    --help                                                    Print help for this command"
+`;
+
+exports[`--help output > stats help is unchanged 1`] = `
+"taskcell stats [options]
+
+  Aggregate .taskcell/runs/metrics.jsonl into a cost/token/time rollup (per task, stage, model, probe).
+
+  Options:
+    --repo <path>             Repo checkout to work in (default: cwd)
+    --branch <name>           Read metrics.jsonl from this remote branch instead (what \`metrics push\` wrote; default: taskcell-metrics)
+    --json                    Machine-readable JSON output
+    --github-repo <o/r>       Also read each recorded PR of this repo from GitHub: lead times and the LESSONS first-pass rate (needs gh)
+    --feedback-authors <a,b>  Extra trusted logins whose review verdicts count for the first-pass rate (as on lessons record)
+    --since <date>            With --skills: only runs from the last window, e.g. 30d or 12h
+    --skills                  Per-skill rollup: review pass rate, repair rounds and cost with vs without each skill
+    --approver                Shadow approver scorecard instead of the cost/token rollup (verdict vs human outcome; needs gh)
+    --help                    Print help for this command"
+`;
+
+exports[`--help output > top-level usage is unchanged 1`] = `
+"taskcell <command>
+
+Commands:
+  run                 Run an agent on a task and open a draft PR for review (exactly one of --linear, --github, --gitlab, --project).
+  watch               Poll Linear, GitHub or GitLab and run each newly-ready issue automatically (the AFK factory loop).
+  doctor              Check whether watch can run AFK before any issue is claimed; takes the same flags as watch.
+  review-pr           Review an existing GitHub PR and post a non-blocking review comment.
+  research            Research a GitHub issue and post the findings as a comment.
+  spec                Write a tech spec for a GitHub issue and post it as an issue comment.
+  revise-pr           Apply human review feedback on a Taskcell draft PR and hand it back ready to merge.
+  watch-prs           Poll GitHub PRs by label and run the non-blocking review loop.
+  doctor-prs          Check whether watch-prs can run AFK before any PR is claimed.
+  review-mr           Review an existing GitLab MR and post a non-blocking review comment.
+  watch-mrs           Poll GitLab MRs by label and run the non-blocking review loop.
+  doctor-mrs          Check whether watch-mrs can run AFK before any MR is claimed.
+  stats               Aggregate .taskcell/runs/metrics.jsonl into a cost/token/time rollup (per task, stage, model, probe).
+  metrics             metrics push: append this checkout's metrics.jsonl lines to the orphan metrics branch and push (idempotent).
+  approve             Compute a deterministic APPROVE/ESCALATE decision for a factory PR; shadow mode (default) never merges.
+  lessons             record: distil 0-3 lessons from a closed factory PR or MR; list | dismiss <id>: show or dismiss live lessons.
+  skills              list | check | add | remove | update the repo's pinned skills; see docs/skills.md.
+  audit               verify | export the hash-chained audit streams (hub, run-events, metrics, decisions, lessons); see docs/audit.md.
+  history             One issue's history over the audit streams (trigger, runs, reviews, approver, merge).
+  memory              Refresh .taskcell/memory/retrospective.md from run artifacts and print it.
+  eval                Run the committed eval corpus and print a per-kind pass-rate report.
+  migrate-labels      Rename a repo's old vanguard:* labels to taskcell:* (dry-run by default).
+  resume-rate-limited Re-apply the trigger label on issues/PRs a provider limit or an unmet dependency parked, once clear.
+  gc                  Reap stale sandbox containers, prune worktrees, and (with --remote) delete merged remote chore/taskcell-* branches.
+  hub                 Serve the Inspector UI over HTTP/SSE; "hub rotate-token --token-file <path>" writes a new token.
+
+Run \`taskcell <command> --help\` for one command. Options by command:
+
+taskcell run [options]
+
+  Run an agent on a task and open a draft PR for review (exactly one of --linear, --github, --gitlab, --project).
+
+  Options:
+    --provider <claude|codex|cursor|zai|openrouter|meridian>         Provider that runs every stage (default: claude)
+    --review-provider <claude|codex|cursor|zai|openrouter|meridian>  Run only the review stage on this provider (cross-provider review)
+    --fallback-provider <name>                                       Retry on this provider when the primary one fails (outage, limit, revoked credential); a comma list (codex,cursor) is a fallback chain
+    --fallback-model <model>                                         Model for every stage that fell back (default: that provider's default); a comma list pairs with --fallback-provider
+    --usage-cap <pct>                                                Stop starting work once the provider's plan window is at/over this % (1-100; env TASKCELL_USAGE_CAP_PCT)
+    --provider-model <m>                                             Model for the implementer/simplifier stages (default: provider's default), or a weighted pool: claude/sonnet:3,codex/gpt-5.6-sol:1
+    --review-model <m>                                               Model for the review stage (default: provider's default), or a pool as for --provider-model
+    --escalate-model <m>                                             Model for the 2nd and later gate repairs (default: stay on the implementer model)
+    --no-simplify                                                    Skip the simplifier stage (lean: implement -> review only)
+    --verify <cmd>                                                   Verification command for Proof of Work (overrides TASKCELL_VERIFY_CMD and auto-detect)
+    --visual-proof <cmd>                                             Visual proof command for UI artifacts (overrides TASKCELL_VISUAL_PROOF_CMD)
+    --conformance                                                    Run the conformance pass (planner-tier model checks the diff against the spec; opt-in)
+    --conformance-model <m>                                          Model for the conformance stage (default: same as implementer)
+    --commit-author <a>                                              Git author "Name <email>"; also enables white-label mode (no Taskcell branding)
+    --plan                                                           Add a dedicated planning stage first (opus, high effort); same as --flow plan
+    --flow <name>                                                    Run a named workflow (e.g. flow-b: plan -> implement -> adversary -> repair)
+    --base <branch>                                                  Base branch to branch off and target the PR at (default: main)
+    --max-turns <n>                                                  Override the agent turn cap
+    --max-repair-iterations <n>                                      Override the conformance/verify repair loop-back cap (default: 2)
+    --skills <dir>                                                   Skills directory, merged with the repo's .github/vanguard-skills/
+    --pnpm-store                                                     Mount a persistent pnpm store, one per repo (see docs/cli.md)
+    --feedback-authors <a,b>                                         Logins trusted beyond OWNER/MEMBER/COLLABORATOR
+    --repo <path>                                                    Repo checkout to work in (default: cwd)
+    --github-repo <o/r>                                              GitHub repo slug for a bare --github number (default: detected from origin)
+    --label <name>                                                   Trigger label
+    --github <ref>                                                   GitHub issue or PR ref: owner/repo#n, URL, or a bare number with --github-repo
+    --gitlab-project <g/p>                                           GitLab project path (group/project)
+    --concurrency <n>                                                Max items processed at once (default: 2)
+    --egress                                                         Run the sandbox with allow-listed network egress
+    --llm-proxy                                                      Hold model credentials in a host sidecar instead of the sandbox
+    --linear <id>                                                    Linear issue id
+    --gitlab <ref>                                                   GitLab issue ref
+    --project <number>                                               GitHub Projects v2 board number: run every ready item
+    --parent                                                         (--linear) Run the sub-issues of a parent issue
+    --gc-before                                                      Reap stale sandboxes before starting
+    --reuse                                                          Reuse an existing worktree/branch for the task
+    --fork <n>                                                       Run the implementer n times (n>=2) and keep the best variant
+    --fork-scorer <llm|decision>                                     Scorer for --fork variants (default: llm)
+    --spec-file <file>                                               Use this tech spec instead of fetching one (single-issue runs only)
+    --skill <name>                                                   Named skill to apply (repeatable; single-issue runs only)
+    --help                                                           Print help for this command
+
+taskcell watch [options]
+
+  Poll Linear, GitHub or GitLab and run each newly-ready issue automatically (the AFK factory loop).
+
+  Options:
+    --provider <claude|codex|cursor|zai|openrouter|meridian>         Provider that runs every stage (default: claude)
+    --review-provider <claude|codex|cursor|zai|openrouter|meridian>  Run only the review stage on this provider (cross-provider review)
+    --fallback-provider <name>                                       Retry on this provider when the primary one fails (outage, limit, revoked credential); a comma list (codex,cursor) is a fallback chain
+    --fallback-model <model>                                         Model for every stage that fell back (default: that provider's default); a comma list pairs with --fallback-provider
+    --usage-cap <pct>                                                Stop starting work once the provider's plan window is at/over this % (1-100; env TASKCELL_USAGE_CAP_PCT)
+    --provider-model <m>                                             Model for the implementer/simplifier stages (default: provider's default), or a weighted pool: claude/sonnet:3,codex/gpt-5.6-sol:1
+    --review-model <m>                                               Model for the review stage (default: provider's default), or a pool as for --provider-model
+    --escalate-model <m>                                             Model for the 2nd and later gate repairs (default: stay on the implementer model)
+    --no-simplify                                                    Skip the simplifier stage (lean: implement -> review only)
+    --verify <cmd>                                                   Verification command for Proof of Work (overrides TASKCELL_VERIFY_CMD and auto-detect)
+    --visual-proof <cmd>                                             Visual proof command for UI artifacts (overrides TASKCELL_VISUAL_PROOF_CMD)
+    --conformance                                                    Run the conformance pass (planner-tier model checks the diff against the spec; opt-in)
+    --conformance-model <m>                                          Model for the conformance stage (default: same as implementer)
+    --commit-author <a>                                              Git author "Name <email>"; also enables white-label mode (no Taskcell branding)
+    --plan                                                           Add a dedicated planning stage first (opus, high effort); same as --flow plan
+    --flow <name>                                                    Run a named workflow (e.g. flow-b: plan -> implement -> adversary -> repair)
+    --base <branch>                                                  Base branch to branch off and target PRs at (default: main)
+    --max-turns <n>                                                  Override the agent turn cap
+    --max-repair-iterations <n>                                      Override the conformance/verify repair loop-back cap (default: 2)
+    --skills <dir>                                                   Skills directory, merged with the repo's .github/vanguard-skills/
+    --pnpm-store                                                     Mount a persistent pnpm store, one per repo (see docs/cli.md)
+    --feedback-authors <a,b>                                         Logins trusted beyond OWNER/MEMBER/COLLABORATOR
+    --spec-model <m>                                                 Model for the tech-spec stage
+    --repo <path>                                                    Repo checkout to work in (default: cwd)
+    --github-repo <o/r>                                              GitHub repo slug (owner/repo)
+    --gitlab-project <g/p>                                           GitLab project path (group/project)
+    --label <name>                                                   Required for linear/github/gitlab; optional label filter for project
+    --trigger-state <x>                                              Status option name for ready items (project default "Todo"; linear: state type, default "unstarted")
+    --trigger-state-name <x>                                         Linear display state name matching --trigger-state
+    --claimed-state <x>                                              Status/label set on claim (github: label taskcell:running)
+    --review-state <x>                                               Status/label set after a PR opens (github: label taskcell:needs-human-review)
+    --spec-claimed-label <l>                                         (loop-v1, github/gitlab) Label set while an issue is being specced
+    --dependency-repos <o/r,o/r>                                     Other repos a \`Depends on\` reference may be read from (default: only the watched repo)
+    --concurrency <n>                                                Max items processed at once (default: 2)
+    --interval <seconds>                                             Poll interval (default: 60)
+    --once                                                           Do a single pass
+    --egress                                                         Run the sandbox with allow-listed network egress
+    --llm-proxy                                                      Hold model credentials in a host sidecar instead of the sandbox
+    --source <linear|github|project|gitlab>                          Task source (default: linear; github when --github-repo is given)
+    --project <number>                                               (--source project) GitHub Projects v2 project number
+    --team <KEY>                                                     (linear) limit to a team
+    --max-tasks <n>                                                  Cap the ready tasks claimed per poll, for each phase (default: unlimited)
+    --issue <ref>                                                    (--source github) Run only this issue (owner/repo#n or a bare number); implies --once
+    --loop-v1                                                        Use Loop v1 defaults (routing labels / states for the spec and agent passes)
+    --spec-label <l>                                                 (loop-v1, github/gitlab) Label that triggers the spec pass
+    --agent-label <l>                                                (loop-v1, github/gitlab) Label that triggers the agent pass
+    --needs-info-label <l>                                           (loop-v1, github/gitlab) Label set when the spec needs information
+    --spec-state <x>                                                 (loop-v1, linear) State type that triggers the spec pass
+    --spec-state-name <x>                                            (loop-v1, linear) State name the spec pass reverts to
+    --agent-state <x>                                                (loop-v1, linear) State the spec pass advances specced issues into
+    --needs-info-state <x>                                           (loop-v1, linear) State set when the spec needs information
+    --spec-claimed-state <x>                                         (loop-v1, linear) State set while an issue is being specced
+    --spec-only                                                      Run only the spec pass (needs loop-v1 and a review --agent-label/--agent-state other than the build trigger)
+    --help                                                           Print help for this command
+
+taskcell doctor [options]
+
+  Check whether watch can run AFK before any issue is claimed; takes the same flags as watch.
+
+  Options:
+    --provider <claude|codex|cursor|zai|openrouter|meridian>         Provider that runs every stage (default: claude)
+    --review-provider <claude|codex|cursor|zai|openrouter|meridian>  Run only the review stage on this provider (cross-provider review)
+    --fallback-provider <name>                                       Retry on this provider when the primary one fails (outage, limit, revoked credential); a comma list (codex,cursor) is a fallback chain
+    --fallback-model <model>                                         Model for every stage that fell back (default: that provider's default); a comma list pairs with --fallback-provider
+    --usage-cap <pct>                                                Stop starting work once the provider's plan window is at/over this % (1-100; env TASKCELL_USAGE_CAP_PCT)
+    --provider-model <m>                                             Model for the implementer/simplifier stages (default: provider's default), or a weighted pool: claude/sonnet:3,codex/gpt-5.6-sol:1
+    --review-model <m>                                               Model for the review stage (default: provider's default), or a pool as for --provider-model
+    --escalate-model <m>                                             Model for the 2nd and later gate repairs (default: stay on the implementer model)
+    --no-simplify                                                    Skip the simplifier stage (lean: implement -> review only)
+    --verify <cmd>                                                   Verification command for Proof of Work (overrides TASKCELL_VERIFY_CMD and auto-detect)
+    --visual-proof <cmd>                                             Visual proof command for UI artifacts (overrides TASKCELL_VISUAL_PROOF_CMD)
+    --conformance                                                    Run the conformance pass (planner-tier model checks the diff against the spec; opt-in)
+    --conformance-model <m>                                          Model for the conformance stage (default: same as implementer)
+    --commit-author <a>                                              Git author "Name <email>"; also enables white-label mode (no Taskcell branding)
+    --plan                                                           Add a dedicated planning stage first (opus, high effort); same as --flow plan
+    --flow <name>                                                    Run a named workflow (e.g. flow-b: plan -> implement -> adversary -> repair)
+    --base <branch>                                                  Base branch to branch off and target the PR at (default: main)
+    --max-turns <n>                                                  Override the agent turn cap
+    --max-repair-iterations <n>                                      Override the conformance/verify repair loop-back cap (default: 2)
+    --skills <dir>                                                   Skills directory, merged with the repo's .github/vanguard-skills/
+    --pnpm-store                                                     Mount a persistent pnpm store, one per repo (see docs/cli.md)
+    --feedback-authors <a,b>                                         Logins trusted beyond OWNER/MEMBER/COLLABORATOR
+    --spec-model <m>                                                 Model for the tech-spec stage
+    --repo <path>                                                    Repo checkout to work in (default: cwd)
+    --github-repo <o/r>                                              GitHub repo slug (owner/repo)
+    --gitlab-project <g/p>                                           GitLab project path (group/project)
+    --label <name>                                                   Trigger label
+    --trigger-state <x>                                              Status option name for ready items (project default "Todo"; linear: state type, default "unstarted")
+    --trigger-state-name <x>                                         Linear display state name matching --trigger-state
+    --claimed-state <x>                                              Status/label set on claim (github: label taskcell:running)
+    --review-state <x>                                               Status/label set after a PR opens (github: label taskcell:needs-human-review)
+    --spec-claimed-label <l>                                         (loop-v1, github/gitlab) Label set while an issue is being specced
+    --dependency-repos <o/r,o/r>                                     Other repos a \`Depends on\` reference may be read from (default: only the watched repo)
+    --concurrency <n>                                                Max items processed at once (default: 2)
+    --interval <seconds>                                             Poll interval (default: 60)
+    --once                                                           Do a single pass
+    --egress                                                         Run the sandbox with allow-listed network egress
+    --llm-proxy                                                      Hold model credentials in a host sidecar instead of the sandbox
+    --source <linear|github|project|gitlab>                          Task source (default: linear; github when --github-repo is given)
+    --project <number>                                               (--source project) GitHub Projects v2 project number
+    --team <KEY>                                                     (linear) limit to a team
+    --max-tasks <n>                                                  Cap the ready tasks claimed per poll, for each phase (default: unlimited)
+    --issue <ref>                                                    (--source github) Run only this issue (owner/repo#n or a bare number); implies --once
+    --loop-v1                                                        Use Loop v1 defaults (routing labels / states for the spec and agent passes)
+    --spec-label <l>                                                 (loop-v1, github/gitlab) Label that triggers the spec pass
+    --agent-label <l>                                                (loop-v1, github/gitlab) Label that triggers the agent pass
+    --needs-info-label <l>                                           (loop-v1, github/gitlab) Label set when the spec needs information
+    --spec-state <x>                                                 (loop-v1, linear) State type that triggers the spec pass
+    --spec-state-name <x>                                            (loop-v1, linear) State name the spec pass reverts to
+    --agent-state <x>                                                (loop-v1, linear) State the spec pass advances specced issues into
+    --needs-info-state <x>                                           (loop-v1, linear) State set when the spec needs information
+    --spec-claimed-state <x>                                         (loop-v1, linear) State set while an issue is being specced
+    --spec-only                                                      Run only the spec pass (needs loop-v1 and a review --agent-label/--agent-state other than the build trigger)
+    --fix                                                            Install the repo-pinned agent CLIs in the sandbox image if it is stale, then re-check
+    --help                                                           Print help for this command
+
+taskcell review-pr <PR ref> [options]
+
+  Review an existing GitHub PR and post a non-blocking review comment.
+
+  Options:
+    --repo <path>                                             Repo checkout to work in (default: cwd)
+    --provider <claude|codex|cursor|zai|openrouter|meridian>  Provider that runs every stage (default: claude)
+    --review-model <m>                                        Model for the review stage (default: provider's default), or a pool as for --provider-model
+    --max-turns <n>                                           Override the agent turn cap
+    --usage-cap <pct>                                         Stop starting work once the provider's plan window is at/over this % (1-100; env TASKCELL_USAGE_CAP_PCT)
+    --egress                                                  Run the sandbox with allow-listed network egress
+    --llm-proxy                                               Hold model credentials in a host sidecar instead of the sandbox
+    --skills <dir>                                            Skills directory, merged with the repo's .github/vanguard-skills/
+    --github-repo <o/r>                                       GitHub repo slug (owner/repo)
+    --github <ref>                                            GitHub issue or PR ref: owner/repo#n, URL, or a bare number with --github-repo
+    --feedback-authors <a,b>                                  Logins trusted beyond OWNER/MEMBER/COLLABORATOR
+    --out <file>                                              Write the review to this local file instead of posting a PR comment
+    --github-pr <n>                                           PR number (or pass the PR as a positional)
+    --help                                                    Print help for this command
+
+taskcell research <issue ref> [options]
+
+  Research a GitHub issue and post the findings as a comment.
+
+  Options:
+    --repo <path>                                             Repo checkout to work in (default: cwd)
+    --github-repo <o/r>                                       GitHub repo slug (owner/repo)
+    --github <ref>                                            GitHub issue or PR ref: owner/repo#n, URL, or a bare number with --github-repo
+    --provider <claude|codex|cursor|zai|openrouter|meridian>  Provider that runs every stage (default: claude)
+    --usage-cap <pct>                                         Stop starting work once the provider's plan window is at/over this % (1-100; env TASKCELL_USAGE_CAP_PCT)
+    --egress                                                  Run the sandbox with allow-listed network egress
+    --llm-proxy                                               Hold model credentials in a host sidecar instead of the sandbox
+    --commit-author <a>                                       Git author "Name <email>"; also enables white-label mode (no Taskcell branding)
+    --web                                                     Declare that web egress is available (web-research mode)
+    --research-model <m>                                      Model for the research stage
+    --help                                                    Print help for this command
+
+taskcell spec <issue ref> [options]
+
+  Write a tech spec for a GitHub issue and post it as an issue comment.
+
+  Options:
+    --repo <path>                                             Repo checkout to work in (default: cwd)
+    --github-repo <o/r>                                       GitHub repo slug (owner/repo)
+    --github <ref>                                            GitHub issue or PR ref: owner/repo#n, URL, or a bare number with --github-repo
+    --provider <claude|codex|cursor|zai|openrouter|meridian>  Provider that runs every stage (default: claude)
+    --usage-cap <pct>                                         Stop starting work once the provider's plan window is at/over this % (1-100; env TASKCELL_USAGE_CAP_PCT)
+    --egress                                                  Run the sandbox with allow-listed network egress
+    --llm-proxy                                               Hold model credentials in a host sidecar instead of the sandbox
+    --skills <dir>                                            Skills directory, merged with the repo's .github/vanguard-skills/
+    --spec-model <m>                                          Model for the tech-spec stage
+    --max-turns <n>                                           Override the agent turn cap
+    --base <branch>                                           Branch the spec worktree is cut from (default: main)
+    --out <file>                                              Write the spec to this local file instead of posting an issue comment (pairs with run --spec-file)
+    --commit-author <a>                                       Git author "Name <email>"; also enables white-label mode (no Taskcell branding)
+    --help                                                    Print help for this command
+
+taskcell revise-pr <PR ref> [options]
+
+  Apply human review feedback on a Taskcell draft PR and hand it back ready to merge.
+
+  Options:
+    --repo <path>                                             Repo checkout to work in (default: cwd)
+    --github-repo <o/r>                                       GitHub repo slug (owner/repo)
+    --github <ref>                                            GitHub issue or PR ref: owner/repo#n, URL, or a bare number with --github-repo
+    --feedback-authors <a,b>                                  Logins trusted beyond OWNER/MEMBER/COLLABORATOR
+    --provider <claude|codex|cursor|zai|openrouter|meridian>  Provider that runs every stage (default: claude)
+    --fallback-provider <name>                                Retry on this provider when the primary one fails (outage, limit, revoked credential); a comma list (codex,cursor) is a fallback chain
+    --fallback-model <model>                                  Model for every stage that fell back (default: that provider's default); a comma list pairs with --fallback-provider
+    --provider-model <m>                                      Model for the implementer/simplifier stages (default: provider's default), or a weighted pool: claude/sonnet:3,codex/gpt-5.6-sol:1
+    --review-model <m>                                        Model for the review stage (default: provider's default), or a pool as for --provider-model
+    --usage-cap <pct>                                         Stop starting work once the provider's plan window is at/over this % (1-100; env TASKCELL_USAGE_CAP_PCT)
+    --egress                                                  Run the sandbox with allow-listed network egress
+    --llm-proxy                                               Hold model credentials in a host sidecar instead of the sandbox
+    --skills <dir>                                            Skills directory, merged with the repo's .github/vanguard-skills/
+    --commit-author <a>                                       Git author "Name <email>"; also enables white-label mode (no Taskcell branding)
+    --out <file>                                              Dry-run: write the diff and proposed thread replies to this file; push and comment nothing
+    --github-pr <n>                                           PR number (or pass the PR as a positional)
+    --max-rounds <n>                                          Maximum revision rounds
+    --help                                                    Print help for this command
+
+taskcell watch-prs [options]
+
+  Poll GitHub PRs by label and run the non-blocking review loop.
+
+  Options:
+    --repo <path>                                             Repo checkout to work in (default: cwd)
+    --provider <claude|codex|cursor|zai|openrouter|meridian>  Provider that runs every stage (default: claude)
+    --review-model <m>                                        Model for the review stage (default: provider's default), or a pool as for --provider-model
+    --max-turns <n>                                           Override the agent turn cap
+    --usage-cap <pct>                                         Stop starting work once the provider's plan window is at/over this % (1-100; env TASKCELL_USAGE_CAP_PCT)
+    --egress                                                  Run the sandbox with allow-listed network egress
+    --llm-proxy                                               Hold model credentials in a host sidecar instead of the sandbox
+    --skills <dir>                                            Skills directory, merged with the repo's .github/vanguard-skills/
+    --github-repo <o/r>                                       GitHub repo slug (owner/repo)
+    --label <name>                                            Required trigger label (e.g. "ready for taskcell review")
+    --reviewing-label <l>                                     Label added while an item is being reviewed
+    --reviewed-label <l>                                      Label added after review succeeds
+    --author <login>                                          Only review items opened by this author
+    --concurrency <n>                                         Max items processed at once (default: 2)
+    --interval <seconds>                                      Poll interval (default: 60)
+    --once                                                    Do a single pass
+    --feedback-authors <a,b>                                  Logins trusted beyond OWNER/MEMBER/COLLABORATOR
+    --pr <n>                                                  Also review this PR even if the label scan misses it
+    --pinned-only                                             With a pinned PR, review only it and skip the label scan (per-PR CI concurrency group, one run per labelled PR)
+    --help                                                    Print help for this command
+
+taskcell doctor-prs [options]
+
+  Check whether watch-prs can run AFK before any PR is claimed.
+
+  Options:
+    --repo <path>                                             Repo checkout to work in (default: cwd)
+    --github-repo <o/r>                                       GitHub repo slug (owner/repo)
+    --label <name>                                            Trigger label
+    --reviewing-label <l>                                     Label added while an item is being reviewed
+    --reviewed-label <l>                                      Label added after review succeeds
+    --provider <claude|codex|cursor|zai|openrouter|meridian>  Provider that runs every stage (default: claude)
+    --llm-proxy                                               Hold model credentials in a host sidecar instead of the sandbox
+    --help                                                    Print help for this command
+
+taskcell review-mr [options]
+
+  Review an existing GitLab MR and post a non-blocking review comment.
+
+  Options:
+    --repo <path>                                             Repo checkout to work in (default: cwd)
+    --provider <claude|codex|cursor|zai|openrouter|meridian>  Provider that runs every stage (default: claude)
+    --review-model <m>                                        Model for the review stage (default: provider's default), or a pool as for --provider-model
+    --max-turns <n>                                           Override the agent turn cap
+    --usage-cap <pct>                                         Stop starting work once the provider's plan window is at/over this % (1-100; env TASKCELL_USAGE_CAP_PCT)
+    --egress                                                  Run the sandbox with allow-listed network egress
+    --llm-proxy                                               Hold model credentials in a host sidecar instead of the sandbox
+    --skills <dir>                                            Skills directory, merged with the repo's .github/vanguard-skills/
+    --gitlab-project <g/p>                                    GitLab project path (group/project)
+    --mr <iid>                                                GitLab MR IID (integer)
+    --help                                                    Print help for this command
+
+taskcell watch-mrs [options]
+
+  Poll GitLab MRs by label and run the non-blocking review loop.
+
+  Options:
+    --repo <path>                                             Repo checkout to work in (default: cwd)
+    --provider <claude|codex|cursor|zai|openrouter|meridian>  Provider that runs every stage (default: claude)
+    --review-model <m>                                        Model for the review stage (default: provider's default), or a pool as for --provider-model
+    --max-turns <n>                                           Override the agent turn cap
+    --usage-cap <pct>                                         Stop starting work once the provider's plan window is at/over this % (1-100; env TASKCELL_USAGE_CAP_PCT)
+    --egress                                                  Run the sandbox with allow-listed network egress
+    --llm-proxy                                               Hold model credentials in a host sidecar instead of the sandbox
+    --skills <dir>                                            Skills directory, merged with the repo's .github/vanguard-skills/
+    --gitlab-project <g/p>                                    GitLab project path (group/project)
+    --label <name>                                            Trigger label
+    --reviewing-label <l>                                     Label added while an item is being reviewed
+    --reviewed-label <l>                                      Label added after review succeeds
+    --author <login>                                          Only review items opened by this author
+    --concurrency <n>                                         Max items processed at once (default: 2)
+    --interval <seconds>                                      Poll interval (default: 60)
+    --once                                                    Do a single pass
+    --help                                                    Print help for this command
+
+taskcell doctor-mrs [options]
+
+  Check whether watch-mrs can run AFK before any MR is claimed.
+
+  Options:
+    --repo <path>                                             Repo checkout to work in (default: cwd)
+    --gitlab-project <g/p>                                    GitLab project path (group/project)
+    --label <name>                                            Trigger label
+    --reviewing-label <l>                                     Label added while an item is being reviewed
+    --reviewed-label <l>                                      Label added after review succeeds
+    --author <login>                                          Only review items opened by this author
+    --provider <claude|codex|cursor|zai|openrouter|meridian>  Provider that runs every stage (default: claude)
+    --review-model <m>                                        Model for the review stage (default: provider's default), or a pool as for --provider-model
+    --llm-proxy                                               Hold model credentials in a host sidecar instead of the sandbox
+    --help                                                    Print help for this command
+
+taskcell stats [options]
+
+  Aggregate .taskcell/runs/metrics.jsonl into a cost/token/time rollup (per task, stage, model, probe).
+
+  Options:
+    --repo <path>             Repo checkout to work in (default: cwd)
+    --branch <name>           Read metrics.jsonl from this remote branch instead (what \`metrics push\` wrote; default: taskcell-metrics)
+    --json                    Machine-readable JSON output
+    --github-repo <o/r>       Also read each recorded PR of this repo from GitHub: lead times and the LESSONS first-pass rate (needs gh)
+    --feedback-authors <a,b>  Extra trusted logins whose review verdicts count for the first-pass rate (as on lessons record)
+    --since <date>            With --skills: only runs from the last window, e.g. 30d or 12h
+    --skills                  Per-skill rollup: review pass rate, repair rounds and cost with vs without each skill
+    --approver                Shadow approver scorecard instead of the cost/token rollup (verdict vs human outcome; needs gh)
+    --help                    Print help for this command
+
+taskcell metrics push [options]
+
+  metrics push: append this checkout's metrics.jsonl lines to the orphan metrics branch and push (idempotent).
+
+  Options:
+    --repo <path>    Repo checkout to work in (default: cwd)
+    --branch <name>  Metrics branch to read or write (default: taskcell-metrics)
+    --help           Print help for this command
+
+taskcell approve [PR number] [options]
+
+  Compute a deterministic APPROVE/ESCALATE decision for a factory PR; shadow mode (default) never merges.
+
+  Options:
+    --repo <path>         Repo checkout to work in (default: cwd)
+    --github-repo <o/r>   Repo slug — the approver never infers the repo it judges
+    --branch <name>       Metrics branch to read or write (default: taskcell-metrics)
+    --json                Machine-readable JSON output
+    --dry-run             Report what would happen without changing anything
+    --pr <n>              PR number (bare positional also accepted)
+    --mode <shadow|act>   shadow (default) only records and comments; act merges (see docs/autonomous-loop.md)
+    --review-run-id <id>  Removed: act mode reads the run stamp on the review itself; passing it is an error
+    --help                Print help for this command
+
+taskcell lessons record|list|dismiss <id> [options]
+
+  record: distil 0-3 lessons from a closed factory PR or MR; list | dismiss <id>: show or dismiss live lessons.
+
+  Options:
+    --repo <path>             Repo checkout to work in (default: cwd)
+    --branch <name>           Metrics branch to read or write (default: taskcell-metrics)
+    --json                    Machine-readable JSON output
+    --github-repo <o/r>       GitHub repo slug (owner/repo)
+    --gitlab-project <g/p>    GitLab project path (group/project)
+    --pr <n>                  PR number
+    --dry-run                 Report what would happen without changing anything
+    --provider-model <m>      Model for the implementer/simplifier stages (default: provider's default), or a weighted pool: claude/sonnet:3,codex/gpt-5.6-sol:1
+    --feedback-authors <a,b>  Logins trusted beyond OWNER/MEMBER/COLLABORATOR
+    --mr <n>                  (record) GitLab MR number, with --gitlab-project
+    --help                    Print help for this command
+
+taskcell skills list|check|add <git-url>[#ref]|remove <name>|update [name] [options]
+
+  list | check | add | remove | update the repo's pinned skills; see docs/skills.md.
+
+  Options:
+    --repo <path>       Repo checkout to work in (default: cwd)
+    --dry-run           Report what would happen without changing anything
+    --base <branch>     (update --pr) Branch the PR targets
+    --dir <skills dir>  Skills directory (default: <repo>/skills)
+    --strict            (check) exit 1 on outdated or modified skills
+    --path <dir>        (add) Subdirectory of the source holding the skill
+    --name <name>       (add) Name to pin the skill under
+    --pr                (update) Open a PR with the SKILL.md diff instead of editing in place
+    --force             (update) Update even when the pinned commit can no longer be fetched
+    --help              Print help for this command
+
+taskcell audit verify|export [options]
+
+  verify | export the hash-chained audit streams (hub, run-events, metrics, decisions, lessons); see docs/audit.md.
+
+  Options:
+    --repo <path>         Repo checkout to work in (default: cwd)
+    --since <date>        Only entries at or after this date or window
+    --branch <name>       Metrics branch to read or write (default: taskcell-metrics)
+    --config-dir <dir>    The hub config dir holding the hub audit log (default: the hub's own)
+    --stream <name>       One of hub, run-events, metrics, decisions, lessons (default: all)
+    --until <date>        (export) Only entries up to this date
+    --format <jsonl|csv>  (export) Output format (default: jsonl)
+    --help                Print help for this command
+
+taskcell history <owner/repo#N> [options]
+
+  One issue's history over the audit streams (trigger, runs, reviews, approver, merge).
+
+  Options:
+    --repo <path>       Repo checkout to work in (default: cwd)
+    --config-dir <dir>  The hub config dir holding the hub audit log (default: the hub's own)
+    --branch <name>     Metrics branch to read or write (default: taskcell-metrics)
+    --json              Machine-readable JSON output
+    --offline           Do not ask the Git host (no label/comment/merge events)
+    --help              Print help for this command
+
+taskcell memory [options]
+
+  Refresh .taskcell/memory/retrospective.md from run artifacts and print it.
+
+  Options:
+    --repo <path>  Repo checkout to work in (default: cwd)
+    --limit <n>    Maximum number of entries
+    --json         Machine-readable JSON output
+    --help         Print help for this command
+
+taskcell eval [options]
+
+  Run the committed eval corpus and print a per-kind pass-rate report.
+
+  Options:
+    --repo <path>           Repo checkout to work in (default: cwd)
+    --json                  Machine-readable JSON output
+    --limit <n>             Maximum number of entries
+    --out <file>            Write the result to this local file instead of posting it
+    --github-repo <o/r>     GitHub repo slug (owner/repo)
+    --since <date>          Only entries at or after this date or window
+    --branch <name>         Metrics branch to read or write (default: taskcell-metrics)
+    --judge-model <m>       Model for the judge (default: a Haiku model, or a decision model)
+    --produce-model <m>     Model under test (default: claude-sonnet-5-5)
+    --suggest               Draft eval-corpus candidates from retrospective memory instead of running the corpus
+    --markdown              With --suggest: force markdown output
+    --baseline <file|main>  Gate against a saved baseline: a local file, or "main" for the latest on the metrics branch
+    --max-drop <points>     Max tolerated drop in overall pass rate, in points (default 5; with --baseline)
+    --allow-corpus-change   Compare against a baseline whose corpus hash differs, instead of refusing
+    --save-baseline         Publish this result as the new baseline
+    --help                  Print help for this command
+
+taskcell migrate-labels [options]
+
+  Rename a repo's old vanguard:* labels to taskcell:* (dry-run by default).
+
+  Options:
+    --github-repo <o/r>  GitHub repo slug (owner/repo)
+    --apply              Rename the labels
+    --help               Print help for this command
+
+taskcell resume-rate-limited [options]
+
+  Re-apply the trigger label on issues/PRs a provider limit or an unmet dependency parked, once clear.
+
+  Options:
+    --github-repo <o/r>           GitHub repo slug (owner/repo)
+    --dry-run                     Report what would happen without changing anything
+    --trigger-labels <a,b>        Custom trigger labels to re-apply
+    --dependency-repos <o/r,o/r>  Other repos a \`Depends on\` reference may be read from (default: only the watched repo)
+    --claimed-state <x>           As given to watch
+    --review-state <x>            As given to watch
+    --spec-claimed-label <l>      As given to watch
+    --no-ci-watch                 Do not revise factory PRs whose required checks failed (default: on; needs a user token)
+    --help                        Print help for this command
+
+taskcell gc [options]
+
+  Reap stale sandbox containers, prune worktrees, and (with --remote) delete merged remote chore/taskcell-* branches.
+
+  Options:
+    --repo <path>          Repo checkout to work in (default: cwd)
+    --dry-run              Report what would happen without changing anything
+    --max-age-hours <n>    Only reap resources older than n hours (default: 6)
+    --remote <owner/repo>  Also delete merged remote chore/taskcell-* (or chore/vanguard-*) branches (needs gh)
+    --abandoned            Also delete branches whose PR is closed-unmerged
+    --help                 Print help for this command
+
+taskcell hub [rotate-token] [options]
+
+  Serve the Inspector UI over HTTP/SSE; "hub rotate-token --token-file <path>" writes a new token.
+
+  Options:
+    --repo <path>                 Repo checkout to work in (default: cwd)
+    --host <addr>                 Address to bind (env TASKCELL_HUB_HOST; default: 127.0.0.1)
+    --port <port>                 Port to bind, 1-65535 (env TASKCELL_HUB_PORT; default: 7777)
+    --ui-dir <dir>                Serve the Inspector UI from this directory instead of the bundled one
+    --no-open                     Do not open the browser
+    --demo                        Open a read-only demo project on bundled sample data (touches no repo, remote or hub store)
+    --token-file <path>           Keep one token across restarts (env TASKCELL_HUB_TOKEN_FILE; created 0600 if missing)
+    --allowed-host <host>         Extra Host header accepted on a non-loopback bind (repeatable)
+    --admin-github-login <login>  GitHub login granted admin access (repeatable)
+    --help                        Print help for this command
+"
+`;
+
+exports[`--help output > watch help is unchanged 1`] = `
+"taskcell watch [options]
+
+  Poll Linear, GitHub or GitLab and run each newly-ready issue automatically (the AFK factory loop).
+
+  Options:
+    --provider <claude|codex|cursor|zai|openrouter|meridian>         Provider that runs every stage (default: claude)
+    --review-provider <claude|codex|cursor|zai|openrouter|meridian>  Run only the review stage on this provider (cross-provider review)
+    --fallback-provider <name>                                       Retry on this provider when the primary one fails (outage, limit, revoked credential); a comma list (codex,cursor) is a fallback chain
+    --fallback-model <model>                                         Model for every stage that fell back (default: that provider's default); a comma list pairs with --fallback-provider
+    --usage-cap <pct>                                                Stop starting work once the provider's plan window is at/over this % (1-100; env TASKCELL_USAGE_CAP_PCT)
+    --provider-model <m>                                             Model for the implementer/simplifier stages (default: provider's default), or a weighted pool: claude/sonnet:3,codex/gpt-5.6-sol:1
+    --review-model <m>                                               Model for the review stage (default: provider's default), or a pool as for --provider-model
+    --escalate-model <m>                                             Model for the 2nd and later gate repairs (default: stay on the implementer model)
+    --no-simplify                                                    Skip the simplifier stage (lean: implement -> review only)
+    --verify <cmd>                                                   Verification command for Proof of Work (overrides TASKCELL_VERIFY_CMD and auto-detect)
+    --visual-proof <cmd>                                             Visual proof command for UI artifacts (overrides TASKCELL_VISUAL_PROOF_CMD)
+    --conformance                                                    Run the conformance pass (planner-tier model checks the diff against the spec; opt-in)
+    --conformance-model <m>                                          Model for the conformance stage (default: same as implementer)
+    --commit-author <a>                                              Git author "Name <email>"; also enables white-label mode (no Taskcell branding)
+    --plan                                                           Add a dedicated planning stage first (opus, high effort); same as --flow plan
+    --flow <name>                                                    Run a named workflow (e.g. flow-b: plan -> implement -> adversary -> repair)
+    --base <branch>                                                  Base branch to branch off and target PRs at (default: main)
+    --max-turns <n>                                                  Override the agent turn cap
+    --max-repair-iterations <n>                                      Override the conformance/verify repair loop-back cap (default: 2)
+    --skills <dir>                                                   Skills directory, merged with the repo's .github/vanguard-skills/
+    --pnpm-store                                                     Mount a persistent pnpm store, one per repo (see docs/cli.md)
+    --feedback-authors <a,b>                                         Logins trusted beyond OWNER/MEMBER/COLLABORATOR
+    --spec-model <m>                                                 Model for the tech-spec stage
+    --repo <path>                                                    Repo checkout to work in (default: cwd)
+    --github-repo <o/r>                                              GitHub repo slug (owner/repo)
+    --gitlab-project <g/p>                                           GitLab project path (group/project)
+    --label <name>                                                   Required for linear/github/gitlab; optional label filter for project
+    --trigger-state <x>                                              Status option name for ready items (project default "Todo"; linear: state type, default "unstarted")
+    --trigger-state-name <x>                                         Linear display state name matching --trigger-state
+    --claimed-state <x>                                              Status/label set on claim (github: label taskcell:running)
+    --review-state <x>                                               Status/label set after a PR opens (github: label taskcell:needs-human-review)
+    --spec-claimed-label <l>                                         (loop-v1, github/gitlab) Label set while an issue is being specced
+    --dependency-repos <o/r,o/r>                                     Other repos a \`Depends on\` reference may be read from (default: only the watched repo)
+    --concurrency <n>                                                Max items processed at once (default: 2)
+    --interval <seconds>                                             Poll interval (default: 60)
+    --once                                                           Do a single pass
+    --egress                                                         Run the sandbox with allow-listed network egress
+    --llm-proxy                                                      Hold model credentials in a host sidecar instead of the sandbox
+    --source <linear|github|project|gitlab>                          Task source (default: linear; github when --github-repo is given)
+    --project <number>                                               (--source project) GitHub Projects v2 project number
+    --team <KEY>                                                     (linear) limit to a team
+    --max-tasks <n>                                                  Cap the ready tasks claimed per poll, for each phase (default: unlimited)
+    --issue <ref>                                                    (--source github) Run only this issue (owner/repo#n or a bare number); implies --once
+    --loop-v1                                                        Use Loop v1 defaults (routing labels / states for the spec and agent passes)
+    --spec-label <l>                                                 (loop-v1, github/gitlab) Label that triggers the spec pass
+    --agent-label <l>                                                (loop-v1, github/gitlab) Label that triggers the agent pass
+    --needs-info-label <l>                                           (loop-v1, github/gitlab) Label set when the spec needs information
+    --spec-state <x>                                                 (loop-v1, linear) State type that triggers the spec pass
+    --spec-state-name <x>                                            (loop-v1, linear) State name the spec pass reverts to
+    --agent-state <x>                                                (loop-v1, linear) State the spec pass advances specced issues into
+    --needs-info-state <x>                                           (loop-v1, linear) State set when the spec needs information
+    --spec-claimed-state <x>                                         (loop-v1, linear) State set while an issue is being specced
+    --spec-only                                                      Run only the spec pass (needs loop-v1 and a review --agent-label/--agent-state other than the build trigger)
+    --help                                                           Print help for this command"
+`;
+
+exports[`--help output > watch-mrs help is unchanged 1`] = `
+"taskcell watch-mrs [options]
+
+  Poll GitLab MRs by label and run the non-blocking review loop.
+
+  Options:
+    --repo <path>                                             Repo checkout to work in (default: cwd)
+    --provider <claude|codex|cursor|zai|openrouter|meridian>  Provider that runs every stage (default: claude)
+    --review-model <m>                                        Model for the review stage (default: provider's default), or a pool as for --provider-model
+    --max-turns <n>                                           Override the agent turn cap
+    --usage-cap <pct>                                         Stop starting work once the provider's plan window is at/over this % (1-100; env TASKCELL_USAGE_CAP_PCT)
+    --egress                                                  Run the sandbox with allow-listed network egress
+    --llm-proxy                                               Hold model credentials in a host sidecar instead of the sandbox
+    --skills <dir>                                            Skills directory, merged with the repo's .github/vanguard-skills/
+    --gitlab-project <g/p>                                    GitLab project path (group/project)
+    --label <name>                                            Trigger label
+    --reviewing-label <l>                                     Label added while an item is being reviewed
+    --reviewed-label <l>                                      Label added after review succeeds
+    --author <login>                                          Only review items opened by this author
+    --concurrency <n>                                         Max items processed at once (default: 2)
+    --interval <seconds>                                      Poll interval (default: 60)
+    --once                                                    Do a single pass
+    --help                                                    Print help for this command"
+`;
+
+exports[`--help output > watch-prs help is unchanged 1`] = `
+"taskcell watch-prs [options]
+
+  Poll GitHub PRs by label and run the non-blocking review loop.
+
+  Options:
+    --repo <path>                                             Repo checkout to work in (default: cwd)
+    --provider <claude|codex|cursor|zai|openrouter|meridian>  Provider that runs every stage (default: claude)
+    --review-model <m>                                        Model for the review stage (default: provider's default), or a pool as for --provider-model
+    --max-turns <n>                                           Override the agent turn cap
+    --usage-cap <pct>                                         Stop starting work once the provider's plan window is at/over this % (1-100; env TASKCELL_USAGE_CAP_PCT)
+    --egress                                                  Run the sandbox with allow-listed network egress
+    --llm-proxy                                               Hold model credentials in a host sidecar instead of the sandbox
+    --skills <dir>                                            Skills directory, merged with the repo's .github/vanguard-skills/
+    --github-repo <o/r>                                       GitHub repo slug (owner/repo)
+    --label <name>                                            Required trigger label (e.g. "ready for taskcell review")
+    --reviewing-label <l>                                     Label added while an item is being reviewed
+    --reviewed-label <l>                                      Label added after review succeeds
+    --author <login>                                          Only review items opened by this author
+    --concurrency <n>                                         Max items processed at once (default: 2)
+    --interval <seconds>                                      Poll interval (default: 60)
+    --once                                                    Do a single pass
+    --feedback-authors <a,b>                                  Logins trusted beyond OWNER/MEMBER/COLLABORATOR
+    --pr <n>                                                  Also review this PR even if the label scan misses it
+    --pinned-only                                             With a pinned PR, review only it and skip the label scan (per-PR CI concurrency group, one run per labelled PR)
+    --help                                                    Print help for this command"
+`;

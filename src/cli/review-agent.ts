@@ -3,7 +3,7 @@ import { overlayInstructionFiles } from '../context/instruction-files.js';
 import { skillRegistryForRun } from '../context/skill-registry.js';
 import { literalPrompt } from '../context/prompt-engine.js';
 import { adversarySystemPrompt } from '../pipeline/pipeline.js';
-import { DEFAULT_REVIEW_MAX_TURNS } from './args.js';
+import { DEFAULT_REVIEW_MAX_TURNS } from './flags.js';
 import type { InstructionOverlay } from '../context/instruction-files.js';
 import type { RunResult } from '../core/types.js';
 import type { AgentSession, AgentSessionOptions } from '../runners/agent-session.js';

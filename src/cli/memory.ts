@@ -1,3 +1,5 @@
+import { parseLimit } from './flags.js';
+import type { ParseCtx } from './flags.js';
 import { readFile } from 'node:fs/promises';
 import {
   buildRetrospectiveMemory,
@@ -23,4 +25,16 @@ export async function memoryCommand(cmd: MemoryCommand): Promise<void> {
   }
   const path = await refreshRetrospectiveMemory(cmd.repoPath, opts);
   console.log(await readFile(path, 'utf8'));
+}
+
+/** Parse `memory`'s flags into its command; the generic checks (parseCli) have already run. */
+export function parseMemoryCommand(ctx: ParseCtx): Command {
+  const { values, repoPath } = ctx;
+  const limit = parseLimit(values.limit);
+  return {
+    kind: 'memory',
+    repoPath,
+    ...(limit !== undefined ? { limit } : {}),
+    json: values.json === true,
+  };
 }
