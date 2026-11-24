@@ -55,16 +55,19 @@ describe('lessons record for GitHub with TASKCELL_APP_SLUG', () => {
   const PR_URL = 'https://github.com/o/r/pull/9';
   const ghCmd = { kind: 'lessons', action: 'record', repoPath: '/r', repoSlug: 'o/r', prNumber: 9, dryRun: false } as const;
   const review = { author: { login: 'github-actions' }, authorAssociation: 'NONE', state: 'COMMENTED', body: 'Verdict: BLOCKING\nRisk: high — x' };
-  const lessonBy = (login: string): object => ({ author: { login }, authorAssociation: 'NONE', url: `${PR_URL}#c`, body: `APP-TEXT ${login}\n${LESSON_MARKER}` });
-  const run = async (comments: unknown[]): Promise<{ gh: GhRunner; prompt: string }> => {
+  const body = `APP-TEXT\n${LESSON_MARKER}`;
+  // `gh pr view` reports an App comment's author as the bare slug; REST reports it as `<slug>[bot]` / `Bot`.
+  const viewComment = { author: { login: 'tc' }, authorAssociation: 'CONTRIBUTOR', url: `${PR_URL}#c`, body };
+  const run = async (restUser: { login: string; type: string }): Promise<{ gh: GhRunner; prompt: string }> => {
     vi.stubEnv('TASKCELL_APP_SLUG', 'tc');
     vi.spyOn(store, 'appendLessonRecords').mockResolvedValue({ branch: 'm', pushed: 1 });
     vi.spyOn(console, 'log').mockImplementation(() => {});
-    const gh: GhRunner = vi.fn(async (args: string[]) =>
-      args[1] === 'view'
-        ? JSON.stringify({ number: 9, url: PR_URL, title: 't', state: 'MERGED', labels: [], files: [], additions: 1, deletions: 0, reviews: [review], comments })
-        : '',
-    );
+    const gh: GhRunner = vi.fn(async (args: string[]) => {
+      if (args[1] === 'view') {
+        return JSON.stringify({ number: 9, url: PR_URL, title: 't', state: 'MERGED', labels: [], files: [], additions: 1, deletions: 0, reviews: [review], comments: [viewComment] });
+      }
+      return args[0] === 'api' ? JSON.stringify([[{ user: restUser, body }]]) : '';
+    });
     let prompt = '';
     const model = vi.fn(async (req: { prompt: string }) => {
       prompt = req.prompt;
@@ -75,14 +78,14 @@ describe('lessons record for GitHub with TASKCELL_APP_SLUG', () => {
   };
   afterEach(() => vi.unstubAllEnvs());
 
-  it('an App lesson comment dedupes but never becomes a lesson note', async () => {
-    const { gh, prompt } = await run([lessonBy('app/tc')]);
+  it('an App lesson comment (REST <slug>[bot] / Bot) dedupes but never becomes a lesson note', async () => {
+    const { gh, prompt } = await run({ login: 'tc[bot]', type: 'Bot' });
     expect(gh).not.toHaveBeenCalledWith(expect.arrayContaining(['comment']));
     expect(prompt).not.toContain('APP-TEXT');
   });
 
-  it('a bare <slug> login is neither trusted nor used for dedupe', async () => {
-    const { gh, prompt } = await run([lessonBy('tc')]);
+  it('a bare <slug> User comment with a marker is neither trusted nor used for dedupe', async () => {
+    const { gh, prompt } = await run({ login: 'tc', type: 'User' });
     expect(gh).toHaveBeenCalledWith(expect.arrayContaining(['pr', 'comment', '9']));
     expect(prompt).not.toContain('APP-TEXT');
   });
