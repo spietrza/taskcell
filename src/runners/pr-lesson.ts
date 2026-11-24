@@ -74,14 +74,21 @@ function isBlocking(body: string, state: string | undefined): boolean {
 export async function fetchPrHistory(
   repo: string,
   number: number,
-  opts: { allowedAuthors?: readonly string[]; botLogins?: readonly string[]; gh?: GhRunner } = {},
+  opts: {
+    allowedAuthors?: readonly string[];
+    /** Logins (the App identity) whose lesson marker counts for dedupe only: their comments never become trusted input. */
+    lessonMarkerLogins?: readonly string[];
+    gh?: GhRunner;
+  } = {},
 ): Promise<PrHistory> {
   const gh = opts.gh ?? defaultGhRunner;
   const pr = JSON.parse(
     await gh(['pr', 'view', String(number), '--repo', repo, '--json', 'number,url,title,state,labels,files,additions,deletions,reviews,comments']),
   ) as GhLessonPr;
   const trusted = (a: GhAuthored): boolean =>
-    classifyAuthor(a.author?.login ?? '', a.authorAssociation ?? '', { allowedAuthors: opts.allowedAuthors, botLogins: opts.botLogins }) !== 'untrusted';
+    classifyAuthor(a.author?.login ?? '', a.authorAssociation ?? '', { allowedAuthors: opts.allowedAuthors }) !== 'untrusted';
+  const lessonMarkerLogins = new Set((opts.lessonMarkerLogins ?? []).map((l) => l.toLowerCase()));
+  const marksLesson = (c: GhAuthored): boolean => trusted(c) || lessonMarkerLogins.has((c.author?.login ?? '').toLowerCase());
   const reviews = (pr.reviews ?? []).filter(trusted);
   const comments = (pr.comments ?? []).filter(trusted);
   const notes = [
@@ -101,8 +108,8 @@ export async function fetchPrHistory(
     additions: pr.additions ?? 0,
     deletions: pr.deletions ?? 0,
     notes,
-    // Trusted authors only: a forged marker from anyone else must not suppress the lesson.
-    hasLessonComment: comments.some((c) => hasMarker('lesson', c.body ?? '')),
+    // Trusted authors and the App identity only: a forged marker from anyone else must not suppress the lesson.
+    hasLessonComment: (pr.comments ?? []).some((c) => marksLesson(c) && hasMarker('lesson', c.body ?? '')),
   };
 }
 

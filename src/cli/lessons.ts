@@ -71,13 +71,14 @@ export async function lessonsCommand(cmd: LessonsCommand, deps: LessonsDeps = {}
   const gh = deps.gh ?? defaultGhRunner;
   const glab = deps.glab ?? defaultGlabRunner;
   const authorOpt = cmd.feedbackAuthors !== undefined ? { allowedAuthors: cmd.feedbackAuthors } : {};
-  // A white-label App comments as its slug (`<slug>`, `<slug>[bot]` or `app/<slug>`) with no trusted association: its lesson marker must still dedupe.
+  // A white-label App comments as `<slug>[bot]` / `app/<slug>` with no trusted association: its lesson marker must still
+  // dedupe, but its comments are not lesson input. No bare `<slug>`: anyone can register that login.
   const appSlug = (readEnv('TASKCELL_APP_SLUG') ?? '').trim();
-  const botLogins = appSlug === '' ? [] : [appSlug, `${appSlug}[bot]`, `app/${appSlug}`];
+  const lessonMarkerLogins = appSlug === '' ? [] : [`${appSlug}[bot]`, `app/${appSlug}`];
   const history =
     cmd.gitlab === true
       ? await fetchMrHistory(cmd.repoSlug, cmd.prNumber, { glab, ...authorOpt })
-      : await fetchPrHistory(cmd.repoSlug, cmd.prNumber, { gh, botLogins, ...authorOpt });
+      : await fetchPrHistory(cmd.repoSlug, cmd.prNumber, { gh, lessonMarkerLogins, ...authorOpt });
   // A fork or human MR's reviews quote text its author controls; only factory MRs may teach later runs.
   if ('factory' in history && !history.factory) {
     console.log(`MR !${history.number}: not a same-project ${FACTORY_BRANCH_PREFIXES.map((p) => `${p}*`).join(' / ')} MR, no lesson.`);

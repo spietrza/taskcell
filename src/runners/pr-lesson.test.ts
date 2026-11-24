@@ -28,10 +28,15 @@ const cleanReview = { ...blockingReview, body: '## Taskcell Review\n\nVerdict: N
 const MODEL_REPLY = `<lessons>{"lessons":[{"rule":"Exclude every state dir from .dockerignore","why":"run transcripts leaked into images","evidence":"${URL}","paths":["src/core/**"],"stage":"implement"}]}</lessons>`;
 
 describe('fetchPrHistory', () => {
-  it('treats the configured App identity as trusted for lesson dedupe', async () => {
-    const json = prJson({ comments: [{ author: { login: 'taskcell' }, authorAssociation: 'CONTRIBUTOR', url: `${URL}#issuecomment-4`, body: `Lesson.\n${LESSON_MARKER}` }] });
+  it('uses the App identity for lesson dedupe only, never as trusted input', async () => {
+    const lesson = { author: { login: 'app/tc' }, authorAssociation: 'NONE', url: `${URL}#issuecomment-4`, body: `Lesson.\n${LESSON_MARKER}` };
+    const blocking = { author: { login: 'app/tc' }, authorAssociation: 'NONE', url: `${URL}#issuecomment-5`, body: blockingReview.body };
+    const json = prJson({ comments: [lesson, blocking] });
     expect((await fetchPrHistory('o/r', 9, { gh: gh(json) })).hasLessonComment).toBe(false);
-    expect((await fetchPrHistory('o/r', 9, { gh: gh(json), botLogins: ['taskcell'] })).hasLessonComment).toBe(true);
+    const h = await fetchPrHistory('o/r', 9, { gh: gh(json), lessonMarkerLogins: ['app/tc'] });
+    expect(h.hasLessonComment).toBe(true);
+    expect(h.notes).toEqual([]);
+    expect(h.blockingReviews).toBe(0);
   });
 
   it('reads the legacy verify-failed label on a GitHub PR', async () => {
