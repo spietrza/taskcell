@@ -5,8 +5,7 @@ import { readSession, tailRunEvents } from '../../ipc';
 import type { RunTail } from '../../../../../packages/hub-client/src/runTail';
 import { ExternalLink, hostName, issueUrl } from '../../components/ExternalLink';
 import { AgentQuestion } from '../../components/AgentQuestion';
-import { askedOf, cardIdOf, repoInitials, runStateTone, runStateWord, startedByLabel } from '../../runLabels';
-import { detailOutcome, runStationOf } from '../../stations';
+import { askedOf, cardIdOf, outcomeOf, repoInitials, runStateTone, startedByLabel } from '../../runLabels';
 import { costLabel, estLabel } from '../../cost';
 import { liveStage, liveStations, stepsAt } from '../board/stageLine';
 import { StreamView } from './StreamView';
@@ -130,10 +129,9 @@ export function RunPane({
         ? stages.reduce((n, s) => n + (s.ms ?? 0), 0)
         : undefined;
 
-  // One state for the chip's word and its colour: the Runs row's (its summary), else the record read the same way.
-  // The Runs row carries the outcome; only the record says the gates passed (the receipt reads the same proof).
-  const outcome = summary !== undefined ? { ...summary, ...(detail?.proof?.passed === true ? { verifyPassed: true as const } : {}) } : detail !== undefined ? detailOutcome(detail) : undefined;
-  const word = running ? 'running' : timeline.terminal === 'cancelled' ? 'cancelled' : timeline.terminal === 'error' ? 'failed' : outcome !== undefined ? runStateWord(outcome) : 'passed';
+  // One state for the chip's word and its colour: the hub's outcome, the same for the Runs row and the run page.
+  const outcome = summary?.outcome ?? detail?.outcome ?? (summary !== undefined ? outcomeOf(summary) : undefined);
+  const word = running ? 'running' : timeline.terminal === 'cancelled' ? 'cancelled' : timeline.terminal === 'error' ? 'failed' : outcome !== undefined ? outcome.state : 'passed';
   const status = (
     <Chip color={runStateTone(word)} variant="outlined">
       {running ? (
@@ -213,7 +211,7 @@ export function RunPane({
         </div>
       )}
       <StationTrack
-        steps={detail && outcome !== undefined ? stepsAt(runStationOf(outcome)) : liveStations(liveAt, timeline.terminal === 'error')}
+        steps={detail && outcome !== undefined ? stepsAt(outcome.place) : liveStations(liveAt, timeline.terminal === 'error')}
         ctx={detail ? { task: { column: merged ? 'done' : 'review' }, detail, merged, ...(detail.prUrl !== undefined ? { prUrl: detail.prUrl } : {}) } : { task: { column: 'running', ...(liveAt !== undefined ? { stage: liveAt } : {}) } }}
       />
       {/* Two columns only when the pane itself is wide enough (a container query, not the window): beside the run list

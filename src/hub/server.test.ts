@@ -11,6 +11,7 @@ import { callerRechecker } from './callers.js';
 import { createHubServer, eventRepoPath, MAX_RPC_BODY_BYTES, type HubServer } from './server.js';
 import { savePaths } from './projects.js';
 import { listRunSummaries, defaultRunsRoot } from './runs.js';
+import { withOutcomes } from './card-view.js';
 import { MAX_CONCURRENT_COMPLETES } from './complete.js';
 import { localOnlyIdentity } from './auth.js';
 import type { SidecarDeps } from '../sidecar/sidecar.js';
@@ -371,7 +372,8 @@ describe('hub server', () => {
     const viaHttp = await res.json();
     const direct = await listRunSummaries(defaultRunsRoot(repo));
     // The `{ result }` envelope is what apps/desktop/src/transport.ts unwraps (spec §2.3).
-    expect(viaHttp).toEqual({ result: direct });
+    // The hub adds each row's outcome (src/hub/card-view.ts), derived from the same summary.
+    expect(viaHttp).toEqual({ result: withOutcomes(direct) });
   });
 
   test('T-81b a void command answers `{ result: null }`, never a bare body', async () => {

@@ -107,3 +107,9 @@ describe('needs-you caption contract', () => {
     assertZeroImports('needs-you-caption.ts');
   });
 });
+
+describe('stations and run labels (the card view\'s shared vocabulary)', () => {
+  it.each(['stations.ts', 'run-labels.ts'])('hub-client copy of %s is byte-identical to header + core source (run pnpm gen:wire)', (file) => {
+    assertByteIdenticalCopy(file);
+  });
+});

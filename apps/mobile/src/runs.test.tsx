@@ -11,6 +11,8 @@ const creds: Credentials = { url: 'http://hub.local:4317', token: 't', kind: 'ow
 const METRICS = { frame: { x: 0, y: 0, width: 390, height: 844 }, insets: { top: 47, left: 0, right: 0, bottom: 34 } };
 const DIFF = 'diff --git a/a b/a\n--- a/a\n+++ b/a\n+x\n+y\n-z\ndiff --git a/b b/b\n--- a/b\n+++ b/b\n+w\n';
 const run = { repoPath: '/r', repoName: 'o/r', taskId: 'gh-3', timestamp: '2026-07-06T09:00:00Z', stages: ['implementer'], totalCostUsd: 0.42, anyFailed: false, prUrl: 'https://github.com/o/r/pull/3' };
+/** The hub derives the outcome; the fixtures state the words these tests read. */
+const withOutcome = <T extends { anyFailed: boolean; prUrl?: string | undefined; stoppedBy?: string }>(r: T) => ({ ...r, outcome: { state: r.stoppedBy !== undefined ? 'stopped: provider limit' : r.anyFailed ? 'failed' : r.prUrl !== undefined ? 'PR open' : 'passed', place: { at: 5, failed: r.anyFailed } } });
 
 afterEach(() => jest.restoreAllMocks());
 
@@ -26,7 +28,7 @@ function hub(): Hub {
     if (input.endsWith('/events')) return { ok: true, status: 200, body: new ReadableStream<Uint8Array>({ start: (c) => void (controller = c) }) };
     const args = init?.body ? JSON.parse(init.body) : {};
     const reply = (result: unknown) => ({ status: 200, json: async () => ({ result }) });
-    if (input.includes('list_runs_all')) return reply({ runs: [run, { ...run, taskId: 'gh-9', timestamp: '2026-07-07T09:00:00Z', anyFailed: true, prUrl: undefined }], failures: [] });
+    if (input.includes('list_runs_all')) return reply({ runs: [run, { ...run, taskId: 'gh-9', timestamp: '2026-07-07T09:00:00Z', anyFailed: true, prUrl: undefined }].map(withOutcome), failures: [] });
     if (input.includes('list_projects')) return reply([{ path: '/r', name: 'o/r' }]);
     if (input.includes('list_tasks_all')) return reply({ tasks: [{ id: 'gh-3', title: 'Fix it', repoPath: '/r', url: 'https://github.com/o/r/issues/3' }, { id: 'gh-5', title: 'Live one', repoPath: '/r', url: 'http://insecure/5' }], capped: false, failures: [] });
     if (input.includes('list_active')) return reply([{ taskId: 'gh-5', sessionFile: 's', lastActivityMs: Date.now() }]);
@@ -161,7 +163,7 @@ const runsHub = (runs: unknown[], caps: unknown, retry: { refuse?: string }): { 
     const cmd = input.split('/rpc/')[1] ?? '';
     const reply = (result: unknown) => ({ status: 200, json: async () => ({ result }) });
     if (input.endsWith('/events')) return { ok: false, status: 404, body: null };
-    if (cmd === 'list_runs_all') return reply({ runs, failures: [] });
+    if (cmd === 'list_runs_all') return reply({ runs: (runs as Parameters<typeof withOutcome>[0][]).map(withOutcome), failures: [] });
     if (cmd === 'list_tasks_all') return reply({ tasks: [], capped: false, failures: [] });
     if (cmd === 'list_projects') return reply([]);
     if (cmd === 'caller_capabilities') return reply(caps);

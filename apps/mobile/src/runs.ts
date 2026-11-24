@@ -1,7 +1,7 @@
 import type { HubClient } from '../../../packages/hub-client/src/client';
 import type { RepoStamp, RunDetail, RunSummary } from '../../../packages/hub-client/src/wire';
-import { runStateWord } from '../../../packages/hub-client/src/runLabels';
 import { tailRun } from '../../../packages/hub-client/src/runTail';
+import { runStateWord } from '../../../packages/hub-client/src/run-labels';
 import { ageOf } from './needsYou';
 
 /** The most transcript lines the run view holds; older ones are dropped as new ones arrive. */
@@ -77,7 +77,8 @@ export async function loadRuns(client: HubClient, now: number = Date.now()): Pro
       repoPath: r.repoPath,
       ...taskOf(r.repoPath, r.taskId),
       repo: r.repoName,
-      status: runStateWord(r),
+      // An older hub sends no outcome: the state word from the row itself.
+      status: r.outcome?.state ?? runStateWord(r),
       active: false,
       cost: costOf(r),
       age: ageOf(r.timestamp, now),

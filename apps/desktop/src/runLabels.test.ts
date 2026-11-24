@@ -1,5 +1,5 @@
 import { expect, test } from 'vitest';
-import { askedOf, cardIdOf, issueNumber, repoInitials, runStateTone, runStateWord, startedByLabel, titleKey } from './runLabels';
+import { askedOf, cardIdOf, issueNumber, repoInitials, runStateTone, startedByLabel, titleKey } from './runLabels';
 
 test('"started by" names a person only: the shared hub identity and the local worker show nothing', () => {
   expect(startedByLabel('token')).toBeUndefined();
@@ -27,18 +27,12 @@ test('avatar initials come from the first two words of the repository name', () 
   expect(repoInitials(undefined)).toBe('?');
 });
 
-test('the state word and its colour are one reading: a failed run is never green, a verify failure is failed', () => {
-  const tone = (r: Parameters<typeof runStateWord>[0]): string => runStateTone(runStateWord(r));
-  expect(runStateWord({ anyFailed: true })).toBe('failed');
-  expect(tone({ anyFailed: true })).toBe('destructive');
-  expect(runStateWord({ anyFailed: false, verifyFailed: true, prUrl: 'u' })).toBe('failed');
-  expect(runStateWord({ anyFailed: true, asked: 'which file?' })).toBe('Waiting for your answer');
-  expect(tone({ anyFailed: true, asked: 'which file?' })).toBe('primary');
-  expect(runStateWord({ anyFailed: false, cardDone: true })).toBe('done, no PR');
+test('the state word and its colour are one reading: a failed run is never green, a run waiting on the person is orange', () => {
+  expect(runStateTone('failed')).toBe('destructive');
+  expect(runStateTone('Waiting for your answer')).toBe('primary');
   // Its card is done: the ask is history, not the person's turn.
-  expect(runStateWord({ anyFailed: true, asked: 'which file?', cardDone: true })).toBe('stopped to ask');
-  expect(tone({ anyFailed: true, asked: 'which file?', cardDone: true })).toBe('secondary');
-  expect(tone({ anyFailed: false, prState: 'merged', prUrl: 'u' })).toBe('success');
+  expect(runStateTone('stopped to ask')).toBe('secondary');
+  expect(runStateTone('merged')).toBe('success');
   // Orange (primary) is only the person's turn.
   expect(runStateTone('running')).toBe('secondary');
 });

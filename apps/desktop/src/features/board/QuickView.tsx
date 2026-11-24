@@ -1,12 +1,12 @@
 import { useEffect, useState, type ReactNode, type Ref } from 'react';
 import { Button, LINK_CLASS, Timestamp, cn } from '@/ui';
 import { Check, Circle, CircleDot, Play, X } from 'lucide-react';
-import { apiSetTaskSkills, fetchSpec, hubTaskStart, listNeedsYou, listRuns, readRun, type NeedsYouItem } from '../../ipc';
+import { apiSetTaskSkills, fetchSpec, hubTaskStart, listRuns, readRun, type NeedsYouItem } from '../../ipc';
 import { errorMessage } from '../../errors';
 import { useAppConfig, useAsync } from '../../hooks';
 import { isDemoLink } from '../../transport';
 import type { BoardTask, RepoStamp, RunDetail, RunSummary } from '../../wire';
-import { STATION_SHORT, STATIONS, cardStationOf, runStationOf } from '../../stations';
+import { STATION_SHORT, STATIONS, stationOf } from '../../stations';
 import { taskSourceLabel } from '../../platform';
 import { costLabel, estTitle } from '../../cost';
 import { ASKED_WORDS, NEEDS_YOU_CHIP, startedByLabel } from '../../runLabels';
@@ -55,22 +55,6 @@ export type QuickTask = BoardTask & Partial<RepoStamp>;
 /** Why a waiting card waits, in plain words: a pull request to merge, or a question from the factory. */
 export function waitingWhy(item: Pick<NeedsYouItem, 'kind'>): string {
   return item.kind === 'pr' ? 'Pull request ready' : 'Question for you';
-}
-
-/**
- * The needs-you item that is THIS card: its pull request (same address), or — for a GitHub card only,
- * where issue numbers are the tracker's own — the issue with the card's number. Never by number alone
- * across trackers: a Linear card's digits can equal an unrelated GitHub issue's.
- */
-export function matchNeedsYou(items: NeedsYouItem[], task: Pick<BoardTask, 'id' | 'source'>, prUrl: string | undefined): NeedsYouItem | null {
-  const m = /(\d+)$/.exec(taskRefKey(task.id));
-  const number = m && !isPullRequestCard(task.id) ? Number(m[1]) : undefined;
-  return (
-    items.find((i) =>
-      i.kind === 'card' ? i.id === taskRefKey(task.id)
-      : i.kind === 'pr' ? prUrl !== undefined && i.url === prUrl : task.source === 'github' && number !== undefined && i.number === number,
-    ) ?? null
-  );
 }
 
 // Orange (primary) is reserved for the needs-you chip; current is plain ink, failed is red.
@@ -212,9 +196,8 @@ export function QuickView({
 }) {
   const repoPath = task.repoPath ?? project;
   const [run, setRun] = useState<RunState | null>(null);
-  const [item, setItem] = useState<NeedsYouItem | null>(null);
-  const [needsYouError, setNeedsYouError] = useState(false);
-  const [nonce, setNonce] = useState(0);
+  // The hub's answer: the card's Needs-you item, if one waits.
+  const item = task.view?.waiting ?? null;
   const [cfg, , cfgStatus] = useAppConfig(repoPath);
 
   // The run list is cheap; the latest record (stages, diffs) is read for the receipt and the station notes.
@@ -245,39 +228,18 @@ export function QuickView({
   const prUrl = run?.detail?.prUrl ?? latest?.prUrl;
   // Name the link by what it opens ("PR #28"), not by the host: the id chip is already the issue link.
   const prLabel = (url: string): string => `${hostName(url) === 'GitLab' ? 'MR !' : 'PR #'}${/\/(\d+)\/?$/.exec(url)?.[1] ?? ''}`.replace(/[#!]$/, '');
-  // Only cards that can wait for the user cost the hub's `gh` listing.
-  const mayWait = task.column === 'queued' || task.column === 'review' || task.column === 'verify-failed';
-
-  useEffect(() => {
-    let alive = true;
-    setItem(null);
-    setNeedsYouError(false);
-    // The pull request address comes from the run list; wait for it before matching a PR item.
-    if (!mayWait || run === null) return;
-    listNeedsYou(repoPath)
-      .then((r) => {
-        if (alive) setItem(matchNeedsYou(r.items, task, prUrl));
-      })
-      .catch(() => {
-        if (alive) setNeedsYouError(true);
-      });
-    return () => {
-      alive = false;
-    };
-  }, [task.id, repoPath, mayWait, run, prUrl, nonce]);
-
   // A finished card follows its newest run (the Runs row's own mapping); a live or waiting one its column.
   const lineOpts = { prExists: prUrl !== undefined, repairs: repairAttempts(run?.detail), maxRepairs: repairCap(run?.detail) };
   // A done card whose newest run had a failed stage (the Board's warning chip): Done stands, but the station where that
   // run stopped is marked, so the panel tells the Board's story and not "every station green".
   const warning = task.column === 'done' ? task.chips?.find((c) => c.key === 'warning') : undefined;
-  const localLatest = latest?.source === 'ci' ? undefined : latest;
-  const stopAt = warning !== undefined && localLatest !== undefined ? runStationOf(localLatest).at : STATIONS.length;
-  const steps = stepsAt(cardStationOf(task, localLatest, lineOpts), lineOpts).map((s, i) => (i === stopAt ? { ...s, status: 'failed' as const } : s));
+  const stopAt = warning !== undefined && task.view?.run !== undefined ? task.view.run.place.at : STATIONS.length;
+  // The hub places the card; a running card also follows the repairs its record shows (the live-run mapping).
+  const steps = stepsAt(task.column === 'running' || task.view === undefined ? stationOf(task, lineOpts) : task.view.place, lineOpts).map((s, i) => (i === stopAt ? { ...s, status: 'failed' as const } : s));
   const noteCtx = { task, ...(cfgStatus === 'ready' ? { cfg } : {}), ...(run?.detail ? { detail: run.detail } : {}), ...(prUrl !== undefined ? { prUrl } : {}), merged: latest?.prState === 'merged' };
   const facts = receipt(run?.detail, latest?.totalCostUsd);
   const repo = task.repoName ?? repoPath.split('/').filter(Boolean).pop() ?? repoPath;
-  const reload = (): void => setNonce((n) => n + 1);
+  const reload = (): void => onChanged?.();
   const [starting, setStarting] = useState(false);
   const [startError, setStartError] = useState<string | null>(null);
   // A hub-board card is started through the hub scheduler (picks it up within ~15 s); other cards open the run form.
@@ -370,7 +332,6 @@ export function QuickView({
 
       <div className="flex min-h-0 flex-1 flex-col gap-6 overflow-y-auto overscroll-contain px-4 py-4">
         <PausedPanel repoPath={repoPath} task={task} onRetried={onChanged} />
-        {needsYouError && <div className="text-xs text-muted-foreground">Could not check whether this card waits for you.</div>}
         {item !== null && (
           <div className="space-y-2">
             {/* The one orange thing here: the card waits for the user. */}

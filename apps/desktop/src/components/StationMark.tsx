@@ -10,7 +10,7 @@ export function stationName(at: number, failed: boolean, short = false): string 
 
 /**
  * A compact station indicator: six ticks (done ones filled, the current one ink, red when failed) and the station's
- * short name. `at` and `failed` come from `stationOf` / `runStationOf`; `at` 6 is past the line.
+ * short name. `at` and `failed` come from the hub (a card's `view.place`, a run's `outcome.place`), or `stationOf` for a live run; `at` 6 is past the line.
  */
 export function StationMark({ at, failed, passed, className }: { at: number; failed: boolean; passed?: readonly number[]; className?: string }) {
   return (

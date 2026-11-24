@@ -1,4 +1,5 @@
-// Run labels shared by the desktop UI and the mobile app (pure: no DOM, Tauri or Node).
+// Run labels: the hub derives a run's state word (src/hub/card-view.ts); the clients share the words (copied to
+// packages/hub-client/src by `pnpm gen:wire`; pure: no DOM, Tauri or Node).
 
 /** The words for a card or run whose agent stopped to ask: it is the person's turn. */
 export const ASKED_WORDS = 'Waiting for your answer';

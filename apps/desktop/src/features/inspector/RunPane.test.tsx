@@ -1,3 +1,4 @@
+import { withOutcome } from '../../dev/fixtureOutcome';
 import { afterEach, beforeEach, expect, test, vi } from 'vitest';
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { RunPane } from './RunPane';
@@ -46,7 +47,7 @@ const detail: RunDetail = {
 };
 const props = { repo: '/r', repoName: 'taskcell-demo-form', taskId: 'gh-r-3', issue: 3, tick: 0, onBack: () => {}, onCancel: () => {} };
 
-const summary = { taskId: 'gh-r-3', timestamp: detail.timestamp, stages: [], anyFailed: false, totalCostUsd: 0.5, prUrl: detail.prUrl } as never;
+const summary = withOutcome({ taskId: 'gh-r-3', timestamp: detail.timestamp, stages: [], anyFailed: false, totalCostUsd: 0.5, prUrl: detail.prUrl } as never);
 
 test('a finished run: header with the issue link and one PR chip, the six stations, the receipt, and what the factory did', async () => {
   render(<RunPane {...props} title="Disable the Send button while sending" detail={detail} summary={summary} />);
@@ -83,7 +84,7 @@ test('the board task url is the issue link when known', async () => {
 });
 
 test('a merged run says merged, from the same row the list shows', async () => {
-  render(<RunPane {...props} detail={detail} summary={{ ...(summary as object), prState: 'merged' } as never} />);
+  render(<RunPane {...props} detail={detail} summary={withOutcome({ ...(summary as object), prState: 'merged' } as never)} />);
   expect(screen.getByText('merged', { selector: '*:not(span span)' })).toBeInTheDocument();
   expect(screen.queryByText('PR open')).toBeNull();
   const stations = within(screen.getByRole('list', { name: 'Stations' })).getAllByRole('listitem');
@@ -102,7 +103,7 @@ test('skills used shows the recorded list, "none" when empty', async () => {
 });
 
 test('a failed stage is marked on its station and in the activity', async () => {
-  const failed: RunDetail = { ...detail, stages: [detail.stages[0]!, stage('reviewer', 5_000, { completed: false, exitReason: 'error' }, toolLine('boom'))] };
+  const failed: RunDetail = { ...detail, outcome: { state: 'failed', place: { at: 4, failed: true } }, stages: [detail.stages[0]!, stage('reviewer', 5_000, { completed: false, exitReason: 'error' }, toolLine('boom'))] };
   render(<RunPane {...props} detail={failed} />);
   expect(screen.getByTestId('step-1')).toHaveAttribute('data-phase', 'failed');
   const stations = within(screen.getByRole('list', { name: 'Stations' })).getAllByRole('listitem');
@@ -207,7 +208,7 @@ test('a run whose agent stopped to ask: the chip word and colour come from one s
     proof: { command: 'npm test', exitCode: 0, passed: true, sha256: 'x', outputTail: 'ok' } as never,
     stages: [stage('implementer', 25_000, { taskId: 'hub-4', completed: false, exitReason: 'incomplete', finalText: 'To finish, I still need: **which config file?**' })],
   };
-  const row = { taskId: 'hub-4', timestamp: asking.timestamp, stages: ['implementer'], anyFailed: true, failedStage: 'implementer', asked: 'To finish, I still need: **which config file?**', totalCostUsd: 0.2 } as never;
+  const row = withOutcome({ taskId: 'hub-4', timestamp: asking.timestamp, stages: ['implementer'], anyFailed: true, failedStage: 'implementer', verifyPassed: true, asked: 'To finish, I still need: **which config file?**', totalCostUsd: 0.2 } as never);
   render(<RunPane {...props} taskId="hub-4" issue={undefined} detail={asking} summary={row} />);
   const pane = screen.getByRole('region', { name: 'Run hub-4' });
   // The proof passed, yet the run did not: never a green chip next to a "failed"/"asks you" word.

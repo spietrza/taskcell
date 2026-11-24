@@ -144,7 +144,7 @@ describe('TaskBoard on a hub-board project', () => {
 
   test('an all-repositories poll that cannot read one repository keeps its cards, the open quick view and typed text', async () => {
     vi.useFakeTimers();
-    const seven = { id: 'gh-7', title: 'Seven', column: 'review' as const, state: 'review', source: 'github' as const, repoPath: '/r/alpha', repoName: 'alpha' };
+    const seven = { id: 'gh-7', title: 'Seven', column: 'review' as const, state: 'review', source: 'github' as const, repoPath: '/r/alpha', repoName: 'alpha', view: { place: { at: 4, failed: false }, waiting: { id: 'o/r#7', kind: 'issue' as const, number: 7, repoSlug: 'o/r', title: 'Seven', url: 'u', reason: 'taskcell:verify-failed' } } };
     vi.mocked(listNeedsYou).mockResolvedValueOnce({ items: [{ id: 'o/r#7', kind: 'issue', number: 7, repoSlug: 'o/r', title: 'Seven', url: 'u', reason: 'taskcell:verify-failed' }] });
     vi.mocked(listTasksAll).mockResolvedValueOnce({ tasks: [seven], capped: false, failures: [], hubBoards: ['/r/alpha'] });
     vi.mocked(listTasksAll).mockResolvedValue({ tasks: [], capped: false, failures: [{ repoPath: '/r/alpha', repoName: 'alpha', error: 'hub down' }], hubBoards: [] });
