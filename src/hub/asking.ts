@@ -1,24 +1,15 @@
 // Runs whose agent stopped to ask the person (RunSummary.asked) as "Needs you" items, for hub-board cards and tracker
 // cards alike, and the reply that answers one. Run records only: no model call, no tracker read to list them.
 import { BadRequestError } from '../sidecar/sidecar.js';
-import { taskRefKey } from '../tasks/board.js';
+import { githubSlug } from './command-kit.js';
 import { commentGithubIssue, defaultGhRunner, type GhRunner } from '../tasks/github.js';
-import { ensureLabel } from './needs-you.js';
 import { readAppConfig } from './app-config.js';
 import { editHubTask, listHubTasks, MAX_BODY_LENGTH, type HubTaskOwner } from './hub-tasks.js';
 import { defaultRunsRoot, listRunSummaries } from './runs.js';
+import { newestRuns } from './card-view.js';
+import { ensureLabel, listNeedsYou, type NeedsYouOptions } from './needs-you.js';
 import { DEFAULT_GITHUB_AGENT_LABEL } from '../cli/args.js';
-import type { NeedsYouItem, RunSummary } from '../wire.js';
-
-/** Each task's newest run, keyed by its board id (`hub-4`, `gh-27`). */
-async function latestRuns(repoPath: string): Promise<Map<string, RunSummary>> {
-  const out = new Map<string, RunSummary>();
-  for (const r of await listRunSummaries(defaultRunsRoot(repoPath)).catch(() => [])) {
-    const key = taskRefKey(r.taskId);
-    if (!out.has(key) || out.get(key)!.timestamp < r.timestamp) out.set(key, r);
-  }
-  return out;
-}
+import type { NeedsYouItem } from '../wire.js';
 
 const issueNumberOf = (key: string): number | undefined => {
   const m = /^gh-(\d+)$/.exec(key);
@@ -54,7 +45,7 @@ async function issueAwaitsAnswer(target: GithubAnswerTarget, number: number): Pr
  * already answered (it carries the trigger label again). A `gh` failure keeps the card listed. `id` is the card id.
  */
 export async function askingCards(configDir: string, repoPath: string, github?: GithubAnswerTarget): Promise<NeedsYouItem[]> {
-  const runs = await latestRuns(repoPath);
+  const runs = newestRuns(await listRunSummaries(defaultRunsRoot(repoPath)).catch(() => []));
   const hub = (await readAppConfig(repoPath)).taskSource === 'hub';
   const tasks = hub ? new Map((await listHubTasks(configDir, repoPath)).map((t) => [t.id, t])) : undefined;
   const items: NeedsYouItem[] = [];
@@ -79,6 +70,43 @@ export async function askingCards(configDir: string, repoPath: string, github?: 
     });
   }
   return items;
+}
+
+/** A GitHub card's answer target: the repository and its configured trigger label (app.json `label`). */
+async function answerTarget(repoPath: string, repoSlug: string | undefined): Promise<GithubAnswerTarget | undefined> {
+  if (repoSlug === undefined) return undefined;
+  const { label } = await readAppConfig(repoPath);
+  return { repoSlug, ...(label?.trim() ? { agentLabel: label } : {}) };
+}
+
+/** Everything of one repository that waits on the person: GitHub's needs-info issues and PRs, and the cards whose run stopped to ask. */
+export async function repoNeedsYou(configDir: string, repoPath: string, opts: NeedsYouOptions = {}, gh?: GhRunner): Promise<NeedsYouItem[]> {
+  const repoSlug = await githubSlug(repoPath);
+  // Cards whose run stopped to ask come from run records; a repository without a GitHub remote has only those.
+  return [...(repoSlug === undefined ? [] : await listNeedsYou(repoSlug, gh, opts)), ...(await askingCards(configDir, repoPath, await answerTarget(repoPath, repoSlug)))];
+}
+
+/** How long the board's read of what waits is kept per repository: a board polls every few seconds, the read is tracker calls. */
+const BOARD_WAITING_TTL_MS = 15_000;
+const boardWaitingCache = new Map<string, { at: number; items: Promise<NeedsYouItem[]> }>();
+
+/**
+ * What waits on the person in one repository, for the cards' views (`list_tasks`). Kept briefly and shared by
+ * concurrent reads (failures too: an empty list); a reply, a merge or a card change forgets it (`forgetBoardWaiting`).
+ * GitHub is read for every project with a GitHub remote, whatever its task source (hub board, Linear, GitLab), as `list_needs_you`.
+ * `commentBudget` caps the comment fetches across every repository of one listing.
+ */
+export function boardWaiting(configDir: string, repoPath: string, opts: { commentBudget?: { remaining: number }; gh?: GhRunner } = {}): Promise<NeedsYouItem[]> {
+  const held = boardWaitingCache.get(repoPath);
+  if (held !== undefined && Date.now() - held.at < BOARD_WAITING_TTL_MS) return held.items;
+  const items = repoNeedsYou(configDir, repoPath, opts.commentBudget !== undefined ? { commentBudget: opts.commentBudget } : {}, opts.gh).catch(() => []);
+  boardWaitingCache.set(repoPath, { at: Date.now(), items });
+  return items;
+}
+
+/** Drop a repository's kept read of what waits: something was answered, merged or moved on. */
+export function forgetBoardWaiting(repoPath: string): void {
+  boardWaitingCache.delete(repoPath);
 }
 
 /**

@@ -184,7 +184,7 @@ export function Home({
   const cards = tasks?.tasks ?? [];
   const counts = stateCounts(cards);
   const moving = useMemo(() => movingRows(cards, active ?? []), [tasks, active]); // eslint-disable-line react-hooks/exhaustive-deps
-  const floor = useMemo(() => floorRows(shown, cards, runs ?? [], needs?.items ?? []), [shown, tasks, runs, needs]); // eslint-disable-line react-hooks/exhaustive-deps
+  const floor = useMemo(() => floorRows(shown, cards, runs ?? []), [shown, tasks, runs]); // eslint-disable-line react-hooks/exhaustive-deps
   const week = thisWeek(runs ?? []);
   const stuck = tasks === null ? [] : cantStart(shown, cards, factoryStates, localWorkers);
   const anyPaused = moving.some((m) => m.paused);

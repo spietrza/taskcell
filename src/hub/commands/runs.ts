@@ -11,6 +11,7 @@ import { listActive, readSession } from '../active.js';
 import * as projects from '../projects.js';
 import * as remote from '../remote.js';
 import { taskRefKey } from '../../tasks/board.js';
+import { markDone, runOutcome, withOutcomes } from '../card-view.js';
 import type { ActiveRun, ConflictStats, RemoteImport, RemoteRun, RepoReadFailure, RepoStamp, RunDetail, RunSource, RunSummary, SessionRead } from '../../wire.js';
 import { defineCommands, requireString, optionalString, optionalNumber, assertHasRemote } from '../command-kit.js';
 
@@ -64,13 +65,7 @@ export async function markMerged<T extends RunSummary>(deps: Parameters<typeof i
       entry = { at: Date.now(), done: new Set(tasks.filter((t) => t.column === 'done').map((t) => taskRefKey(t.id))) };
       doneCache.set(repoPath, entry);
     }
-    const { done } = entry;
-    return runs.map((r) => {
-      if (!done.has(taskRefKey(r.taskId))) return r;
-      if (r.prUrl !== undefined) return { ...r, prState: 'merged' as const };
-      // A done card waits on no answer (Home's inbox drops it too): its asked run is marked so it reads "stopped to ask".
-      return r.anyFailed && r.asked === undefined ? r : { ...r, cardDone: true as const };
-    });
+    return markDone(runs, entry.done);
   } catch {
     return runs;
   }
@@ -90,24 +85,30 @@ export const hubDoneMarker = (ctx: { deps: Parameters<typeof invokeCoreMethod>[0
 export const commands = defineCommands<RunsCommands>({
   list_runs: async ({ ctx, args, allow }) => {
     const real = await allow(requireString(args, 'repoPath'));
-    return markMerged(ctx.deps, real, await withCiRuns(real, await listRunSummaries(defaultRunsRoot(real))), await hubBoardReader(ctx.configDir, real));
+    return withOutcomes(await markMerged(ctx.deps, real, await withCiRuns(real, await listRunSummaries(defaultRunsRoot(real))), await hubBoardReader(ctx.configDir, real)));
   },
   list_runs_all: async ({ ctx, allow, scope }) => {
     const { items, failures } = await projects.listAcrossProjects(
       ctx.configDir,
       allow,
-      async (real) => markMerged(ctx.deps, real, await withCiRuns(real, await listRunSummaries(defaultRunsRoot(real))), await hubBoardReader(ctx.configDir, real)),
+      async (real) => withOutcomes(await markMerged(ctx.deps, real, await withCiRuns(real, await listRunSummaries(defaultRunsRoot(real))), await hubBoardReader(ctx.configDir, real))),
       await scope(),
     );
     // Newest first across repositories, as each repository's own list is.
     items.sort((x, y) => (x.timestamp < y.timestamp ? 1 : x.timestamp > y.timestamp ? -1 : 0));
     return { runs: items, failures };
   },
-  read_run: async ({ args, allow }) => {
+  read_run: async ({ ctx, args, allow }) => {
     const real = await allow(requireString(args, 'repoPath'));
     const taskId = requireString(args, 'taskId');
     const timestamp = requireString(args, 'timestamp');
-    return readRunDetail(runSourceRoot(real, args.source), taskId, timestamp);
+    const root = runSourceRoot(real, args.source);
+    const detail = await readRunDetail(root, taskId, timestamp);
+    // The outcome is the Runs row's own: the same summary, marked and derived the same way, so the page and the row read alike.
+    const row = (await listRunSummaries(root).catch(() => [])).find((r) => r.taskId === detail.taskId && r.timestamp === detail.timestamp);
+    if (row === undefined) return detail;
+    const [marked] = await markMerged(ctx.deps, real, [row], await hubBoardReader(ctx.configDir, real));
+    return { ...detail, outcome: runOutcome(marked ?? row) };
   },
   read_run_events: async ({ args, allow }) => {
     // Read-only: allowed in server mode like read_run.

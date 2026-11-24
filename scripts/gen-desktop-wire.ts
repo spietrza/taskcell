@@ -1,7 +1,7 @@
 /**
  * Generate, from the sources the desktop app and the hub cannot import across:
  *  - the desktop copy of src/wire.ts (+ the inlined `Commands`/`COMMAND_NAMES` derived from the hub
- *    command modules in src/hub/commands/) and of src/hub-wire.ts and src/needs-you-caption.ts — a separate pnpm install with no
+ *    command modules in src/hub/commands/) and of src/hub-wire.ts, src/needs-you-caption.ts, src/stations.ts and src/run-labels.ts — a separate pnpm install with no
  *    import path into core;
  *  - src/hub/commands/index.ts, the merged `Commands`, `COMMAND_NAMES` and dispatch table.
  * The drift guard (src/wire.test.ts) re-derives the same bytes and compares in root CI — the
@@ -15,7 +15,7 @@ import { dirname, join } from 'node:path';
 import { commandIndexSource, desktopCommandsSource, readCommandModules } from '../src/hub/command-codegen.js';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
-const FILES = ['wire.ts', 'hub-wire.ts', 'needs-you-caption.ts'];
+const FILES = ['wire.ts', 'hub-wire.ts', 'needs-you-caption.ts', 'stations.ts', 'run-labels.ts'];
 const commandsDir = join(root, 'src', 'hub', 'commands');
 const modules = readCommandModules(commandsDir);
 

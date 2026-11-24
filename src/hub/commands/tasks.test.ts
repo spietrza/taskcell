@@ -17,6 +17,7 @@ vi.mock('../paused.js', async (importOriginal) => {
 });
 
 import { retryPausedTask, withPausedTasks } from '../paused.js';
+import { forgetBoardWaiting } from '../asking.js';
 
 describe('tasks', () => {
   test('list_tasks wires paused marker details into the command result', async () => {
@@ -26,7 +27,7 @@ describe('tasks', () => {
     vi.mocked(withPausedTasks).mockResolvedValueOnce([enriched]);
     const { ctx } = await makeCtx(repo, { depsOverrides: { listTasks: async () => ({ tasks: [base], capped: false }) } });
     const result = await dispatchRpc(ctx, 'list_tasks', { repoPath: repo });
-    expect(result).toEqual({ tasks: [enriched], capped: false });
+    expect(result).toEqual({ tasks: [{ ...enriched, view: { place: { at: 0, failed: false } } }], capped: false });
     expect(withPausedTasks).toHaveBeenCalledWith('allowed/repo', [base], ctx.gh, expect.objectContaining({ remaining: 30 }));
   });
 
@@ -39,12 +40,33 @@ describe('tasks', () => {
     };
     const { ctx } = await makeCtx(repo, { gh, depsOverrides: { listTasks: async () => ({ tasks: [], capped: false }) } });
     expect(await dispatchRpc(ctx, 'list_tasks', { repoPath: repo })).toEqual({ tasks: [], capped: false });
-    expect(calls.map((c) => c.slice(0, 2))).toEqual([['pr', 'list'], ['pr', 'list']]);
-    // A project whose task source is not GitHub spawns nothing, github.com origin or not.
+    // The paused reads (two `pr list`) and the cards' waiting items (needs-you: one `issue list`, two `pr list`).
+    expect(calls.map((c) => c.slice(0, 2).join(' ')).sort()).toEqual(['issue list', 'pr list', 'pr list', 'pr list', 'pr list']);
+    // A project whose task source is not GitHub reads no paused pull requests, github.com origin or not.
     calls.length = 0;
     await writeAppConfig(repo, { source: 'linear' });
+    // Its cards' waiting items still come from GitHub (its remote's PRs and issues), as list_needs_you reads them.
+    forgetBoardWaiting(repo);
     await dispatchRpc(ctx, 'list_tasks', { repoPath: repo });
-    expect(calls).toEqual([]);
+    expect(calls.map((c) => c.slice(0, 2).join(' ')).sort()).toEqual(['issue list', 'pr list', 'pr list']);
+  });
+
+  test('the cards\' waiting items are kept briefly, shared, and dropped by a reply or a merge', async () => {
+    const repo = await tmpGitRepo('https://github.com/allowed/repo.git');
+    const calls: string[][] = [];
+    const gh = async (args: string[]): Promise<string> => {
+      calls.push(args);
+      return '[]';
+    };
+    const { ctx } = await makeCtx(repo, { gh, depsOverrides: { listTasks: async () => ({ tasks: [], capped: false }) } });
+    const needsYouReads = (): number => calls.filter((c) => c[0] === 'issue' && c[1] === 'list').length;
+    await dispatchRpc(ctx, 'list_tasks', { repoPath: repo });
+    await dispatchRpc(ctx, 'list_tasks', { repoPath: repo });
+    expect(needsYouReads()).toBe(1);
+    // A merge (refused here: no such PR) still drops the kept read, so the next board load sees what changed.
+    await dispatchRpc(ctx, 'merge_needs_you', { repoPath: repo, id: 'allowed/repo#1' }).catch(() => {});
+    await dispatchRpc(ctx, 'list_tasks', { repoPath: repo });
+    expect(needsYouReads()).toBe(2);
   });
 
   test('T-60 api_create_task substitutes source/team/label from app.json and ignores client values', async () => {
