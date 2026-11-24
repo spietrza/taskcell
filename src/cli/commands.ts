@@ -95,7 +95,7 @@ type Overrides = Record<string, Partial<OptionDecl> & { help: string }>;
 /** Own (command-specific) options: full declarations, not in the shared table. */
 type Own = Record<string, OptionDecl>;
 
-function command(name: string, summary: string, shared: readonly (keyof typeof OPT)[], own: Own = {}, overrides: Overrides = {}, synopsis?: string): CommandDecl {
+function command<N extends string>(name: N, summary: string, shared: readonly (keyof typeof OPT)[], own: Own = {}, overrides: Overrides = {}, synopsis?: string): CommandDecl & { name: N } {
   const options: Record<string, OptionDecl> = {};
   for (const key of shared) options[key] = { ...OPT[key], ...overrides[key] };
   Object.assign(options, own);
@@ -136,7 +136,7 @@ const SKILLS_OWN: Own = {
 
 const AUDIT_STREAMS = 'hub, run-events, metrics, decisions, lessons';
 
-export const COMMANDS: readonly CommandDecl[] = [
+export const COMMANDS = [
   command('run', 'Run an agent on a task and open a draft PR for review (exactly one of --linear, --github, --gitlab, --project).', [...RUN_OPTS, 'repo', 'github-repo', 'label', 'github', 'gitlab-project', 'concurrency', 'egress', 'llm-proxy'], {
     linear: str('<id>', 'Linear issue id'),
     gitlab: str('<ref>', 'GitLab issue ref'),
@@ -239,7 +239,10 @@ export const COMMANDS: readonly CommandDecl[] = [
     'allowed-host': multi('<host>', 'Extra Host header accepted on a non-loopback bind (repeatable)'),
     'admin-github-login': multi('<login>', 'GitHub login granted admin access (repeatable)'),
   }, {}, '[rotate-token]'),
-];
+] as const;
+
+/** Every command word the CLI declares. */
+export type CommandName = (typeof COMMANDS)[number]['name'];
 
 /** Every option name any command declares: tells a flag meant for another command from a typo. */
 export const KNOWN_OPTIONS: ReadonlySet<string> = new Set(COMMANDS.flatMap((c) => Object.keys(c.options)));

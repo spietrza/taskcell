@@ -37,8 +37,8 @@ describe('direct TASKCELL_* / VANGUARD_* environment access', () => {
   // `file: NAME` of every access that does not go through readEnv. A new one skips the old-name fallback:
   // read it with readEnv, or add it here when the variable never had a VANGUARD_ name (or is only written).
   const ALLOWED = [
-    'cli/index.ts: TASKCELL_SIDECAR', // written for the sidecar entrypoints
     'cli/index.ts: TASKCELL_USAGE_CAP_PCT', // written: the entry applies --usage-cap for the stage that reads it with readEnv
+    'cli/registry.ts: TASKCELL_SIDECAR', // written for the sidecar entrypoints
     'core/audit.ts: TASKCELL_AUDIT_RETENTION_DAYS', // new with the audit log: no old name
     'core/push-token.ts: TASKCELL_APP_CLIENT_ID', // the GitHub App credentials are new: no old name
     'core/push-token.ts: TASKCELL_APP_PRIVATE_KEY',

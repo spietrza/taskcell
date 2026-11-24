@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { listNeedsYou, mergeNeedsYou, replyNeedsYou, NEEDS_REVISION_LABEL } from './needs-you.js';
-import { DEFAULT_GITHUB_AGENT_LABEL, DEFAULT_GITHUB_NEEDS_INFO_LABEL } from '../cli/args.js';
+import { DEFAULT_GITHUB_AGENT_LABEL, DEFAULT_GITHUB_NEEDS_INFO_LABEL } from '../core/labels.js';
 import type { GhRunner } from '../tasks/github.js';
 import { clarifyMessage } from '../runners/watch-shared.js';
 

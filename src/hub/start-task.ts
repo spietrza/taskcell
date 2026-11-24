@@ -5,7 +5,7 @@ import { defaultGhRunner } from '../tasks/github.js';
 import type { GhRunner } from '../tasks/github.js';
 import { checkDependencies, refText } from '../tasks/dependencies.js';
 import { BadRequestError } from '../sidecar/sidecar.js';
-import { DEFAULT_GITHUB_AGENT_LABEL, DEFAULT_GITHUB_SPEC_LABEL } from '../cli/args.js';
+import { DEFAULT_GITHUB_AGENT_LABEL, DEFAULT_GITHUB_SPEC_LABEL } from '../core/labels.js';
 import {
   GITHUB_CLAIMED_LABEL,
   GITHUB_RATE_LIMITED_LABEL,

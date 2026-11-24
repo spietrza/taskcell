@@ -38,7 +38,7 @@ describe('generated help', () => {
 
 // --- Invocations the repo itself makes: workflows, templates, docs and the desktop/hub spawns must keep parsing. ---
 
-const FLAG_COMMANDS = new Set(COMMANDS.map((c) => c.name));
+const FLAG_COMMANDS = new Set<string>(COMMANDS.map((c) => c.name));
 
 function walk(dir: string, ext: string): string[] {
   return readdirSync(dir).flatMap((f) => {

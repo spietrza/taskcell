@@ -8,7 +8,7 @@ import { editHubTask, listHubTasks, MAX_BODY_LENGTH, type HubTaskOwner } from '.
 import { defaultRunsRoot, listRunSummaries } from './runs.js';
 import { newestRuns } from './card-view.js';
 import { ensureLabel, listNeedsYou, withLastComments, type CommentMemo } from './needs-you.js';
-import { DEFAULT_GITHUB_AGENT_LABEL } from '../cli/args.js';
+import { DEFAULT_GITHUB_AGENT_LABEL } from '../core/labels.js';
 import type { NeedsYouItem } from '../wire.js';
 
 const issueNumberOf = (key: string): number | undefined => {
