@@ -1,5 +1,29 @@
 # Changelog
 
+## [1.17.2](https://github.com/spietrza/taskcell/compare/v1.17.1...v1.17.2) (2026-11-24)
+
+
+### Features
+
+* Card view: the hub decides where a card sits, once, for every client (spietrza/taskcell[#1357](https://github.com/spietrza/taskcell/issues/1357)) ([#1365](https://github.com/spietrza/taskcell/issues/1365)) ([59e03dc](https://github.com/spietrza/taskcell/commit/59e03dc19dd6eafe4d2cb6c92727ee42532e691d))
+* CLI: each command module owns its flags, parse and run (spietrza/taskcell[#1362](https://github.com/spietrza/taskcell/issues/1362)) ([#1371](https://github.com/spietrza/taskcell/issues/1371)) ([a4ed078](https://github.com/spietrza/taskcell/commit/a4ed0785a58d1853f0a5a1f39045fab36d928b8e))
+* Comment ledger: declare each hidden factory marker once, with its trust rule (spietrza/taskcell[#1360](https://github.com/spietrza/taskcell/issues/1360)) ([#1366](https://github.com/spietrza/taskcell/issues/1366)) ([130c838](https://github.com/spietrza/taskcell/commit/130c838db77bb61c4e72092b88bbe6072e9d5613))
+* Hub session: move reconnect, catch-up and live reads into hub-client (spietrza/taskcell[#1359](https://github.com/spietrza/taskcell/issues/1359)) ([#1370](https://github.com/spietrza/taskcell/issues/1370)) ([2baaaf3](https://github.com/spietrza/taskcell/commit/2baaaf3877b72763673cbe05e20d14b7f2c3eb51))
+* Hub: share the needs-you cache and stop reading GitHub on every board poll (spietrza/taskcell[#1367](https://github.com/spietrza/taskcell/issues/1367)) ([#1369](https://github.com/spietrza/taskcell/issues/1369)) ([4b99b3a](https://github.com/spietrza/taskcell/commit/4b99b3ac70ba289d8571717e37e4caea12615bcc))
+* Review watch: one loop for gh and glab behind the host adapters (spietrza/taskcell[#1358](https://github.com/spietrza/taskcell/issues/1358)) ([#1364](https://github.com/spietrza/taskcell/issues/1364)) ([07a3b5f](https://github.com/spietrza/taskcell/commit/07a3b5f4a62b56cac5359507f2182f9ed0348fd9))
+* Run plan: split the issue run into a decided plan and its execution (spietrza/taskcell[#1361](https://github.com/spietrza/taskcell/issues/1361)) ([#1368](https://github.com/spietrza/taskcell/issues/1368)) ([aed866e](https://github.com/spietrza/taskcell/commit/aed866ea5614102c3df64d161f2162b66a1c8e55))
+
+
+### Documentation
+
+* README cites the 19 November security review ([#1363](https://github.com/spietrza/taskcell/issues/1363)) ([a35dd89](https://github.com/spietrza/taskcell/commit/a35dd8936edd8d7b3607c63c890c863b13dfaf2b))
+* README shows the Product Hunt badge ([#1355](https://github.com/spietrza/taskcell/issues/1355)) ([81cab9c](https://github.com/spietrza/taskcell/commit/81cab9cd7ea1054212cdfe1c7c1787ec6bb30bc5))
+
+
+### Miscellaneous
+
+* release 1.17.2 ([#1372](https://github.com/spietrza/taskcell/issues/1372)) ([110fe1e](https://github.com/spietrza/taskcell/commit/110fe1e8396a54873bf5da91c6eda910de66d737))
+
 ## [1.17.1](https://github.com/spietrza/taskcell/compare/v1.17.0...v1.17.1) (2026-11-23)
 
 
