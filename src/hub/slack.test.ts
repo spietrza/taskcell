@@ -102,3 +102,31 @@ describe('hub start', () => {
     }
   });
 });
+
+describe('slack text redaction', () => {
+  test('title and project are redacted like the question body', () => {
+    const tok = `ghp_${'a1B2c3D4e5'.repeat(4)}`;
+    const text = slackText(q(1, 'x', { title: `T ${tok}`, repoSlug: `o/${tok}` }));
+    expect(text).not.toContain(tok);
+  });
+});
+
+describe('slack and the push lock', () => {
+  test('a slow Slack post does not hold the push lock', async () => {
+    const configDir = await mkdtemp(join(tmpdir(), 'slack-'));
+    let release!: () => void;
+    const gate = new Promise<void>((r) => (release = r));
+    const fetchImpl = (async () => {
+      await gate;
+      return new Response(JSON.stringify({ ok: true, ts: '1.2', channel: 'C1' }), { status: 200 });
+    }) as unknown as typeof fetch;
+    const listWaiting = vi.fn(async () => [q(1, 'hi')]);
+    const deps = { configDir, listWaiting, callerOf: async () => undefined, slack: { token: 't', channel: 'C1', fetchImpl } };
+    const slow = notifyNewItems(deps);
+    await new Promise((r) => setTimeout(r, 20));
+    await notifyNewItems(deps); // would return 0 without listing if the lock were still held
+    expect(listWaiting).toHaveBeenCalledTimes(2);
+    release();
+    await slow;
+  });
+});

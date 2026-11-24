@@ -85,8 +85,8 @@ async function saveThreads(configDir: string, threads: Record<string, SlackThrea
 export function slackText(item: WaitingItem, hubUrl?: string): string {
   const body = redactForPublish(item.lastComment?.body ?? '').trim();
   const question = body.length > MAX_TEXT ? `${body.slice(0, MAX_TEXT - 1)}…` : body;
-  const project = item.repoSlug || item.repoName || '';
-  const lines = [`${project}: ${item.title}`, question, hubUrl ? `${hubUrl.replace(/\/+$/, '')}/` : ''];
+  const project = redactForPublish(item.repoSlug || item.repoName || '');
+  const lines = [`${project}: ${redactForPublish(item.title)}`, question, hubUrl ? `${hubUrl.replace(/\/+$/, '')}/` : ''];
   return slackEscape(lines.filter((l) => l !== '').join('\n'));
 }
 

@@ -232,3 +232,37 @@ describe('app token', () => {
     expect(JSON.stringify(createCredentialService(configDir, [], 'secret').childEnv())).not.toContain('xapp-secret');
   });
 });
+
+describe('slack answers: isolation and redaction', () => {
+  test('a hung reply does not block a reply in another thread', async () => {
+    dispatch.mockImplementation(async (_c: unknown, _m: string, a: { id: string }) => (a.id === 'hub-1' ? new Promise(() => undefined) : null));
+    const h = start();
+    await tick();
+    FakeWS.all[0]!.push(ev({}, 'A'));
+    FakeWS.all[0]!.push(ev({ thread_ts: '5.6' }, 'B'));
+    await tick();
+    expect(dispatch.mock.calls.map((c) => c[2].id).sort()).toEqual(['hub-1', 'hub-2']);
+    h.close();
+  });
+
+  test('a hung reply releases its own thread after the timeout', async () => {
+    dispatch.mockImplementationOnce(() => new Promise(() => undefined));
+    const h = start({ replyTimeoutMs: 20 });
+    await tick();
+    FakeWS.all[0]!.push(ev({}, 'A'));
+    FakeWS.all[0]!.push(ev({ text: 'again' }, 'B'));
+    await tick(80);
+    expect(dispatch).toHaveBeenCalledTimes(2);
+    h.close();
+  });
+
+  test('the note posted to the channel has no absolute paths', async () => {
+    dispatch.mockRejectedValue(new BadRequestError("cannot read /home/hub/repos/x/.git/config or C:\\srv\\repo\\a.txt"));
+    const h = start();
+    await tick();
+    FakeWS.all[0]!.push(ev());
+    await tick();
+    expect(notes()).toEqual(['cannot read [path] or [path]']);
+    h.close();
+  });
+});
