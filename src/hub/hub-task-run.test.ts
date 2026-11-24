@@ -474,3 +474,30 @@ test('a plain start after a retry with a flow keeps that flow', async () => {
   await hub.sweepHubTasks();
   expect(runs[1]!.params).toMatchObject({ issueRef: 'hub-1', flow: 'plan' });
 });
+
+test('a flow that is not a string is refused with 400 on start and retry', async () => {
+  await writeFile(join(options.configDir, 'local-worker.json'), JSON.stringify({ [repo]: { enabled: false } }));
+  await useHubBoard();
+  await create('A');
+  // null is refused too: a flow is absent or a string.
+  for (const flow of [5, ['plan'], { name: 'plan' }, null, false]) {
+    const r = await rpc(alice, 'hub_task_start', { repoPath: repo, id: 'hub-1', flow });
+    expect(r.status).toBe(400);
+    expect(r.body.error.message).toMatch(/flow must be a string/);
+  }
+  expect((await rpc(alice, 'hub_task_retry', { repoPath: repo, id: 'hub-1', flow: 5 })).status).toBe(400);
+  await hub.sweepHubTasks();
+  expect(runs).toHaveLength(0);
+});
+
+test('a retry with a flow is audited with flow.<name>', async () => {
+  await writeFile(join(options.configDir, 'local-worker.json'), JSON.stringify({ [repo]: { enabled: false } }));
+  await useHubBoard();
+  await create('A');
+  expect((await rpc(alice, 'hub_task_start', { repoPath: repo, id: 'hub-1' })).status).toBe(200);
+  await hub.sweepHubTasks();
+  runs[0]!.fail(new Error('boom'));
+  await vi.waitFor(async () => expect((await board())['hub-1']).toMatchObject({ schedule: { state: 'failed' } }));
+  expect((await rpc(alice, 'hub_task_retry', { repoPath: repo, id: 'hub-1', flow: 'plan' })).status).toBe(200);
+  expect(await audit()).toContainEqual(expect.objectContaining({ action: 'task-schedule', target: `${repo}:hub-1`, detail: ['flow.plan'] }));
+});

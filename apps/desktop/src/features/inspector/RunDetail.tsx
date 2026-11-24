@@ -41,6 +41,15 @@ function Activity({ detail, steps = withGateSteps(stagesFromRecords(detail.stage
 }
 
 /** `prLink` off when the surrounding header already links the PR (the Runs split view); `steps` = the caller's own stage line (with the event log's timings). */
+/** The "Flow <name>" line of a run; nothing without a flow. */
+export function FlowLine({ flow }: { flow?: string | undefined }) {
+  return flow === undefined ? null : (
+    <div className="text-sm text-muted-foreground">
+      Flow <code className="rounded bg-muted px-1 py-0.5">{flow}</code>
+    </div>
+  );
+}
+
 export function RunDetail({ detail, project, prLink = true, steps, flow }: { detail: RunDetailT; project: string; prLink?: boolean; steps?: PaneStage[]; flow?: string | undefined }) {
   const [tab, setTab] = useState('activity');
   const baseBranch = detail.stages.find((s) => s.record.baseBranch !== undefined)?.record.baseBranch;
@@ -70,11 +79,7 @@ export function RunDetail({ detail, project, prLink = true, steps, flow }: { det
             Target branch <code className="rounded bg-muted px-1 py-0.5">{baseBranch}</code>
           </div>
         )}
-        {flow !== undefined && (
-          <div className="text-sm text-muted-foreground">
-            Flow <code className="rounded bg-muted px-1 py-0.5">{flow}</code>
-          </div>
-        )}
+        <FlowLine flow={flow} />
         {configPaths !== undefined && configPaths.length > 0 && (
           <div role="note" className="text-sm text-warning-text" title="This run changed a file your test commands come from. Check it before merging.">
             Gate config changed: <code className="rounded bg-muted px-1 py-0.5">{configPaths.join(', ')}</code>

@@ -282,3 +282,15 @@ test("another run's event does not re-read this run's log", async () => {
   push!({ runId: 'run-9', event: { type: 'stage-end', name: 'implementer' } });
   await waitFor(() => expect(readRunEvents.mock.calls.length).toBe(before + 1));
 });
+
+test('a live run shows the flow its run-start event names', async () => {
+  readRunEvents.mockResolvedValue({
+    events: [{ id: 1, ts: new Date().toISOString(), event: 'api:event', data: { runId: 'run-9', event: { type: 'run-start', taskId: 'gh-r-3', flow: 'plan', stages: ['implementer'] } } }],
+    nextAfter: 1,
+    hasMore: false,
+    truncated: false,
+  });
+  readSession.mockResolvedValue({ entries: [], inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, estCostUsd: 0 });
+  render(<RunPane {...props} active={{ taskId: 'gh-r-3', sessionFile: '/s.jsonl', lastActivityMs: Date.now() }} />);
+  expect(await screen.findByText('plan')).toBeInTheDocument();
+});
