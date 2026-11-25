@@ -56,19 +56,15 @@ pnpm tauri signer generate -w ~/.tauri/taskcell.key
 - Put the **public** key (`taskcell.key.pub` contents) in `plugins.updater.pubkey` of `src-tauri/tauri.conf.json` (a `REPLACE_` placeholder until then; the app skips the update check).
 - Store the **private** key as the CI secret `TAURI_SIGNING_PRIVATE_KEY` (and its password as `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`). Never commit it.
 
-### Release job (CI, applied by a human)
+### Release job
 
-The factory cannot edit `.github/`, so the matrix job (macOS arm64 and x64, Windows, Linux via `tauri-apps/tauri-action`)
-is described in the PR that introduced it and must be added to the release workflow by hand. It must:
-
-- stage the hub first (Node ≥ 24, then `node scripts/prepare-sidecar.mjs` in `apps/desktop`) and add
-  `--config src-tauri/tauri.bundle.conf.json` to the build args, the same as `pnpm bundle`, so each installer carries the hub;
-- pass `--config '{"version":"X.Y.Z","bundle":{"createUpdaterArtifacts":true}}'` and the signing secrets above;
-- upload the installers and `latest.json` to a **dedicated rolling release tagged `desktop-latest`**, replacing the
-  previous assets, not to the CLI release stream, which has no desktop assets on most tags. The updater endpoint
-  (`releases/download/desktop-latest/latest.json`), the landing page and the docs all point at that release.
-
-- build with the committed lock: pass `--locked` to cargo (tauri-action `args`: `-- --locked`), so versions never re-resolve.
+`.github/workflows/desktop-release.yml` builds the installers on macOS arm64 (`macos-15`) and x64 (`macos-15-intel`),
+Windows and Linux, each with `pnpm bundle -- --locked` (so each installer carries the hub and builds with the committed
+lock), and replaces the assets of the rolling **`desktop-latest`** release, which the landing page and the docs link to.
+It runs on every published Taskcell release and by hand (`workflow_dispatch`, optional `version`; default: the root
+`package.json` version), only from `main` or a `v*` tag. Signing secrets are optional: without
+`TAURI_SIGNING_PRIVATE_KEY` it builds without updater artifacts, and without the `APPLE_*` secrets the macOS build is
+unsigned. Not done yet: the updater's `latest.json` (needs the real `plugins.updater.pubkey` first).
 
 Separately, a CI job should run `pnpm --dir apps/desktop test:rust` on changes under `apps/desktop/src-tauri/**` (Rust ≥ 1.90 and, on Linux, the Tauri system libraries); no workflow builds the Rust today. That job compiles PR-controlled code (`build.rs`, proc macros, tests): use the `pull_request` trigger (never `pull_request_target`), `permissions: contents: read`, no secrets, and no build cache shared with the signing release job.
 

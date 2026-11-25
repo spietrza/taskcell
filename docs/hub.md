@@ -9,17 +9,18 @@ without a native app, or on a server. See `src/hub/*.ts` and `src/cli/hub.ts` fo
 
 ## Install the desktop app
 
-Installers (macOS `.dmg`, Windows `.msi`/`-setup.exe`, Linux `.AppImage`/`.deb`) are attached to the
-[`desktop-latest` release](https://github.com/spietrza/taskcell/releases/tag/desktop-latest) once the desktop release job is enabled
-(see `apps/desktop/README.md`). The app checks for updates on start and offers a new version; it downloads on consent and installs when you quit, so running tasks are not interrupted.
+Taskcell Desktop installers (macOS `.dmg` for Apple Silicon (`aarch64`) and Intel (`x64`), Windows `.msi`/`-setup.exe`,
+Linux `.AppImage`/`.deb`) are on the [`desktop-latest` release](https://github.com/spietrza/taskcell/releases/tag/desktop-latest).
+The `Desktop release` workflow rebuilds them on every Taskcell release (see `apps/desktop/README.md`). Taskcell Mobile
+(the iPhone app) is a separate app that connects to a hub; it is not meant for the Mac. The app checks for updates on start and offers a new version; it downloads on consent and installs when you quit, so running tasks are not interrupted.
 
 Building the desktop app yourself: in `apps/desktop`, `pnpm test:rust` builds and tests the Rust side and `pnpm bundle -- --locked` makes the installers, both with the committed `Cargo.lock` (see [`apps/desktop/README.md`](../apps/desktop/README.md)).
 
 **macOS, unsigned builds.** Unsigned apps are blocked on first open. On macOS 14 and earlier, right-click the app
 and choose **Open**. On macOS 15 and later, try to open it once, then go to **System Settings > Privacy & Security**
-and click **Open Anyway**. If macOS says the app "is damaged", run `xattr -cr /Applications/Taskcell.app` and open it again.
+and click **Open Anyway**. If macOS says the app "is damaged", run `xattr -cr "/Applications/Taskcell Desktop.app"` and open it again.
 
-**Linux.** `chmod +x Taskcell_*.AppImage && ./Taskcell_*.AppImage`, or `sudo apt install ./Taskcell_*.deb`.
+**Linux.** `chmod +x Taskcell*.AppImage && ./Taskcell*.AppImage`, or `sudo apt install ./taskcell*.deb` (use the file name you downloaded).
 
 ## Quick start
 
