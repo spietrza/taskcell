@@ -571,7 +571,7 @@ export interface WriteStagesOptions {
   credentialName?: string;
   /**
    * Leave the `.diff`, `.bundle` and `.transcript.log` off disk and stub `finalText`; only the JSON
-   * record (marked `diffOmitted: 'secret-blocked'`) and the metric line are written for every stage.
+   * record (marked `diffOmitted: 'secret-blocked'`, or `'not-scanned'` for the value below) and the metric line are written for every stage.
    * Set for secret-blocked runs: the payloads hold the very secret the scan caught, and the run record
    * may be uploaded as a CI artifact (`upload-run-records`). `'not-scanned'` withholds the same way for
    * a revise round that stopped before the scan ran (hold, unanswered items, diff not captured) and
