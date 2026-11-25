@@ -633,6 +633,8 @@ describe('createRun credential rotation', () => {
   });
 
   it('chain warnings are emitted once per run, not again on the next account', async () => {
+    // A host (CI runner, factory sandbox) may hold Codex/Cursor keys, which would fund the entries.
+    for (const name of ['CODEX_AUTH_JSON', 'CODEX_API_KEY', 'OPENAI_API_KEY', 'CURSOR_API_KEY']) vi.stubEnv(name, '');
     const repoPath = await plainRepo();
     runGithubIssue.mockImplementationOnce(async () => {
       throw new CredentialLimited(new ProviderLimitError('limit'), new Date(Date.now() + 3600_000));
