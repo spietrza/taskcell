@@ -4,7 +4,7 @@ import { execFileSync } from 'node:child_process';
 import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { executeIssueRun, PoolEntryLimited } from './run-execution.js';
+import { executeIssueRun, PoolEntryLimited, stagePicks } from './run-execution.js';
 import type { IssueRunExecution } from './run-execution.js';
 import { planIssueRun } from './run-plan.js';
 import { runCredentialContext } from './agent-session.js';
@@ -481,5 +481,23 @@ describe('planIssueRun ordering', () => {
     expect(['sonnet', 'opus']).toContain(plan.choice.providerModel);
     expect(plan.choice.provider).toBe('claude');
     expect(plan.routing.pooled).toBe(true);
+  });
+});
+
+describe('stagePicks: the entries a limit moved the stage past', () => {
+  const res = { taskId: 't', completed: true, exitReason: 'completed', turns: 1, worktreePath: '/w', worktreePreserved: false, finalText: '' } as const;
+
+  it('an in-run fallback names the primary that hit its limit, with its reset time', () => {
+    const picks = { implementer: { provider: 'claude', model: 'sonnet', pick: 'config' as const }, fallback: { provider: 'codex', pick: 'fallback' as const } };
+    const out = stagePicks([{ name: 'implementer', result: res, providerName: 'codex', primaryLimitResetAt: '2026-06-06T11:00:00.000Z' }], picks, 'claude');
+    expect(out.implementer).toEqual({ provider: 'codex', pick: 'fallback', skipped: [{ entry: 'claude/sonnet', until: '2026-06-06T11:00:00.000Z' }] });
+  });
+
+  it('a re-routed implementer keeps the skipped entries; a stage on its own plain pick has none', () => {
+    const skipped = [{ entry: 'claude/', until: '2026-06-06T11:00:00.000Z' }];
+    const picks = { implementer: { provider: 'cursor', pick: 'skip-limit' as const, skipped } };
+    const out = stagePicks([{ name: 'implementer', result: res, providerName: 'cursor' }, { name: 'reviewer', result: res, providerName: 'codex' }], picks, 'cursor');
+    expect(out.implementer).toEqual({ provider: 'cursor', pick: 'skip-limit', skipped });
+    expect(out.reviewer).toEqual({ provider: 'codex', pick: 'config' });
   });
 });

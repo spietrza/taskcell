@@ -1,12 +1,12 @@
 import { test, expect, vi, beforeEach, afterEach } from 'vitest';
-import { render, screen, fireEvent, waitFor } from '@testing-library/react';
+import { render, screen, fireEvent, waitFor, within } from '@testing-library/react';
 import { LineEditor } from './LineEditor';
 import { Settings } from '../settings/Settings';
 import { NavGuardContext, createNavGuardRegistry, useDiscardGuard } from '../../navGuard';
 import * as ipc from '../../ipc';
 import { asCode } from './asCode';
 import { STATIONS, STATION_SHORT } from '../../stations';
-import { stubHubCalls, type HubCall } from '../../testHub';
+import { stubHubCalls, type HubCall, type HubCallHandlers } from '../../testHub';
 
 vi.mock('../../ipc.js', () => ({
   callerCapabilities: vi.fn(async () => ({ mutationsAllowed: true })),
@@ -25,19 +25,20 @@ vi.mock('../workflow/WorkflowEditor', () => ({
 const read = vi.fn<HubCall<'read_app_config_strict'>>();
 const write = vi.fn<HubCall<'write_app_config'>>(async () => undefined);
 const history = vi.fn<HubCall<'read_settings_history'>>(async () => []);
+const handlers = (): HubCallHandlers => ({
+  read_app_config_strict: read,
+  write_app_config: write,
+  read_settings_history: history,
+  api_list_flows: async () => ({ flows: [] }),
+  factory_state: async () => ({ state: 'none', steps: [] }),
+  local_worker_state: async () => ({ enabled: false, source: 'hub', credentials: { names: [], present: true } }),
+  enable_factory_host: async () => ({ host: 'none' }),
+});
 
 beforeEach(() => {
   write.mockClear();
   read.mockResolvedValue({});
-  stubHubCalls({
-    read_app_config_strict: read,
-    write_app_config: write,
-    read_settings_history: history,
-    api_list_flows: async () => ({ flows: [] }),
-    factory_state: async () => ({ state: 'none', steps: [] }),
-    local_worker_state: async () => ({ enabled: false, source: 'hub', credentials: { names: [], present: true } }),
-    enable_factory_host: async () => ({ host: 'none' }),
-  });
+  stubHubCalls(handlers());
 });
 afterEach(() => vi.restoreAllMocks());
 
@@ -197,4 +198,29 @@ test('on a phone no station is preselected; a tap opens its panel and scrolls it
     vi.unstubAllGlobals();
     window.history.replaceState(null, '', '/');
   }
+});
+
+test('Cell edits the fallback chain: the Engine is row 1, an added entry publishes as fallbackChain', async () => {
+  await open({ provider: 'claude' });
+  fireEvent.click(screen.getByRole('button', { name: /Cell/ }));
+  const chain = screen.getByRole('group', { name: 'Fallback chain' });
+  expect(chain).toHaveTextContent('claudeEngine');
+  expect(chain).toHaveTextContent('No team default: a run waits for the limit to reset.');
+  fireEvent.click(within(chain).getByText(/Add fallback/));
+  fireEvent.change(screen.getByLabelText('Fallback 1 provider'), { target: { value: 'codex' } });
+  fireEvent.change(screen.getByLabelText('Fallback 1 model'), { target: { value: 'gpt-6-sol' } });
+  fireEvent.click(screen.getByRole('button', { name: 'Publish' }));
+  await waitFor(() => expect(write).toHaveBeenCalledWith({ repoPath: '/repo', config: { provider: 'claude', fallbackChain: [{ provider: 'codex', model: 'gpt-6-sol' }] } }));
+});
+
+test('Cell shows the team default a project without its own chain inherits; an invalid chain blocks Publish', async () => {
+  stubHubCalls({ ...handlers(), list_teams: async () => [{ id: 't', name: 'T', members: [], repositories: ['/repo'], fallbackChain: [{ provider: 'cursor' }] }] });
+  await open({ provider: 'claude' });
+  fireEvent.click(screen.getByRole('button', { name: /Cell/ }));
+  const chain = screen.getByRole('group', { name: 'Fallback chain' });
+  expect(await screen.findByText('Team default: cursor')).toBeInTheDocument();
+  fireEvent.click(within(chain).getByText(/Add fallback/));
+  fireEvent.change(screen.getByLabelText('Fallback 1 provider'), { target: { value: 'claude' } });
+  expect(within(chain).getByText(/Engine itself/)).toHaveAttribute('role', 'alert');
+  expect(screen.getByRole('button', { name: 'Publish' })).toBeDisabled();
 });
