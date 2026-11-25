@@ -74,8 +74,8 @@ of work, review, verify result, cost per run), not an agent chat front-end.
 
 ## Brand Commitments
 
-- Name: **Taskcell**; the app is **Taskcell Hub**. Mark: the shield-cog logo (`src/ui/Logo.tsx`),
-  tinted with the primary color.
+- Name: **Taskcell**; the app is **Taskcell Hub**. Mark: the Doorway mark (`src/ui/Logo.tsx`, as on taskcell.dev; wall in ink, card
+  in the primary color). The desktop app icon (`src-tauri/app-icon.svg`) and the phone app icon use the same mark.
 - Voice, from the landing page and README: plain, short, factual; says what the system does and
   what it refuses to do ("The agent is treated as hostile", "You merge."). No hype.
 - Direction from `docs/design/brief.md`: calm, precise, quiet chrome, "a cockpit, not a template
