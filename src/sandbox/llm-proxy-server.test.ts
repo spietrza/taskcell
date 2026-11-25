@@ -819,6 +819,59 @@ describe('llm-proxy-server chatgpt auth kind (in-process factory, fake IdP/upstr
     expect(unauthorized.status).toBe(401);
   });
 
+  it('rotating subscription tokens: a 429 cools the token and the same request is retried on the next; all out passes the 429 through', async () => {
+    const seen: string[] = [];
+    const fakeUpstream = createServer((req, res) => {
+      seen.push(String(req.headers['authorization']));
+      req.resume();
+      if (req.headers['authorization'] === 'Bearer tok-one' || seen.length > 3) {
+        res.writeHead(429, { 'content-type': 'application/json' });
+        res.end('{"type":"error"}');
+        return;
+      }
+      res.writeHead(200, { 'content-type': 'application/json' });
+      res.end('{"ok":true}');
+    });
+    const upstreamPort = await listenOn(fakeUpstream);
+    cleanups.push(async () => { await closeServer(fakeUpstream); });
+    const server = createLlmProxyServer('UPSTREAM=anthropic\nMODE=subscription\nSECRET=tok-one\nNONCE=real-nonce\nSECRET_2=tok-two\n', {
+      forwardTo: { host: '127.0.0.1', port: upstreamPort, protocol: 'http' },
+    });
+    const port = await listenOn(server);
+    cleanups.push(async () => { await closeServer(server); });
+    const call = (): Promise<Response> => fetch(`http://127.0.0.1:${port}/v1/messages`, { method: 'POST', headers: { authorization: 'Bearer real-nonce' }, body: '{}' });
+
+    const first = await call();
+    expect(first.status).toBe(200);
+    expect(seen).toEqual(['Bearer tok-one', 'Bearer tok-two']);
+    expect((await call()).status).toBe(200); // token 1 stays cooling
+    expect(seen.slice(2)).toEqual(['Bearer tok-two']);
+  });
+
+  it('rotating subscription tokens: with every token cooling the upstream 429 reaches the client unchanged', async () => {
+    const seen: string[] = [];
+    const fakeUpstream = createServer((req, res) => {
+      seen.push(String(req.headers['authorization']));
+      req.resume();
+      res.writeHead(429, { 'content-type': 'application/json', 'retry-after': '120' });
+      res.end('{"type":"error","error":{"type":"rate_limit_error"}}');
+    });
+    const upstreamPort = await listenOn(fakeUpstream);
+    cleanups.push(async () => { await closeServer(fakeUpstream); });
+    const server = createLlmProxyServer('UPSTREAM=anthropic\nMODE=subscription\nSECRET=tok-one\nNONCE=real-nonce\nSECRET_2=tok-two\n', {
+      forwardTo: { host: '127.0.0.1', port: upstreamPort, protocol: 'http' },
+    });
+    const port = await listenOn(server);
+    cleanups.push(async () => { await closeServer(server); });
+    const res = await fetch(`http://127.0.0.1:${port}/v1/messages`, { method: 'POST', headers: { authorization: 'Bearer real-nonce' }, body: '{}' });
+    expect(res.status).toBe(429);
+    expect(await res.text()).toContain('rate_limit_error');
+    expect(seen).toEqual(['Bearer tok-one', 'Bearer tok-two']); // each token tried once, no loop
+    // Both are cooling now: a later request still gets the upstream's 429 straight through.
+    expect((await fetch(`http://127.0.0.1:${port}/v1/messages`, { method: 'POST', headers: { authorization: 'Bearer real-nonce' }, body: '{}' })).status).toBe(429);
+    expect(seen).toHaveLength(3);
+  });
+
   it.each([401, 403])('an anthropic upstream %i is answered with a fixed classified error, never the upstream body', async (status) => {
     const fakeUpstream = createServer((req, res) => {
       req.resume();

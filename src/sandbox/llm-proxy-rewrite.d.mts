@@ -102,3 +102,5 @@ export declare function placeholderRefreshResponse(
   accountId: string,
   planType: string,
 ): { access_token: string; refresh_token: string; id_token: string };
+export declare const CREDENTIAL_NOTE_PREFIX: string;
+export declare function limitResetAt(headers: Record<string, string | string[] | undefined>, now?: number): number;

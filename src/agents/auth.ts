@@ -3,7 +3,8 @@ import { KEYLESS_PLACEHOLDER_TOKEN } from './custom.js';
 import { claudeCliKeyEnv, fallbackProviderNames, llmProxyNeedsNoPrimarySidecar, needsAnthropicAuth, requiresApiKey } from './registry.js';
 import type { ProviderChoice } from './registry.js';
 
-export type AgentAuth = { mode: 'subscription'; token: string } | { mode: 'api'; apiKey: string };
+/** `token` is the one the run uses; `tokens` lists every subscription token (only when the secret held several, in order). */
+export type AgentAuth = { mode: 'subscription'; token: string; tokens?: string[] } | { mode: 'api'; apiKey: string };
 
 export const SUBSCRIPTION_ENV = 'CLAUDE_CODE_OAUTH_TOKEN';
 export const API_ENV = 'ANTHROPIC_API_KEY';
@@ -17,17 +18,38 @@ export function authSecrets(auth: AgentAuth): Record<string, string> {
   return { [API_ENV]: auth.apiKey };
 }
 
-/** Map an AgentAuth to the single-secret shape startLlmProxy wants (subscription token / api key). */
-export function llmProxyAuth(auth: AgentAuth): { mode: 'subscription' | 'api'; secret: string } {
-  return auth.mode === 'subscription'
-    ? { mode: 'subscription', secret: auth.token }
-    : { mode: 'api', secret: auth.apiKey };
+/**
+ * The tokens a CLAUDE_CODE_OAUTH_TOKEN value holds: one per line, blank lines and surrounding whitespace dropped,
+ * repeats removed. A single-line value is its own one-element list.
+ */
+export function subscriptionTokens(value: string | undefined): string[] {
+  return [...new Set((value ?? '').split(/\r?\n/).map((t) => t.trim()).filter((t) => t !== ''))];
+}
+
+/**
+ * A copy of `env` whose `CLAUDE_CODE_OAUTH_TOKEN` holds only its first token, for host-side children that hand
+ * the variable straight to Claude (the `claude` CLI, the agent SDK); a multi-line value there fails every call.
+ */
+export function singleTokenEnv(env: NodeJS.ProcessEnv = process.env): Record<string, string> {
+  const out: Record<string, string> = {};
+  for (const [k, v] of Object.entries(env)) if (v !== undefined) out[k] = v;
+  const [first] = subscriptionTokens(env['CLAUDE_CODE_OAUTH_TOKEN']);
+  if (first !== undefined) out['CLAUDE_CODE_OAUTH_TOKEN'] = first;
+  return out;
+}
+
+/** Map an AgentAuth to the shape startLlmProxy wants (subscription token / api key; `more` = the further tokens to rotate onto). */
+export function llmProxyAuth(auth: AgentAuth): { mode: 'subscription' | 'api'; secret: string; more?: string[] } {
+  if (auth.mode === 'api') return { mode: 'api', secret: auth.apiKey };
+  const [first = auth.token, ...more] = auth.tokens ?? [auth.token];
+  return { mode: 'subscription', secret: first, ...(more.length > 0 ? { more } : {}) };
 }
 
 /** Resolve Anthropic auth from the environment, preferring the subscription token (Taskcell default). */
 export function authFromEnv(env: NodeJS.ProcessEnv = process.env): AgentAuth | undefined {
-  const token = env[SUBSCRIPTION_ENV];
-  if (token !== undefined && token !== '') return { mode: 'subscription', token };
+  const tokens = subscriptionTokens(env[SUBSCRIPTION_ENV]);
+  const [token] = tokens;
+  if (token !== undefined) return { mode: 'subscription', token, ...(tokens.length > 1 ? { tokens } : {}) };
   const apiKey = env[API_ENV];
   if (apiKey !== undefined && apiKey !== '') return { mode: 'api', apiKey };
   return undefined;

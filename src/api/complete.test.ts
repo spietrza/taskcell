@@ -290,3 +290,20 @@ describe('chatBaseUrl origin allowlist', () => {
     expect(rec.calls).toEqual(['https://api.anthropic.com', undefined]);
   });
 });
+
+test('the SDK gets only the first of several subscription tokens', async () => {
+  const saved = process.env['CLAUDE_CODE_OAUTH_TOKEN'];
+  process.env['CLAUDE_CODE_OAUTH_TOKEN'] = 'tok-1\ntok-2';
+  try {
+    let seen: string | undefined;
+    const query: CompleteDeps['query'] = (params) => {
+      seen = (params.options?.['env'] as Record<string, string> | undefined)?.['CLAUDE_CODE_OAUTH_TOKEN'];
+      return fakeQuery({ type: 'result', subtype: 'success', result: 'ok' })();
+    };
+    await runComplete({ messages: [{ role: 'user', content: 'hi' }] }, { query });
+    expect(seen).toBe('tok-1');
+  } finally {
+    if (saved === undefined) delete process.env['CLAUDE_CODE_OAUTH_TOKEN'];
+    else process.env['CLAUDE_CODE_OAUTH_TOKEN'] = saved;
+  }
+});

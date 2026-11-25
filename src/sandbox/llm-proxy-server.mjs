@@ -25,6 +25,8 @@ import { pathToFileURL } from 'node:url';
 import {
   UPSTREAMS,
   CONTROL_CHARS,
+  CREDENTIAL_NOTE_PREFIX,
+  limitResetAt,
   HOP_BY_HOP,
   upstreamAuthHeaders,
   openaiAuthHeaders,
@@ -106,7 +108,7 @@ function resolveUpstream(config, credentialDir) {
   const checked = [
     config.SECRET, config.NONCE, config.ACCESS_TOKEN, config.REFRESH_TOKEN, config.ACCOUNT_ID,
     config.PLAN_TYPE, config.REFRESH_PLACEHOLDER, config.AUTH_FILE,
-  ].filter((v) => v !== undefined);
+  ].concat(Object.entries(config).filter(([k]) => /^SECRET_\d+$/.test(k)).map(([, v]) => v)).filter((v) => v !== undefined);
   if (checked.some((v) => CONTROL_CHARS.test(v))) {
     throw new Error('invalid secret file (control characters in a credential field)');
   }
@@ -191,7 +193,16 @@ export function createLlmProxyServer(secretText, options = {}) {
   const refreshBackoffMaxMs = options.refreshBackoffMaxMs ?? DEFAULT_REFRESH_BACKOFF_MAX_MS;
   const maxRefreshesPerRun = options.maxRefreshesPerRun ?? DEFAULT_MAX_REFRESHES_PER_RUN;
 
-  const auth = { mode: config.MODE, secret: config.SECRET };
+  // Several subscription tokens (SECRET, SECRET_2, ...): requests use the first one not cooling; a 429 cools the
+  // token until its reset and the same request is retried on the next. Only the 1-based index is ever logged.
+  const tokens = [config.SECRET, ...Object.keys(config).filter((k) => /^SECRET_\d+$/.test(k)).sort((a, b) => Number(a.slice(7)) - Number(b.slice(7))).map((k) => config[k])];
+  const rotates = spec.auth === 'anthropic' && config.MODE === 'subscription' && tokens.length > 1;
+  const coolingUntil = tokens.map(() => 0);
+  const pickToken = () => {
+    const now = Date.now();
+    const free = coolingUntil.findIndex((t) => t <= now);
+    return free >= 0 ? free : coolingUntil.indexOf(Math.min(...coolingUntil));
+  };
   const expectedAuthorization = `Bearer ${config.NONCE}`;
   const UPSTREAM_HOST = spec.host;
 
@@ -213,7 +224,7 @@ export function createLlmProxyServer(secretText, options = {}) {
   // name — every 'bearer' upstream (openai, zai, …) shares one builder, so adding one needs no change here.
   // Thunks are lazy (only the chosen style runs per request); spec.auth is validated at boot, never misses.
   const AUTH_HEADERS_BY_STYLE = {
-    anthropic: (req) => upstreamAuthHeaders(auth, req.headers), // mode-aware Bearer/x-api-key (+ oauth beta merge)
+    anthropic: (req, idx) => upstreamAuthHeaders({ mode: config.MODE, secret: tokens[idx] }, req.headers), // mode-aware Bearer/x-api-key (+ oauth beta merge)
     bearer: () => openaiAuthHeaders(config.SECRET), //            plain Authorization: Bearer SECRET
     chatgpt: () => chatgptAuthHeaders(chatgptState.accessToken, chatgptState.accountId), // real token + real account id, always
   };
@@ -589,12 +600,12 @@ export function createLlmProxyServer(secretText, options = {}) {
       const body = stripEgressTools(Buffer.concat(chunks, size));
       forward(req, res, body, started, (up) => {
         upstream = up;
-      }, cleanup, () => done);
+      }, cleanup, () => done, pickToken());
     });
   });
 
-  function forward(req, res, body, started, setUpstream, cleanup, isDone) {
-    const applied = AUTH_HEADERS_BY_STYLE[spec.auth](req);
+  function forward(req, res, body, started, setUpstream, cleanup, isDone, idx) {
+    const applied = AUTH_HEADERS_BY_STYLE[spec.auth](req, idx);
     const headers = buildForwardHeaders(req.headers, applied);
     headers['content-length'] = String(body.length);
 
@@ -611,6 +622,19 @@ export function createLlmProxyServer(secretText, options = {}) {
       { host: target.host, port: target.port, method: 'POST', path, headers },
       (upRes) => {
         responded = true;
+        // A plan/usage limit on a rotating subscription token: cool it and replay this request on the next free one.
+        // With every token out the 429 passes through unchanged, as it does for a single token.
+        if (rotates && upRes.statusCode === 429) {
+          coolingUntil[idx] = limitResetAt(upRes.headers);
+          const next = pickToken();
+          if (coolingUntil[next] <= Date.now()) {
+            upRes.resume();
+            console.error(`${CREDENTIAL_NOTE_PREFIX}${idx + 1} of ${tokens.length} hit a plan limit (cooling until ${new Date(coolingUntil[idx]).toISOString()}); continuing on credential ${next + 1}`);
+            forward(req, res, body, started, setUpstream, cleanup, isDone, next);
+            return;
+          }
+          console.error(`${CREDENTIAL_NOTE_PREFIX}${idx + 1} of ${tokens.length} hit a plan limit and every credential is out`);
+        }
         // An Anthropic upstream 401/403 means the real credential is dead: answer a fixed, classified
         // error the CLI prints instead of the upstream body. Log only method, path and status.
         if (spec.auth === 'anthropic' && (upRes.statusCode === 401 || upRes.statusCode === 403)) {

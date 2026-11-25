@@ -85,6 +85,8 @@ jobs:
       CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
 ```
 
+**Two Anthropic plans?** Put both tokens in the one `CLAUDE_CODE_OAUTH_TOKEN` secret, one per line (no workflow change). The run starts on the first; when it hits its plan limit the run continues on the next, and Codex fallback or parking happens only once every token is out. With `llm-proxy: true` the proxy holds the list and the sandbox never sees a token. Caveat: Anthropic's Claude Code terms say plan limits "assume ordinary, individual usage", so rotating several subscription accounts may breach them. See [Several Claude subscription tokens](cli.md#providers).
+
 To run Opus-spec / Sonnet-impl / Codex-review on a ChatGPT subscription instead, see [Full: cross-provider](#full-cross-provider-on-a-codex-subscription) below.
 
 The reusable workflow installs Taskcell with `pnpm install --ignore-workspace`, which is what keeps this working when **your repo is a pnpm workspace (monorepo)**: otherwise `pnpm install` inside `.vanguard-src` would be captured by your root `pnpm-workspace.yaml`, leave `.vanguard-src/node_modules` empty, and the Taskcell build would fail. You do not need to do anything for this.

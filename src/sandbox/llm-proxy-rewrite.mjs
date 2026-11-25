@@ -331,3 +331,21 @@ export function constantTimeEqual(a, b) {
   }
   return timingSafeEqual(ab, bb);
 }
+
+/** Log lines the sidecar writes when it moves between several subscription tokens; the host relays them at teardown. Indices are 1-based, never the value. */
+export const CREDENTIAL_NOTE_PREFIX = 'llm-proxy: credential ';
+
+const DEFAULT_COOLDOWN_MS = 60 * 60_000;
+
+/**
+ * Epoch ms until which a token that got a 429 stays out: Anthropic's unified-limit reset header (epoch
+ * seconds), else `retry-after` (seconds), else an hour. Always in the future.
+ */
+export function limitResetAt(headers, now = Date.now()) {
+  const first = (v) => (Array.isArray(v) ? v[0] : v);
+  const reset = Number(first(headers['anthropic-ratelimit-unified-reset']));
+  if (Number.isFinite(reset) && reset * 1000 > now) return reset * 1000;
+  const after = Number(first(headers['retry-after']));
+  if (Number.isFinite(after) && after > 0) return now + after * 1000;
+  return now + DEFAULT_COOLDOWN_MS;
+}
