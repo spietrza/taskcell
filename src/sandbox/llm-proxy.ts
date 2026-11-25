@@ -1,4 +1,5 @@
 import { fileURLToPath } from 'node:url';
+import { appendFile } from 'node:fs/promises';
 import { randomUUID } from 'node:crypto';
 import { SandboxError } from '../core/errors.js';
 import { startSidecar, defaultDocker } from './sidecar.js';
@@ -6,7 +7,7 @@ import { isCi, reportRotation } from './codex-rotation.js';
 import { trackSandbox, untrackSandbox } from '../core/cleanup.js';
 import type { DockerRunner } from './sidecar.js';
 import type { ProviderProxySecrets } from '../agents/registry.js';
-import { REFRESH_FAILED_PREFIX, REFRESH_RECOVERED, REFRESH_REFUSED_PREFIX, stripControlChars } from './llm-proxy-rewrite.mjs';
+import { CREDENTIAL_NOTE_PREFIX, REFRESH_FAILED_PREFIX, REFRESH_RECOVERED, REFRESH_REFUSED_PREFIX, stripControlChars } from './llm-proxy-rewrite.mjs';
 import type { Upstream } from './llm-proxy-rewrite.mjs';
 
 export type { DockerRunner } from './sidecar.js';
@@ -88,7 +89,7 @@ export interface ChatgptSidecarAuth {
  */
 export async function startLlmProxy(opts: {
   network: string;
-  auth: { mode: 'subscription' | 'api'; secret: string } | ChatgptSidecarAuth;
+  auth: { mode: 'subscription' | 'api'; secret: string; /** Further subscription tokens the sidecar rotates onto when one hits a plan limit. */ more?: string[] } | ChatgptSidecarAuth;
   upstream?: Upstream;
   image?: string;
   docker?: DockerRunner;
@@ -112,7 +113,7 @@ export async function startLlmProxy(opts: {
     secretBody = `UPSTREAM=${upstream}\nNONCE=${nonce}\nACCESS_TOKEN=${auth.accessToken}\nREFRESH_TOKEN=${auth.refreshToken}\nACCOUNT_ID=${auth.accountId}\nPLAN_TYPE=${auth.planType}\nREFRESH_PLACEHOLDER=${refreshPlaceholder}\nAUTH_FILE=${CHATGPT_AUTH_FILE}\n`;
     chatgptFields = { refreshPlaceholder, accountId: auth.accountId, planType: auth.planType };
   } else {
-    secretBody = `MODE=${auth.mode}\nSECRET=${auth.secret}\nNONCE=${nonce}\nUPSTREAM=${upstream}\n`;
+    secretBody = `MODE=${auth.mode}\nSECRET=${auth.secret}\nNONCE=${nonce}\nUPSTREAM=${upstream}\n${(auth.more ?? []).map((t, i) => `SECRET_${i + 2}=${t}\n`).join('')}`;
   }
   try {
     // The existing reapContainers (label vanguard.runId) already reaps this sidecar on gc — no gc change.
@@ -133,7 +134,7 @@ export async function startLlmProxy(opts: {
       env: { LLM_PROXY_SECRET_FILE: SECRET_FILE, PORT: String(PROXY_PORT) },
       cmd: ['node', '/tmp/llm-proxy.mjs'],
       // Only the chatgpt sidecar's log is read (at teardown); every other sidecar starts as it always did.
-      ...('kind' in auth ? { forwardLogs: true } : {}),
+      ...('kind' in auth || auth.more !== undefined ? { forwardLogs: true } : {}),
     });
     const docker = opts.docker ?? defaultDocker;
     // Chatgpt: before the container (and its tmpfs) is removed, relay the sidecar's errors to the host
@@ -199,6 +200,22 @@ export async function startLlmProxy(opts: {
       };
       trackSandbox(tracked, { proxy: true });
       destroy = tracked.destroy;
+    }
+    // Several subscription tokens: before the container goes, relay which credential the sidecar was on and why it switched.
+    if (!('kind' in auth) && auth.more !== undefined) {
+      const inner = destroy;
+      let relayed = false;
+      destroy = async (): Promise<void> => {
+        if (!relayed) {
+          relayed = true;
+          const logs = await docker(['logs', '--tail', '200', name]).catch(() => undefined);
+          const notes = `${logs?.stdout ?? ''}\n${logs?.stderr ?? ''}`.split('\n').map((l) => stripControlChars(l).slice(0, MAX_RELAYED_LINE)).filter((l) => l.startsWith(CREDENTIAL_NOTE_PREFIX));
+          for (const note of notes) console.log(note);
+          const summary = (opts.env ?? process.env).GITHUB_STEP_SUMMARY;
+          if (notes.length > 0 && summary !== undefined && summary !== '') await appendFile(summary, `${notes.map((n) => `- ${n}`).join('\n')}\n`).catch(() => undefined);
+        }
+        await inner();
+      };
     }
     return {
       url: `http://${name}:${PROXY_PORT}`,
