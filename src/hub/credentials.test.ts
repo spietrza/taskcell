@@ -862,6 +862,20 @@ describe('resolveForRun with fallback-chain providers (extra)', () => {
     await expect(svc.resolveForRun(undefined, 'claude', ['zai', 'codex'])).resolves.toMatchObject({ accountId: a });
   });
 
+  it('a funded repo custom counts as a chain entry that can take the run; an unfunded one does not', async () => {
+    for (const name of ['CODEX_AUTH_JSON', 'CODEX_API_KEY', 'OPENAI_API_KEY', 'ZAI_API_KEY', 'ACME_KEY']) vi.stubEnv(name, '');
+    const svc = createCredentialService(await dir());
+    const a = await svc.store.putAccount('instance', { name: 'A', type: 'api-key', value: 'sk-A' });
+    await svc.rotationFor(undefined, 'claude', await svc.resolveForRun(undefined, 'claude'))!.cool(a, new Date(Date.now() + 3600_000));
+    await svc.store.put('instance', 'ZAI_API_KEY', 'zk');
+    const keys = { acme: ['ACME_KEY'] };
+    await expect(svc.resolveForRun(undefined, 'claude', ['zai', 'acme'], keys)).rejects.toThrow(/cooling down/);
+    vi.stubEnv('ACME_KEY', 'host-acme');
+    // A lone custom shares the Engine's transport and is dropped by the run; next to zai it takes over.
+    await expect(svc.resolveForRun(undefined, 'claude', ['acme'], keys)).rejects.toThrow(/cooling down/);
+    await expect(svc.resolveForRun(undefined, 'claude', ['zai', 'acme'], keys)).resolves.toMatchObject({ accountId: a });
+  });
+
   it('a user-scope decision ignores the host env', async () => {
     vi.stubEnv('CODEX_API_KEY', 'host-codex');
     const svc = createCredentialService(await dir());

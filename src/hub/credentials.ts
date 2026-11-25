@@ -568,7 +568,7 @@ export interface CredentialService {
   /** The credential a run started by `user` uses, per the admin switch. Throws a bad-request —
    * BEFORE the run claims the slot — when `user only` is on and the user has none for `provider`
    * (default claude). Resolved per provider: only that provider's variables are returned. */
-  resolveForRun(user: HubUser | undefined, provider?: string, extra?: readonly string[]): Promise<RunCredential>;
+  resolveForRun(user: HubUser | undefined, provider?: string, extra?: readonly string[], customKeys?: Readonly<Record<string, readonly string[]>>): Promise<RunCredential>;
 }
 
 export function createCredentialService(configDir: string, adminLogins: readonly string[] = [], secret?: string, hubAdmins: readonly string[] = []): CredentialService {
@@ -733,13 +733,15 @@ export function createCredentialService(configDir: string, adminLogins: readonly
       const names = provider === undefined ? CREDENTIAL_NAMES : PROVIDER_NAMES[provider] ?? [];
       return { ...process.env, ...pick(instanceValues, names) };
     },
-    async resolveForRun(user, provider = 'claude', extra = []) {
+    async resolveForRun(user, provider = 'claude', extra = [], customKeys = {}) {
       const policy = await service.policy();
       const names = PROVIDER_NAMES[provider];
       // The fallback chain's providers add their names to the env, but the source is decided by the primary alone.
       // A non-Claude Engine takes Claude from the chain as ONE variable of the account list (`withClaudeVar`), never all three names.
       const anthropic = new Set(Object.values(ACCOUNT_ENV));
-      const allNames = names === undefined ? undefined : [...new Set([...names, ...extra.flatMap((p) => (provider !== 'claude' && p === 'claude' ? [] : PROVIDER_NAMES[p] ?? []))])];
+      // A chain entry's key names: a built-in's, else a repo custom's `keyEnv` as the caller resolved it (`customKeys`).
+      const namesOf = (p: string): readonly string[] => PROVIDER_NAMES[p] ?? customKeys[p] ?? [];
+      const allNames = names === undefined ? undefined : [...new Set([...names, ...extra.flatMap((p) => (provider !== 'claude' && p === 'claude' ? [] : namesOf(p)))])];
       const withClaudeVar = async (credential: RunCredential, scope: Scope): Promise<RunCredential> => {
         if (provider === 'claude' || !extra.includes('claude') || names === undefined) return credential;
         const picked = await pickAccount(scope, credential.source).catch(() => undefined);
@@ -753,12 +755,12 @@ export function createCredentialService(configDir: string, adminLogins: readonly
         return { ...credential, env: { ...pick(values, chainNames), ...credential.env } };
       };
       // Every account cooling is no refusal while a chain entry can take the run: it starts and the engine moves to the chain
-      // (as without stored accounts). Mirrors deps' `fundedParams`: only a built-in with a key counts (a custom's keys are unknown here,
-      // meridian cannot run on a stored key), and a lone entry on the Engine's own transport (claude → zai) is dropped there.
+      // (as without stored accounts). Mirrors deps' `fundedParams`: a built-in or a repo custom with a key counts (meridian
+      // cannot run on a stored key), and a lone entry on the Engine's own transport (claude → zai or a custom) is dropped there.
       const chainFunded = async (scope: Scope): Promise<boolean> => {
         const values: Record<string, string> = await store.values(scope).catch(() => ({}));
         const hostFunds = scope === 'instance';
-        const funded = extra.filter((p) => p !== 'claude' && (PROVIDER_NAMES[p] ?? []).some((n) => (values[n] ?? '') !== '' || (hostFunds && (process.env[n] ?? '') !== '')));
+        const funded = extra.filter((p) => p !== 'claude' && namesOf(p).some((n) => (values[n] ?? '') !== '' || (hostFunds && (process.env[n] ?? '') !== '')));
         return funded.length > 1 || (funded.length === 1 && fallbackSlot(funded[0]!) !== fallbackSlot('claude'));
       };
       const instance = async (): Promise<RunCredential> => {

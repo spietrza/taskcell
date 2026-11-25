@@ -4,7 +4,8 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, test } from 'vitest';
 import { tmpRepo } from './test-kit.js';
-import { fallbackFlags, fundableChain, loneEntryRefused, resolveFallbackChain } from './fallback-chain.js';
+import { chainForRun, fallbackFlags, fundableChain, loneEntryRefused, resolveFallbackChain } from './fallback-chain.js';
+import type { CredentialService } from './credentials.js';
 import { saveTeams } from './teams.js';
 
 async function setup(teamChain?: { provider: string; model?: string }[]): Promise<{ configDir: string; repo: string }> {
@@ -79,5 +80,34 @@ describe('loneEntryRefused', () => {
   test('resolve keeps a lone same-transport entry, so the run drops it with a warning', async () => {
     const { configDir, repo } = await setup();
     expect((await resolveFallbackChain(configDir, repo, { fallbackChain: [{ provider: 'zai' }] })).chain).toEqual([{ provider: 'zai' }]);
+  });
+});
+
+describe('chainForRun', () => {
+  const recorder = (): { calls: unknown[][]; credentials: CredentialService } => {
+    const calls: unknown[][] = [];
+    const credentials = { resolveForRun: async (...args: unknown[]) => (calls.push(args), { source: 'instance' as const, env: {} }) } as unknown as CredentialService;
+    return { calls, credentials };
+  };
+
+  test('a client-picked provider is the Engine: the chain is resolved and credentialed against it, not the saved default', async () => {
+    const { configDir, repo } = await setup();
+    const cfg = { provider: 'claude', fallbackChain: [{ provider: 'codex' }, { provider: 'cursor' }] };
+    const saved = recorder();
+    expect((await chainForRun({ configDir, repoPath: repo, cfg, user: undefined, provider: undefined, credentials: saved.credentials })).flags).toEqual({ fallbackProvider: 'codex,cursor' });
+    expect(saved.calls[0]!.slice(1, 3)).toEqual([undefined, ['codex', 'cursor']]);
+    // Picking codex makes the codex entry the Engine itself: it leaves the chain and the credential is asked for codex.
+    const picked = recorder();
+    expect((await chainForRun({ configDir, repoPath: repo, cfg, user: undefined, provider: 'codex', credentials: picked.credentials })).flags).toEqual({ fallbackProvider: 'cursor' });
+    expect(picked.calls[0]!.slice(1, 3)).toEqual(['codex', ['cursor']]);
+  });
+
+  test('a custom entry passes its keyEnv names to the credential resolver', async () => {
+    const { configDir, repo } = await setup();
+    await mkdir(join(repo, '.taskcell'), { recursive: true });
+    await writeFile(join(repo, '.taskcell', 'app.json'), JSON.stringify({ customProviders: [{ name: 'acme', baseUrl: 'https://llm.acme.test', keyEnv: 'ACME_KEY' }] }));
+    const r = recorder();
+    await chainForRun({ configDir, repoPath: repo, cfg: { fallbackChain: [{ provider: 'codex' }, { provider: 'acme' }] }, user: undefined, provider: undefined, credentials: r.credentials });
+    expect(r.calls[0]![3]).toEqual({ acme: ['ACME_KEY'] });
   });
 });
