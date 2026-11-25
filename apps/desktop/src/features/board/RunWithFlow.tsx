@@ -15,6 +15,8 @@ export function RunWithFlow({ repoPath, taskId, mode, onDone }: { repoPath: stri
   const [open, setOpen] = useState(false);
   const [flows, setFlows] = useState<{ value: string; label: string }[] | null>(null);
   const [busy, setBusy] = useState(false);
+  // The card this component started: its picker stays closed until the board shows the card moved on (no second start).
+  const [startedId, setStartedId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   useEffect(() => {
     if (!open) return;
@@ -27,7 +29,7 @@ export function RunWithFlow({ repoPath, taskId, mode, onDone }: { repoPath: stri
       live = false;
     };
   }, [open, repoPath]);
-  if (gate?.allowed === false) return null;
+  if (gate?.allowed === false || startedId === taskId) return null;
 
   const run = (flow: string): void => {
     setBusy(true);
@@ -35,6 +37,7 @@ export function RunWithFlow({ repoPath, taskId, mode, onDone }: { repoPath: stri
     (mode === 'start' ? hubTaskStart(repoPath, taskId, flow) : hubTaskRetry(repoPath, taskId, flow)).then(() => {
       setBusy(false);
       setOpen(false);
+      if (mode === 'start') setStartedId(taskId);
       onDone();
     }, (e: unknown) => {
       setError(errorMessage(e));

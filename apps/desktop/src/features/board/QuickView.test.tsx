@@ -298,4 +298,26 @@ describe('QuickView last-good and refetch', () => {
     rerender(<QuickView task={view('2')} project="/repo" onClose={() => {}} onFullPage={() => {}} />);
     expect(await screen.findByText('Second?')).toBeInTheDocument();
   });
+
+  test('keeps showing the last comment while the refetch for a new update time is on its way', async () => {
+    let release: (c: { lastComment: { author: string; body: string } }) => void = () => {};
+    vi.mocked(needsYouComment).mockResolvedValueOnce({ lastComment: { author: 'bot', body: 'First?' } }).mockReturnValueOnce(new Promise((r) => { release = r; }));
+    const view = (updatedAt: string): QuickTask => ({ ...task, view: { place: { at: 5, failed: false }, waiting: item({ updatedAt }) } });
+    const { rerender } = open(view('1'));
+    expect(await screen.findByText('First?')).toBeInTheDocument();
+    rerender(<QuickView task={view('2')} project="/repo" onClose={() => {}} onFullPage={() => {}} />);
+    expect(screen.getByText('First?')).toBeInTheDocument();
+    release({ lastComment: { author: 'bot', body: 'Second?' } });
+    expect(await screen.findByText('Second?')).toBeInTheDocument();
+  });
+
+  test('a newer comment carried by the item beats the one fetched earlier', async () => {
+    vi.mocked(needsYouComment).mockResolvedValueOnce({ lastComment: { author: 'bot', body: 'First?' } });
+    const { rerender } = open({ ...task, view: { place: { at: 5, failed: false }, waiting: item({ updatedAt: '1' }) } });
+    expect(await screen.findByText('First?')).toBeInTheDocument();
+    const fresh: QuickTask = { ...task, view: { place: { at: 5, failed: false }, waiting: item({ updatedAt: '2', lastComment: { author: 'bot', body: 'Fresh?' } }) } };
+    rerender(<QuickView task={fresh} project="/repo" onClose={() => {}} onFullPage={() => {}} />);
+    expect(await screen.findByText('Fresh?')).toBeInTheDocument();
+    expect(screen.queryByText('First?')).toBeNull();
+  });
 });

@@ -109,13 +109,15 @@ export function Inspector({
   const [cfg] = useAppConfig(liveRun?.repoPath ?? project);
   // The opened record's flow, from its event log (the plain detail view; on Runs the pane reads it).
   const [detailFlow, setDetailFlow] = useState<string | undefined>();
+  const [detailFlowFailed, setDetailFlowFailed] = useState(false);
   useEffect(() => {
     setDetailFlow(undefined);
+    setDetailFlowFailed(false);
     if (!detail || screen === 'runs') return;
     let alive = true;
     readRunEvents(detailRepo, detail.taskId, detail.timestamp)
       .then((r) => alive && setDetailFlow(foldRunEvents(r.events).flow))
-      .catch(() => {});
+      .catch(() => alive && setDetailFlowFailed(true));
     return () => {
       alive = false;
     };
@@ -697,11 +699,11 @@ export function Inspector({
         // A CI run imported from Settings opens as the plain detail; on Runs the record is the split view's right pane.
         <div ref={detailRef} tabIndex={-1} className="flex min-h-0 flex-1 flex-col gap-3 outline-none">
           <CardAnswer project={detailRepo} taskId={detail.taskId} showQuestion />
-          <RunDetail detail={detail} project={detailRepo} flow={detailFlow} />
+          <RunDetail detail={detail} project={detailRepo} flow={detailFlow} flowUnavailable={detailFlowFailed} />
         </div>
       ) : liveRun && screen !== 'runs' ? (
         <div className="flex min-h-0 flex-1 flex-col">
-          <LiveRun active={liveRun} refreshKey={tick} budgetUsd={cfg.budgetUsd} />
+          <LiveRun active={liveRun} repo={liveRun.repoPath ?? project} refreshKey={tick} budgetUsd={cfg.budgetUsd} />
         </div>
       ) : taskDetailId ? (
         // taskDetailId only fires from the board (full-bleed frame) — re-cap width so this reading

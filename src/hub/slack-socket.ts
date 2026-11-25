@@ -36,7 +36,13 @@ export interface SlackAnswerConfig {
 }
 
 /** A note for the channel never shows a server path. */
-const stripPaths = (s: string): string => s.replace(/\b[A-Za-z]:\\[^\s'"`]+/g, '[path]').replace(/(?<![\w/:])\/[^\s'"`/]+(?:\/[^\s'"`]*)+/g, '[path]');
+const stripPaths = (s: string): string =>
+  s
+    .replace(/file:\/\/[^\s'"`]*/gi, '[path]')
+    .replace(/\\\\[^\s'"`]+/g, '[path]')
+    .replace(/\b[A-Za-z]:[\\/][^\s'"`]*/g, '[path]')
+    // A POSIX path, one segment or more; a space belongs to it only when a `/` follows the next word (`/Users/John Smith/repo`).
+    .replace(/(?<![\w/:])\/[^\s'"`/]+(?:\/[^\s'"`/]+| [^\s'"`/]+(?=\/))*\/?[^\s'"`]*/g, '[path]');
 
 export function parseSlackUsers(raw: string | undefined): Map<string, string> {
   const map = new Map<string, string>();
@@ -88,7 +94,7 @@ export function startSlackAnswers(cfg: SlackAnswerConfig): { close(): void } {
     await api('chat.postMessage', cfg.botToken, { channel, thread_ts: threadTs, text: slackEscape(text), mrkdwn: false, link_names: false, unfurl_links: false, unfurl_media: false }).catch(() => undefined);
   };
 
-  const handle = async (ev: SlackEvent): Promise<void> => {
+  const handle = async (ev: SlackEvent, abandoned: AbortSignal): Promise<void> => {
     if (ev.type !== 'message' || ev.subtype !== undefined || ev.bot_id !== undefined) return;
     if (ev.channel !== cfg.channel || typeof ev.thread_ts !== 'string' || typeof ev.text !== 'string') return;
     const text = ev.text.trim().slice(0, MAX_ANSWER);
@@ -105,6 +111,8 @@ export function startSlackAnswers(cfg: SlackAnswerConfig): { close(): void } {
     // Never an owner, whatever the mapping or the user's stored flag: the answer runs with the user's own reach.
     const user = caller.user;
     const actor: Actor = { login: user.email, admin: false, id: user.id, name: user.name };
+    // A reply that timed out while it looked things up is not posted afterwards.
+    if (abandoned.aborted) return;
     try {
       await dispatchRpc({ ...cfg.ctx, user, actor }, 'reply_needs_you', { repoPath, id, kind, body: text }, { ...caller, owner: false });
     } catch (e) {
@@ -133,11 +141,12 @@ export function startSlackAnswers(cfg: SlackAnswerConfig): { close(): void } {
       }
       const event = env.payload.event;
       const key = typeof event.thread_ts === 'string' ? event.thread_ts : '';
-      // A hung reply holds only its own thread, and only until the timeout (a timed-out reply is abandoned, not cancelled).
+      // A hung reply holds only its own thread, and only until the timeout (a timed-out reply not yet dispatched is dropped; one already running cannot be cancelled).
       const run = async (): Promise<void> => {
         const ac = new AbortController();
-        const limit = sleep(replyTimeout, undefined, { signal: ac.signal, ref: false }).catch(() => undefined);
-        await Promise.race([handle(event), limit]).finally(() => ac.abort());
+        const timedOut = new AbortController();
+        const limit = sleep(replyTimeout, undefined, { signal: ac.signal, ref: false }).then(() => timedOut.abort(), () => undefined);
+        await Promise.race([handle(event, timedOut.signal), limit]).finally(() => ac.abort());
       };
       const next = (chains.get(key) ?? Promise.resolve()).then(run).catch(() => undefined);
       chains.set(key, next);

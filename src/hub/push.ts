@@ -141,7 +141,14 @@ async function pushPass(deps: NotifierDeps): Promise<{ sent: number; items?: Wai
     const regs = await loadPushTokens(deps.configDir);
     if (regs.length === 0 && deps.slack === undefined) return { sent: 0 };
     const items = await deps.listWaiting();
-    return { sent: regs.length === 0 ? 0 : await pushTo(deps, regs, items), items };
+    let sent = 0;
+    try {
+      sent = regs.length === 0 ? 0 : await pushTo(deps, regs, items);
+    } catch (e) {
+      // A failed push pass must not skip the Slack post for these items.
+      console.error(`taskcell-hub: push: pass failed (${e instanceof Error ? e.name : 'error'})`);
+    }
+    return { sent, items };
   } finally {
     running = false;
   }

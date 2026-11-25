@@ -1,8 +1,9 @@
 import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { afterEach, beforeEach, expect, test } from 'vitest';
-import { answerCard, askingCards } from './asking.js';
+import { execa } from 'execa';
+import { afterEach, beforeEach, expect, test, vi } from 'vitest';
+import { answerCard, askingCards, cachedNeedsYou, forgetBoardWaiting } from './asking.js';
 import { createHubTask, editHubTask, listHubTasks, type HubTaskOwner } from './hub-tasks.js';
 import { OWNER } from './test-kit.js';
 
@@ -14,6 +15,7 @@ beforeEach(async () => {
   repo = await mkdtemp(join(tmpdir(), 'asking-repo-'));
 });
 afterEach(async () => {
+  vi.useRealTimers();
   await rm(cfg, { recursive: true, force: true });
   await rm(repo, { recursive: true, force: true });
 });
@@ -90,4 +92,91 @@ test('a hub card waits only while it is failed: a done card (accepted or not) ne
   await record('hub-1', asked);
   await record('hub-2', asked);
   expect(await askingCards(cfg, repo)).toEqual([]);
+});
+
+/** A repository with a GitHub origin and a gh stub: one needs-info issue (`updatedAt` read live), its comments counted. */
+async function githubRepo(): Promise<{ gh: (args: string[]) => Promise<string>; state: { updatedAt: string | undefined; lists: number; commentReads: number } }> {
+  await execa('git', ['init', '-q'], { cwd: repo });
+  await execa('git', ['remote', 'add', 'origin', 'https://github.com/o/r.git'], { cwd: repo });
+  const state = { updatedAt: '2026-11-20T10:00:00Z' as string | undefined, lists: 0, commentReads: 0 };
+  const gh = async (args: string[]): Promise<string> => {
+    if (args[0] === 'api') return 'bot\n';
+    if (args[0] === 'issue' && args[1] === 'list') {
+      state.lists += 1;
+      const issue = { number: 7, title: 'Vague', url: 'https://github.com/o/r/issues/7', labels: [{ name: 'needs info' }], ...(state.updatedAt !== undefined ? { updatedAt: state.updatedAt } : {}) };
+      return JSON.stringify([issue]);
+    }
+    if (args[0] === 'pr' && args[1] === 'list') return '[]';
+    if (args[1] === 'view' && args.at(-1) === 'state,labels') return JSON.stringify({ state: 'OPEN', labels: [] });
+    if (args[1] === 'view') {
+      state.commentReads += 1;
+      return JSON.stringify({ comments: [{ author: { login: 'bot' }, body: `question at ${state.updatedAt}` }] });
+    }
+    return '';
+  };
+  return { gh, state };
+}
+
+test('a short read after a drop hands its comments to the next read; a changed updatedAt fetches them again', async () => {
+  vi.useFakeTimers({ toFake: ['Date'] });
+  const { gh, state } = await githubRepo();
+  forgetBoardWaiting(repo);
+  await cachedNeedsYou(cfg, repo, gh);
+  const first = await cachedNeedsYou(cfg, repo, gh, { remaining: 5 });
+  expect(first.items[0]?.lastComment?.body).toBe('question at 2026-11-20T10:00:00Z');
+  expect(state.commentReads).toBe(1);
+  // The short read expired: the new read carries the comment over instead of fetching it again.
+  vi.setSystemTime(Date.now() + 4_000);
+  const second = await cachedNeedsYou(cfg, repo, gh, { remaining: 5 });
+  expect(state.lists).toBe(2);
+  expect(second.items[0]?.lastComment?.body).toBe('question at 2026-11-20T10:00:00Z');
+  expect(state.commentReads).toBe(1);
+  // The item moved on (a new updatedAt) after a drop: the short read's comment is not carried, it is read again.
+  forgetBoardWaiting(repo);
+  await cachedNeedsYou(cfg, repo, gh);
+  await cachedNeedsYou(cfg, repo, gh, { remaining: 5 });
+  expect(state.commentReads).toBe(2);
+  vi.setSystemTime(Date.now() + 4_000);
+  state.updatedAt = '2026-11-20T11:00:00Z';
+  const third = await cachedNeedsYou(cfg, repo, gh, { remaining: 5 });
+  expect(third.items[0]?.lastComment?.body).toBe('question at 2026-11-20T11:00:00Z');
+  expect(state.commentReads).toBe(3);
+});
+
+test('an item without updatedAt keeps no comment between reads', async () => {
+  vi.useFakeTimers({ toFake: ['Date'] });
+  const { gh, state } = await githubRepo();
+  state.updatedAt = undefined;
+  forgetBoardWaiting(repo);
+  await cachedNeedsYou(cfg, repo, gh);
+  await cachedNeedsYou(cfg, repo, gh, { remaining: 5 });
+  vi.setSystemTime(Date.now() + 4_000);
+  await cachedNeedsYou(cfg, repo, gh, { remaining: 5 });
+  expect(state.commentReads).toBe(2);
+});
+
+test('a drop nobody read after for ten minutes is forgotten: the next read is a normal one', async () => {
+  vi.useFakeTimers({ toFake: ['Date'] });
+  const { gh, state } = await githubRepo();
+  forgetBoardWaiting(repo);
+  vi.setSystemTime(Date.now() + 11 * 60_000);
+  await cachedNeedsYou(cfg, repo, gh);
+  vi.setSystemTime(Date.now() + 4_000);
+  await cachedNeedsYou(cfg, repo, gh);
+  expect(state.lists).toBe(1);
+  // A fresh drop makes the next read a short one: it is read again after 3 s.
+  forgetBoardWaiting(repo);
+  await cachedNeedsYou(cfg, repo, gh);
+  vi.setSystemTime(Date.now() + 4_000);
+  await cachedNeedsYou(cfg, repo, gh);
+  expect(state.lists).toBe(3);
+});
+
+test('withCards=false lists GitHub items only, not the run records asking', async () => {
+  const { gh } = await githubRepo();
+  await appConfig({ taskSource: 'github' });
+  await record('gh-27', asked);
+  forgetBoardWaiting(repo);
+  expect((await cachedNeedsYou(cfg, repo, gh)).items.map((i) => i.id)).toEqual(['o/r#7', 'gh-27']);
+  expect((await cachedNeedsYou(cfg, repo, gh, undefined, false)).items.map((i) => i.id)).toEqual(['o/r#7']);
 });
