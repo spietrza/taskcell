@@ -108,13 +108,33 @@ describe('TaskBoard on a hub-board project', () => {
   test('a read slower than the poll interval gets no trailing read', async () => {
     vi.useFakeTimers();
     mockListTasks.mockResolvedValueOnce({ tasks: [card('starts next')], capped: false, hubBoard: true });
-    mockListTasks.mockReturnValue(new Promise(() => {})); // every later read hangs
+    let release: () => void = () => {};
+    mockListTasks.mockReturnValueOnce(new Promise((r) => { release = () => r({ tasks: [card('starts next')], capped: false, hubBoard: true }); }));
+    mockListTasks.mockResolvedValue({ tasks: [card('starts next')], capped: false, hubBoard: true });
     render(<TaskBoard project="/repo" repos={[]} onOpenTask={() => {}} onNewTask={() => {}} />);
     await act(() => vi.advanceTimersByTimeAsync(0));
     await act(() => vi.advanceTimersByTimeAsync(5000));
     expect(mockListTasks).toHaveBeenCalledTimes(2);
-    await act(() => vi.advanceTimersByTimeAsync(20000));
+    await act(() => vi.advanceTimersByTimeAsync(11000)); // ticks inside the slow read are dropped
     expect(mockListTasks).toHaveBeenCalledTimes(2);
+    release();
+    await act(() => vi.advanceTimersByTimeAsync(0));
+    expect(mockListTasks).toHaveBeenCalledTimes(2); // and leave no trailing read behind
+  });
+
+  test('a tracker board holds a stream-reset re-read for the reconnect gap; a hub board does not', async () => {
+    const { hub } = await import('../../transport');
+    const live = vi.spyOn(hub(), 'liveRead');
+    mockListTasks.mockResolvedValue({ tasks: [TASKS[1]!], capped: false });
+    const { unmount } = render(<TaskBoard project="/repo" repos={[]} onOpenTask={() => {}} onNewTask={() => {}} />);
+    await waitFor(() => expect(live).toHaveBeenCalled());
+    expect(live.mock.calls.at(-1)?.[1].reconnectMinMs).toBeGreaterThan(0);
+    unmount();
+    live.mockClear();
+    mockListTasks.mockResolvedValue({ tasks: [card('starts next')], capped: false, hubBoard: true });
+    render(<TaskBoard project="/repo" repos={[]} onOpenTask={() => {}} onNewTask={() => {}} />);
+    await waitFor(() => expect(live).toHaveBeenCalled());
+    expect(live.mock.calls.at(-1)?.[1].reconnectMinMs).toBeUndefined();
   });
 
   test('polls the all-repositories view and a tracker board too, at the slower tracker cadence', async () => {

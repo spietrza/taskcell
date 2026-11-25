@@ -203,7 +203,7 @@ export function QuickView({
   useEffect(() => {
     if (waiting === null || waiting.kind === 'card' || waiting.lastComment !== undefined) return;
     let alive = true;
-    hub().call('needs_you_comment', { repoPath, id: waiting.id, kind: waiting.kind }).then((c) => alive && setFetched({ id: waiting.id, updatedAt: waiting.updatedAt, ...c }), () => {});
+    hub().call('needs_you_comment', { repoPath, id: waiting.id, kind: waiting.kind }).then((c) => alive && setFetched({ id: waiting.id, updatedAt: waiting.updatedAt, ...c }), () => alive && setFetched(null));
     return () => { alive = false; };
     // The item changing on the tracker (a new factory comment) refetches it, not only a new id.
   }, [repoPath, waiting?.id, waiting?.kind, waiting?.updatedAt]);

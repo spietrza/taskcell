@@ -51,26 +51,44 @@ function signalGroup(pid: number, sig: NodeJS.Signals): void {
 }
 
 const KILL_GRACE_MS = 2000;
-/** Detached children still running, and killed ones inside their grace: a process exit sends them SIGKILL (an `unref`'d timer would never fire then). */
+/** Detached children still running, and killed ones inside their grace (pid -> its SIGKILL timer): a process exit sends them SIGKILL (an `unref`'d timer would never fire then). */
 const liveGroups = new Set<number>();
-const killing = new Set<number>();
+const killing = new Map<number, ReturnType<typeof setTimeout>>();
 let exitHooked = false;
+const killAll = (): void => [...liveGroups, ...killing.keys()].forEach((p) => signalGroup(p, 'SIGKILL'));
 function trackGroup(pid: number): void {
   liveGroups.add(pid);
   if (exitHooked) return;
   exitHooked = true;
-  process.once('exit', () => [...liveGroups, ...killing].forEach((p) => signalGroup(p, 'SIGKILL')));
+  process.once('exit', killAll);
+  // A signal death skips 'exit': kill the groups, then die as the default would unless the app handles the signal itself.
+  // Prepended, so it runs before an app handler that removes itself first (the hub's shutdown) and still counts it.
+  if (process.platform === 'win32') return;
+  for (const sig of ['SIGINT', 'SIGTERM', 'SIGHUP'] as const) {
+    process.prependOnceListener(sig, () => {
+      killAll();
+      if (process.listenerCount(sig) === 0) process.kill(process.pid, sig);
+    });
+  }
+}
+
+/** The child has settled (its pipes closed, so its group is gone): nothing left to signal, and its pid may be reused. */
+function releaseGroup(pid: number): void {
+  liveGroups.delete(pid);
+  clearTimeout(killing.get(pid));
+  killing.delete(pid);
 }
 
 /** SIGTERM first so git can remove its lockfiles; SIGKILL after a grace period for what ignores it. */
 function killGroup(pid: number | undefined): void {
   if (pid === undefined) return;
   signalGroup(pid, 'SIGTERM');
-  killing.add(pid);
-  setTimeout(() => {
+  const timer = setTimeout(() => {
     killing.delete(pid);
     signalGroup(pid, 'SIGKILL');
-  }, KILL_GRACE_MS).unref();
+  }, KILL_GRACE_MS);
+  timer.unref();
+  killing.set(pid, timer);
 }
 
 /**
@@ -97,7 +115,7 @@ function git(cwd: string, args: string[], signal?: AbortSignal): Promise<string>
     signal.addEventListener('abort', onAbort, { once: true });
     child.then((r) => resolve(r.stdout), reject).finally(() => {
       signal.removeEventListener('abort', onAbort);
-      if (pid !== undefined) liveGroups.delete(pid);
+      if (pid !== undefined) releaseGroup(pid);
     });
   });
 }
