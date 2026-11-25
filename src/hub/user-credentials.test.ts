@@ -137,7 +137,7 @@ describe('instance-credential gate (hub owner or admin)', () => {
   });
 
   test('user_credentials_status marks the token owner as a manager', async () => {
-    expect((await rpc(OWNER, 'user_credentials_status')).body.result).toEqual({ enabled: false, admin: true, names: [] });
+    expect((await rpc(OWNER, 'user_credentials_status')).body.result).toMatchObject({ enabled: false, admin: true, names: [] });
   });
 });
 
@@ -183,7 +183,7 @@ describe('run credential choice', () => {
     await rpc(alice, 'save_user_credential', { name: 'OPENAI_API_KEY', value: SECRET_A });
     const start = (provider: string) => rpc(alice, 'api_create_run', { params: { issueRef: '#1', repoPath, provider } });
     expect((await start('claude')).status).toBe(200);
-    expect(createRun.mock.calls[0]![2]).toEqual({ source: 'instance', env: { CLAUDE_CODE_OAUTH_TOKEN: SECRET_INSTANCE } });
+    expect(createRun.mock.calls[0]![2]).toMatchObject({ source: 'instance', env: { CLAUDE_CODE_OAUTH_TOKEN: SECRET_INSTANCE } });
     expect((await start('codex')).status).toBe(200);
     expect(createRun.mock.calls[1]![2]).toEqual({ source: 'user', env: { OPENAI_API_KEY: SECRET_A } });
   });
@@ -216,7 +216,7 @@ describe('user isolation', () => {
 
   test('status never returns a value, only names, and only the caller\'s own', async () => {
     const a = await rpc(alice, 'user_credentials_status');
-    expect(a.body.result).toEqual({ enabled: true, admin: false, names: ['ANTHROPIC_API_KEY'] });
+    expect(a.body.result).toMatchObject({ enabled: true, admin: false, names: ['ANTHROPIC_API_KEY'] });
     expect(JSON.stringify(a.body)).not.toContain(SECRET_A);
     expect((await rpc(bob, 'user_credentials_status')).body.result.names).toEqual([]);
   });

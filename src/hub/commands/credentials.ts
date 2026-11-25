@@ -1,8 +1,8 @@
 // Hub commands: instance and per-user provider credentials, and the credential policy. One module per feature — contract, validation and handler live here;
 // `pnpm gen:wire` derives Commands, COMMAND_NAMES and dispatch from it (see CONTRIBUTING.md).
 import { BadRequestError } from '../../sidecar/sidecar.js';
-import { USER_SCOPE, CREDENTIAL_NAMES, CREDENTIAL_POLICIES, parseCredentialInput, parseCredentialName, type CredentialService, type HubUser } from '../credentials.js';
-import type { CredentialPolicy } from '../../wire.js';
+import { USER_SCOPE, CREDENTIAL_NAMES, termsWarningFor, CREDENTIAL_POLICIES, ACCOUNT_PROVIDERS, ACCOUNT_TYPES, parseCredentialInput, parseCredentialName, type AccountInput, type CredentialService, type HubUser } from '../credentials.js';
+import type { AccountType, CredentialAccountView, CredentialPolicy } from '../../wire.js';
 import type { RpcContext } from '../rpc.js';
 import { defineCommands, type AuditSpec } from '../command-kit.js';
 
@@ -11,11 +11,19 @@ export interface CredentialsCommands {
   get_credential_policy: { args: undefined; result: { policy: CredentialPolicy } };
   set_credential_policy: { args: { policy: CredentialPolicy }; result: void };
   /** HUB_ONLY, hub owner or admin only: instance provider credentials. Write-only — status lists names, never values. */
-  instance_credentials_status: { args: undefined; result: { names: string[]; reason?: string } };
+  instance_credentials_status: { args: undefined; result: { names: string[]; reason?: string; accounts: CredentialAccountView[]; termsWarning?: string } };
+  /** HUB_ONLY, hub owner or admin only: the instance's Claude accounts (up to 20, tried in list order; a limited one cools until its reset). `value` is required to create and optional to rename or switch one; it is never returned. A second enabled subscription token needs `acknowledgeTerms` (see docs/hub.md). */
+  save_instance_account: { args: { id?: string; provider: 'claude'; name: string; type: AccountType; value?: string; enabled?: boolean; acknowledgeTerms?: boolean }; result: { id: string } };
+  delete_instance_account: { args: { id: string }; result: void };
+  reorder_instance_accounts: { args: { ids: string[] }; result: void };
   save_instance_credential: { args: { name: string; value: string }; result: void };
   delete_instance_credential: { args: { name: string }; result: void };
   /** HUB_ONLY: the signed-in user's OWN credentials (no RPC takes a user id). Write-only. */
-  user_credentials_status: { args: undefined; result: { enabled: boolean; admin: boolean; names: string[] } };
+  user_credentials_status: { args: undefined; result: { enabled: boolean; admin: boolean; names: string[]; accounts: CredentialAccountView[]; termsWarning?: string } };
+  /** HUB_ONLY: the signed-in user's OWN Claude accounts. A second enabled subscription token needs `acknowledgeTerms`, as on the instance (see docs/hub.md). */
+  save_user_account: { args: { id?: string; provider: 'claude'; name: string; type: AccountType; value?: string; enabled?: boolean; acknowledgeTerms?: boolean }; result: { id: string } };
+  delete_user_account: { args: { id: string }; result: void };
+  reorder_user_accounts: { args: { ids: string[] }; result: void };
   save_user_credential: { args: { name: string; value: string }; result: void };
   delete_user_credential: { args: { name: string }; result: void };
 }
@@ -32,6 +40,46 @@ function requireUser(ctx: RpcContext): HubUser {
   return ctx.user;
 }
 
+/** Validate an account save. `value` is trimmed and non-blank when present, and required when `id` is absent. Unknown keys are ignored. */
+export function parseAccountInput(args: Record<string, unknown>): AccountInput & { provider: 'claude'; name: string; type: AccountType } {
+  const { id, provider, name, type, value, enabled, acknowledgeTerms } = args;
+  if (id !== undefined && typeof id !== 'string') throw new BadRequestError('id must be a string');
+  if (!(ACCOUNT_PROVIDERS as readonly unknown[]).includes(provider)) throw new BadRequestError(`provider must be one of: ${ACCOUNT_PROVIDERS.join(', ')}`);
+  if (typeof name !== 'string' || name.trim() === '') throw new BadRequestError('name is required');
+  if (!(ACCOUNT_TYPES as readonly unknown[]).includes(type)) throw new BadRequestError(`type must be one of: ${ACCOUNT_TYPES.join(', ')}`);
+  if (value !== undefined && (typeof value !== 'string' || value.trim() === '')) throw new BadRequestError('value must be a non-blank string');
+  if (value === undefined && id === undefined) throw new BadRequestError('value is required for a new credential');
+  if (enabled !== undefined && typeof enabled !== 'boolean') throw new BadRequestError('enabled must be a boolean');
+  return {
+    ...(id !== undefined ? { id } : {}),
+    provider: 'claude',
+    name: name.trim(),
+    type: type as AccountType,
+    ...(value !== undefined ? { value: (value as string).trim() } : {}),
+    ...(enabled !== undefined ? { enabled } : {}),
+    ...(acknowledgeTerms === true ? { acknowledgeTerms: true } : {}),
+  };
+}
+
+function requireIds(args: Record<string, unknown>): string[] {
+  const { ids } = args;
+  if (!Array.isArray(ids) || ids.some((i) => typeof i !== 'string')) throw new BadRequestError('ids must be a list of credential ids');
+  return ids as string[];
+}
+
+function requireId(args: Record<string, unknown>): string {
+  if (typeof args.id !== 'string' || args.id === '') throw new BadRequestError('id is required');
+  return args.id;
+}
+
+/** Own-scope user RPCs are refused when per-user credentials are off. */
+async function userScope(ctx: RpcContext): Promise<{ svc: CredentialService; scope: ReturnType<typeof USER_SCOPE> }> {
+  const svc = requireCredentials(ctx);
+  const user = requireUser(ctx);
+  if ((await svc.policy()) === 'off') throw new BadRequestError('per-user credentials are turned off on this hub');
+  return { svc, scope: USER_SCOPE(user) };
+}
+
 function requirePolicy(args: Record<string, unknown>): CredentialPolicy {
   const v = args.policy;
   if (!(CREDENTIAL_POLICIES as readonly unknown[]).includes(v)) throw new BadRequestError(`policy must be one of: ${CREDENTIAL_POLICIES.join(', ')}`);
@@ -45,6 +93,12 @@ const CREDENTIAL_AUDIT: AuditSpec = {
     ? `credential:${args.name}`
     : 'credential',
 };
+/** An account write names its id only (or `new`): never the name or the value. */
+const ACCOUNT_AUDIT: AuditSpec = {
+  action: 'settings-change',
+  target: (args) => `credential-account:${typeof args.id === 'string' && /^[\w-]{1,64}$/.test(args.id) ? args.id : 'new'}`,
+};
+const ACCOUNT_ORDER_AUDIT: AuditSpec = { action: 'settings-change', target: () => 'credential-account:order' };
 const CREDENTIAL_POLICY_AUDIT: AuditSpec = {
   action: 'settings-change',
   target: (args) => (CREDENTIAL_POLICIES as readonly unknown[]).includes(args.policy)
@@ -69,6 +123,23 @@ export const commands = defineCommands<CredentialsCommands>({
     svc.assertManager(ctx.user, caller.owner);
     return svc.instanceStatus();
   },
+  save_instance_account: async ({ ctx, args, caller }) => {
+    const svc = requireCredentials(ctx);
+    svc.assertManager(ctx.user, caller.owner);
+    return { id: await svc.store.putAccount('instance', parseAccountInput(args)) };
+  },
+  delete_instance_account: async ({ ctx, args, caller }) => {
+    const svc = requireCredentials(ctx);
+    svc.assertManager(ctx.user, caller.owner);
+    await svc.store.removeAccount('instance', requireId(args));
+    return null;
+  },
+  reorder_instance_accounts: async ({ ctx, args, caller }) => {
+    const svc = requireCredentials(ctx);
+    svc.assertManager(ctx.user, caller.owner);
+    await svc.store.reorderAccounts('instance', requireIds(args));
+    return null;
+  },
   save_instance_credential: async ({ ctx, args, caller }) => {
     const svc = requireCredentials(ctx);
     svc.assertManager(ctx.user, caller.owner);
@@ -86,7 +157,23 @@ export const commands = defineCommands<CredentialsCommands>({
     const svc = requireCredentials(ctx);
     const enabled = (await svc.policy()) !== 'off';
     const names = ctx.user !== undefined && enabled ? await svc.store.names(USER_SCOPE(ctx.user)) : [];
-    return { enabled, admin: (caller.owner || svc.isAdmin(ctx.user)), names };
+    const accounts = ctx.user !== undefined && enabled ? await svc.accountViews(USER_SCOPE(ctx.user)) : [];
+    const termsWarning = ctx.user !== undefined && enabled ? termsWarningFor(await svc.store.accounts(USER_SCOPE(ctx.user))) : undefined;
+    return { enabled, admin: (caller.owner || svc.isAdmin(ctx.user)), names, accounts, ...(termsWarning !== undefined ? { termsWarning } : {}) };
+  },
+  save_user_account: async ({ ctx, args }) => {
+    const { svc, scope } = await userScope(ctx);
+    return { id: await svc.store.putAccount(scope, parseAccountInput(args)) };
+  },
+  delete_user_account: async ({ ctx, args }) => {
+    const { svc, scope } = await userScope(ctx);
+    await svc.store.removeAccount(scope, requireId(args));
+    return null;
+  },
+  reorder_user_accounts: async ({ ctx, args }) => {
+    const { svc, scope } = await userScope(ctx);
+    await svc.store.reorderAccounts(scope, requireIds(args));
+    return null;
   },
   save_user_credential: async ({ ctx, args }) => {
     const svc = requireCredentials(ctx);
@@ -107,6 +194,12 @@ export const commands = defineCommands<CredentialsCommands>({
   get_credential_policy: { write: false, gatedBy: 'assertManager (owner or hub admin)' },
   set_credential_policy: { write: true, remote: 'owner-only', gatedBy: 'assertManager (owner or hub admin)' },
   instance_credentials_status: { write: false, gatedBy: 'assertManager (owner or hub admin)' },
+  save_instance_account: { write: true, remote: 'owner-only', gatedBy: 'assertManager (owner or hub admin)' },
+  delete_instance_account: { write: true, remote: 'owner-only', gatedBy: 'assertManager (owner or hub admin)' },
+  reorder_instance_accounts: { write: true, remote: 'owner-only', gatedBy: 'assertManager (owner or hub admin)' },
+  save_user_account: { write: true, gatedBy: 'the signed-in caller\'s own scope (no user id is taken)', unaudited: 'a user\'s own credential, never another\'s; values are never logged' },
+  delete_user_account: { write: true, gatedBy: 'the signed-in caller\'s own scope (no user id is taken)', unaudited: 'a user\'s own credential, never another\'s; values are never logged' },
+  reorder_user_accounts: { write: true, gatedBy: 'the signed-in caller\'s own scope (no user id is taken)', unaudited: 'a user\'s own credential, never another\'s; values are never logged' },
   save_instance_credential: { write: true, remote: 'owner-only', gatedBy: 'assertManager (owner or hub admin)' },
   delete_instance_credential: { write: true, remote: 'owner-only', gatedBy: 'assertManager (owner or hub admin)' },
   user_credentials_status: { write: false },
@@ -114,6 +207,9 @@ export const commands = defineCommands<CredentialsCommands>({
   delete_user_credential: { write: true, gatedBy: 'the signed-in caller\'s own scope (no user id is taken)', unaudited: 'a user\'s own credential, never another\'s; values are never logged' },
 }, {
   set_credential_policy: CREDENTIAL_POLICY_AUDIT,
+  save_instance_account: ACCOUNT_AUDIT,
+  delete_instance_account: ACCOUNT_AUDIT,
+  reorder_instance_accounts: ACCOUNT_ORDER_AUDIT,
   save_instance_credential: CREDENTIAL_AUDIT,
   delete_instance_credential: CREDENTIAL_AUDIT,
 });

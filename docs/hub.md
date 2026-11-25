@@ -851,6 +851,18 @@ The admin match uses the login GitHub reports for the account's numeric id at ea
 in `hub_github_login` in `auth.sqlite`), never a profile field a user can edit: after upgrading, an
 admin signs out and in with GitHub once before the switch appears.
 
+## Several Anthropic accounts, rotated on limits
+
+Settings → Credentials has an **Anthropic accounts** section (instance accounts for the hub owner or an admin, and "Your Anthropic accounts" for each signed-in user when per-user credentials are on). Add up to **20 accounts per scope** (the instance scope is hub-wide; each user has their own 20; disabled ones count). Each has a name, a type — *subscription token* (`CLAUDE_CODE_OAUTH_TOKEN`), *API key* (`ANTHROPIC_API_KEY`) or *auth token (gateway)* (`ANTHROPIC_AUTH_TOKEN`) — and an on/off switch; you can rename, switch off, reorder and remove them. Secrets are write-only: stored encrypted on the hub, never returned by any RPC, and never shown again after saving. A store written by an older hub loads as one account per saved variable, named after the variable; the first save writes the new format, which an older hub binary cannot read.
+
+- **Pick order.** List order: a run uses the first enabled account that is not cooling down ("fill one, then the next"). Reorder with the arrows.
+- **Rotation.** An account that hits a provider usage or rate limit is cooled down until the limit's reset (one hour when none is named) and the run restarts on the next account in a fresh sandbox, so the sandbox and LLM proxy always hold exactly one credential. The run shows a warning naming both accounts (names, never secrets). Cool-downs live in `credential-cooldowns.json` in the hub config directory, in the same format as a model pool's `.taskcell/model-pool-cooldowns.json`; the file holds account ids and times only. A credential's accounts are exhausted before a model-pool entry, a stage fallback or the fallback chain (see "Fallback chain on a provider limit") moves on: while another account has quota, a limit restarts the run on it; once every account is cooling, the chain takes over. The run's fallback-chain keys stay with it on every account.
+- **All accounts out.** The original limit error stands: a GitHub run parks as `rate-limited`, and a hub-board task stays todo with "all N Claude credentials are cooling down; the first resets at …" until the first reset. With *user first*, a user whose own accounts are all cooling is refused rather than moved onto the instance's accounts. A project with a fallback chain entry the run can fund is not refused: the run starts (on the account that resets first, plus the chain's keys) and moves to the chain as it would without stored accounts.
+- **Where the name shows.** The run detail ("billed to the hub's account "Team key 2"") and `taskcell stats` (**BY CREDENTIAL**). Names are written to run records and `metrics.jsonl`, which may be uploaded as CI artefacts: do not put secrets or personal e-mail addresses in names.
+- **Only Claude** has several accounts for now; other providers keep one value per variable.
+
+**Terms caveat.** Anthropic's Claude Code terms say plan limits "assume ordinary, individual usage". Rotating several *subscription* accounts to get past limits may breach the Consumer Terms (see #1047); API keys are clearly allowed. So, in the instance scope and in each user scope alike, a second or later enabled subscription token is saved only after you acknowledge this caveat (`acknowledgeTerms`; Settings asks), and that scope's status then shows a warning (`termsWarning`) while more than one is enabled. This is a recommendation, not legal advice. Hosted plans are API-key only; this change has no hosted-plan concept to enforce that.
+
 ## CLI flags
 
 ```

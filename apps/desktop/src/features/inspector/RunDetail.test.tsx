@@ -99,6 +99,12 @@ test('a changed gate config says why it matters', () => {
   expect(screen.getByRole('note')).toHaveTextContent('Gate config changed: package.json');
 });
 
+test('the overview shows the stored credential name, never a value', () => {
+  const named: StageDetail = { record: { ...stage().record, credentialSource: 'instance', credentialName: 'Team key 2' } };
+  render(<RunDetail detail={{ taskId: 'task-1', timestamp: stage().record.timestamp, stages: [named] }} project="/repo" />);
+  expect(screen.getByText(/billed to the hub's account "Team key 2"/)).toBeInTheDocument();
+});
+
 test('shows the flow line when the run has a flow, and none without', () => {
   const detail: RunDetailT = { taskId: 'task-1', timestamp: 't', stages: [stage()] };
   const { unmount } = render(<RunDetail detail={detail} project="/repo" flow="plan" />);

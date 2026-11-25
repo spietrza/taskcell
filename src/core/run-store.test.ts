@@ -280,6 +280,33 @@ describe('beginRun — writing', () => {
     expect('credentialSource' in other).toBe(false);
   });
 
+  it('records credentialName on the stage record and as `credential` on the metric line', async () => {
+    await beginRun(repo, 'TES-1', TS).writeStages([{ name: 'implementer', result }], { credentialSource: 'instance', credentialName: 'Team key 2' });
+    const record = JSON.parse(await readFile(join(runsRoot(repo), 'TES-1', `${PREFIX}-implementer.json`), 'utf8'));
+    expect(record.credentialName).toBe('Team key 2');
+    const metrics = (await readFile(join(runsRoot(repo), 'metrics.jsonl'), 'utf8')).trim().split('\n').map((l) => JSON.parse(l) as Record<string, unknown>);
+    expect(metrics.find((m) => m.evt === 'run_complete')?.credential).toBe('Team key 2');
+    await beginRun(repo, 'TES-2', TS).writeStages([{ name: 'implementer', result }]);
+    const other = JSON.parse(await readFile(join(runsRoot(repo), 'TES-2', `${PREFIX}-implementer.json`), 'utf8'));
+    expect('credentialName' in other).toBe(false);
+  });
+
+  it('masks a registered secret value inside credentialName in the record and the metric line', async () => {
+    const { registerInjectedSecretValue, forgetInjectedSecretValue } = await import('./secret-scan.js');
+    const secret = 'sk-ant-api03-LEAKYNAME1234567890';
+    registerInjectedSecretValue(secret);
+    try {
+      await beginRun(repo, 'TES-3', TS).writeStages([{ name: 'implementer', result }], { credentialName: `key ${secret}` });
+    } finally {
+      forgetInjectedSecretValue(secret);
+    }
+    const record = await readFile(join(runsRoot(repo), 'TES-3', `${PREFIX}-implementer.json`), 'utf8');
+    const metrics = await readFile(join(runsRoot(repo), 'metrics.jsonl'), 'utf8');
+    expect(record).not.toContain(secret);
+    expect(metrics).not.toContain(secret);
+    expect(JSON.parse(record).credentialName).toContain('[REDACTED');
+  });
+
   it('stamps startedBy on every stage record and the run summary when given', async () => {
     await beginRun(repo, 'TES-1', TS, { startedBy: 'alice' }).writeStages([{ name: 'implementer', result }]);
     const record = JSON.parse(await readFile(join(runsRoot(repo), 'TES-1', `${PREFIX}-implementer.json`), 'utf8'));

@@ -11,7 +11,7 @@ export interface SetupCommands {
 
 export const commands = defineCommands<SetupCommands>({
   setup_status: async ({ ctx }) => {
-    const credentials = ctx.userCredentials === undefined ? { names: [] } : await ctx.userCredentials.instanceStatus();
+    const credentials = ctx.userCredentials === undefined ? { names: [] as string[], reason: undefined as string | undefined } : await ctx.userCredentials.instanceStatus();
     return detectSetup(credentials.names, process.env, undefined, credentials.reason);
   },
 }, {

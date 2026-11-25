@@ -8,7 +8,7 @@ import { buildXmlPrompt } from '../context/xml-prompt.js';
 import { diffForPrompt } from '../context/escape.js';
 import { extractJson } from '../structured/extract.js';
 import { verdictSchema } from '../evals/judges.js';
-import { AgentError, FallbackFailedError, isProviderAuthError, isProviderLimitError, isRateLimitError, rateLimitResetDelayMs } from '../core/errors.js';
+import { AgentError, FallbackFailedError, isProviderAuthError, isProviderLimitError, isRateLimitError, ProviderLimitError, rateLimitResetDelayMs } from '../core/errors.js';
 import { parseProviderRateLimitReset } from '../core/rate-limit-marker.js';
 import { enforceUsageCap, UsageCapError } from '../core/usage-cap.js';
 import { roundUsd } from '../core/usd.js';
@@ -191,6 +191,11 @@ export interface RunStagesOptions {
    * gate's repairs changed the tree. Never called when the pipeline has no reviewer stage.
    */
   gateBeforeReview?: (outcomes: StageOutcome[]) => Promise<{ pass: boolean; diff?: string }>;
+  /**
+   * True when a provider limit on this provider should leave the stage instead of moving to its fallback: the run's
+   * credential rotation has another account of that provider with quota, and accounts are exhausted before the fallback.
+   */
+  holdLimitForRotation?: (provider: string) => Promise<boolean>;
 }
 
 /**
@@ -437,6 +442,7 @@ export async function runBudgetedStages(
       });
     } catch (err) {
       const rateLimited = err instanceof AgentError && isRateLimitError(err);
+      if (err instanceof ProviderLimitError && stage.fallback !== undefined && !onCapFallback && (await opts.holdLimitForRotation?.(effectiveAgent.name)) === true) throw err;
       if (err instanceof AgentError && stage.fallback !== undefined && !onCapFallback) {
         // No `reason` here: AgentError carries the CLI's raw stderr, and an auth failure may echo the
         // credential it was handed — the redactor knows common token shapes, not every vendor's.

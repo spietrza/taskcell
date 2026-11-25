@@ -135,3 +135,19 @@ describe('cool-down store', () => {
     expect(cooldownUntil('something broke', now).toISOString()).toBe('2026-11-16T11:00:00.000Z');
   });
 });
+
+describe('model pool cooldown file (shared mechanism)', () => {
+  it('keeps writing .taskcell/model-pool-cooldowns.json as { "provider/model": ISO }', async () => {
+    const { readFile } = await import('node:fs/promises');
+    const repo = await mkdtemp(join(tmpdir(), 'pool-fmt-'));
+    try {
+      const until = new Date(Date.now() + 3600_000);
+      await recordCooldown(repo, { provider: 'claude', model: 'sonnet' }, until);
+      const raw = JSON.parse(await readFile(join(repo, '.taskcell', 'model-pool-cooldowns.json'), 'utf8')) as Record<string, string>;
+      expect(raw).toEqual({ 'claude/sonnet': until.toISOString() });
+      expect((await readCooldowns(repo)).get('claude/sonnet')?.toISOString()).toBe(until.toISOString());
+    } finally {
+      await rm(repo, { recursive: true, force: true });
+    }
+  });
+});

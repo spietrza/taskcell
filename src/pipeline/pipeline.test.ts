@@ -34,7 +34,7 @@ import {
 import type { PipelineStage, StageName, StageRouting } from './pipeline.js';
 import type { RunEvent } from './events.js';
 import type { Complete } from '../evals/judges.js';
-import { AgentError, FallbackFailedError } from '../core/errors.js';
+import { AgentError, FallbackFailedError, ProviderLimitError } from '../core/errors.js';
 import { WorktreeManager } from '../worktree/manager.js';
 import type { IsolatedSandboxProvider, ExecResult } from '../sandbox/provider.js';
 import type { AgentProvider, AgentRunInput, AgentTurn, AgentRunOutput } from '../agents/provider.js';
@@ -286,6 +286,25 @@ describe('runBudgetedStages', () => {
       expect(result.outcomes[0]?.primaryAuthRefused).toBe('claude');
       expect(result.outcomes[0]?.primaryLimitResetAt).toBeUndefined();
     }
+    await disposeContext(ctx);
+  });
+
+  it('a provider limit leaves the stage, skipping its fallback, while the credential rotation holds it for another account', async () => {
+    const wm = new WorktreeManager(repo);
+    const limit = new ProviderLimitError('rate_limit_error: usage limit reached');
+    const primary: AgentProvider = {
+      name: 'claude',
+      async *run(): AsyncGenerator<AgentTurn, AgentRunOutput, void> {
+        throw limit;
+      },
+    };
+    const fallbackInputs: AgentRunInput[] = [];
+    const ctx = await prepareContext({ taskId: 'hold-limit', localRepoPath: repo, baseBranch: 'main', start: 'base', sandbox: makeSandbox() }, { worktrees: wm });
+    const stages = withPrimaryFallback([{ name: 'implementer', promptTemplate: 'impl' }], { provider: recordingAgent(fallbackInputs) });
+    const held: string[] = [];
+    await expect(runBudgetedStages(ctx, stages, { agent: primary, maxCostUsd: 1, holdLimitForRotation: async (p) => (held.push(p), true) })).rejects.toBe(limit);
+    expect(held).toEqual(['claude']);
+    expect(fallbackInputs).toHaveLength(0);
     await disposeContext(ctx);
   });
 

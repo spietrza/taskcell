@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { parseMetrics, parseProbes, aggregateMetrics, formatStats, modelKey, probeReport } from './stats.js';
-import { modelPickReport, formatModelPicks } from './stats.js';
+import { modelPickReport, formatModelPicks, credentialReport, formatCredentials } from './stats.js';
 
 const line = (o: Record<string, unknown>): string => JSON.stringify({ evt: 'run_complete', ...o });
 
@@ -198,5 +198,23 @@ describe('modelPickReport', () => {
     expect(out).toContain('BY MODEL PER STAGE');
     expect(out).toContain('100% (1/1)');
     expect(formatModelPicks([])).toBe('');
+  });
+});
+
+describe('credentialReport', () => {
+  it('groups by credential name, counts limit stops and skips lines without a credential', () => {
+    const lines = [
+      { evt: 'run_complete', taskId: 'a', ts: 't1', stage: 'implementer', credential: 'Key B', costUsd: 1, inputTokens: 10, outputTokens: 5 },
+      { evt: 'run_complete', taskId: 'a', ts: 't1', stage: 'reviewer', credential: 'Key B', costUsd: 0.5, inputTokens: 1, outputTokens: 2, stoppedBy: 'provider-limit' },
+      { evt: 'run_complete', taskId: 'b', ts: 't2', stage: 'implementer', credential: 'Key A', costUsd: 2, inputTokens: 3, outputTokens: 4 },
+      { evt: 'run_complete', taskId: 'c', ts: 't3', stage: 'implementer', costUsd: 9 },
+    ];
+    const rows = credentialReport(lines.map((l) => JSON.stringify(l)).join('\n'));
+    expect(rows).toEqual([
+      { credential: 'Key A', runs: 1, costUsd: 2, inputTokens: 3, outputTokens: 4, limitStops: 0 },
+      { credential: 'Key B', runs: 2, costUsd: 1.5, inputTokens: 11, outputTokens: 7, limitStops: 1 },
+    ]);
+    expect(formatCredentials(rows)).toContain('BY CREDENTIAL');
+    expect(formatCredentials([])).toBe('');
   });
 });

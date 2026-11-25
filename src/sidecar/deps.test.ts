@@ -3,6 +3,8 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { beginRun as beginStoredRun, runsRoot, sanitizeTimestamp } from '../core/run-store.js';
+import { CredentialLimited } from '../runners/run-execution.js';
+import { ProviderLimitError } from '../core/errors.js';
 import { invokeCoreMethod } from './sidecar.js';
 import type { RunResult } from '../core/types.js';
 import type { RunEvent } from '../pipeline/events.js';
@@ -530,6 +532,16 @@ describe('createRun with a `user` credential: no instance key fallback (user-onl
     const choice = { provider: 'my-proxy', customProviders: [{ ...ENTRY, index: 0 }] };
     expect(credentialEnv({ source: 'instance', env: {} }, choice).MY_PROXY_API_KEY).toBe('sk-host-proxy-key-123456');
   });
+
+  it('a picked stored account wins over a host Anthropic credential', () => {
+    setEnv({ CLAUDE_CODE_OAUTH_TOKEN: 'host-oauth-token-123456', ANTHROPIC_AUTH_TOKEN: 'host-gateway-123456' });
+    const env = credentialEnv({ source: 'instance', env: { ANTHROPIC_API_KEY: 'sk-ant-picked-123456' }, accountId: 'b', accountName: 'Key B' }, { provider: 'claude' });
+    expect(env.CLAUDE_CODE_OAUTH_TOKEN).toBeUndefined();
+    expect(env.ANTHROPIC_AUTH_TOKEN).toBeUndefined();
+    expect(env.ANTHROPIC_API_KEY).toBe('sk-ant-picked-123456');
+    // a credential that is not a stored account still overlays the host env, as before
+    expect(credentialEnv({ source: 'instance', env: {} }, { provider: 'claude' }).CLAUDE_CODE_OAUTH_TOKEN).toBe('host-oauth-token-123456');
+  });
 });
 
 describe('createRun registers a stored CODEX_AUTH_JSON\'s inner tokens for the secret gate', () => {
@@ -547,6 +559,99 @@ describe('createRun registers a stored CODEX_AUTH_JSON\'s inner tokens for the s
     expect(during).toEqual(expect.arrayContaining(['sk-proj-Ab3Xy9Qm2Kp7Lz4Vw8', ...Object.values(tokens)]));
     const after = injectedSecretValues({});
     for (const v of Object.values(tokens)) expect(after).not.toContain(v);
+  });
+});
+
+describe('createRun credential rotation', () => {
+  const credA = { source: 'instance' as const, env: { ANTHROPIC_API_KEY: 'sk-ant-AAAA-secret' }, accountId: 'a', accountName: 'Key A' };
+  const credB = { source: 'instance' as const, env: { ANTHROPIC_API_KEY: 'sk-ant-BBBB-secret' }, accountId: 'b', accountName: 'Key B' };
+  const mkRotation = (next: typeof credB | undefined): { provider: string; hasNext: () => Promise<boolean>; limited: ReturnType<typeof vi.fn>; cool: () => Promise<void>; refresh: (c: typeof credA) => Promise<typeof credA> } => ({
+    provider: 'claude',
+    hasNext: async () => next !== undefined,
+    limited: vi.fn(async () => next),
+    cool: async () => {},
+    refresh: async (c) => c,
+  });
+  const destroy = vi.fn(async () => {});
+
+  it('continues on the next account in a fresh sandbox holding only that secret, and keeps both redacted until the end', async () => {
+    const repoPath = await plainRepo();
+    const limit = new ProviderLimitError('limit');
+    const until = new Date(Date.now() + 3600_000);
+    startSandboxContext.mockImplementation(async (opts: { llmProxy?: boolean }) => ({ proxyMode: false, destroy, ...opts }) as never);
+    const seenDuring: string[][] = [];
+    runGithubIssue.mockImplementationOnce(async () => {
+      throw new CredentialLimited(limit, until);
+    });
+    runGithubIssue.mockImplementationOnce(async () => {
+      seenDuring.push(injectedSecretValues({}));
+      return { prUrl: 'https://example/pr/2' };
+    });
+    const events: RunEvent[] = [];
+    const rotation = mkRotation(credB);
+    const result = await productionDeps().createRun({ issueRef: 'o/r#1', repoPath }, (e) => events.push(e), credA, rotation as never);
+    expect(result).toEqual({ prUrl: 'https://example/pr/2' });
+    expect(rotation.limited).toHaveBeenCalledWith('a', until);
+    // each attempt: its own sandbox context holding only its credential
+    expect(startSandboxContext).toHaveBeenCalledTimes(2);
+    const [first, second] = startSandboxContext.mock.calls.map((c) => JSON.stringify(c[0]));
+    expect(first).toContain('sk-ant-AAAA-secret');
+    expect(first).not.toContain('sk-ant-BBBB-secret');
+    expect(second).toContain('sk-ant-BBBB-secret');
+    expect(second).not.toContain('sk-ant-AAAA-secret');
+    expect(destroy).toHaveBeenCalledTimes(2);
+    // both registered while the run lasts, forgotten after
+    expect(seenDuring[0]).toEqual(expect.arrayContaining(['sk-ant-AAAA-secret', 'sk-ant-BBBB-secret']));
+    expect(injectedSecretValues({})).not.toContain('sk-ant-AAAA-secret');
+    const warning = events.find((e) => e.type === 'warning') as { message: string } | undefined;
+    expect(warning?.message).toContain('Key A');
+    expect(warning?.message).toContain('Key B');
+    expect(warning?.message).not.toContain('sk-ant');
+    // the second attempt's run options name the account that funds it
+    expect(runGithubIssue.mock.calls.at(-1)![1]).toMatchObject({ credentialName: 'Key B' });
+  });
+
+  it('one account rescued in-run by a [codex] chain: the next run still starts and carries the chain', async () => {
+    const { createCredentialService } = await import('../hub/credentials.js');
+    const svc = createCredentialService(await plainRepo());
+    await svc.store.putAccount('instance', { name: 'Only', type: 'api-key', value: 'sk-ant-only' });
+    await svc.store.put('instance', 'CODEX_API_KEY', 'ck');
+    const repoPath = await plainRepo();
+    const params = { issueRef: 'o/r#1', repoPath, provider: 'claude', fallbackProvider: 'codex' };
+    // Run 1: the engine's fallback rescued the Claude limit, so the run cools its account (no other account to rotate to).
+    const first = await svc.resolveForRun(undefined, 'claude', ['codex']);
+    runGithubIssue.mockImplementationOnce(async (_ref: unknown, opts: { onCredentialCooled?: (until: Date) => Promise<void> }) => {
+      await opts.onCredentialCooled?.(new Date(Date.now() + 3600_000));
+      return { prUrl: 'https://example/pr/1' };
+    });
+    await productionDeps().createRun(params, () => {}, first, svc.rotationFor(undefined, 'claude', first));
+    expect((await svc.accountViews('instance'))[0]?.coolingUntil).toBeDefined();
+    // Run 2: not refused; it starts with the chain so the engine moves to codex.
+    const second = await svc.resolveForRun(undefined, 'claude', ['codex']);
+    await expect(productionDeps().createRun(params, () => {}, second, svc.rotationFor(undefined, 'claude', second))).resolves.toEqual({ prUrl: 'https://example/pr/1' });
+    expect(runGithubIssue.mock.calls.at(-1)![1]).toMatchObject({ fallbackProvider: 'codex' });
+  });
+
+  it('chain warnings are emitted once per run, not again on the next account', async () => {
+    const repoPath = await plainRepo();
+    runGithubIssue.mockImplementationOnce(async () => {
+      throw new CredentialLimited(new ProviderLimitError('limit'), new Date(Date.now() + 3600_000));
+    });
+    const events: RunEvent[] = [];
+    await productionDeps().createRun({ issueRef: 'o/r#1', repoPath, provider: 'claude', fallbackProvider: 'cursor,codex' }, (e) => events.push(e), credA, mkRotation(credB) as never);
+    const chain = events.flatMap((e) => (e.type === 'warning' && e.message.startsWith('fallback entry') ? [e.message] : []));
+    // credA funds neither entry: one warning each, from the first attempt only.
+    expect(chain).toEqual(['fallback entry cursor skipped: no stored credential for it', 'fallback entry codex skipped: no stored credential for it']);
+    expect(runGithubIssue).toHaveBeenCalledTimes(2);
+  });
+
+  it('with every account out, the original limit error escapes (the run parks)', async () => {
+    const repoPath = await plainRepo();
+    const limit = new ProviderLimitError('limit');
+    runGithubIssue.mockImplementationOnce(async () => {
+      throw new CredentialLimited(limit, new Date(Date.now() + 1000));
+    });
+    await expect(productionDeps().createRun({ issueRef: 'o/r#1', repoPath }, () => {}, credA, mkRotation(undefined) as never)).rejects.toBe(limit);
   });
 });
 

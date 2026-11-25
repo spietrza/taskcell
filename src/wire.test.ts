@@ -114,6 +114,17 @@ describe('stations and run labels (the card view\'s shared vocabulary)', () => {
   });
 });
 
+describe('credential account commands', () => {
+  it('are in the wire contract and never return a stored value', () => {
+    for (const name of ['save_instance_account', 'delete_instance_account', 'reorder_instance_accounts', 'save_user_account', 'delete_user_account', 'reorder_user_accounts'] as const) {
+      expect(HUB_POLICY[name]?.write, name).toBe(true);
+    }
+    expectTypeOf<Commands['save_instance_account']['result']>().toEqualTypeOf<{ id: string }>();
+    expectTypeOf<import('./wire.js').CredentialAccountView>().not.toHaveProperty('value');
+    expect(readSource('wire.ts')).not.toMatch(/interface CredentialAccountView \{[^}]*\bvalue\b/);
+  });
+});
+
 describe('fallbackChainErrors (shared by write_app_config and the Settings form)', () => {
   const opts = { primary: 'claude', providers: ['claude', 'codex', 'cursor', 'meridian'] };
   it('a valid chain passes; absent means none', () => {

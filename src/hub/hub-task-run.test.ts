@@ -181,7 +181,7 @@ test('user-only: a task whose owner has no credential is refused visibly, stays 
 
   await rpc(alice, 'save_user_credential', { name: 'ANTHROPIC_API_KEY', value: 'sk-ant-alice-secret' });
   await hub.sweepHubTasks();
-  expect(runs[0]?.credential).toEqual({ source: 'user', env: { ANTHROPIC_API_KEY: 'sk-ant-alice-secret' } });
+  expect(runs[0]?.credential).toMatchObject({ source: 'user', env: { ANTHROPIC_API_KEY: 'sk-ant-alice-secret' } });
 });
 
 test('a busy run session queues one task (shown as queued, not running) and leaves the rest todo, never failed', async () => {

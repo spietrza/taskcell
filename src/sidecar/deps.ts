@@ -28,7 +28,7 @@ import { agentAuthFromEnv } from '../agents/auth.js';
 import { assertSkillsInstalled } from '../context/named-skills.js';
 import { hubSkillsDir, skillRegistryForRun } from '../context/skill-registry.js';
 import { BadRequestError } from './sidecar.js';
-import { CREDENTIAL_NAMES } from '../hub/credentials.js';
+import { ACCOUNT_ENV, CREDENTIAL_NAMES } from '../hub/credentials.js';
 import { fallbackFlags, fundableChain, loneEntryRefused } from '../hub/fallback-chain.js';
 import { parseFallbackList } from '../core/model-pool.js';
 import { codexAuthSecretValues, forgetInjectedSecretValue, registerInjectedSecretValue } from '../core/secret-scan.js';
@@ -39,7 +39,8 @@ import type { AgentAuth } from '../agents/auth.js';
 import type { RunLinearIssueDeps } from '../runners/linear.js';
 import type { RunEvent } from '../pipeline/events.js';
 import type { SidecarDeps, CreateRunParams, CreateRunResult } from './sidecar.js';
-import type { RunCredential } from '../wire.js';
+import { CredentialLimited } from '../runners/run-execution.js';
+import type { CredentialRotation, RunCredential } from '../wire.js';
 
 /**
  * The env a hub run reads its provider keys from. A `user` credential replaces every host provider
@@ -64,6 +65,8 @@ export function credentialEnv(credential: RunCredential | undefined, choice: Pro
       }
     }
   }
+  // A stored account is the run's one Anthropic credential: a host one must not outrank it (authFromEnv prefers the OAuth token).
+  if (credential.accountId !== undefined) for (const name of Object.values(ACCOUNT_ENV)) delete env[name];
   return Object.assign(env, credential.env);
 }
 
@@ -267,7 +270,39 @@ export function productionDeps(): SidecarDeps {
         throw error instanceof BadRequestError ? error : new BadRequestError(error instanceof Error ? error.message : String(error));
       }
     },
-    createRun: async (rawParams: CreateRunParams, onEvent: (e: RunEvent) => void, credential?: RunCredential): Promise<CreateRunResult> => {
+    createRun: async (params: CreateRunParams, onEvent: (e: RunEvent) => void, credential?: RunCredential, rotation?: CredentialRotation): Promise<CreateRunResult> => {
+      // One attempt per credential: a stored account that hits a provider limit is cooled and the run restarts on the
+      // next one in a fresh sandbox, so the sandbox and LLM proxy only ever hold ONE credential. Every credential used
+      // stays registered for redaction until the run ends.
+      let current = credential;
+      const secrets = new Set<string>();
+      try {
+        for (;;) {
+          for (const v of credentialSecretValues(current)) {
+            secrets.add(v);
+            registerInjectedSecretValue(v);
+          }
+          try {
+            return await createRunAttempt(params, onEvent, current, rotation, current === credential);
+          } catch (error) {
+            if (!(error instanceof CredentialLimited) || rotation === undefined || current?.accountId === undefined) throw error;
+            const next = await rotation.limited(current.accountId, error.until);
+            if (next === undefined) throw error.limit;
+            onEvent({
+              type: 'warning',
+              message: `credential "${current.accountName ?? 'unnamed'}" hit a provider limit (cooling until ${error.until.toISOString()}); continuing on "${next.accountName ?? 'unnamed'}"`,
+            });
+            current = next;
+          }
+        }
+      } finally {
+        for (const v of secrets) forgetInjectedSecretValue(v);
+      }
+    },
+  };
+}
+
+async function createRunAttempt(rawParams: CreateRunParams, onEvent: (e: RunEvent) => void, credential: RunCredential | undefined, rotation: CredentialRotation | undefined, firstAttempt: boolean): Promise<CreateRunResult> {
       // FIRST statements, before beginRun() and the sandbox: an unresolvable flow (typo, broken or
       // duplicate .hcl) or provider (unknown name, broken customs entry, http custom on this
       // always-egress path) must cost nothing and classify bad-request — and must not leave an
@@ -343,15 +378,14 @@ export function productionDeps(): SidecarDeps {
         throw error;
       }
       onEvent({ type: 'stage-end', name: SANDBOX_STAGE, index: 0, of: 1, outcome: 'completed' });
-      for (const message of chainWarnings) onEvent({ type: 'warning', message });
+      // Once per run: a later account carries the same chain keys, so it would only repeat them.
+      if (firstAttempt) for (const message of chainWarnings) onEvent({ type: 'warning', message });
       const exposed = exposureReason({ provider, subscriptionProvider, proxySupported, llmProxy });
       if (exposed !== undefined) {
         onEvent({ type: 'warning', message: `${exposed} to the agent inside the sandbox for this run.` });
       }
-      // The credential values live in no host env var, so register them for the run: the outgoing-diff
-      // gate and every redaction pass (PR body, comments, run record) then treat them like any injected secret.
-      const runSecrets = credentialSecretValues(credential);
-      for (const v of runSecrets) registerInjectedSecretValue(v);
+      // The credential values (registered for redaction by createRun's loop) live in no host env var, so the
+      // outgoing-diff gate and every redaction pass treat them like any injected secret.
       try {
         // The RunOptions the sidecar exposes + the sandbox wiring + the event seam, shared across transports.
         const common = {
@@ -372,6 +406,13 @@ export function productionDeps(): SidecarDeps {
           // no per-flow wiring here; validation happened in sidecar.ts::validateCreateRun.
           ...(params.flow !== undefined ? { flow: params.flow } : {}),
           ...(credential !== undefined ? { credentialSource: credential.source, providerEnv: authEnv } : {}),
+          ...(credential?.accountName !== undefined ? { credentialName: credential.accountName } : {}),
+          ...(rotation !== undefined && credential?.accountId !== undefined
+            ? {
+                credentialRotation: { provider: rotation.provider, hasNext: () => rotation.hasNext() },
+                onCredentialCooled: (until: Date) => rotation.cool(credential.accountId!, until),
+              }
+            : {}),
           sandboxContext: ctx,
         };
         const authChoice = {
@@ -396,9 +437,6 @@ export function productionDeps(): SidecarDeps {
         return await runGithubIssue(params.issueRef, { ...deps, ...common });
       } finally {
         await ctx.destroy();
-        for (const v of runSecrets) forgetInjectedSecretValue(v);
         endRun();
       }
-    },
-  };
 }

@@ -38,6 +38,8 @@ export interface MetricRecord {
   /** Provider the stage actually ran on and why its model was picked (model pools); absent on older lines and plain runs. */
   provider?: string;
   pick?: string;
+  /** The user-given name of the stored hub credential that funded the stage (never the value). */
+  credential?: string;
 }
 
 /** Aggregated totals for a group of metric records. */
@@ -146,6 +148,7 @@ export function parseMetrics(text: string): MetricRecord[] {
       ...(parsed.trigger === 'watch' ? { trigger: 'watch' as const } : {}),
       ...(typeof parsed.provider === 'string' ? { provider: parsed.provider } : {}),
       ...(typeof parsed.pick === 'string' ? { pick: parsed.pick } : {}),
+      ...(typeof parsed.credential === 'string' ? { credential: parsed.credential } : {}),
       costUsd: num(parsed.costUsd),
       ...(typeof parsed.estCostUsd === 'number' && Number.isFinite(parsed.estCostUsd) && parsed.estCostUsd >= 0 && !costReported(parsed) ? { estCostUsd: parsed.estCostUsd } : {}),
       inputTokens: num(parsed.inputTokens),
@@ -401,5 +404,41 @@ export function formatModelPicks(rows: readonly ModelPickRow[]): string {
   return alignTable([
     ['BY MODEL PER STAGE', 'model', 'pick', 'runs', '$cost', 'gate pass', 'review pass', 'revise/run'],
     ...rows.map((r) => [r.stage, r.model, r.pick, String(r.runs), r.costUsd.toFixed(4), rate(r.gatePassed, r.gateRuns), rate(r.reviewPassed, r.reviewed), (r.reviseRounds / r.runs).toFixed(2)]),
+  ]);
+}
+
+/** One row of the per-credential usage: what each stored hub credential funded. */
+export interface CredentialRow {
+  credential: string;
+  runs: number;
+  costUsd: number;
+  inputTokens: number;
+  outputTokens: number;
+  /** Stages that stopped on this credential's provider limit. */
+  limitStops: number;
+}
+
+/** Usage per stored credential name; metric lines without a credential (CLI/CI runs, no stored account) are skipped. */
+export function credentialReport(text: string): CredentialRow[] {
+  const rows = new Map<string, CredentialRow>();
+  for (const r of parseMetrics(text)) {
+    if (r.credential === undefined) continue;
+    const row = rows.get(r.credential) ?? { credential: r.credential, runs: 0, costUsd: 0, inputTokens: 0, outputTokens: 0, limitStops: 0 };
+    row.runs += 1;
+    row.costUsd += r.costUsd;
+    row.inputTokens += r.inputTokens;
+    row.outputTokens += r.outputTokens;
+    if (r.stoppedBy === 'provider-limit') row.limitStops += 1;
+    rows.set(r.credential, row);
+  }
+  return [...rows.values()].sort((a, b) => a.credential.localeCompare(b.credential));
+}
+
+/** Render the per-credential table; empty string when no line names a credential. */
+export function formatCredentials(rows: readonly CredentialRow[]): string {
+  if (rows.length === 0) return '';
+  return alignTable([
+    ['BY CREDENTIAL', 'runs', '$cost', 'input tok', 'output tok', 'limit stops'],
+    ...rows.map((r) => [r.credential, String(r.runs), r.costUsd.toFixed(4), String(r.inputTokens), String(r.outputTokens), String(r.limitStops)]),
   ]);
 }

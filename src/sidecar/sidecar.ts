@@ -27,11 +27,11 @@ import type { BoardTask } from '../wire.js';
  */
 // CreateRunResult lives in src/wire.ts (S7).
 export type { CreateRunResult } from '../wire.js';
-import type { CreateRunResult, RunCredential } from '../wire.js';
+import type { CreateRunResult, CredentialRotation, RunCredential } from '../wire.js';
 
 export interface SidecarDeps {
   capabilities: () => Capabilities;
-  createRun: (params: CreateRunParams, onEvent: (e: RunEvent) => void, credential?: RunCredential) => Promise<CreateRunResult>;
+  createRun: (params: CreateRunParams, onEvent: (e: RunEvent) => void, credential?: RunCredential, rotation?: CredentialRotation) => Promise<CreateRunResult>;
   /** The pre-flight checks `createRun` starts with (provider, credential), alone: throws BadRequestError when the run would be refused before any agent work. */
   checkRun?: (params: CreateRunParams, credential?: RunCredential) => Promise<void>;
   createTask: (params: CreateTaskParams) => Promise<CreatedTask>;
