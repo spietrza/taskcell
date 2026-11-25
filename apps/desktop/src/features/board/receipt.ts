@@ -17,10 +17,10 @@ export function receipt(run: RunDetail | undefined, totalCostUsd?: number): Rece
 
   const proof = run.proof;
   const verdict = run.stages.find((s) => s.record.stage === 'reviewer')?.record.verdict;
-  // Only the scan's own verdict counts: 'secret-scan' withheld a flagged diff. 'secret-blocked' also marks a revise
-  // round whose diff could not be captured, so it says nothing either way. Clean = the implementer's diff was kept.
+  // Only the scan's own verdict counts: 'secret-scan' withheld a flagged diff. 'secret-blocked' (in older records) and
+  // 'not-scanned' mark a revise round that stopped before the scan, so they say nothing either way. Clean = the implementer's diff was kept.
   const found = run.stages.some((s) => s.record.diffOmitted === 'secret-scan');
-  const ambiguous = run.stages.some((s) => s.record.diffOmitted === 'secret-blocked');
+  const ambiguous = run.stages.some((s) => s.record.diffOmitted === 'secret-blocked' || s.record.diffOmitted === 'not-scanned');
   const clean = !ambiguous && run.stages.some((s) => s.record.stage === 'implementer' && s.diff !== undefined);
 
   return [

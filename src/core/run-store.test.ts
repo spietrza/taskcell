@@ -522,6 +522,17 @@ describe('beginRun — writing', () => {
     }),
   );
 
+  it("omitDiff 'not-scanned' withholds the same payloads but does not claim a secret block", () =>
+    withWorktree(async (wt) => {
+      await beginRun(repo, 'TES-1', TS).writeStages([{ name: 'implementer', result: { ...result, worktreePath: wt } }], { omitDiff: 'not-scanned' });
+      const files = await recordFiles('TES-1');
+      expect(files.some((f) => f.endsWith('.diff') || f.endsWith('.bundle'))).toBe(false);
+      const record = JSON.parse(await readFile(join(runsRoot(repo), 'TES-1', `${PREFIX}-implementer.json`), 'utf8'));
+      expect(record.diffOmitted).toBe('not-scanned');
+      expect(record.finalText).toBe('[withheld: not-scanned]');
+    }),
+  );
+
   it('writes a git bundle when worktreePath has a commit', () =>
     withWorktree(async (wt) => {
       await beginRun(repo, 'TES-1', TS).writeStages([{ name: 'implementer', result: { ...result, worktreePath: wt } }]);
