@@ -652,7 +652,12 @@ export async function runRevisePullRequest(prRef: string, deps: ReviseGithubPrDe
       };
       if (unanswered.length > 0) {
         await writeStagesWithoutDiff();
-        return await failOpenItems(`Revision failed: ${unanswered.length} blocking item(s) have no answer (fixed / not fixed / disputed), nothing was pushed. This PR needs a hand fix; unanswered:\n${unanswered.map((t) => `- ${t}`).join('\n')}\n\nAfter fixing it by hand, re-apply \`needs revision\` to start a normal revision round.`, true);
+        const list = unanswered.map((t) => `- ${t}`).join('\n');
+        if (outcomes.some((o) => o.name === STAGE.IMPLEMENTER && o.result.exitReason === 'maxTurns')) {
+          const cap = pipeline.find((s) => s.name === STAGE.IMPLEMENTER)?.maxTurns;
+          return await failOpenItems(`Revision failed: the implementer hit the turn cap${cap !== undefined ? ` (${cap})` : ''} before answering ${unanswered.length} blocking item(s); nothing was pushed. Split the findings or raise \`--max-turns\`, then re-apply \`needs revision\`; unanswered:\n${list}`, true);
+        }
+        return await failOpenItems(`Revision failed: ${unanswered.length} blocking item(s) have no answer (fixed / not fixed / disputed), nothing was pushed. This PR needs a hand fix; unanswered:\n${list}\n\nAfter fixing it by hand, re-apply \`needs revision\` to start a normal revision round.`, true);
       }
       const checklistAnswers = checklist.map((text, i) => ({ text, answer: answers[i]! }));
 
