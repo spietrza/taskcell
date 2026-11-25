@@ -10,7 +10,7 @@ import type { AgentSession } from './agent-session.js';
 import { probeTaskDifficulty, decisionProbeConfig } from '../core/decision-probe.js';
 import { TaskcellError } from '../core/errors.js';
 import { isStructuredProviderLimit } from '../core/rate-limit-marker.js';
-import { recordCooldown, entryKey } from '../core/model-pool.js';
+import { recordCooldown, entryKey, parseFallbackList } from '../core/model-pool.js';
 import type { StagePick } from './model-pool-routing.js';
 import { decisionDiffScorer } from '../evals/decision-judge.js';
 import { runStages, sandboxComplete, reviewFinalDiff, STAGE } from '../pipeline/pipeline.js';
@@ -250,6 +250,7 @@ export async function executeIssueRun(run: IssueRunExecution): Promise<RunIssueR
       baseBranch,
       ...(imageDigest !== undefined ? { imageDigest } : {}),
       ...(deps.credentialSource !== undefined ? { credentialSource: deps.credentialSource } : {}),
+      ...(deps.paidFallback !== undefined ? { paidFallback: deps.paidFallback } : {}),
     };
     // Lessons are only all known once the gate repairs have run, so read them at write time.
     const stageMeta = (): typeof runMeta & { lessonIds: string[]; skills: RunSkills; maxRepairIterations: number; modelPicks?: Record<string, StagePick> } => ({
@@ -709,6 +710,11 @@ export async function executeIssueRun(run: IssueRunExecution): Promise<RunIssueR
         const next = plan.reroute(exhausted);
         const stuck = [next.routing.picks.implementer, next.routing.picks.reviewer, ...Object.values(next.flowPools.picks)].some((p) => p !== undefined && exhausted.has(entryKey(p)));
         if (!stuck) throw new PoolEntryLimited(error, out.map(entryKey));
+      } else {
+        // An unpooled run (no pool, at most one fallback entry) has no pick, so nothing would be cooled: record the
+        // Engine and its fallback entry anyway, so the Hub can tell every subscription is out (opt-in paid fallback).
+        const fallback = parseFallbackList(deps.fallbackProvider, deps.fallbackModel).map((e) => ({ provider: e.provider, model: e.model ?? '', weight: 1 }));
+        await coolPoolEntries(deps.repoPath, [{ provider: agents.agent.name, model: '', weight: 1 }, ...fallback], error);
       }
       // Best effort: a failed write must not replace the limit error the caller parks the task on.
       await persistProviderStop?.().catch(() => undefined);

@@ -18,6 +18,8 @@ See `.env.example`. `authFromEnv()` prefers the subscription token; `authSecrets
 
 **Two modes, no third.** Subscription (`CLAUDE_CODE_OAUTH_TOKEN`) draws on your plan's usage; API key (`ANTHROPIC_API_KEY`) bills per token on platform.claude.com. There is no separate credit pool for `claude -p` / Agent SDK usage — Anthropic announced one for 2026-06-15 but postponed it (the 2026-05 announcement was reversed), so headless runs keep consuming normal plan usage exactly like interactive Claude Code.
 
+A Hub can optionally move a run from a subscription onto a stored API key when every subscription account is out of quota. It is off by default, per scope, and bills per token with no monthly cap; see [Paid fallback when every subscription is out](hub.md#paid-fallback-when-every-subscription-is-out).
+
 ## Local secrets (two ways)
 
 Taskcell reads everything from env vars (`ANTHROPIC_API_KEY` or `CLAUDE_CODE_OAUTH_TOKEN`, `LINEAR_API_KEY`, `GH_TOKEN`). Locally, populate them however you like:

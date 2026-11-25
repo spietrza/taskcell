@@ -21,6 +21,9 @@ const stub = (overrides: HubCallHandlers = {}): void => {
     instance_credentials_status: () => ({ names: ['ANTHROPIC_API_KEY'] }),
     save_instance_credential: () => {},
     delete_instance_credential: () => {},
+    get_paid_fallback: () => ({ user: false, instance: false }),
+    set_instance_paid_fallback: () => {},
+    set_user_paid_fallback: () => {},
     ...overrides,
   });
 };
@@ -77,4 +80,23 @@ test('a failing caller_capabilities leaves the panel on the status alone', async
   render(<CredentialsPanel />);
   await waitFor(() => expect(screen.getByText('Your credentials')).toBeInTheDocument());
   expect(screen.queryByText('unknown command')).not.toBeInTheDocument();
+});
+
+test('paid fallback: unchecked by default; an admin has both switches, a non-admin only their own; toggling calls the RPC and errors show inline', async () => {
+  asUser({ enabled: true, admin: false, names: [] });
+  const { unmount } = render(<CredentialsPanel />);
+  const own = await screen.findByLabelText(/continue on your own paid API key/);
+  expect(own).not.toBeChecked();
+  expect(screen.queryByLabelText(/continue on the instance's paid API key/)).not.toBeInTheDocument();
+  fireEvent.click(own);
+  await waitFor(() => expect(spy).toHaveBeenCalledWith('set_user_paid_fallback', { enabled: true }));
+  unmount();
+
+  asUser({ enabled: true, admin: true, names: [] });
+  stub({ set_instance_paid_fallback: () => { throw new Error('nope'); } });
+  render(<CredentialsPanel />);
+  const inst = await screen.findByLabelText(/continue on the instance's paid API key/);
+  expect(inst).not.toBeChecked();
+  fireEvent.click(inst);
+  await waitFor(() => expect(screen.getByText(/nope/)).toBeInTheDocument());
 });

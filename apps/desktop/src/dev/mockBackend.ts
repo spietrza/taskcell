@@ -241,6 +241,9 @@ const commandHandlers = {
   instance_credentials_status: () => ({ names: [] as string[] }),
   save_instance_credential: () => undefined,
   delete_instance_credential: () => undefined,
+  get_paid_fallback: () => ({ user: false, instance: false }),
+  set_instance_paid_fallback: () => undefined,
+  set_user_paid_fallback: () => undefined,
 } satisfies Partial<{
   [K in keyof Commands]: (args: Commands[K]['args']) => Promise<Commands[K]['result']> | Commands[K]['result'];
 }>;

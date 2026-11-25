@@ -6,7 +6,9 @@ import { loadCustomProviders } from '../agents/custom.js';
 import { FALLBACK_CHAIN_MAX, fallbackChainErrors, type FallbackEntry, type RunCredential } from '../wire.js';
 import type { AppConfig } from './app-config.js';
 import type { HubUser } from './auth.js';
-import { PROVIDER_NAMES, type CredentialService } from './credentials.js';
+import { readCooldowns } from '../core/model-pool.js';
+import { PAID_NAMES, PROVIDER_NAMES, SUBSCRIPTION_NAMES, USER_SCOPE, type CredentialService } from './credentials.js';
+import { decidePaidFallback } from './paid-fallback.js';
 import { listTeams } from './teams.js';
 
 export type { FallbackEntry };
@@ -90,8 +92,28 @@ export async function fundableChain(chain: readonly FallbackEntry[], repoPath: s
  * primary's) and the `fallbackProvider`/`fallbackModel` params to spread into the run. `deps.createRun` drops the entries
  * the credential cannot fund, with a warning, so a chain entry never refuses a run.
  */
-export async function chainForRun(opts: { configDir: string; repoPath: string; cfg: AppConfig; user: HubUser | undefined; provider: string | undefined; credentials: CredentialService | undefined }): Promise<{ credential: RunCredential | undefined; flags: { fallbackProvider?: string; fallbackModel?: string } }> {
+export async function chainForRun(opts: { configDir: string; repoPath: string; cfg: AppConfig; user: HubUser | undefined; provider: string | undefined; credentials: CredentialService | undefined }): Promise<{ credential: RunCredential | undefined; flags: { fallbackProvider?: string; fallbackModel?: string }; warnings: string[] }> {
   const { chain } = await resolveFallbackChain(opts.configDir, opts.repoPath, opts.cfg);
-  const credential = opts.credentials !== undefined ? await opts.credentials.resolveForRun(opts.user, opts.provider, chain.map((e) => e.provider)) : undefined;
-  return { credential, flags: fallbackFlags(chain) };
+  const resolved = opts.credentials !== undefined ? await opts.credentials.resolveForRun(opts.user, opts.provider, chain.map((e) => e.provider)) : undefined;
+  const flags = fallbackFlags(chain);
+  if (opts.credentials === undefined || resolved === undefined) return { credential: resolved, flags, warnings: [] };
+  const { credential, warning } = await withPaidFallback({ ...opts, credentials: opts.credentials, chain, resolved });
+  return { credential, flags, warnings: warning !== undefined ? [warning] : [] };
+}
+
+/** Apply the funding scope's paid-fallback switch (never another scope's) to the resolved credential. */
+async function withPaidFallback(opts: { repoPath: string; cfg: AppConfig; user: HubUser | undefined; provider: string | undefined; credentials: CredentialService; chain: readonly FallbackEntry[]; resolved: RunCredential }): Promise<{ credential: RunCredential; warning?: string }> {
+  const { resolved, credentials } = opts;
+  const primary = opts.provider ?? (typeof opts.cfg.provider === 'string' && opts.cfg.provider.trim() !== '' ? opts.cfg.provider : 'claude');
+  if (!(primary in SUBSCRIPTION_NAMES)) return { credential: resolved };
+  const cooling = await readCooldowns(opts.repoPath);
+  if (cooling.size === 0) return { credential: resolved };
+  const scope = resolved.source === 'user' && opts.user !== undefined ? opts.user : 'instance';
+  const enabled = await credentials.paidFallback(scope);
+  if (!enabled) return { credential: resolved };
+  const names = [...Object.values(SUBSCRIPTION_NAMES), ...Object.values(PAID_NAMES)].flat();
+  const stored = await credentials.store.values(scope === 'instance' ? 'instance' : USER_SCOPE(scope)).catch((): Record<string, string> => ({}));
+  const host = scope === 'instance' ? Object.fromEntries(names.flatMap((n) => ((process.env[n] ?? '') !== '' ? [[n, process.env[n]!]] : []))) : {};
+  const { kept } = await fundableChain(opts.chain, opts.repoPath, resolved);
+  return decidePaidFallback({ provider: primary, candidates: [{ provider: primary }, ...kept], cooling, credential: resolved, enabled, paidEnv: { ...host, ...stored } });
 }

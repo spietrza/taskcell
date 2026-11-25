@@ -14,6 +14,7 @@ import type { RunContext, PrepareOptions, RunDeps } from '../core/taskcell.js';
 import type { IsolatedSandboxProvider } from '../sandbox/provider.js';
 import type { ProviderProxyDeps } from '../sandbox/llm-proxy.js';
 import type { SandboxWiring } from '../sandbox/sandbox-context.js';
+import type { PaidSwitch } from '../wire.js';
 
 type PoolEntry = { provider: string; model?: string };
 
@@ -33,6 +34,8 @@ export interface RunCredentialContext {
 export type CredentialDeps = ProviderChoice & {
   /** Which kind of credential funded the run (hub per-user credentials). */
   credentialSource?: 'instance' | 'user';
+  /** Set when the hub moved the run onto paid usage; recorded on every stage. */
+  paidFallback?: PaidSwitch;
   /** Env the provider keys are read from (default process.env): a hub run's resolved credential env. */
   providerEnv?: NodeJS.ProcessEnv;
 };

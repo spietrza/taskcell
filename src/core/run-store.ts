@@ -24,7 +24,7 @@ import { taskRefKey } from '../tasks/board.js';
 import { workflowPaths } from './taskcell.js';
 import type { DecisionProbeResult } from './decision-probe.js';
 import type { BaseMergeEvent } from './conflict-stats.js';
-import type { Finding, Proof, RunDetail, RunRecord, RunSummary, StageDetail, VisualProof } from '../wire.js';
+import type { Finding, PaidSwitch, Proof, RunDetail, RunRecord, RunSummary, StageDetail, VisualProof } from '../wire.js';
 
 export { readTextNoSymlink };
 
@@ -564,6 +564,7 @@ export interface WriteStagesOptions {
   imageDigest?: string;
   /** `instance` or `user`: which kind of credential funded the run (never the value). */
   credentialSource?: 'instance' | 'user';
+  paidFallback?: PaidSwitch;
   /**
    * Leave the `.diff`, `.bundle` and `.transcript.log` off disk and stub `finalText`; only the JSON
    * record (marked `diffOmitted: 'secret-blocked'`) and the metric line are written for every stage.
@@ -623,6 +624,7 @@ interface WriteRecordOptions {
   noChanges?: true;
   maxRepairIterations?: number;
   credentialSource?: 'instance' | 'user';
+  paidFallback?: PaidSwitch;
   startedBy?: string;
   lessonIds?: readonly string[];
   skills?: RunSkills;
@@ -696,6 +698,7 @@ async function writeRecord(repoPath: string, taskId: string, timestamp: string, 
     ...(opts.noChanges === true ? { noChanges: true } : {}),
     ...(opts.maxRepairIterations !== undefined ? { maxRepairIterations: opts.maxRepairIterations } : {}),
     ...(opts.credentialSource !== undefined ? { credentialSource: opts.credentialSource } : {}),
+    ...(opts.paidFallback !== undefined ? { paidFallback: opts.paidFallback } : {}),
     ...(diffOmitted !== undefined ? { diffOmitted } : {}),
     ...(opts.startedBy !== undefined ? { startedBy: opts.startedBy } : {}),
     ...(runTrigger !== undefined ? { trigger: runTrigger } : {}),
@@ -801,6 +804,7 @@ export function beginRun(
           ...(opts.noChanges === true ? { noChanges: true } : {}),
           ...(opts.maxRepairIterations !== undefined ? { maxRepairIterations: opts.maxRepairIterations } : {}),
           ...(opts.credentialSource !== undefined ? { credentialSource: opts.credentialSource } : {}),
+          ...(opts.paidFallback !== undefined ? { paidFallback: opts.paidFallback } : {}),
           ...(runOpts.startedBy !== undefined ? { startedBy: runOpts.startedBy } : {}),
           ...(opts.lessonIds !== undefined ? { lessonIds: opts.lessonIds } : {}),
           ...(opts.skills !== undefined ? { skills: opts.skills } : {}),

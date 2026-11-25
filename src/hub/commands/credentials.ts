@@ -18,6 +18,12 @@ export interface CredentialsCommands {
   user_credentials_status: { args: undefined; result: { enabled: boolean; admin: boolean; names: string[] } };
   save_user_credential: { args: { name: string; value: string }; result: void };
   delete_user_credential: { args: { name: string }; result: void };
+  /** HUB_ONLY: the opt-in "when every subscription account is out, continue on a paid API key". `user` is the caller's own switch; `instance` is returned to the hub owner or an admin only. */
+  get_paid_fallback: { args: undefined; result: { user: boolean; instance?: boolean } };
+  /** HUB_ONLY, hub owner or admin only: the instance's switch (off by default). */
+  set_instance_paid_fallback: { args: { enabled: boolean }; result: void };
+  /** HUB_ONLY: the signed-in caller's own switch (no user id is taken). */
+  set_user_paid_fallback: { args: { enabled: boolean }; result: void };
 }
 
 function requireCredentials(ctx: RpcContext): CredentialService {
@@ -37,6 +43,16 @@ function requirePolicy(args: Record<string, unknown>): CredentialPolicy {
   if (!(CREDENTIAL_POLICIES as readonly unknown[]).includes(v)) throw new BadRequestError(`policy must be one of: ${CREDENTIAL_POLICIES.join(', ')}`);
   return v as CredentialPolicy;
 }
+
+function requireEnabled(args: Record<string, unknown>): boolean {
+  if (typeof args.enabled !== 'boolean') throw new BadRequestError('enabled must be a boolean');
+  return args.enabled;
+}
+
+const paidAudit = (scope: 'instance' | 'user'): AuditSpec => ({
+  action: 'settings-change',
+  target: (args) => (typeof args.enabled === 'boolean' ? `paid-fallback:${scope}:${args.enabled ? 'on' : 'off'}` : 'paid-fallback'),
+});
 
 /** A credential write names the variable only — the value never reaches the log. */
 const CREDENTIAL_AUDIT: AuditSpec = {
@@ -101,6 +117,24 @@ export const commands = defineCommands<CredentialsCommands>({
     await svc.store.remove(USER_SCOPE(requireUser(ctx)), parseCredentialName(args));
     return null;
   },
+  get_paid_fallback: async ({ ctx, caller }) => {
+    const svc = requireCredentials(ctx);
+    const user = ctx.user !== undefined ? await svc.paidFallback(ctx.user) : false;
+    return { user, ...(caller.owner || svc.isAdmin(ctx.user) ? { instance: await svc.paidFallback('instance') } : {}) };
+  },
+  set_instance_paid_fallback: async ({ ctx, args, caller }) => {
+    const svc = requireCredentials(ctx);
+    svc.assertManager(ctx.user, caller.owner);
+    await svc.setPaidFallback('instance', requireEnabled(args));
+    return null;
+  },
+  set_user_paid_fallback: async ({ ctx, args }) => {
+    const svc = requireCredentials(ctx);
+    const user = requireUser(ctx);
+    if ((await svc.policy()) === 'off') throw new BadRequestError('per-user credentials are turned off on this hub');
+    await svc.setPaidFallback(user, requireEnabled(args));
+    return null;
+  },
 }, {
   // Hub owner or admin (assertManager, 403). The remote gate binds the hub-token holder only, as documented in docs/hub.md:
   // a signed-in admin manages credentials on a hosted hub, where TASKCELL_HUB_ALLOW_ADD would otherwise have to be set for them.
@@ -112,7 +146,12 @@ export const commands = defineCommands<CredentialsCommands>({
   user_credentials_status: { write: false },
   save_user_credential: { write: true, gatedBy: 'the signed-in caller\'s own scope (no user id is taken)', unaudited: 'a user\'s own credential, never another\'s; values are never logged' },
   delete_user_credential: { write: true, gatedBy: 'the signed-in caller\'s own scope (no user id is taken)', unaudited: 'a user\'s own credential, never another\'s; values are never logged' },
+  get_paid_fallback: { write: false },
+  set_instance_paid_fallback: { write: true, remote: 'owner-only', gatedBy: 'assertManager (owner or hub admin)' },
+  set_user_paid_fallback: { write: true, gatedBy: 'the signed-in caller\'s own scope (no user id is taken)' },
 }, {
+  set_instance_paid_fallback: paidAudit('instance'),
+  set_user_paid_fallback: paidAudit('user'),
   set_credential_policy: CREDENTIAL_POLICY_AUDIT,
   save_instance_credential: CREDENTIAL_AUDIT,
   delete_instance_credential: CREDENTIAL_AUDIT,

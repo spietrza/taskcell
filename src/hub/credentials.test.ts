@@ -628,3 +628,29 @@ describe('resolveForRun with fallback-chain providers (extra)', () => {
     expect(await svc.resolveForRun(u, 'cursor', ['codex'])).toEqual({ source: 'instance', env: { CURSOR_API_KEY: 'inst-cursor', CODEX_API_KEY: 'inst-codex' } });
   });
 });
+
+describe('paid fallback switch', () => {
+  const alice = { id: 'alice', email: 'a@x.io', name: 'A' };
+  const bob = { id: 'bob', email: 'b@x.io', name: 'B' };
+
+  it('is off by default, per scope, and survives a new service on the same dir', async () => {
+    const d = await dir();
+    const svc = createCredentialService(d);
+    expect(await svc.paidFallback('instance')).toBe(false);
+    expect(await svc.paidFallback(alice)).toBe(false);
+    await Promise.all([svc.setPaidFallback('instance', true), svc.setPaidFallback(alice, true)]);
+    const again = createCredentialService(d);
+    expect(await again.paidFallback('instance')).toBe(true);
+    expect(await again.paidFallback(alice)).toBe(true);
+    expect(await again.paidFallback(bob)).toBe(false);
+    await again.setPaidFallback(alice, false);
+    expect(await again.paidFallback(alice)).toBe(false);
+    expect(await again.paidFallback('instance')).toBe(true);
+  });
+
+  it('an unreadable file reads as off', async () => {
+    const d = await dir();
+    await writeFile(join(d, 'paid-fallback.json'), '{not json');
+    expect(await createCredentialService(d).paidFallback('instance')).toBe(false);
+  });
+});

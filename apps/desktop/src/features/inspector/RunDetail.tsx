@@ -59,6 +59,7 @@ export function RunDetail({ detail, project, prLink = true, steps, flow, flowUna
   const baseBranch = detail.stages.find((s) => s.record.baseBranch !== undefined)?.record.baseBranch;
   const configPaths = detail.stages.find((s) => s.record.configPaths !== undefined)?.record.configPaths;
   const credentialSource = detail.stages.find((s) => s.record.credentialSource !== undefined)?.record.credentialSource;
+  const paidFallback = detail.stages.find((s) => s.record.paidFallback !== undefined)?.record.paidFallback;
   const diffStages = detail.stages.filter((s) => s.diff || s.record.diffOmitted);
   const transcriptStages = detail.stages.filter((s) => s.transcript);
 
@@ -94,6 +95,7 @@ export function RunDetail({ detail, project, prLink = true, steps, flow, flowUna
             Model usage billed to {credentialSource === 'user' ? "the starter's own account" : "the hub's account"}
           </div>
         )}
+        {paidFallback !== undefined && <div role="note" className="text-sm text-warning-text">Moved to paid usage: {paidFallback.reason}</div>}
         {((prLink && detail.prUrl !== undefined) || detail.ciUrl !== undefined) && (
           <div className="flex flex-wrap gap-3">
             {prLink && detail.prUrl !== undefined && <ExternalLink href={detail.prUrl}>{`Open in ${hostName(detail.prUrl)}`}</ExternalLink>}

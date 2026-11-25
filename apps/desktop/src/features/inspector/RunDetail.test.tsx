@@ -128,3 +128,12 @@ test('names the entry a stage ran on after a provider limit moved it; nothing on
   render(<RunDetail detail={{ taskId: 'task-1', timestamp: plain.record.timestamp, stages: [plain] }} project="/repo" />);
   expect(screen.queryByText(/^Ran on/)).toBeNull();
 });
+
+test('a run that moved to paid usage says so, with the reason; nothing otherwise', () => {
+  const withPaid = (paidFallback?: { reason: string; entries: string[] }): StageDetail => ({ record: { ...stage().record, paidFallback } });
+  const { unmount } = render(<RunDetail detail={{ taskId: 'task-1', timestamp: stage().record.timestamp, stages: [withPaid({ reason: 'every subscription account is out', entries: ['claude'] })] }} project="/repo" />);
+  expect(screen.getByText(/Moved to paid usage: every subscription account is out/)).toBeInTheDocument();
+  unmount();
+  render(<RunDetail detail={{ taskId: 'task-1', timestamp: stage().record.timestamp, stages: [withPaid()] }} project="/repo" />);
+  expect(screen.queryByText(/Moved to paid usage/)).not.toBeInTheDocument();
+});

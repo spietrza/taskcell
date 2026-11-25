@@ -613,3 +613,25 @@ describe('createRun with a hub fallback chain', () => {
     expect(startSandboxContext).toHaveBeenCalledWith(expect.objectContaining({ egress: true }));
   });
 });
+
+describe('credentialEnv with a paid-fallback credential', () => {
+  it('drops the host plan token only when the run moved to paid usage', () => {
+    setEnv({ CLAUDE_CODE_OAUTH_TOKEN: 'sk-ant-oat01-HOST', ANTHROPIC_API_KEY: undefined });
+    const paid = { reason: 'out', entries: ['claude'] };
+    const env = credentialEnv({ source: 'instance', env: { ANTHROPIC_API_KEY: 'sk-ant-api03-PAID' }, paid }, {});
+    expect(env.CLAUDE_CODE_OAUTH_TOKEN).toBeUndefined();
+    expect(env.ANTHROPIC_API_KEY).toBe('sk-ant-api03-PAID');
+    expect(credentialEnv({ source: 'instance', env: { ANTHROPIC_API_KEY: 'sk-ant-api03-PAID' } }, {}).CLAUDE_CODE_OAUTH_TOKEN).toBe('sk-ant-oat01-HOST');
+  });
+
+  it('createRun warns "Moved to paid usage" and hands paidFallback to the run', async () => {
+    const repoPath = await plainRepo();
+    setEnv({ CLAUDE_CODE_OAUTH_TOKEN: 'sk-ant-oat01-HOST', ANTHROPIC_API_KEY: undefined });
+    const events: RunEvent[] = [];
+    const paid = { reason: 'every subscription account is out', entries: ['claude'] };
+    await productionDeps().createRun({ issueRef: 'o/r#1', repoPath, provider: 'claude' }, (e) => events.push(e), { source: 'instance', env: { ANTHROPIC_API_KEY: 'sk-ant-api03-PAID' }, paid });
+    expect(events).toContainEqual({ type: 'warning', message: 'Moved to paid usage: every subscription account is out' });
+    expect(startSandboxContext).toHaveBeenCalledWith(expect.objectContaining({ auth: { mode: 'api', apiKey: 'sk-ant-api03-PAID' } }));
+    expect(runGithubIssue.mock.calls.at(-1)?.[1]).toMatchObject({ paidFallback: paid });
+  });
+});

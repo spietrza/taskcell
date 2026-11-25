@@ -122,6 +122,11 @@ export const PROVIDER_NAMES: Record<string, readonly string[]> = {
   openrouter: ['OPENROUTER_API_KEY'],
 };
 
+/** The plan (subscription) credential each paid-fallback provider reads. */
+export const SUBSCRIPTION_NAMES: Record<string, readonly string[]> = { claude: ['CLAUDE_CODE_OAUTH_TOKEN'], codex: ['CODEX_AUTH_JSON'] };
+/** The per-token API keys the paid fallback moves a run onto (`ANTHROPIC_AUTH_TOKEN`, a gateway bearer of unknown billing, is not one). */
+export const PAID_NAMES: Record<string, readonly string[]> = { claude: ['ANTHROPIC_API_KEY'], codex: ['CODEX_API_KEY', 'OPENAI_API_KEY'] };
+
 const pick = (env: Record<string, string>, names: readonly string[]): Record<string, string> =>
   Object.fromEntries(Object.entries(env).filter(([k]) => names.includes(k)));
 
@@ -369,6 +374,9 @@ export interface CredentialService {
   assertManager(user: HubUser | undefined, owner: boolean): void;
   policy(): Promise<CredentialPolicy>;
   setPolicy(policy: CredentialPolicy): Promise<void>;
+  /** The opt-in "when every subscription account is out, continue on a paid credential" of one scope. Off unless saved on. */
+  paidFallback(scope: 'instance' | HubUser): Promise<boolean>;
+  setPaidFallback(scope: 'instance' | HubUser, enabled: boolean): Promise<void>;
   store: ScopedCredentialStore;
   /** Instance credential names and any safe, value-free reason the store or legacy migration needs attention. */
   instanceStatus(): Promise<{ names: string[]; reason?: string }>;
@@ -391,6 +399,18 @@ export function createCredentialService(configDir: string, adminLogins: readonly
   // `--admin-github-login` values are bare GitHub logins; `TASKCELL_HUB_ADMINS` entries use the sign-up allowlist syntax.
   const admins = parseSignupAllowlist([...adminLogins.filter((l) => l.trim() !== '').map((l) => `github:${l.trim()}`), ...hubAdmins]);
   const policyFile = join(configDir, 'credential-policy.json');
+  const paidFile = join(configDir, 'paid-fallback.json');
+  let paidWrites: Promise<void> = Promise.resolve();
+  // An absent or unreadable file reads as off: never spend by accident.
+  const readPaid = async (): Promise<{ instance: boolean; users: Record<string, boolean> }> => {
+    try {
+      const parsed = JSON.parse(await readFile(paidFile, 'utf8')) as { instance?: unknown; users?: unknown };
+      const users = parsed.users !== null && typeof parsed.users === 'object' && !Array.isArray(parsed.users) ? (parsed.users as Record<string, unknown>) : {};
+      return { instance: parsed.instance === true, users: Object.fromEntries(Object.entries(users).filter(([, v]) => v === true)) as Record<string, boolean> };
+    } catch {
+      return { instance: false, users: {} };
+    }
+  };
   let migrationIssue: string | undefined;
   let migrating: Promise<void> | undefined;
   let instanceValues: Record<string, string> = {};
@@ -417,6 +437,22 @@ export function createCredentialService(configDir: string, adminLogins: readonly
     async setPolicy(policy) {
       await mkdir(configDir, { recursive: true });
       await writeFile(policyFile, JSON.stringify({ policy }), 'utf8');
+    },
+    async paidFallback(scope) {
+      const paid = await readPaid();
+      return scope === 'instance' ? paid.instance : paid.users[scope.id] === true;
+    },
+    setPaidFallback(scope, enabled) {
+      const run = paidWrites.then(async () => {
+        const current = await readPaid();
+        const next = scope === 'instance' ? { ...current, instance: enabled } : { ...current, users: { ...current.users, [scope.id]: enabled } };
+        await mkdir(configDir, { recursive: true });
+        const tmp = `${paidFile}.${randomBytes(4).toString('hex')}.tmp`;
+        await writeFile(tmp, JSON.stringify(next), 'utf8');
+        await rename(tmp, paidFile);
+      });
+      paidWrites = run.catch(() => undefined);
+      return run;
     },
     async instanceStatus() {
       if (migrationIssue !== undefined) await service.migrateLegacy();

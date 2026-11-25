@@ -92,6 +92,15 @@ export interface CreateRunParams {
 export interface RunCredential {
   source: 'instance' | 'user';
   env: Record<string, string>;
+  /** Set when every subscription account was cooling and the scope's paid-fallback switch moved the run onto its paid key. Holds no values. */
+  paid?: PaidSwitch;
+}
+
+/** Why a hub run moved from a subscription onto paid usage: the reason text, the earliest reset (ISO) and the cooling entries. */
+export interface PaidSwitch {
+  reason: string;
+  until?: string;
+  entries: string[];
 }
 
 /** Result of the sidecar `createRun` method. */
@@ -502,6 +511,8 @@ export interface RunRecord {
   primaryAuthRefused?: string;
   /** Which kind of credential funded the run (hub per-user credentials); never the value. Absent on CLI/CI runs. */
   credentialSource?: 'instance' | 'user';
+  /** Set when the hub moved the run from a subscription onto paid usage (every subscription account was cooling); never a value. */
+  paidFallback?: PaidSwitch;
   /**
    * `named`: the skills named by hand that the run loaded. `available`: the other installed skills the
    * agent could pick from (not what it used). `notes`: an ignored `Skills:` line, or a provider that

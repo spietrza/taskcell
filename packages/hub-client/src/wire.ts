@@ -93,6 +93,15 @@ export interface CreateRunParams {
 export interface RunCredential {
   source: 'instance' | 'user';
   env: Record<string, string>;
+  /** Set when every subscription account was cooling and the scope's paid-fallback switch moved the run onto its paid key. Holds no values. */
+  paid?: PaidSwitch;
+}
+
+/** Why a hub run moved from a subscription onto paid usage: the reason text, the earliest reset (ISO) and the cooling entries. */
+export interface PaidSwitch {
+  reason: string;
+  until?: string;
+  entries: string[];
 }
 
 /** Result of the sidecar `createRun` method. */
@@ -503,6 +512,8 @@ export interface RunRecord {
   primaryAuthRefused?: string;
   /** Which kind of credential funded the run (hub per-user credentials); never the value. Absent on CLI/CI runs. */
   credentialSource?: 'instance' | 'user';
+  /** Set when the hub moved the run from a subscription onto paid usage (every subscription account was cooling); never a value. */
+  paidFallback?: PaidSwitch;
   /**
    * `named`: the skills named by hand that the run loaded. `available`: the other installed skills the
    * agent could pick from (not what it used). `notes`: an ignored `Skills:` line, or a provider that
@@ -1432,6 +1443,12 @@ export interface Commands {
   user_credentials_status: { args: undefined; result: { enabled: boolean; admin: boolean; names: string[] } };
   save_user_credential: { args: { name: string; value: string }; result: void };
   delete_user_credential: { args: { name: string }; result: void };
+  /** HUB_ONLY: the opt-in "when every subscription account is out, continue on a paid API key". `user` is the caller's own switch; `instance` is returned to the hub owner or an admin only. */
+  get_paid_fallback: { args: undefined; result: { user: boolean; instance?: boolean } };
+  /** HUB_ONLY, hub owner or admin only: the instance's switch (off by default). */
+  set_instance_paid_fallback: { args: { enabled: boolean }; result: void };
+  /** HUB_ONLY: the signed-in caller's own switch (no user id is taken). */
+  set_user_paid_fallback: { args: { enabled: boolean }; result: void };
   list_drafts: { args: { repoPath: string }; result: string[] };
   read_draft: { args: { repoPath: string; id: string }; result: string };
   write_draft: { args: { repoPath: string; id: string; content: string }; result: void };
@@ -1673,6 +1690,7 @@ export const COMMAND_NAMES = [
   'factory_state',
   'fetch_spec',
   'get_credential_policy',
+  'get_paid_fallback',
   'get_team',
   'hub_task_accept',
   'hub_task_archive',
@@ -1734,8 +1752,10 @@ export const COMMAND_NAMES = [
   'save_user_credential',
   'set_approver_mode',
   'set_credential_policy',
+  'set_instance_paid_fallback',
   'set_task_skills',
   'set_team_fallback_chain',
+  'set_user_paid_fallback',
   'setup_status',
   'spawn_run',
   'start_task',
@@ -1803,8 +1823,10 @@ export const WRITE_COMMAND_NAMES: readonly (typeof COMMAND_NAMES)[number][] = [
   'save_user_credential',
   'set_approver_mode',
   'set_credential_policy',
+  'set_instance_paid_fallback',
   'set_task_skills',
   'set_team_fallback_chain',
+  'set_user_paid_fallback',
   'spawn_run',
   'start_task',
   'unregister_push_token',

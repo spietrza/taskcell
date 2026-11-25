@@ -28,7 +28,7 @@ import { agentAuthFromEnv } from '../agents/auth.js';
 import { assertSkillsInstalled } from '../context/named-skills.js';
 import { hubSkillsDir, skillRegistryForRun } from '../context/skill-registry.js';
 import { BadRequestError } from './sidecar.js';
-import { CREDENTIAL_NAMES } from '../hub/credentials.js';
+import { CREDENTIAL_NAMES, SUBSCRIPTION_NAMES } from '../hub/credentials.js';
 import { fallbackFlags, fundableChain, loneEntryRefused } from '../hub/fallback-chain.js';
 import { parseFallbackList } from '../core/model-pool.js';
 import { codexAuthSecretValues, forgetInjectedSecretValue, registerInjectedSecretValue } from '../core/secret-scan.js';
@@ -64,6 +64,8 @@ export function credentialEnv(credential: RunCredential | undefined, choice: Pro
       }
     }
   }
+  // Moved to paid usage: the host's plan token would win in authFromEnv and silently keep the run on the exhausted subscription.
+  if (credential.paid !== undefined) for (const name of Object.values(SUBSCRIPTION_NAMES).flat()) delete env[name];
   return Object.assign(env, credential.env);
 }
 
@@ -344,6 +346,7 @@ export function productionDeps(): SidecarDeps {
       }
       onEvent({ type: 'stage-end', name: SANDBOX_STAGE, index: 0, of: 1, outcome: 'completed' });
       for (const message of chainWarnings) onEvent({ type: 'warning', message });
+      if (credential?.paid !== undefined) onEvent({ type: 'warning', message: `Moved to paid usage: ${credential.paid.reason}` });
       const exposed = exposureReason({ provider, subscriptionProvider, proxySupported, llmProxy });
       if (exposed !== undefined) {
         onEvent({ type: 'warning', message: `${exposed} to the agent inside the sandbox for this run.` });
@@ -372,6 +375,7 @@ export function productionDeps(): SidecarDeps {
           // no per-flow wiring here; validation happened in sidecar.ts::validateCreateRun.
           ...(params.flow !== undefined ? { flow: params.flow } : {}),
           ...(credential !== undefined ? { credentialSource: credential.source, providerEnv: authEnv } : {}),
+          ...(credential?.paid !== undefined ? { paidFallback: credential.paid } : {}),
           sandboxContext: ctx,
         };
         const authChoice = {

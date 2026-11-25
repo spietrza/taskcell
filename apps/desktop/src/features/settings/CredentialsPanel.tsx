@@ -91,6 +91,27 @@ function CredentialEditor({
   );
 }
 
+/** One scope's paid-fallback opt-in: unchecked by default; the RPC error shows inline. */
+function PaidFallbackToggle({ label, checked, onChange }: { label: string; checked: boolean; onChange: (enabled: boolean) => Promise<void> }) {
+  const [error, setError] = useState<string | undefined>();
+  return (
+    <label className="block space-y-1 text-sm">
+      <span className="flex items-center gap-2">
+        <input
+          type="checkbox"
+          checked={checked}
+          onChange={(e) => {
+            setError(undefined);
+            onChange(e.target.checked).catch((err) => setError(String(err)));
+          }}
+        />
+        {label}
+      </span>
+      {error !== undefined && <span role="alert" className="block text-xs text-destructive-text">{error}</span>}
+    </label>
+  );
+}
+
 /** Hub-only. The one credentials panel. A user sees their own credentials once the hub owner or an admin turns
  * per-user credentials on; the switch and the instance credentials render only for the owner or an admin (the hub 403s anyone else). */
 export function CredentialsPanel() {
@@ -98,6 +119,7 @@ export function CredentialsPanel() {
   const [policy, setPolicy] = useState<CredentialPolicy>('off');
   const [instanceNames, setInstanceNames] = useState<string[]>([]);
   const [instanceReason, setInstanceReason] = useState<string | undefined>();
+  const [paid, setPaid] = useState<{ user: boolean; instance?: boolean }>({ user: false });
   const [error, setError] = useState<string | undefined>();
   // A failed policy change keeps the panel (and its retry) on screen; a failed load or refresh replaces it.
   const [policyError, setPolicyError] = useState<string | undefined>();
@@ -108,6 +130,7 @@ export function CredentialsPanel() {
       const [s, caps] = await Promise.all([hub().call('user_credentials_status'), callerCapabilities().catch(() => null)]);
       const admin = caps?.admin ?? s.admin;
       setStatus({ ...s, admin });
+      setPaid(await hub().call('get_paid_fallback'));
       if (admin) {
         setPolicy((await hub().call('get_credential_policy')).policy);
         const instance = await hub().call('instance_credentials_status');
@@ -162,21 +185,39 @@ export function CredentialsPanel() {
             }}
           />
           {instanceReason !== undefined && <p role="alert" className="text-xs text-destructive-text">{instanceReason}</p>}
+          <PaidFallbackToggle
+            label="When every subscription account is out, continue on the instance's paid API key (billed per token)"
+            checked={paid.instance === true}
+            onChange={async (enabled) => {
+              await hub().call('set_instance_paid_fallback', { enabled });
+              setPaid((p) => ({ ...p, instance: enabled }));
+            }}
+          />
         </>
       )}
       {status.enabled ? (
-        <CredentialEditor
-          title="Your credentials"
-          names={status.names}
-          onSave={async (n, v) => {
-            await hub().call('save_user_credential', { name: n, value: v });
-            await refresh();
-          }}
-          onDelete={async (n) => {
-            await hub().call('delete_user_credential', { name: n });
-            await refresh();
-          }}
-        />
+        <>
+          <CredentialEditor
+            title="Your credentials"
+            names={status.names}
+            onSave={async (n, v) => {
+              await hub().call('save_user_credential', { name: n, value: v });
+              await refresh();
+            }}
+            onDelete={async (n) => {
+              await hub().call('delete_user_credential', { name: n });
+              await refresh();
+            }}
+          />
+          <PaidFallbackToggle
+            label="When every subscription account is out, continue on your own paid API key (billed per token)"
+            checked={paid.user}
+            onChange={async (enabled) => {
+              await hub().call('set_user_paid_fallback', { enabled });
+              setPaid((p) => ({ ...p, user: enabled }));
+            }}
+          />
+        </>
       ) : (
         <p className="text-sm text-muted-foreground">Per-user credentials are off on this hub.</p>
       )}

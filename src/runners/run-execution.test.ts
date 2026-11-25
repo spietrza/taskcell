@@ -444,6 +444,17 @@ describe('executeIssueRun: model pool limits', () => {
     }
   });
 
+  it('an unpooled run that ends on a limit still cools the Engine and its fallback entry (the Hub reads them for the paid fallback)', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'pool-unpooled-'));
+    try {
+      const stopped = run(fakes(), { repoPath: dir, fallbackProvider: 'codex' }, [], { stages: [STAGES[0]!], agent: limitAgent().agent });
+      await expect(stopped).rejects.toBeInstanceOf(ProviderLimitError);
+      expect([...(await readCooldowns(dir)).keys()].sort()).toEqual(['claude/', 'codex/']);
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
   it('a simplifier limit cools the run-level entry, not the flow implementer pool named like the tier', async () => {
     const dir = await mkdtemp(join(tmpdir(), 'pool-flow-'));
     try {

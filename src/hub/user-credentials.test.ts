@@ -260,3 +260,40 @@ describe('user isolation', () => {
     expect((await rpc(alice, 'save_user_credential', { name: 'PATH', value: '/evil' })).status).toBe(400);
   });
 });
+
+describe('paid fallback switch (service and RPC gates)', () => {
+  const alice = { id: 'alice', email: 'a@x.io', name: 'A' };
+  const bob = { id: 'bob', email: 'b@x.io', name: 'B' };
+
+  test('default off, per-user isolation, persists across a new service, concurrent sets both land', async () => {
+    const { createCredentialService } = await import('./credentials.js');
+    const d = await mkdtemp(join(tmpdir(), 'vg-paid-'));
+    dirs.push(d);
+    const svc = createCredentialService(d);
+    expect(await svc.paidFallback('instance')).toBe(false);
+    expect(await svc.paidFallback(alice)).toBe(false);
+    await Promise.all([svc.setPaidFallback('instance', true), svc.setPaidFallback(alice, true)]);
+    const again = createCredentialService(d);
+    expect(await again.paidFallback('instance')).toBe(true);
+    expect(await again.paidFallback(alice)).toBe(true);
+    expect(await again.paidFallback(bob)).toBe(false);
+  });
+
+  test('RPC gates: instance switch is manager-only; user switch needs sign-in and per-user credentials; enabled must be boolean', async () => {
+    const { makeCtx, dispatchRpc, tmpRepo } = await import('./test-kit.js');
+    const { createCredentialService } = await import('./credentials.js');
+    const { ctx } = await makeCtx(await tmpRepo());
+    const credentials = createCredentialService(ctx.configDir);
+    const base = { ...ctx, userCredentials: credentials };
+    const asAlice = { ...base, user: alice };
+    const caller = { user: alice, owner: false };
+    await expect(dispatchRpc(asAlice, 'set_instance_paid_fallback', { enabled: true }, caller)).rejects.toThrow(/owner or a hub admin/);
+    expect(await dispatchRpc(asAlice, 'get_paid_fallback', {}, caller)).toEqual({ user: false });
+    await expect(dispatchRpc(base, 'set_user_paid_fallback', { enabled: true }, { user: undefined as never, owner: false })).rejects.toThrow(/Sign in/);
+    await expect(dispatchRpc(asAlice, 'set_user_paid_fallback', { enabled: true }, caller)).rejects.toThrow(/turned off/);
+    await credentials.setPolicy('user-first');
+    await expect(dispatchRpc(asAlice, 'set_user_paid_fallback', { enabled: 'yes' }, caller)).rejects.toThrow(/boolean/);
+    await dispatchRpc(asAlice, 'set_user_paid_fallback', { enabled: true }, caller);
+    expect(await dispatchRpc(asAlice, 'get_paid_fallback', {}, caller)).toEqual({ user: true });
+  });
+});
