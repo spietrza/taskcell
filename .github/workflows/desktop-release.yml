@@ -52,9 +52,6 @@ jobs:
         shell: bash
         env:
           INPUT_VERSION: ${{ inputs.version }}
-          # linuxdeploy (AppImage): its strip cannot handle the bundled node binary, and runners may lack FUSE.
-          NO_STRIP: 'true'
-          APPIMAGE_EXTRACT_AND_RUN: '1'
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
           APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
@@ -72,8 +69,12 @@ jobs:
           done
           updater=false
           [ -n "${TAURI_SIGNING_PRIVATE_KEY:-}" ] && updater=true
+          # Linux ships .deb only: linuxdeploy (AppImage) runs ldd on every ELF in the bundled hub's node_modules
+          # and aborts on the Claude Agent SDK's binary.
+          bundles=()
+          [ "$RUNNER_OS" = Linux ] && bundles=(--bundles deb)
           cd apps/desktop
-          pnpm bundle --verbose --config "{\"version\":\"$version\",\"bundle\":{\"createUpdaterArtifacts\":$updater}}" -- --locked
+          pnpm bundle --verbose "${bundles[@]}" --config "{\"version\":\"$version\",\"bundle\":{\"createUpdaterArtifacts\":$updater}}" -- --locked
       # The bundled hub must load from inside the app (a dropped node_modules once shipped an app whose hub never started).
       - name: Smoke-test the bundled hub
         if: runner.os == 'macOS'
@@ -89,8 +90,8 @@ jobs:
         run: |
           mkdir -p out
           bundle=apps/desktop/src-tauri/target/release/bundle
-          for f in "$bundle"/dmg/*.dmg "$bundle"/msi/*.msi "$bundle"/nsis/*.exe "$bundle"/appimage/*.AppImage "$bundle"/deb/*.deb \
-                   "$bundle"/macos/*.app.tar.gz "$bundle"/macos/*.app.tar.gz.sig "$bundle"/msi/*.sig "$bundle"/nsis/*.sig "$bundle"/appimage/*.sig; do
+          for f in "$bundle"/dmg/*.dmg "$bundle"/msi/*.msi "$bundle"/nsis/*.exe "$bundle"/deb/*.deb \
+                   "$bundle"/macos/*.app.tar.gz "$bundle"/macos/*.app.tar.gz.sig "$bundle"/msi/*.sig "$bundle"/nsis/*.sig; do
             [ -f "$f" ] && cp "$f" out/
           done
           # Both macOS runners name the updater archive the same; tag it with the architecture.
@@ -122,4 +123,4 @@ jobs:
           gh release delete desktop-latest --repo "$REPO" --cleanup-tag --yes || true
           gh release create desktop-latest out/* --repo "$REPO" --target "$SHA" \
             --title "Taskcell Desktop (latest)" --latest=false \
-            --notes "Installers for Taskcell Desktop, built from $SHA. macOS: .dmg (aarch64 = Apple Silicon, x64 = Intel). Windows: .msi or -setup.exe. Linux: .AppImage or .deb."
+            --notes "Installers for Taskcell Desktop, built from $SHA. macOS: .dmg (aarch64 = Apple Silicon, x64 = Intel). Windows: .msi or -setup.exe. Linux: .deb."
