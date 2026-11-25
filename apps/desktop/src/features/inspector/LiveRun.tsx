@@ -2,20 +2,39 @@ import { useEffect, useRef, useState } from 'react';
 import { StreamView } from './StreamView';
 import { hub } from '../../transport';
 import { cn } from '@/ui';
+import { FlowLine } from './RunDetail';
+import { foldRunEvents } from './runStages';
+import { readRunEvents } from '../../ipc';
 import type { ActiveRun, SessionRead } from '../../taskcell-output';
 
 export function LiveRun({
   active,
+  repo,
   refreshKey,
   budgetUsd,
 }: {
   active: ActiveRun;
+  /** The run's repository: its event log is read from there. */
+  repo: string;
   refreshKey: number;
   /** Budget cap from the project's .taskcell/app.json; when set, the strip shows spend vs cap.
    *  Nullable like the config field — Rust's serde writes `null` for an absent `Option`. */
   budgetUsd?: number | null;
 }) {
   const [data, setData] = useState<SessionRead | null>(null);
+  // The live run's flow, from its event log (as the detail view reads it).
+  const [flow, setFlow] = useState<string | undefined>();
+  const [flowFailed, setFlowFailed] = useState(false);
+  useEffect(() => {
+    let alive = true;
+    setFlowFailed(false);
+    readRunEvents(repo, active.taskId)
+      .then((r) => alive && setFlow(foldRunEvents(r.events).flow))
+      .catch(() => alive && setFlowFailed(true));
+    return () => {
+      alive = false;
+    };
+  }, [repo, active.taskId, refreshKey]);
   const bottomRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -77,6 +96,7 @@ export function LiveRun({
           </span>
         )}
       </div>
+      <FlowLine flow={flow} unavailable={flowFailed} />
       <div className="min-h-0 flex-1 overflow-auto rounded border border-border bg-muted/30 p-4">
         <StreamView entries={entries} empty="Waiting for output…" />
         <div ref={bottomRef} />

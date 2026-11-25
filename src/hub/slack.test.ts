@@ -1,4 +1,4 @@
-import { mkdtemp, readFile } from 'node:fs/promises';
+import { mkdtemp, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, test, vi } from 'vitest';
@@ -128,5 +128,6 @@ describe('slack and the push lock', () => {
     expect(listWaiting).toHaveBeenCalledTimes(2);
     release();
     await slow;
+    await rm(configDir, { recursive: true, force: true });
   });
 });

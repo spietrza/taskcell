@@ -105,6 +105,18 @@ describe('TaskBoard on a hub-board project', () => {
     expect(screen.getByText('After')).toBeInTheDocument();
   });
 
+  test('a read slower than the poll interval gets no trailing read', async () => {
+    vi.useFakeTimers();
+    mockListTasks.mockResolvedValueOnce({ tasks: [card('starts next')], capped: false, hubBoard: true });
+    mockListTasks.mockReturnValue(new Promise(() => {})); // every later read hangs
+    render(<TaskBoard project="/repo" repos={[]} onOpenTask={() => {}} onNewTask={() => {}} />);
+    await act(() => vi.advanceTimersByTimeAsync(0));
+    await act(() => vi.advanceTimersByTimeAsync(5000));
+    expect(mockListTasks).toHaveBeenCalledTimes(2);
+    await act(() => vi.advanceTimersByTimeAsync(20000));
+    expect(mockListTasks).toHaveBeenCalledTimes(2);
+  });
+
   test('polls the all-repositories view and a tracker board too, at the slower tracker cadence', async () => {
     vi.useFakeTimers();
     vi.mocked(listTasksAll).mockResolvedValueOnce({ tasks: [], capped: false, failures: [], hubBoards: [] });

@@ -103,4 +103,15 @@ assert.ok(plHome.includes(`dostęp Solo, ${plEuro(PASS)}.</b> Jeśli zostaniesz,
 for (const [id, name] of [['solo', 'Solo'], ['team', 'Team'], ['pro', 'Pro']])
   assert.ok(plRequest.includes(`<option value="${id}">${name}, ${plEuro(PRICES[id])} miesięcznie`), `${name} option in pl/hosting/index.html`);
 
+// CHECKOUT=live copy: every plan button carries a live variant, the live notices exist, and the contact shows in both languages.
+for (const page of [home, plHome])
+  assert.equal([...page.matchAll(/<span data-live>(Subscribe to|Subskrybuj|Buy|Kup) [^<]+<\/span><\/a>/g)].length, 4, 'four plan buttons with a live label');
+for (const page of [request, plRequest]) {
+  assert.match(page, /<p>[^<]*<a href="mailto:support@taskcell\.dev">support@taskcell\.dev<\/a>\.<\/p>/, 'contact address in the hosting page body');
+  assert.match(page, /<p data-live><b>(Payment received|Płatność przyjęta)\. /, 'live payment notice');
+  assert.doesNotMatch(page.match(/<p data-live>.*<\/p>/g).join(''), /test/i, 'no test wording in live copy');
+}
+const siteJs = read('site.js');
+assert.ok(siteJs.includes("root.dataset.checkout === 'live'") && siteJs.includes('/checkout?plan=${r.plan.id}'), 'quiz links to checkout when live');
+
 console.log('quiz rules and prices ok');

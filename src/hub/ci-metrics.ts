@@ -9,6 +9,8 @@ import type { CostBreakdown, CostPeriod, CostRow, RunSummary } from '../wire.js'
 const TTL_MS = 60_000;
 /** The metrics-branch `git fetch` can hang (a slow or unreachable remote): a board listing waits at most this long for it. */
 export const CI_READ_TIMEOUT_MS = 10_000;
+/** A metrics read that failed (timed out, fetch error) is kept this long: short, so the next refresh retries soon, but long enough not to queue a fetch per poll. */
+const FAILED_TTL_MS = 5_000;
 const DAY_MS = 24 * 60 * 60 * 1000;
 export const NO_BRANCH_HINT = 'Run `taskcell metrics push` from your CI workflow (it writes the taskcell-metrics branch) and CI runs will show up here.';
 
@@ -23,7 +25,12 @@ interface CiRecord {
   costKind?: 'estimated' | 'billed';
 }
 
-const cache = new Map<string, { at: number; read: Promise<CiRecord[] | undefined> }>();
+interface CacheEntry {
+  at: number;
+  read: Promise<CiRecord[] | undefined>;
+  failed?: true;
+}
+const cache = new Map<string, CacheEntry>();
 
 export function clearCiMetricsCache(): void {
   cache.clear();
@@ -45,21 +52,32 @@ function parseCiRecords(text: string): CiRecord[] {
 export async function readCiRecords(
   repoPath: string,
   now: number = Date.now(),
-  readText: (repoPath: string) => Promise<string> = readBranchMetrics,
+  readText: (repoPath: string, signal: AbortSignal) => Promise<string> = (path, signal) => readBranchMetrics(path, { signal }),
   timeoutMs: number = CI_READ_TIMEOUT_MS,
 ): Promise<CiRecord[] | undefined> {
   const hit = cache.get(repoPath);
-  if (hit !== undefined && now - hit.at < TTL_MS) return hit.read;
+  if (hit !== undefined && now - hit.at < (hit.failed ? FAILED_TTL_MS : TTL_MS)) return hit.read;
+  const controller = new AbortController();
   let timer: NodeJS.Timeout | undefined;
   const timeout = new Promise<string>((_, reject) => {
-    timer = setTimeout(() => reject(new Error('metrics branch fetch timed out')), timeoutMs);
+    // Kill the fetch with the wait: a hung child would keep the tip lock and queue (then time out) every later read.
+    timer = setTimeout(() => {
+      const err = new Error('metrics branch fetch timed out');
+      controller.abort(err);
+      reject(err);
+    }, timeoutMs);
   });
-  const read = Promise.race([readText(repoPath), timeout]).finally(() => clearTimeout(timer)).then(
+  const entry: CacheEntry = { at: now, read: Promise.resolve(undefined) };
+  // A failure is cached apart from "no metrics branch" (an empty read), and for less time.
+  entry.read = Promise.race([readText(repoPath, controller.signal), timeout]).finally(() => clearTimeout(timer)).then(
     (text) => (text === '' ? undefined : parseCiRecords(text)),
-    () => undefined,
+    () => {
+      entry.failed = true;
+      return undefined;
+    },
   );
-  cache.set(repoPath, { at: now, read });
-  return read;
+  cache.set(repoPath, entry);
+  return entry.read;
 }
 
 /** One summary per task on the branch; its cost is unknown when no record of it carries one. */

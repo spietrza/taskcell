@@ -14,6 +14,7 @@ import {
   HUB_TOKEN_REJECTED,
   isHubTokenRejected,
 } from './hub-wire';
+import type { Events } from './wire';
 import { createHubClient, type HubClient, type HubResponse, type HubSubscription } from '../../../packages/hub-client/src/client';
 import { createHubSession, type HubSession, type StreamAdapter } from '../../../packages/hub-client/src/session';
 
@@ -64,6 +65,7 @@ const restartHandlers = new Set<() => void>();
  * a network drop the probe below can't attribute to the hub's own token — gets this neutral signal
  * instead of the (wrong, misleading) "the hub restarted" wording. */
 const connectionIssueHandlers = new Set<() => void>();
+const connectionRecoveredHandlers = new Set<() => void>();
 
 const HUB_TOKEN_STORAGE_KEY = 'vanguard-hub-token';
 
@@ -242,6 +244,11 @@ export function onHubConnectionIssue(handler: () => void): Promise<UnlistenFn> {
   return onHubSignal(connectionIssueHandlers, handler);
 }
 
+/** Register a callback for "the stream is live again after a connection issue was reported". */
+export function onHubConnectionRecovered(handler: () => void): Promise<UnlistenFn> {
+  return onHubSignal(connectionRecoveredHandlers, handler);
+}
+
 /** `/events` closing tells a browser `EventSource` only that the connection is dead, never why —
  * `readyState` has no status code or body. Re-probe the same URL with a plain `fetch`, which does: the session
  * tells the hub's own `HUB_TOKEN_REJECTED` envelope on a 401 ("reload fixes this") from any other status (a
@@ -293,8 +300,10 @@ async function openEventsSession(): Promise<{ ok: true } | { ok: false; status?:
   }
 }
 
-/** The events the UI listens to by name: an `EventSource` needs each registered (`stream-reset` apart). */
-const STREAM_EVENTS = ['vanguard:changed', 'api:event', 'vanguard:clone-progress', 'spawn:output', 'spawn:exit'];
+/** The events the UI listens to by name: an `EventSource` needs each registered (`stream-reset` apart). Every key of the
+ * hub's `Events` (wire.ts) must be listed: `HubEventsListed` fails the typecheck when a new hub event is missing. */
+export const STREAM_EVENTS = ['vanguard:changed', 'api:event', 'vanguard:clone-progress', 'spawn:output', 'spawn:exit'] as const;
+export type HubEventsListed = Exclude<keyof Events, (typeof STREAM_EVENTS)[number]> extends never ? true : never;
 const EVENT_SOURCE_CLOSED = 2;
 
 /**
@@ -351,7 +360,8 @@ function fixtureClient(demo: boolean): Pick<HubClient, 'request' | 'subscribe'> 
       try {
         return { status: 200, body: encodeResult(await (demo ? handleDemo(cmd, args) : handle(cmd, args))) };
       } catch (err) {
-        return encodeError({ message: err instanceof Error ? err.message : String(err), kind: 'bad-request' });
+        // The hub's shape (classifyCoreError): an Error is a fault (500, `internal`); a thrown string is a deliberate refusal.
+        return err instanceof Error ? encodeError({ message: err.message, kind: 'internal' }) : encodeError({ message: String(err), kind: 'bad-request' });
       }
     },
     subscribe: () => Object.assign(() => {}, { lastEventId: undefined }),
@@ -363,6 +373,7 @@ function createSession(mode: 'hub' | 'demo' | 'mock'): HubSession {
     client: mode === 'hub' ? { request: hubRequest, subscribe: eventSourceStream } : fixtureClient(mode === 'demo'),
     onRefused: (reason) => (reason === 'sign-in-required' ? redirectToSignIn() : notifyHubRestarted()),
     onConnectionIssue: notifyHubConnectionIssue,
+    onConnectionRecovered: () => notify(connectionRecoveredHandlers),
   });
 }
 
@@ -384,3 +395,6 @@ export function subscribe<T>(name: string, handler: (event: { payload: T }) => v
   const stop = hub().subscribe({ onEvent: (n, payload) => n === name && handler({ payload: payload as T }) });
   return Promise.resolve(() => stop());
 }
+
+/** The least gap between a forge-backed live read and its re-read after a stream reset or reconnect. */
+export const RECONNECT_READ_MIN_MS = 10_000;

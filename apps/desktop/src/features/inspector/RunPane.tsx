@@ -10,7 +10,7 @@ import { askedOf, cardIdOf, outcomeOf, repoInitials, runStateTone, startedByLabe
 import { costLabel, estLabel } from '../../cost';
 import { liveStage, liveStations, stepsAt } from '../board/stageLine';
 import { StreamView } from './StreamView';
-import { RunDetail } from './RunDetail';
+import { FlowLine, RunDetail } from './RunDetail';
 import { StageLine } from './StageLine';
 import { RunReceipt, StationTrack } from './RunReceipt';
 import { CardAnswer } from '../needs-you/CardAnswer';
@@ -238,6 +238,7 @@ export function RunPane({
                   <Tabs.Indicator />
                 </Tabs.List>
                 <Tabs.Panel value="activity" className="min-h-0 flex-1 space-y-3 overflow-y-auto pt-4">
+                  <FlowLine flow={timeline.flow} />
                   {stages.length > 0 ? (
                     <StageLine stages={stages} now={now} list />
                   ) : (

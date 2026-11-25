@@ -146,7 +146,7 @@ export function routeIssuePools(
     runProvider: routing.options.provider ?? 'claude',
     isProvider: poolProvider,
     cooling: isCooling,
-    ...(configuredDeps.customProviders !== undefined ? { customProviders: configuredDeps.customProviders } : {}),
+    ...(routing.options.customProviders !== undefined ? { customProviders: routing.options.customProviders } : {}),
   });
   return { routing, flowPools };
 }

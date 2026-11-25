@@ -2,7 +2,7 @@ import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { Button, Card, ErrorNote, LINK_CLASS, cn } from '@/ui';
 import { FilePlus } from 'lucide-react';
 import { listTasksAll } from '../../ipc';
-import { hub } from '../../transport';
+import { hub, RECONNECT_READ_MIN_MS } from '../../transport';
 import { inRepos } from '../../repoFilter';
 import { isNoTaskSource, RepoFailures, RepoLabel, TaskSourceHint } from '../../RepoViews';
 import type { BoardTask, CardPlace, RepoReadFailure, RepoStamp } from '../../wire';
@@ -145,6 +145,8 @@ export function TaskBoard({
     return hub().liveRead(read, {
       initial: false,
       pollMs,
+      // A tracker board and the all-repositories view read a forge: a flapping stream must not repeat that at once.
+      reconnectMinMs: allRepos || data?.hubBoard !== true ? RECONNECT_READ_MIN_MS : undefined,
       shouldPoll: () => !document.hidden,
       // Only a hub board follows file changes; a tracker board and the all-repositories view keep their slower poll (they read a forge).
       changed: (path) => !allRepos && shownRef.current?.hubBoard === true && path === project,

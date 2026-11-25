@@ -179,6 +179,7 @@ function scheduleBlockedBy(value: unknown): string[] | undefined {
 
 /** A `flow` argument: undefined when absent, else a name the repo can run (a built-in or a valid repo flow); anything else is refused, listing the valid names. */
 async function requestedFlow(args: Record<string, unknown>, real: string): Promise<string | undefined> {
+  if (args.flow !== undefined && typeof args.flow !== 'string') throw new BadRequestError('flow must be a string');
   const flow = optionalString(args, 'flow');
   if (flow === undefined) return undefined;
   const known = Object.hasOwn(FLOWS, flow) || (await listRepoFlows(real)).some((f) => f.name === flow && f.error === undefined);

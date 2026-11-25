@@ -100,6 +100,22 @@ describe('planIssueRun: model routing', () => {
     expect(first.reroute(new Set([`claude/${picked}`])).routing.options.providerModel).toBe(other);
   });
 
+  it('a flow stage pool naming a repo custom provider resolves against the loaded customProviders', async () => {
+    const customProviders = [{ index: 0, name: 'myproxy', spec: { name: 'myproxy', baseUrl: 'https://llm.example.com' } }];
+    const p = await planIssueRun({
+      fetchedTask: task,
+      deps: { repoPath, customProviders },
+      baseStages: [{ ...STAGES[0]!, model: 'myproxy/m1:1, claude/sonnet:1' }, STAGES[1]!],
+      tracker,
+      skillIds: [],
+      cooldowns: new Map(),
+      exhausted: new Set(),
+    });
+    // The custom owns the Claude CLI transport, so it cannot be pinned beside the claude run: only claude/sonnet serves.
+    // Without the customs the flow pool resolver cannot tell that and throws on an unknown provider.
+    expect(p.flowPools.picks['implementer']).toMatchObject({ provider: 'claude', model: 'sonnet' });
+  });
+
   it('--escalate-model survives planning for the repair loop', async () => {
     expect((await plan({ deps: { escalateModel: 'opus' } })).deps.escalateModel).toBe('opus');
   });

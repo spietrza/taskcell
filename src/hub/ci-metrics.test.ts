@@ -226,3 +226,22 @@ describe('readCiRecords timeout', () => {
     expect(Date.now() - start).toBeLessThan(2000);
   });
 });
+
+describe('readCiRecords failures', () => {
+  it('aborts the fetch on timeout and keeps the failure only briefly', async () => {
+    clearCiMetricsCache();
+    let signal: AbortSignal | undefined;
+    const t = Date.now();
+    await readCiRecords('/f', t, (_p, s) => { signal = s; return new Promise<string>(() => {}); }, 20);
+    expect(signal?.aborted).toBe(true);
+    let reads = 0;
+    const again = (at: number): Promise<unknown> => readCiRecords('/f', at, () => { reads += 1; return Promise.resolve(''); }, 20);
+    await again(t + 1_000);
+    expect(reads).toBe(0);
+    await again(t + 6_000);
+    expect(reads).toBe(1);
+    // an empty read ("no metrics branch") is kept for the full TTL
+    await again(t + 30_000);
+    expect(reads).toBe(1);
+  });
+});
