@@ -53,7 +53,7 @@ The updater verifies signed artifacts. The maintainer creates the key pair once:
 pnpm tauri signer generate -w ~/.tauri/taskcell.key
 ```
 
-- Put the **public** key (`taskcell.key.pub` contents) in `plugins.updater.pubkey` of `src-tauri/tauri.conf.json` (a `REPLACE_` placeholder until then; the app skips the update check).
+- Put the **public** key (`taskcell.key.pub` contents) in `plugins.updater.pubkey` of `src-tauri/tauri.conf.json` (set since 25 Nov 2026; its private half is in the CI secrets below).
 - Store the **private** key as the CI secret `TAURI_SIGNING_PRIVATE_KEY` (and its password as `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`). Never commit it.
 
 ### Release job
@@ -64,16 +64,19 @@ lock), and replaces the assets of the rolling **`desktop-latest`** release, whic
 It runs on every published Taskcell release and by hand (`workflow_dispatch`, optional `version`; default: the root
 `package.json` version), only from `main` or a `v*` tag. Signing secrets are optional: without
 `TAURI_SIGNING_PRIVATE_KEY` it builds without updater artifacts, and without the `APPLE_*` secrets the macOS build is
-unsigned. Not done yet: the updater's `latest.json` (needs the real `plugins.updater.pubkey` first).
+unsigned. Linux builds only the `.deb` (linuxdeploy, which makes the AppImage, aborts on ELF binaries in the bundled hub's
+`node_modules`). Not done yet: the AppImage, and publishing the updater's `latest.json` (the key is in place; the publish job does not write the manifest yet, so the in-app update check finds nothing).
 
 Separately, a CI job should run `pnpm --dir apps/desktop test:rust` on changes under `apps/desktop/src-tauri/**` (Rust ≥ 1.90 and, on Linux, the Tauri system libraries); no workflow builds the Rust today. That job compiles PR-controlled code (`build.rs`, proc macros, tests): use the `pull_request` trigger (never `pull_request_target`), `permissions: contents: read`, no secrets, and no build cache shared with the signing release job.
 
-Until `plugins.updater.pubkey` is a real key, the app skips the update check.
 
 ### Optional macOS signing and notarization
 
 Builds work unsigned. When these secrets are present the release job signs and notarizes: `APPLE_CERTIFICATE`
-(base64 .p12), `APPLE_CERTIFICATE_PASSWORD`, `APPLE_SIGNING_IDENTITY`, `APPLE_ID`, `APPLE_PASSWORD` (app-specific), `APPLE_TEAM_ID`.
+(base64 .p12), `APPLE_CERTIFICATE_PASSWORD`, `APPLE_SIGNING_IDENTITY`, `APPLE_TEAM_ID`, and for notarization either
+an App Store Connect API key with the Developer role (`APPLE_API_ISSUER`, `APPLE_API_KEY` = key ID, `APPLE_API_KEY_P8` =
+the `.p8` file's contents) or `APPLE_ID` + `APPLE_PASSWORD` (app-specific). The API key is preferred: it needs no Apple ID
+password and can be revoked on its own.
 
 ## Driving the UI with an agent
 

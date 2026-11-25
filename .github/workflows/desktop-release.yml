@@ -60,17 +60,32 @@ jobs:
           APPLE_ID: ${{ secrets.APPLE_ID }}
           APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          # Notarization with an App Store Connect API key (role Developer) instead of APPLE_ID/APPLE_PASSWORD.
+          APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
+          APPLE_API_KEY: ${{ secrets.APPLE_API_KEY }}
+          APPLE_API_KEY_P8: ${{ secrets.APPLE_API_KEY_P8 }}
         run: |
           version="${INPUT_VERSION:-$(node -p "require('./package.json').version")}"
           if ! [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then echo "invalid version: $version"; exit 1; fi
           # Unset secrets are empty strings; Tauri would try to use them, so drop them and build unsigned.
-          for v in TAURI_SIGNING_PRIVATE_KEY TAURI_SIGNING_PRIVATE_KEY_PASSWORD APPLE_CERTIFICATE APPLE_CERTIFICATE_PASSWORD APPLE_SIGNING_IDENTITY APPLE_ID APPLE_PASSWORD APPLE_TEAM_ID; do
+          for v in TAURI_SIGNING_PRIVATE_KEY TAURI_SIGNING_PRIVATE_KEY_PASSWORD APPLE_CERTIFICATE APPLE_CERTIFICATE_PASSWORD APPLE_SIGNING_IDENTITY APPLE_ID APPLE_PASSWORD APPLE_TEAM_ID APPLE_API_ISSUER APPLE_API_KEY; do
             [ -n "${!v}" ] || unset "$v"
           done
+          if [ -n "${APPLE_API_KEY_P8:-}" ] && [ -n "${APPLE_API_KEY:-}" ]; then
+            export APPLE_API_KEY_PATH="$RUNNER_TEMP/AuthKey_$APPLE_API_KEY.p8"
+            (umask 077; printf '%s\n' "$APPLE_API_KEY_P8" > "$APPLE_API_KEY_PATH")
+          else
+            unset APPLE_API_ISSUER APPLE_API_KEY
+          fi
+          unset APPLE_API_KEY_P8
           updater=false
           [ -n "${TAURI_SIGNING_PRIVATE_KEY:-}" ] && updater=true
+          # Linux ships .deb only: linuxdeploy (AppImage) runs ldd on every ELF in the bundled hub's node_modules
+          # and aborts on the Claude Agent SDK's binary.
+          bundles=()
+          [ "$RUNNER_OS" = Linux ] && bundles=(--bundles deb)
           cd apps/desktop
-          pnpm bundle --config "{\"version\":\"$version\",\"bundle\":{\"createUpdaterArtifacts\":$updater}}" -- --locked
+          pnpm bundle --verbose "${bundles[@]}" --config "{\"version\":\"$version\",\"bundle\":{\"createUpdaterArtifacts\":$updater}}" -- --locked
       # The bundled hub must load from inside the app (a dropped node_modules once shipped an app whose hub never started).
       - name: Smoke-test the bundled hub
         if: runner.os == 'macOS'
@@ -86,8 +101,8 @@ jobs:
         run: |
           mkdir -p out
           bundle=apps/desktop/src-tauri/target/release/bundle
-          for f in "$bundle"/dmg/*.dmg "$bundle"/msi/*.msi "$bundle"/nsis/*.exe "$bundle"/appimage/*.AppImage "$bundle"/deb/*.deb \
-                   "$bundle"/macos/*.app.tar.gz "$bundle"/macos/*.app.tar.gz.sig "$bundle"/msi/*.sig "$bundle"/nsis/*.sig "$bundle"/appimage/*.sig; do
+          for f in "$bundle"/dmg/*.dmg "$bundle"/msi/*.msi "$bundle"/nsis/*.exe "$bundle"/deb/*.deb \
+                   "$bundle"/macos/*.app.tar.gz "$bundle"/macos/*.app.tar.gz.sig "$bundle"/msi/*.sig "$bundle"/nsis/*.sig; do
             [ -f "$f" ] && cp "$f" out/
           done
           # Both macOS runners name the updater archive the same; tag it with the architecture.
@@ -119,4 +134,4 @@ jobs:
           gh release delete desktop-latest --repo "$REPO" --cleanup-tag --yes || true
           gh release create desktop-latest out/* --repo "$REPO" --target "$SHA" \
             --title "Taskcell Desktop (latest)" --latest=false \
-            --notes "Installers for Taskcell Desktop, built from $SHA. macOS: .dmg (aarch64 = Apple Silicon, x64 = Intel). Windows: .msi or -setup.exe. Linux: .AppImage or .deb."
+            --notes "Installers for Taskcell Desktop, built from $SHA. macOS: .dmg (aarch64 = Apple Silicon, x64 = Intel). Windows: .msi or -setup.exe. Linux: .deb."

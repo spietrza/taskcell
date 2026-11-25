@@ -10,7 +10,7 @@ without a native app, or on a server. See `src/hub/*.ts` and `src/cli/hub.ts` fo
 ## Install the desktop app
 
 Taskcell Desktop installers (macOS `.dmg` for Apple Silicon (`aarch64`) and Intel (`x64`), Windows `.msi`/`-setup.exe`,
-Linux `.AppImage`/`.deb`) are on the [`desktop-latest` release](https://github.com/spietrza/taskcell/releases/tag/desktop-latest).
+Linux `.deb`) are on the [`desktop-latest` release](https://github.com/spietrza/taskcell/releases/tag/desktop-latest).
 The `Desktop release` workflow rebuilds them on every Taskcell release (see `apps/desktop/README.md`). Taskcell Mobile
 (the iPhone app) is a separate app that connects to a hub; it is not meant for the Mac. The app checks for updates on start and offers a new version; it downloads on consent and installs when you quit, so running tasks are not interrupted.
 
@@ -20,7 +20,7 @@ Building the desktop app yourself: in `apps/desktop`, `pnpm test:rust` builds an
 and choose **Open**. On macOS 15 and later, try to open it once, then go to **System Settings > Privacy & Security**
 and click **Open Anyway**. If macOS says the app "is damaged", run `xattr -cr "/Applications/Taskcell Desktop.app"` and open it again.
 
-**Linux.** `chmod +x Taskcell*.AppImage && ./Taskcell*.AppImage`, or `sudo apt install ./taskcell*.deb` (use the file name you downloaded).
+**Linux.** `sudo apt install ./<downloaded>.deb`. There is no AppImage yet: the AppImage tool fails on binaries inside the bundled hub.
 
 ## Quick start
 
