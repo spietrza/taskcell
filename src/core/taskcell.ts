@@ -467,7 +467,9 @@ export async function runAgent(ctx: RunContext, input: StageInput): Promise<RunR
       ? 'completed'
       : timeout.signal.aborted
       ? 'timeout'
-      : turns >= maxTurns
+      : stopReason === 'error_max_budget_usd'
+      ? 'budget_exceeded'
+      : stopReason === 'error_max_turns' || turns >= maxTurns
       ? 'maxTurns'
       : 'incomplete';
 

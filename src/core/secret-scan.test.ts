@@ -83,6 +83,18 @@ describe('scanForSecrets', () => {
     );
   });
 
+  it('does NOT flag plain filesystem paths (the Slack path-stripping strings of #1404), even outside a test path', () => {
+    const diff = diffOf([{
+      path: 'src/hub/notes.ts',
+      lines: [
+        "+  const a = 'cannot read /home/hub/repos/x/.git/config or C:\\\\srv\\\\repo\\\\a.txt';",
+        "+  const b = 'a /etc/passwd b /Users/John Smith/repo c file:///srv/x d \\\\\\\\host\\\\share e';",
+        "+  const c = 'a ../../srv/hub/repos/x b foo./etc/passwd c 1./srv/a d ./srv/hub/x';",
+      ],
+    }]);
+    expect(scanForSecrets(diff)).toEqual([]);
+  });
+
   it('does NOT flag a package-lock integrity hash that happens to contain "eyJ" (real JWTs have two dots, hashes have none)', () => {
     const diff = diffOf([
       {

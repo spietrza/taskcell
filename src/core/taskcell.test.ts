@@ -167,6 +167,16 @@ describe('vanguard.run', () => {
     expect(entries.some((e) => e.msg.includes('model mismatch'))).toBe(false);
   });
 
+  it('classifies the CLI stop reason before the turn count', async () => {
+    const wm = new WorktreeManager(repo);
+    for (const [stopReason, exitReason] of [['error_max_turns', 'maxTurns'], ['error_max_budget_usd', 'budget_exceeded']] as const) {
+      const { sandbox } = makeSandbox();
+      const agent = fakeAgent([{ text: 'x' }], { finalText: '', turns: 1, stopReason });
+      const res = await run({ taskId: `t-${stopReason}`, localRepoPath: repo, promptTemplate: 'x', sandbox, agent }, { worktrees: wm });
+      expect(res.exitReason).toBe(exitReason);
+    }
+  });
+
   it('removes a clean worktree and reports not-completed', async () => {
     const wm = new WorktreeManager(repo);
     const { sandbox, wasDestroyed } = makeSandbox();

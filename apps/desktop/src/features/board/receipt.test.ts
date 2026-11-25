@@ -38,6 +38,7 @@ describe('receipt', () => {
     expect(values(receipt(run({ stages: [stage({ stage: 'reviewer' }, 'diff')] }))).secrets).toBe('not recorded');
     expect(values(receipt(run({ stages: [stage({ stage: 'implementer', diffOmitted: 'secret-scan' })] }))).secrets).toBe('secret found');
     expect(values(receipt(run({ stages: [stage({ stage: 'implementer', diffOmitted: 'secret-blocked' }, 'diff')] }))).secrets).toBe('not recorded');
+    expect(values(receipt(run({ stages: [stage({ stage: 'implementer', diffOmitted: 'not-scanned' }, 'diff')] }))).secrets).toBe('not recorded');
   });
 
   test('zero cost is not a fact', () => {

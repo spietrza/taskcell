@@ -545,6 +545,9 @@ export interface RunSkills {
   notes?: string[];
 }
 
+/** `true`: the secret gate blocked the run; `'not-scanned'`: the run stopped before the gate ran. */
+export type OmitDiff = boolean | 'not-scanned';
+
 export interface WriteStagesOptions {
   /** The PR opened for this run, if any. */
   prUrl?: string;
@@ -569,12 +572,13 @@ export interface WriteStagesOptions {
   /**
    * Leave the `.diff`, `.bundle` and `.transcript.log` off disk and stub `finalText`; only the JSON
    * record (marked `diffOmitted: 'secret-blocked'`) and the metric line are written for every stage.
-   * Set for secret-blocked runs (and for a revise round whose diff could not be captured): the
-   * payloads hold the very secret the scan caught, and the run record may be uploaded as a CI
-   * artifact (`upload-run-records`). Independently of this flag, a stage diff that `scanForSecrets`
-   * flags is withheld with `diffOmitted: 'secret-scan'`.
+   * Set for secret-blocked runs: the payloads hold the very secret the scan caught, and the run record
+   * may be uploaded as a CI artifact (`upload-run-records`). `'not-scanned'` withholds the same way for
+   * a revise round that stopped before the scan ran (hold, unanswered items, diff not captured) and
+   * marks it `diffOmitted: 'not-scanned'`, so it is not mistaken for a scan hit. Independently of this
+   * flag, a stage diff that `scanForSecrets` flags is withheld with `diffOmitted: 'secret-scan'`.
    */
-  omitDiff?: boolean;
+  omitDiff?: OmitDiff;
   /** Ids of the lessons injected into the run's prompts, recorded on every stage. */
   lessonIds?: readonly string[];
   skills?: RunSkills;
@@ -618,7 +622,7 @@ interface WriteRecordOptions {
   label?: string;
   prUrl?: string;
   requestedModel?: string;
-  omitDiff?: boolean;
+  omitDiff?: OmitDiff;
   imageDigest?: string;
   baseBranch?: string;
   configPaths?: readonly string[];
@@ -653,16 +657,19 @@ async function writeRecord(repoPath: string, taskId: string, timestamp: string, 
   const installedSkillIds = opts.skillIds ?? (opts.skills !== undefined ? [...opts.skills.named, ...opts.skills.available] : []);
   // Why the diff (and bundle) are withheld, recorded on run.json so the hub and a human can tell
   // "withheld" from "no diff" or "bundle creation failed":
-  //  - 'secret-blocked': the caller's publish gate fired (opts.omitDiff).
+  //  - 'secret-blocked': the caller's publish gate fired (opts.omitDiff: true).
+  //  - 'not-scanned': the round stopped before the gate ran (opts.omitDiff: 'not-scanned').
   //  - 'secret-scan': a stage's diff is the worktree at the end of THAT stage, while the gate scans the
   //    final diff only — a secret the implementer wrote and the simplifier removed passes the gate yet
   //    sits in the implementer's record, so every stage diff meets the same scans first: the patterns
   //    (which exempt test paths, isTestPath) and the exact-value check on injected credentials.
-  const diffOmitted: 'secret-blocked' | 'secret-scan' | undefined = opts.omitDiff
-    ? 'secret-blocked'
-    : diff !== undefined && diff !== '' && (scanForSecrets(diff).length > 0 || scanForInjectedSecrets(diff, opts.secretValues).length > 0)
-      ? 'secret-scan'
-      : undefined;
+  const diffOmitted: RunRecord['diffOmitted'] = opts.omitDiff === 'not-scanned'
+    ? 'not-scanned'
+    : opts.omitDiff === true
+      ? 'secret-blocked'
+      : diff !== undefined && diff !== '' && (scanForSecrets(diff).length > 0 || scanForInjectedSecrets(diff, opts.secretValues).length > 0)
+        ? 'secret-scan'
+        : undefined;
   // Free text is masked before it reaches disk (the record may leave the job as a CI artifact): injected
   // credentials by exact value, then token shapes. When the diff is withheld, so is the text: the
   // closing message tends to quote the change and the pattern pass is lossy (a fragment past a token's
@@ -886,7 +893,7 @@ export interface PersistOptions {
   /** Model the stage was configured with (StageOutcome.model); recorded next to the served `model`. */
   requestedModel?: string;
   /** See {@link WriteStagesOptions.omitDiff}. */
-  omitDiff?: boolean;
+  omitDiff?: OmitDiff;
 }
 
 /**
