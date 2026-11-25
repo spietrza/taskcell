@@ -548,6 +548,12 @@ export const ciFailedMarker = (headSha: string): string => writeMarker('ci-faile
 /** True for a CI-failure comment, under either spelling. Such a comment never resets the revision budget. */
 export const hasCiFailedMarker = (body: string): boolean => hasMarker('ci-failed', body);
 
+/** Hidden marker on a base-conflict comment (ci-watch step); one per conflicting head SHA. */
+export const conflictMarker = (headSha: string): string => writeMarker('base-conflict', headSha);
+
+/** True for a base-conflict comment, under either spelling. Such a comment never resets the revision budget. */
+export const hasConflictMarker = (body: string): boolean => hasMarker('base-conflict', body);
+
 type FeedbackTrustOptions = Pick<ActionableOptions, 'feedbackAuthors' | 'botLogins'>;
 
 /** A feedback item as the ledger reads it: any author the feedback trust rules do not drop is trusted. */
@@ -587,7 +593,7 @@ export function revisionBudgetResetAt(fb: PullRequestFeedback, opts: FeedbackTru
   for (const item of fb.items) {
     if (item.createdAt === '' || item.createdAt <= lastCapNoticeAt) continue;
     if (isBotLogin(item.author, opts.botLogins)) continue;
-    if (hasCiFailedMarker(item.body)) continue;
+    if (hasCiFailedMarker(item.body) || hasConflictMarker(item.body)) continue;
     const trust = classifyFeedbackAuthor(item, opts);
     if (trust !== 'association' && trust !== 'allowed') continue;
     if (resetAt === undefined || item.createdAt < resetAt) resetAt = item.createdAt;

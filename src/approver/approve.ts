@@ -41,6 +41,23 @@ const POLL_ATTEMPTS = 60;
 const UNKNOWN_RETRIES = 3;
 const UNKNOWN_RETRY_MS = 5_000;
 
+const realSleep = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms));
+
+/** Read a PR; GitHub computes mergeStateStatus lazily, so UNKNOWN is retried a few times before it counts. */
+export async function readSettledPr(
+  gh: GhRunner,
+  repoSlug: string,
+  number: number,
+  sleep: (ms: number) => Promise<void> = realSleep,
+): Promise<PrFacts> {
+  let current = await collectPrFacts(gh, repoSlug, number);
+  for (let i = 0; i < UNKNOWN_RETRIES && current.mergeStateStatus === 'UNKNOWN'; i += 1) {
+    await sleep(UNKNOWN_RETRY_MS);
+    current = await collectPrFacts(gh, repoSlug, number);
+  }
+  return current;
+}
+
 /** Error text as it may go into a comment or the log: tokens and injected secret values redacted. */
 const errorText = (err: unknown): string => redactForPublish(err instanceof Error ? err.message : String(err));
 
@@ -84,16 +101,8 @@ export async function runApprover(input: RunApproverInput, state: { updated: boo
     return { record };
   };
 
-  const sleep = input.sleep ?? ((ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms)));
-  // Read the PR again; GitHub computes mergeStateStatus lazily, so UNKNOWN is retried a few times before it counts.
-  const readPr = async (number: number = input.prNumber): Promise<PrFacts> => {
-    let current = await collectPrFacts(gh, input.repoSlug, number);
-    for (let i = 0; i < UNKNOWN_RETRIES && current.mergeStateStatus === 'UNKNOWN'; i += 1) {
-      await sleep(UNKNOWN_RETRY_MS);
-      current = await collectPrFacts(gh, input.repoSlug, number);
-    }
-    return current;
-  };
+  const sleep = input.sleep ?? realSleep;
+  const readPr = (number: number = input.prNumber): Promise<PrFacts> => readSettledPr(gh, input.repoSlug, number, sleep);
 
   // `--mode act` (whether the policy allows it is not known yet): settle the PR read first, so the base, the policy and
   // the seed all come from the read the decision is made on, and read the policy strictly from the fetched base, so
