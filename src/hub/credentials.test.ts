@@ -9,6 +9,8 @@ import { CREDENTIAL_NAMES, createCredentialService, termsWarningFor, migrateLega
 import { createHubServer } from './server.js';
 import { localOnlyIdentity } from './auth.js';
 
+afterEach(() => vi.unstubAllEnvs());
+
 const dirs: string[] = [];
 async function dir(): Promise<string> {
   const d = await mkdtemp(join(tmpdir(), 'vanguard-hub-cred-'));
@@ -827,6 +829,8 @@ describe('resolveForRun with fallback-chain providers (extra)', () => {
   });
 
   it('every Claude account cooling is no refusal while a chain entry is funded: the run starts on the soonest-resetting account plus the chain keys', async () => {
+    // The instance scope also counts the hub's own env; a host (CI runner, factory sandbox) may hold Codex keys.
+    for (const name of ['CODEX_AUTH_JSON', 'CODEX_API_KEY', 'OPENAI_API_KEY']) vi.stubEnv(name, '');
     const d = await dir();
     const svc = createCredentialService(d);
     const a = await svc.store.putAccount('instance', { name: 'A', type: 'api-key', value: 'sk-A' });
