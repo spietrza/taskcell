@@ -64,7 +64,8 @@ lock), and replaces the assets of the rolling **`desktop-latest`** release, whic
 It runs on every published Taskcell release and by hand (`workflow_dispatch`, optional `version`; default: the root
 `package.json` version), only from `main` or a `v*` tag. Signing secrets are optional: without
 `TAURI_SIGNING_PRIVATE_KEY` it builds without updater artifacts, and without the `APPLE_*` secrets the macOS build is
-unsigned. Not done yet: the updater's `latest.json` (needs the real `plugins.updater.pubkey` first).
+unsigned. Linux builds only the `.deb` (linuxdeploy, which makes the AppImage, aborts on ELF binaries in the bundled hub's
+`node_modules`). Not done yet: the AppImage, and the updater's `latest.json` (needs the real `plugins.updater.pubkey` first).
 
 Separately, a CI job should run `pnpm --dir apps/desktop test:rust` on changes under `apps/desktop/src-tauri/**` (Rust ≥ 1.90 and, on Linux, the Tauri system libraries); no workflow builds the Rust today. That job compiles PR-controlled code (`build.rs`, proc macros, tests): use the `pull_request` trigger (never `pull_request_target`), `permissions: contents: read`, no secrets, and no build cache shared with the signing release job.
 
