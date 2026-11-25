@@ -230,6 +230,7 @@ export async function executeIssueRun(run: IssueRunExecution): Promise<RunIssueR
     { skills },
   );
   let outcomes: StageOutcome[] = [];
+  const notes = [...skillNotes, ...(deps.credentialName !== undefined ? [`credential: ${deps.credentialName}`] : [])];
   // On Actions each run leaves one block in the job's Summary tab, built from the same outcomes as
   // the run record + metrics.jsonl so the two never disagree. No GITHUB_STEP_SUMMARY ⇒ no-op.
   const stepSummary = (exit: StepSummaryExit, extra: Pick<StepSummary, 'prUrl' | 'error'> = {}): Promise<void> => {
@@ -241,7 +242,7 @@ export async function executeIssueRun(run: IssueRunExecution): Promise<RunIssueR
       ...(model !== undefined ? { model } : {}),
       outcomes,
       exit,
-      ...(skillNotes.length > 0 ? { notes: skillNotes } : {}),
+      ...(notes.length > 0 ? { notes } : {}),
       ...extra,
     });
   };

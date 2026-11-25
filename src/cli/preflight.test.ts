@@ -64,6 +64,17 @@ describe('runPreflight', () => {
     expect(formatPreflightReport(report)).toContain('preflight: llm auth missing -> stop before claim');
   });
 
+  it('checks each token of a multi-line CLAUDE_CODE_OAUTH_TOKEN', async () => {
+    const checks = async (token: string): Promise<string[]> =>
+      (await runPreflight(githubDoctor(), { env: { GH_TOKEN: 'gh', CLAUDE_CODE_OAUTH_TOKEN: token }, nodeVersion: '24.11.1', run: makeRunner() })).checks
+        .filter((c) => c.name.startsWith('llm auth tokens'))
+        .map((c) => `${c.name}|${c.ok}|${c.reason ?? ''}`);
+    expect(await checks('tok-a\ntok-b')).toEqual(['llm auth tokens (2)|true|']);
+    expect(await checks('tok-a\ntok b')).toEqual(['llm auth tokens|false|token 2 contains whitespace (one token per line)']);
+    expect(await checks('tok-a\ntok-a')).toEqual(['llm auth tokens|false|token 2 repeats token 1']);
+    expect(await checks('tok-a')).toEqual([]);
+  });
+
   it('fails when a GitHub loop label is missing', async () => {
     const report = await runPreflight(githubDoctor(), {
       env: { GH_TOKEN: 'gh', CLAUDE_CODE_OAUTH_TOKEN: 'token' },

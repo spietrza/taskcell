@@ -1,5 +1,7 @@
 import { describe, it, expect } from 'vitest';
-import { authSecrets, authFromEnv, agentAuthFromEnv, refuseLlmProxyWithoutPrimarySidecar, SUBSCRIPTION_ENV, API_ENV } from './auth.js';
+import { injectedSecretValues } from '../core/secret-scan.js';
+import { tokenRotationFor } from './token-rotation.js';
+import { subscriptionTokens, singleTokenEnv, llmProxyAuth, authSecrets, authFromEnv, agentAuthFromEnv, refuseLlmProxyWithoutPrimarySidecar, SUBSCRIPTION_ENV, API_ENV } from './auth.js';
 import { CliUsageError } from '../core/errors.js';
 
 describe('authSecrets', () => {
@@ -94,5 +96,47 @@ describe('refuseLlmProxyWithoutPrimarySidecar', () => {
     expect(() => refuseLlmProxyWithoutPrimarySidecar(undefined, { provider: 'codex' }, { CODEX_API_KEY: 'k' })).not.toThrow();
     expect(() => refuseLlmProxyWithoutPrimarySidecar(true, { provider: 'codex', reviewProvider: 'claude' }, { CODEX_API_KEY: 'k' })).not.toThrow();
     expect(() => refuseLlmProxyWithoutPrimarySidecar(true, { provider: 'cursor' }, { CURSOR_API_KEY: 'k' })).not.toThrow();
+  });
+});
+
+describe('several subscription tokens (one per line)', () => {
+  it('splits, trims and dedupes; a single line is unchanged', () => {
+    expect(subscriptionTokens('a\r\n b \n\na\nc\n')).toEqual(['a', 'b', 'c']);
+    expect(authFromEnv({ [SUBSCRIPTION_ENV]: 'a\nb' })).toEqual({ mode: 'subscription', token: 'a', tokens: ['a', 'b'] });
+    expect(authFromEnv({ [SUBSCRIPTION_ENV]: 'a\n' })).toEqual({ mode: 'subscription', token: 'a' });
+  });
+
+  it('injects only the first token into the sandbox env and hands the rest to the proxy', () => {
+    const auth = authFromEnv({ [SUBSCRIPTION_ENV]: 'a\nb' })!;
+    expect(authSecrets(auth)).toEqual({ [SUBSCRIPTION_ENV]: 'a' });
+    expect(llmProxyAuth(auth)).toEqual({ mode: 'subscription', secret: 'a', more: ['b'] });
+  });
+
+  it('rotates per run: a limit moves to the next token, none left reports false', () => {
+    const rotation = tokenRotationFor(authFromEnv({ [SUBSCRIPTION_ENV]: 'a\nb' }))!;
+    expect(rotation.hasNext()).toBe(true);
+    expect(rotation.limited(new Date(Date.now() + 1000))).toBe(true);
+    expect(rotation.auth()).toMatchObject({ token: 'b' });
+    expect(rotation.name()).toContain('token 2 of 2');
+    expect(rotation.name()).not.toContain('b');
+    expect(rotation.hasNext()).toBe(false);
+    expect(rotation.limited(new Date(Date.now() + 1000))).toBe(false);
+    expect(tokenRotationFor({ mode: 'subscription', token: 'a' })).toBeUndefined();
+  });
+
+  it('redacts every token from logs', () => {
+    const t1 = 'sk-ant-oat01-AbCdEf0123456789xyzQWERTY1';
+    const t2 = 'sk-ant-oat01-ZyXwVu9876543210abcDEFGHI2';
+    const values = injectedSecretValues({ CLAUDE_CODE_OAUTH_TOKEN: `${t1}\n${t2}` });
+    expect(values).toEqual(expect.arrayContaining([t1, t2]));
+  });
+});
+
+describe('singleTokenEnv', () => {
+  it('hands host-side Claude children only the first of several tokens and keeps the rest of the env', () => {
+    const env = singleTokenEnv({ CLAUDE_CODE_OAUTH_TOKEN: ' tok-1\r\ntok-2\n', PATH: '/bin', UNSET: undefined });
+    expect(env).toEqual({ CLAUDE_CODE_OAUTH_TOKEN: 'tok-1', PATH: '/bin' });
+    expect(singleTokenEnv({ CLAUDE_CODE_OAUTH_TOKEN: 'only' })).toEqual({ CLAUDE_CODE_OAUTH_TOKEN: 'only' });
+    expect(singleTokenEnv({ ANTHROPIC_API_KEY: 'k' })).toEqual({ ANTHROPIC_API_KEY: 'k' });
   });
 });

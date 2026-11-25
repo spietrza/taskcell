@@ -492,7 +492,7 @@ export async function runRevisePullRequest(prRef: string, deps: ReviseGithubPrDe
     const revisionStageMeta: { flow: string; provider: string; lessonIds?: string[]; skillIds?: string[] } = { flow: 'revise', provider: agents.agent.name, lessonIds: [] };
     let outcomes: StageOutcome[] = [];
     // For paths where the secret scan never ran: keep the cost trace, keep the diff off disk.
-    const writeStagesWithoutDiff = (): Promise<void> => writer.writeStages(outcomes, { ...revisionStageMeta, omitDiff: true });
+    const writeStagesWithoutDiff = (): Promise<void> => writer.writeStages(outcomes, { ...revisionStageMeta, omitDiff: 'not-scanned' });
     // One block per revision in the Actions job's Summary tab (no GITHUB_STEP_SUMMARY ⇒ no-op).
     const stepSummary = (exit: StepSummaryExit, extra: Pick<StepSummary, 'error'> = {}): Promise<void> => {
       const model = outcomes.find((o) => o.name === STAGE.IMPLEMENTER)?.result.model ?? effectiveModel;
@@ -652,7 +652,12 @@ export async function runRevisePullRequest(prRef: string, deps: ReviseGithubPrDe
       };
       if (unanswered.length > 0) {
         await writeStagesWithoutDiff();
-        return await failOpenItems(`Revision failed: ${unanswered.length} blocking item(s) have no answer (fixed / not fixed / disputed), nothing was pushed. This PR needs a hand fix; unanswered:\n${unanswered.map((t) => `- ${t}`).join('\n')}\n\nAfter fixing it by hand, re-apply \`needs revision\` to start a normal revision round.`, true);
+        const list = unanswered.map((t) => `- ${t}`).join('\n');
+        if (outcomes.some((o) => o.name === STAGE.IMPLEMENTER && o.result.exitReason === 'maxTurns')) {
+          const cap = pipeline.find((s) => s.name === STAGE.IMPLEMENTER)?.maxTurns;
+          return await failOpenItems(`Revision failed: the implementer hit the turn cap${cap !== undefined ? ` (${cap})` : ''} before answering ${unanswered.length} blocking item(s); nothing was pushed. Split the findings into smaller rounds, then re-apply \`needs revision\`; unanswered:\n${list}`, true);
+        }
+        return await failOpenItems(`Revision failed: ${unanswered.length} blocking item(s) have no answer (fixed / not fixed / disputed), nothing was pushed. This PR needs a hand fix; unanswered:\n${list}\n\nAfter fixing it by hand, re-apply \`needs revision\` to start a normal revision round.`, true);
       }
       const checklistAnswers = checklist.map((text, i) => ({ text, answer: answers[i]! }));
 

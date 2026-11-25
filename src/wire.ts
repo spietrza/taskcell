@@ -488,7 +488,7 @@ export interface RunRecord {
    *  traced back to the exact image it executed against — pulled from GHCR or built locally. */
   imageDigest?: string;
   /** Why no `.diff` / `.bundle` / transcript sit next to this record (see core run-store.ts). */
-  diffOmitted?: 'secret-blocked' | 'secret-scan';
+  diffOmitted?: 'secret-blocked' | 'secret-scan' | 'not-scanned';
   /** Hub login (or `token`) that started the run from the hub; absent for CLI/CI runs. */
   startedBy?: string;
   /** `'watch'` when a `taskcell watch` worker started the run; absent for every other run. */

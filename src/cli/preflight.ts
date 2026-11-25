@@ -292,6 +292,12 @@ export async function runPreflight(cmd: PreflightCommand, opts: PreflightOptions
     llmAuthPresent = false; // unknown/broken provider name — the 'provider combo' check reports the why
   }
   checks.push(llmAuthPresent ? check('llm auth', true) : check('llm auth', false, 'missing'));
+  // CLAUDE_CODE_OAUTH_TOKEN may hold several tokens, one per line: check each (by number, never the value).
+  const rawTokens = (env.CLAUDE_CODE_OAUTH_TOKEN ?? '').split(/\r?\n/).map((t) => t.trim()).filter((t) => t !== '');
+  if (rawTokens.length > 1) {
+    const bad = rawTokens.flatMap((t, i) => (/\s/.test(t) ? [`token ${i + 1} contains whitespace (one token per line)`] : rawTokens.indexOf(t) !== i ? [`token ${i + 1} repeats token ${rawTokens.indexOf(t) + 1}`] : []));
+    checks.push(bad.length === 0 ? check(`llm auth tokens (${rawTokens.length})`, true) : check('llm auth tokens', false, bad.join('; ')));
+  }
 
   let usedProviders: string[];
   try {

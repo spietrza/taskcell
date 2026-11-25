@@ -13,6 +13,7 @@ import { resolveAndRunVisualProof } from '../pipeline/visual-proof.js';
 import { loadRetrospectiveMemory } from '../core/retrospective-memory.js';
 import { pickRunOptions, runSourcedIssue as runWith, conventionalCommitMessage } from './source-adapter.js';
 import { runCredentialContext } from './agent-session.js';
+import type { AgentAuth } from '../agents/auth.js';
 import type { RunIssueDeps, Tracker, ReviewHost } from './source-adapter.js';
 import { extractPrBodyItemsBlock } from '../pipeline/conformance-gate.js';
 import { readCooldowns } from '../core/model-pool.js';
@@ -533,6 +534,43 @@ describe('runSourcedIssue', () => {
       await expect(run).rejects.toBeInstanceOf(ProviderLimitError);
       expect(picked().map((c) => c.provider)).toEqual(['claude', 'cursor']);
       expect(publishForReview).not.toHaveBeenCalled();
+    });
+
+    describe('several subscription tokens (CLAUDE_CODE_OAUTH_TOKEN, one per line)', () => {
+      const injectAuth = (times: number): void => {
+        for (let i = 0; i < times; i++) vi.mocked(selectAgents).mockImplementationOnce((() => ({ agent: { name: 'claude' }, secrets: {}, proxySecrets: {}, injectAnthropicAuth: true })) as never);
+      };
+      const tokensSeen = (): string[] => (capturedSandboxOpts as Array<{ secrets?: Record<string, string> }>).map((o) => o.secrets?.CLAUDE_CODE_OAUTH_TOKEN ?? '');
+      const twoTokens: AgentAuth = { mode: 'subscription', token: 'tok-one', tokens: ['tok-one', 'tok-two'] };
+
+      it('a limit on token 1 continues on token 2 in the same run, with no fallback and a named account in the record', async () => {
+        injectAuth(2);
+        limitOnce();
+        await runSourcedIssue('group/project#1', { repoPath: '/repo', auth: twoTokens, fallbackProvider: 'codex' }, fakeAdapter([], STAGES));
+        expect(tokensSeen()).toEqual(['tok-one', 'tok-two']);
+        expect(runStages).toHaveBeenCalledTimes(2);
+        expect(picked().map((c) => c.fallbackProvider)).toEqual(['codex', 'codex']);
+        expect(JSON.stringify(writeStages.mock.calls.at(-1))).toContain('token 2 of 2 (token 1 hit a plan limit');
+        expect(publishForReview).toHaveBeenCalledTimes(1);
+      });
+
+      it('with every token out the limit reaches the existing handling (fails, to be parked)', async () => {
+        injectAuth(2);
+        limitOnce();
+        limitOnce();
+        const run = runSourcedIssue('group/project#1', { repoPath: '/repo', auth: twoTokens }, fakeAdapter([], STAGES));
+        await expect(run).rejects.toBeInstanceOf(ProviderLimitError);
+        expect(tokensSeen()).toEqual(['tok-one', 'tok-two']);
+        expect(publishForReview).not.toHaveBeenCalled();
+      });
+
+      it('a single token is never rotated: one attempt, the limit goes to the existing handling', async () => {
+        injectAuth(1);
+        limitOnce();
+        const run = runSourcedIssue('group/project#1', { repoPath: '/repo', auth: { mode: 'subscription', token: 'tok-one' } }, fakeAdapter([], STAGES));
+        await expect(run).rejects.toBeInstanceOf(ProviderLimitError);
+        expect(tokensSeen()).toEqual(['tok-one']);
+      });
     });
 
     it('Hub fallback chain: a limit moves the run to the next entry, then the next, and parks only when every entry is out', async () => {

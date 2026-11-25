@@ -2820,19 +2820,20 @@ describe('runRevisePullRequest blocking-item checklist', () => {
   };
 
   // laterStagesOnly: only the stages after the implementer (no checklist in their prompt) write `text`.
-  function agentWithText(text: string, received: AgentRunInput[] = [], laterStagesOnly = false): AgentProvider {
+  function agentWithText(text: string, received: AgentRunInput[] = [], laterStagesOnly = false, capped = false): AgentProvider {
     return {
       name: 'claude-code',
       async *run(input: AgentRunInput): AsyncGenerator<AgentTurn, AgentRunOutput, void> {
         received.push(input);
         yield { text: 'applying fix' };
         const answer = laterStagesOnly && input.prompt.includes('<blocking_checklist>') ? '' : text;
+        if (capped) return { finalText: '', turns: 1, sessionId: 'sess-1', stopReason: 'error_max_turns' };
         return { finalText: `${answer}\n<promise>COMPLETE</promise>`, turns: 1, sessionId: 'sess-1' };
       },
     };
   }
 
-  async function run(text: string, opts: { noChange?: boolean; laterStagesOnly?: boolean; prLabels?: string[]; failLabelEdit?: boolean; repoLabels?: string[] } = {}): Promise<{ ghCalls: string[][]; ghEnvs: Array<Record<string, string> | undefined>; pushes: string[][]; prompt: string; logs: string[]; result: Promise<unknown> }> {
+  async function run(text: string, opts: { noChange?: boolean; laterStagesOnly?: boolean; maxTurns?: boolean; prLabels?: string[]; failLabelEdit?: boolean; repoLabels?: string[] } = {}): Promise<{ ghCalls: string[][]; ghEnvs: Array<Record<string, string> | undefined>; pushes: string[][]; prompt: string; logs: string[]; result: Promise<unknown> }> {
     const logs: string[] = [];
     const ghEnvs: Array<Record<string, string> | undefined> = [];
     const ghCalls: string[][] = [];
@@ -2855,7 +2856,7 @@ describe('runRevisePullRequest blocking-item checklist', () => {
     const sandbox = makeSandbox();
     if (opts.noChange === true) sandbox.copyFileOut = async (p: string, host: string): Promise<void> => { if (p === '/workspace') await mkdir(host, { recursive: true }); };
     const result = runRevisePullRequest('7', {
-      repoPath: repo, repoSlug: 'o/r', gh, _sandbox: sandbox, _agent: agentWithText(text, inputs, opts.laterStagesOnly),
+      repoPath: repo, repoSlug: 'o/r', gh, _sandbox: sandbox, _agent: agentWithText(text, inputs, opts.laterStagesOnly, opts.maxTurns),
       _worktrees: new WorktreeManager(repo), _baseBranch: 'feature-branch', provider: 'claude', log: (line) => logs.push(line),
       _pushRunner: async (file, args) => { if (file === 'git') pushes.push(args); return ''; },
     });
@@ -2939,6 +2940,13 @@ describe('runRevisePullRequest blocking-item checklist', () => {
     expect(pushes.some((a) => a[0] === 'push')).toBe(false);
     expect(summary(ghCalls)).toBe('');
     expect(reReview(ghCalls)).toBe(false);
+  });
+
+  it('names the turn cap when the implementer stops on max turns', async () => {
+    const { ghCalls, pushes, result } = await run('', { maxTurns: true });
+    await expect(result).rejects.toThrow(/turn cap/);
+    expect(pushes.some((a) => a[0] === 'push')).toBe(false);
+    expect(JSON.stringify(ghCalls)).toContain('hit the turn cap');
   });
 
   it('takes the answers from the implementer only, not from a later stage', async () => {

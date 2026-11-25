@@ -227,14 +227,21 @@ test('fenced inlining is fence-safe: content with a ``` run gets a longer fence 
 
 describe('chatBaseUrl origin allowlist', () => {
   const ENV = 'TASKCELL_CHAT_ALLOWED_ORIGINS';
+  // The host (factory sandbox behind the LLM proxy) may set ANTHROPIC_BASE_URL; the SDK env copies it.
+  const HOST = 'ANTHROPIC_BASE_URL';
   let saved: string | undefined;
+  let savedHost: string | undefined;
   beforeEach(() => {
     saved = process.env[ENV];
+    savedHost = process.env[HOST];
     delete process.env[ENV];
+    delete process.env[HOST];
   });
   afterEach(() => {
     if (saved === undefined) delete process.env[ENV];
     else process.env[ENV] = saved;
+    if (savedHost === undefined) delete process.env[HOST];
+    else process.env[HOST] = savedHost;
   });
 
   /** Records each SDK call's ANTHROPIC_BASE_URL (undefined when no env override was passed). */
@@ -289,4 +296,21 @@ describe('chatBaseUrl origin allowlist', () => {
     expect((await runComplete({ messages: msg }, rec)).text).toBe('ok');
     expect(rec.calls).toEqual(['https://api.anthropic.com', undefined]);
   });
+});
+
+test('the SDK gets only the first of several subscription tokens', async () => {
+  const saved = process.env['CLAUDE_CODE_OAUTH_TOKEN'];
+  process.env['CLAUDE_CODE_OAUTH_TOKEN'] = 'tok-1\ntok-2';
+  try {
+    let seen: string | undefined;
+    const query: CompleteDeps['query'] = (params) => {
+      seen = (params.options?.['env'] as Record<string, string> | undefined)?.['CLAUDE_CODE_OAUTH_TOKEN'];
+      return fakeQuery({ type: 'result', subtype: 'success', result: 'ok' })();
+    };
+    await runComplete({ messages: [{ role: 'user', content: 'hi' }] }, { query });
+    expect(seen).toBe('tok-1');
+  } finally {
+    if (saved === undefined) delete process.env['CLAUDE_CODE_OAUTH_TOKEN'];
+    else process.env['CLAUDE_CODE_OAUTH_TOKEN'] = saved;
+  }
 });

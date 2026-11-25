@@ -314,7 +314,8 @@ export function registerInjectedSecretEnvVars(names: readonly string[]): void {
  */
 export function injectedSecretValues(env: NodeJS.ProcessEnv = process.env, extraEnvVars: readonly string[] = []): string[] {
   const values = [...INJECTED_SECRET_ENV_VARS, ...registeredSecretEnvVars, ...extraEnvVars]
-    .map((name) => env[name])
+    // CLAUDE_CODE_OAUTH_TOKEN may hold several tokens, one per line: each is its own secret.
+    .flatMap((name) => (name === 'CLAUDE_CODE_OAUTH_TOKEN' ? (env[name] ?? '').split(/\r?\n/).map((t) => t.trim()) : [env[name]]))
     .filter((v): v is string => v !== undefined && isPlausibleInjectedSecret(v));
   values.push(...[...registeredSecretValues].filter(isPlausibleInjectedSecret));
   // The PEM key arrives verbatim or \n-escaped, and can leak a line at a time: cover the unescaped

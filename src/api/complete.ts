@@ -5,6 +5,7 @@ export type { CompleteRequest, CompleteResponse } from '../wire.js';
 import type { CompleteRequest, CompleteResponse, CompleteAttachment } from '../wire.js';
 import { MAX_INLINE_TOTAL_BYTES, MAX_IMAGE_BYTES, MAX_IMAGE_TOTAL_BYTES } from '../wire.js';
 import { readEnv } from '../core/env.js';
+import { singleTokenEnv } from '../agents/auth.js';
 
 /** The async-iterable subset of the agent SDK's `query()` result we consume. */
 type QueryStream = AsyncIterable<{ type: string; subtype?: string; result?: string }>;
@@ -144,7 +145,7 @@ export async function runComplete(req: unknown, deps: CompleteDeps): Promise<Com
         maxTurns: 8,
         ...(parsed.system !== undefined ? { systemPrompt: parsed.system } : {}),
         ...(parsed.model !== undefined ? { model: parsed.model } : {}),
-        ...(parsed.baseUrl !== undefined ? { env: withBaseUrl(parsed.baseUrl) } : {}),
+        env: parsed.baseUrl !== undefined ? withBaseUrl(parsed.baseUrl) : singleTokenEnv(),
       },
     });
     for await (const msg of stream) {
@@ -197,8 +198,7 @@ function originOf(url: string): string | undefined {
 
 /** Preserve the inherited env (incl. the auth token) and point the SDK at a custom Anthropic-compatible base URL. */
 function withBaseUrl(baseUrl: string): Record<string, string> {
-  const env: Record<string, string> = {};
-  for (const [k, v] of Object.entries(process.env)) if (v !== undefined) env[k] = v;
+  const env = singleTokenEnv();
   env['ANTHROPIC_BASE_URL'] = baseUrl;
   return env;
 }
