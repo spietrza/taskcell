@@ -59,13 +59,13 @@ const NAME = /^[\w.-]{1,64}$/;
  */
 export const SETTINGS_VALUE_KEYS: ReadonlySet<string> = new Set([
   'taskSource', 'source', 'runLocation', 'label', 'team', 'color', 'provider', 'reviewProvider', 'flow',
-  'concurrency', 'budgetUsd', 'usageCapPct', 'chatModel', 'baseBranch', 'baseBranches',
+  'concurrency', 'budgetUsd', 'usageCapPct', 'chatModel', 'baseBranch', 'baseBranches', 'fallbackChain',
 ]);
 const MAX_VALUE = 80;
 
 /** A value as the history shows it: a bounded single line; null for a shape it does not show (an object). */
 function shownValue(v: unknown): string | null {
-  const text = typeof v === 'string' ? v : typeof v === 'number' || typeof v === 'boolean' ? String(v) : Array.isArray(v) && v.every((x) => typeof x === 'string') ? v.join(', ') : null;
+  const text = typeof v === 'string' ? v : typeof v === 'number' || typeof v === 'boolean' ? String(v) : Array.isArray(v) && v.every((x) => typeof x === 'string') ? v.join(', ') : Array.isArray(v) && v.every((x) => typeof x === 'object' && x !== null && typeof (x as { provider?: unknown }).provider === 'string') ? (v as { provider: string; model?: string }[]).map((e) => (typeof e.model === 'string' && e.model !== '' ? `${e.provider}/${e.model}` : e.provider)).join(', ') : null;
   if (text === null) return null;
   const flat = text.replace(/[\u0000-\u001f\u007f]/g, ' ');
   return flat.length > MAX_VALUE ? `${flat.slice(0, MAX_VALUE)}…` : flat;

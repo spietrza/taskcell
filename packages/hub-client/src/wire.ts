@@ -83,6 +83,9 @@ export interface CreateRunParams {
   /** Hub only: the stored hub-board task a `hub` transport run implements. Set by the hub's scheduler; a client
    * cannot reach it, because `hub` is not one of `TRANSPORTS` and the protocol validator refuses it. */
   hubTask?: { id: string; title: string; body: string };
+  /** Hub only, server-set from Settings (never from the client): the run's fallback chain as `--fallback-provider` / `--fallback-model` values. */
+  fallbackProvider?: string;
+  fallbackModel?: string;
 }
 
 /** Hub-only, server-set (never part of the client's params): the credential a run uses. `env` holds
@@ -494,6 +497,10 @@ export interface RunRecord {
   lessonIds?: string[];
   /** The run's own structured flag that this stage ended on a provider rate/usage limit (core RunResult.stoppedBy). */
   stoppedBy?: 'provider-limit';
+  /** The provider/model this stage ran on and why (`pick`: config | rotation | skip-limit | fallback | label | flow); `skipped` lists the entries passed over because they were out of quota. */
+  modelPick?: { provider: string; model?: string; pick: string; skipped?: Array<{ entry: string; until?: string }> };
+  /** Why the primary provider's auth was refused and the stage ran on the fallback instead. */
+  primaryAuthRefused?: string;
   /** Which kind of credential funded the run (hub per-user credentials); never the value. Absent on CLI/CI runs. */
   credentialSource?: 'instance' | 'user';
   /**
@@ -620,6 +627,8 @@ export interface RunSummary {
   /** The implementer stopped on its own before finishing (`exitReason: 'incomplete'`): the end of its last reply, which
    *  holds what it asks the person. Untrusted agent text, render as plain text. */
   asked?: string;
+  /** Set when the run's implementer ran on a fallback entry (`pick` skip-limit | fallback): the entry it used and the entries it passed over (`entry until`). */
+  ranOn?: { entry: string; pick: string; skipped?: string[] };
 }
 
 /** Period a cost breakdown covers: the last 7 / 30 days, or everything on the branch. */
@@ -811,6 +820,7 @@ export type AuditAction =
   | 'team-member-remove'
   | 'team-repository-add'
   | 'team-repository-remove'
+  | 'team-fallback-set'
   | 'labels-migrate'
   | 'project-watch'
   | 'project-unwatch'
@@ -946,6 +956,8 @@ export interface Team {
   name: string;
   members: TeamMember[];
   repositories: string[];
+  /** Fallback chain every project of the team without its own `fallbackChain` uses; absent = none. */
+  fallbackChain?: FallbackEntry[];
 }
 
 /**
@@ -1028,9 +1040,61 @@ export interface AppConfig {
   baseBranch?: string | null;
   /** Extra branches a card's `taskcell:base=` label may select, besides the default. Unset = only the default. */
   baseBranches?: string[] | null;
+  /** Ordered providers/models a run moves to on a provider limit, after `provider` (the Engine). Absent = the team default; `[]` = none. */
+  fallbackChain?: FallbackEntry[] | null;
   /** Opaque JSON preserved by Rust and the hub, including invalid entries and unknown keys — see
    * `CustomProviderSpec` for the shape a valid entry has. */
   customProviders?: unknown;
+}
+
+/** One fallback chain entry: a provider and, optionally, a model (empty = that provider's default). */
+export interface FallbackEntry {
+  provider: string;
+  model?: string;
+}
+
+/** The longest fallback chain: bounds the reroute attempts of one run. */
+export const FALLBACK_CHAIN_MAX = 8;
+
+const FALLBACK_PROVIDER_RE = /^[a-z0-9][a-z0-9._-]*$/;
+const FALLBACK_MODEL_RE = /^[A-Za-z0-9][A-Za-z0-9._:/-]{0,79}$/;
+/** A provider's transport slot (agents/registry.ts `transport`): codex and cursor own theirs; every other built-in and repo custom drives the claude CLI. */
+const fallbackSlot = (provider: string): string => (provider === 'codex' || provider === 'cursor' ? provider : 'claude-cli');
+
+/**
+ * Why a fallback chain cannot be saved: one message per row (`undefined` = fine) and one for the list as a whole.
+ * The rules keep `parseFallbackList` / `validateProviderChoice` from ever throwing on a saved chain. `providers`
+ * (built-ins plus healthy repo customs) is checked when given. One rule for the hub's `write_app_config` and the form.
+ */
+export function fallbackChainErrors(chain: unknown, opts: { primary: string; providers?: readonly string[] }): { rows: (string | undefined)[]; list?: string } {
+  if (chain === undefined || chain === null) return { rows: [] };
+  if (!Array.isArray(chain)) return { rows: [], list: 'The fallback chain must be a list.' };
+  const seen = new Set<string>();
+  const rows = chain.map((e: unknown): string | undefined => {
+    if (typeof e !== 'object' || e === null) return 'Not a provider entry.';
+    const { provider, model } = e as { provider?: unknown; model?: unknown };
+    if (typeof provider !== 'string' || !FALLBACK_PROVIDER_RE.test(provider)) return 'Pick a provider.';
+    if (provider === 'meridian') return 'meridian cannot run on a stored credential.';
+    if (opts.providers !== undefined && !opts.providers.includes(provider)) return `Unknown provider "${provider}".`;
+    if (model !== undefined && model !== null && model !== '' && (typeof model !== 'string' || !FALLBACK_MODEL_RE.test(model))) return 'Invalid model name.';
+    const m = typeof model === 'string' ? model : '';
+    if (provider === opts.primary && m === '') return 'This is the Engine itself; pick another provider or add a model.';
+    const key = `${provider}/${m}`;
+    if (seen.has(key)) return 'Already in the chain.';
+    seen.add(key);
+    return undefined;
+  });
+  // A lone entry is the Engine's in-run fallback, which cannot share its transport slot (claude → zai); a team default has no Engine yet.
+  const lone = chain.length === 1 && rows[0] === undefined ? (chain[0] as FallbackEntry).provider : undefined;
+  const single = lone !== undefined && opts.primary !== '' && fallbackSlot(lone) === fallbackSlot(opts.primary);
+  const list = chain.length > FALLBACK_CHAIN_MAX ? `A fallback chain holds at most ${FALLBACK_CHAIN_MAX} entries.` : single ? "A single entry on the Engine's own provider or transport (e.g. claude → zai) cannot take over; add a second entry or pick another provider." : undefined;
+  return { rows, ...(list !== undefined ? { list } : {}) };
+}
+
+/** The first message of {@link fallbackChainErrors}, or undefined when the chain can be saved. */
+export function firstFallbackChainError(chain: unknown, opts: { primary: string; providers?: readonly string[] }): string | undefined {
+  const { rows, list } = fallbackChainErrors(chain, opts);
+  return list ?? rows.find((r) => r !== undefined);
 }
 
 /** What the board answers for a project with no task source chosen: a setup step, not a failure (the app shows it as a hint). */
@@ -1556,6 +1620,8 @@ export interface Commands {
   add_team_repository: { args: { teamId: string; path: string }; result: Team };
   /** HUB_ONLY, team admin only. */
   remove_team_repository: { args: { teamId: string; path: string }; result: Team };
+  /** HUB_ONLY, team admin only: the team's default fallback chain (an empty list clears it). */
+  set_team_fallback_chain: { args: { teamId: string; chain: FallbackEntry[] }; result: Team };
   watch_project: { args: { repoPath: string }; result: void };
   unwatch_project: { args: { repoPath: string }; result: void };
 }
@@ -1669,6 +1735,7 @@ export const COMMAND_NAMES = [
   'set_approver_mode',
   'set_credential_policy',
   'set_task_skills',
+  'set_team_fallback_chain',
   'setup_status',
   'spawn_run',
   'start_task',
@@ -1737,6 +1804,7 @@ export const WRITE_COMMAND_NAMES: readonly (typeof COMMAND_NAMES)[number][] = [
   'set_approver_mode',
   'set_credential_policy',
   'set_task_skills',
+  'set_team_fallback_chain',
   'spawn_run',
   'start_task',
   'unregister_push_token',

@@ -383,7 +383,7 @@ export interface CredentialService {
   /** The credential a run started by `user` uses, per the admin switch. Throws a bad-request —
    * BEFORE the run claims the slot — when `user only` is on and the user has none for `provider`
    * (default claude). Resolved per provider: only that provider's variables are returned. */
-  resolveForRun(user: HubUser | undefined, provider?: string): Promise<RunCredential>;
+  resolveForRun(user: HubUser | undefined, provider?: string, extra?: readonly string[]): Promise<RunCredential>;
 }
 
 export function createCredentialService(configDir: string, adminLogins: readonly string[] = [], secret?: string, hubAdmins: readonly string[] = []): CredentialService {
@@ -461,9 +461,11 @@ export function createCredentialService(configDir: string, adminLogins: readonly
       const names = provider === undefined ? CREDENTIAL_NAMES : PROVIDER_NAMES[provider] ?? [];
       return { ...process.env, ...pick(instanceValues, names) };
     },
-    async resolveForRun(user, provider = 'claude') {
+    async resolveForRun(user, provider = 'claude', extra = []) {
       const policy = await service.policy();
       const names = PROVIDER_NAMES[provider];
+      // The fallback chain's providers add their names to the env, but the source is decided by the primary alone.
+      const allNames = names === undefined ? undefined : [...new Set([...names, ...extra.flatMap((p) => PROVIDER_NAMES[p] ?? [])])];
       const instance = async (): Promise<RunCredential> => {
         let env: Record<string, string> = {};
         try {
@@ -475,7 +477,7 @@ export function createCredentialService(configDir: string, adminLogins: readonly
           const fundable = names ?? (provider === 'meridian' ? ['MERIDIAN_API_KEY'] : []);
           if (!fundable.some((n) => (process.env[n] ?? '') !== '')) throw new BadRequestError(shownReason(error, STORE_UNREADABLE));
         }
-        return { source: 'instance', env: names === undefined ? env : pick(env, names) };
+        return { source: 'instance', env: allNames === undefined ? env : pick(env, allNames) };
       };
       if (policy === 'off') return instance();
       if (user === undefined) {
@@ -490,7 +492,7 @@ export function createCredentialService(configDir: string, adminLogins: readonly
       }
       // Meridian / custom providers (no `names`): any saved credential makes it a user run (credentialEnv refuses it if unusable).
       const mine = names === undefined ? own : pick(own, names);
-      if (Object.keys(mine).length > 0) return { source: 'user', env: mine };
+      if (Object.keys(mine).length > 0) return { source: 'user', env: allNames === undefined ? mine : pick(own, allNames) };
       if (policy === 'user-only') {
         throw new BadRequestError(names === undefined ? USER_CREDENTIAL_REQUIRED : userCredentialRequiredFor(provider, names));
       }

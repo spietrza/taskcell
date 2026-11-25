@@ -192,3 +192,20 @@ describe('watchWorkerChecklist', () => {
     await expect(watchWorkerChecklist(await tmpRepo())).rejects.toThrow(BadRequestError);
   });
 });
+
+describe('watch worker fallback chain', () => {
+  test('the command, compose snippet and credentials carry the chain', () => {
+    const chain = [{ provider: 'codex', model: 'gpt-6-sol' }, { provider: 'cursor' }];
+    expect(watchArgs(gh, '.', chain).slice(-2)).toEqual(['--fallback-provider=codex,cursor', '--fallback-model=gpt-6-sol,']);
+    expect(watchCommandLine(gh, chain)).toMatch(/--fallback-provider=codex,cursor'? '?--fallback-model=gpt-6-sol,'?$/);
+    const snippet = composeSnippet(gh, chain);
+    expect(snippet).toContain('- --fallback-provider=codex,cursor');
+    expect(snippet).toContain('CODEX_AUTH_JSON: ${CODEX_AUTH_JSON}');
+    expect(workerCredentials(gh, chain)).toEqual(['CLAUDE_CODE_OAUTH_TOKEN', 'GH_TOKEN', 'CODEX_AUTH_JSON', 'CURSOR_API_KEY']);
+  });
+  test('no chain gives output identical to today', () => {
+    expect(watchArgs(gh, '.', [])).toEqual(watchArgs(gh, '.'));
+    expect(composeSnippet(gh, [])).toBe(composeSnippet(gh));
+    expect(watchCommandLine(gh, [])).toBe('taskcell watch --loop-v1 --source=github --github-repo=acme/widgets --repo=. --interval=120 --llm-proxy');
+  });
+});

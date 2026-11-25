@@ -252,6 +252,11 @@ async function parseRunSummaries(root: string): Promise<RunSummary[]> {
       // Or it finished but delivered nothing: what it ended on (a question, a "nothing to do") waits on a person too.
       const stoppedEarly = records.find((r) => r.stage === 'implementer' && ((r.exitReason === 'incomplete' && r.stoppedBy === undefined) || (r.completed && r.noChanges === true)));
       const asked = stoppedEarly === undefined ? undefined : askedText(stoppedEarly.finalText);
+      // The implementer ran on a fallback entry (a limit moved it): the entry it used and the ones it passed over.
+      const moved = records.find((r) => r.stage === 'implementer')?.modelPick;
+      const ranOn = moved !== undefined && (moved.pick === 'skip-limit' || moved.pick === 'fallback')
+        ? { entry: `${moved.provider}/${moved.model ?? ''}`, pick: moved.pick, ...(moved.skipped !== undefined && moved.skipped.length > 0 ? { skipped: moved.skipped.map((k) => (k.until !== undefined ? `${k.entry} until ${k.until}` : k.entry)) } : {}) }
+        : undefined;
       // shortcut: only a proof stamped with the run's own timestamp counts (not readRunDetail's fallback for older runs).
       const proofName = `${sanitizeTimestamp(timestamp)}.proof.json`;
       const proofPassed = files.some((f) => f.name === proofName) ? await tryReadProofPassed(join(taskPath, proofName)) : undefined;
@@ -274,6 +279,7 @@ async function parseRunSummaries(root: string): Promise<RunSummary[]> {
         ...(proofPassed === false ? { verifyFailed: true as const } : {}),
         ...(proofPassed === true ? { verifyPassed: true as const } : {}),
         ...(asked !== undefined ? { asked } : {}),
+        ...(ranOn !== undefined ? { ranOn } : {}),
       });
     }
   }
@@ -581,6 +587,8 @@ export interface StageModelPick {
   provider: string;
   model?: string;
   pick: string;
+  /** Entries passed over because they were out of quota (`entry` = `provider/model`, `until` = reset time when known). */
+  skipped?: Array<{ entry: string; until?: string }>;
 }
 
 /** A handle for one run: owns its timestamp, so every record it writes shares one prefix. */

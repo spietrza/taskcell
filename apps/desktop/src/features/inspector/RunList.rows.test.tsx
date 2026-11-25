@@ -56,3 +56,15 @@ test('an identity\'s own initials win: projects that share a name prefix read ap
   render(<RunList runs={[run].map(withOutcome)} active={[]} identity={() => ({ name: 'taskcell-demo-local', color: '#112233', initials: 'LO' })} onSelect={noop} onOpenActive={noop} />);
   expect(screen.getByTestId('run-row').querySelector('[aria-hidden]')).toHaveTextContent('LO');
 });
+
+test('a run that moved to a fallback entry carries a fallback chip naming the provider and what it passed over', () => {
+  const base = { timestamp: '2026-07-06T19:12:02.123Z', stages: ['implementer'], totalCostUsd: 0, anyFailed: false };
+  const runs = [
+    { ...base, taskId: 'gh-1', ranOn: { entry: 'cursor/m1', pick: 'skip-limit', skipped: ['claude/ until 2026-07-06T20:00:00.000Z'] } },
+    { ...base, taskId: 'gh-2' },
+  ];
+  render(<RunList runs={runs.map(withOutcome)} active={[]} onSelect={noop} onOpenActive={noop} />);
+  const chip = screen.getByText('fallback: cursor');
+  expect(chip.closest('[title]')).toHaveAttribute('title', 'ran on cursor/m1 · claude/ until 2026-07-06T20:00:00.000Z');
+  expect(screen.getAllByText(/^fallback:/)).toHaveLength(1);
+});

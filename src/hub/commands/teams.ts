@@ -2,7 +2,8 @@
 // `pnpm gen:wire` derives Commands, COMMAND_NAMES and dispatch from it (see CONTRIBUTING.md).
 import * as projects from '../projects.js';
 import * as teams from '../teams.js';
-import type { Team, TeamRole } from '../../wire.js';
+import { BadRequestError } from '../../sidecar/sidecar.js';
+import type { FallbackEntry, Team, TeamRole } from '../../wire.js';
 import { defineCommands, requireString, requireOneOf, optionalString, type AuditSpec } from '../command-kit.js';
 
 export interface TeamsCommands {
@@ -20,6 +21,8 @@ export interface TeamsCommands {
   add_team_repository: { args: { teamId: string; path: string }; result: Team };
   /** HUB_ONLY, team admin only. */
   remove_team_repository: { args: { teamId: string; path: string }; result: Team };
+  /** HUB_ONLY, team admin only: the team's default fallback chain (an empty list clears it). */
+  set_team_fallback_chain: { args: { teamId: string; chain: FallbackEntry[] }; result: Team };
 }
 
 /** `<teamId>:<a[key]>` — the login or repository path goes in the target: `detail` only keeps bare names, so an e-mail or a path would be dropped. */
@@ -54,6 +57,11 @@ export const commands = defineCommands<TeamsCommands>({
     const path = (await projects.registeredPath(ctx.configDir, input)) ?? input;
     return teams.removeRepository(ctx.configDir, caller, requireString(args, 'teamId'), path);
   },
+  set_team_fallback_chain: async ({ ctx, args, caller }) => {
+    const chain = args.chain;
+    if (!Array.isArray(chain)) throw new BadRequestError('chain must be a list');
+    return teams.setFallbackChain(ctx.configDir, caller, requireString(args, 'teamId'), chain as FallbackEntry[]);
+  },
 }, {
   list_teams: { write: false },
   get_team: { write: false },
@@ -62,9 +70,11 @@ export const commands = defineCommands<TeamsCommands>({
   remove_team_member: { write: true, gatedBy: 'team admin (teams.ts, inside the write queue)' },
   add_team_repository: { write: true, repo: 'path', gatedBy: 'team admin (teams.ts, inside the write queue)' },
   remove_team_repository: { write: true, gatedBy: 'team admin (teams.ts, inside the write queue)' },
+  set_team_fallback_chain: { write: true, gatedBy: 'team admin (teams.ts, inside the write queue)' },
 }, {
   add_team_member: { action: 'team-member-add', target: teamItemTarget('login'), detail: async (_ctx, a) => [optionalString(a, 'role') ?? ''].filter(Boolean) },
   remove_team_member: { action: 'team-member-remove', target: teamItemTarget('login') },
   add_team_repository: { action: 'team-repository-add', target: teamItemTarget('path') },
   remove_team_repository: { action: 'team-repository-remove', target: teamItemTarget('path') },
+  set_team_fallback_chain: { action: 'team-fallback-set', target: (a) => optionalString(a, 'teamId') ?? '' },
 });

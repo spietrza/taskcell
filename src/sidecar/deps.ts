@@ -29,6 +29,8 @@ import { assertSkillsInstalled } from '../context/named-skills.js';
 import { hubSkillsDir, skillRegistryForRun } from '../context/skill-registry.js';
 import { BadRequestError } from './sidecar.js';
 import { CREDENTIAL_NAMES } from '../hub/credentials.js';
+import { fallbackFlags, fundableChain, loneEntryRefused } from '../hub/fallback-chain.js';
+import { parseFallbackList } from '../core/model-pool.js';
 import { codexAuthSecretValues, forgetInjectedSecretValue, registerInjectedSecretValue } from '../core/secret-scan.js';
 import { AgentError } from '../core/errors.js';
 import type { ProviderChoice } from '../agents/registry.js';
@@ -82,6 +84,7 @@ async function resolveRunChoice(params: CreateRunParams): Promise<ProviderChoice
   const customProviders = await loadCustomProviders(params.repoPath);
   const choice: ProviderChoice = {
     ...(params.provider !== undefined ? { provider: params.provider } : {}),
+    ...(params.fallbackProvider !== undefined ? { fallbackProvider: params.fallbackProvider } : {}),
     ...(customProviders.length > 0 ? { customProviders } : {}),
   };
   try {
@@ -93,6 +96,30 @@ async function resolveRunChoice(params: CreateRunParams): Promise<ProviderChoice
     throw error;
   }
   return choice;
+}
+
+/**
+ * The Hub's fallback chain trimmed to the entries this run's credential can fund (a `user` run never borrows the instance's
+ * keys). A chain entry must never refuse a run: an unfunded one is dropped with a warning, and so is a lone entry one
+ * sandbox cannot host next to the Engine (the Engine itself, or its transport slot such as claude → zai; {@link loneEntryRefused}).
+ */
+async function fundedParams(params: CreateRunParams, credential: RunCredential | undefined): Promise<{ params: CreateRunParams; warnings: string[] }> {
+  if (params.fallbackProvider === undefined) return { params, warnings: [] };
+  let chain;
+  try {
+    chain = parseFallbackList(params.fallbackProvider, params.fallbackModel);
+  } catch (error) {
+    throw new BadRequestError(error instanceof Error ? error.message : String(error));
+  }
+  const { kept, dropped } = await fundableChain(chain, params.repoPath, credential);
+  const warnings = dropped.map((name) => `fallback entry ${name} skipped: no stored credential for it`);
+  const lone = kept[0];
+  if (lone !== undefined && (await loneEntryRefused(kept, params.repoPath, params.provider))) {
+    kept.length = 0;
+    warnings.push(`fallback entry ${lone.model !== undefined ? `${lone.provider}/${lone.model}` : lone.provider} skipped: it cannot take over from the Engine alone (same provider or transport); add another entry`);
+  }
+  const { fallbackProvider: _p, fallbackModel: _m, ...rest } = params;
+  return { params: { ...rest, ...fallbackFlags(kept) }, warnings };
 }
 
 /**
@@ -231,7 +258,8 @@ export function productionDeps(): SidecarDeps {
     // the proof fallback and the skip-not-abort listing are shared instead of re-derived in Rust.
     listRuns: ({ repoPath }) => listRunSummaries(runsRoot(repoPath)),
     readRun: ({ repoPath, taskId, timestamp }) => readRunDetail(runsRoot(repoPath), taskId, timestamp),
-    checkRun: async (params, credential) => {
+    checkRun: async (raw, credential) => {
+      const { params } = await fundedParams(raw, credential);
       const choice = await resolveRunChoice(params);
       try {
         agentAuthFromEnv(choice, credentialEnv(credential, choice));
@@ -239,13 +267,14 @@ export function productionDeps(): SidecarDeps {
         throw error instanceof BadRequestError ? error : new BadRequestError(error instanceof Error ? error.message : String(error));
       }
     },
-    createRun: async (params: CreateRunParams, onEvent: (e: RunEvent) => void, credential?: RunCredential): Promise<CreateRunResult> => {
+    createRun: async (rawParams: CreateRunParams, onEvent: (e: RunEvent) => void, credential?: RunCredential): Promise<CreateRunResult> => {
       // FIRST statements, before beginRun() and the sandbox: an unresolvable flow (typo, broken or
       // duplicate .hcl) or provider (unknown name, broken customs entry, http custom on this
       // always-egress path) must cost nothing and classify bad-request — and must not leave an
       // armed AbortController behind (endRun's finally only wraps the post-sandbox region). Pure
       // checks: no lowering, no ref import — repo TS must not execute on the untimed run pipe (S5 D6).
-      if (params.flow !== undefined) await assertFlowResolvable(params.flow, params.repoPath);
+      if (rawParams.flow !== undefined) await assertFlowResolvable(rawParams.flow, rawParams.repoPath);
+      const { params, warnings: chainWarnings } = await fundedParams(rawParams, credential);
       const choice = await resolveRunChoice(params);
       // A hub run reads every provider key from its resolved credential env. A `user` run must never
       // fall back to the host's provider credentials, so those are dropped before its own overlay.
@@ -267,7 +296,7 @@ export function productionDeps(): SidecarDeps {
       const extraEgressHosts = customEgressHosts(choice);
       // A direct-mode-only provider (meridian, a repo custom) cannot run under the proxy at all. The
       // sidecar's choice carries an implementer and nothing else, so that provider IS the ineligible
-      // one (the reviewer/fallback combinations `llmProxySupported` also rejects cannot arise here).
+      // one — and so may be a chain entry (a hub fallback chain is part of the choice).
       const proxySupported = llmProxySupported(choice);
       // The hub always wants the credential OUT of the sandbox, and there is no hub/sidecar knob to turn
       // that off (see docs/hub.md) — but the proxy's primary sidecar is the thing that HOLDS a credential,
@@ -314,6 +343,7 @@ export function productionDeps(): SidecarDeps {
         throw error;
       }
       onEvent({ type: 'stage-end', name: SANDBOX_STAGE, index: 0, of: 1, outcome: 'completed' });
+      for (const message of chainWarnings) onEvent({ type: 'warning', message });
       const exposed = exposureReason({ provider, subscriptionProvider, proxySupported, llmProxy });
       if (exposed !== undefined) {
         onEvent({ type: 'warning', message: `${exposed} to the agent inside the sandbox for this run.` });
@@ -328,6 +358,8 @@ export function productionDeps(): SidecarDeps {
           onEvent: withSandboxStage(onEvent),
           signal,
           ...(provider !== undefined ? { provider } : {}),
+          ...(params.fallbackProvider !== undefined ? { fallbackProvider: params.fallbackProvider } : {}),
+          ...(params.fallbackModel !== undefined ? { fallbackModel: params.fallbackModel } : {}),
           ...(customProviders !== undefined ? { customProviders } : {}),
           ...(params.maxTurns !== undefined ? { maxTurns: params.maxTurns } : {}),
           ...(params.baseBranch !== undefined ? { baseBranch: params.baseBranch } : {}),
@@ -344,6 +376,7 @@ export function productionDeps(): SidecarDeps {
         };
         const authChoice = {
           ...(provider !== undefined ? { provider } : {}),
+          ...(params.fallbackProvider !== undefined ? { fallbackProvider: params.fallbackProvider } : {}),
           ...(customProviders !== undefined ? { customProviders } : {}),
         };
         if (transport === 'gitlab') {

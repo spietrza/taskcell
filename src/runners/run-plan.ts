@@ -5,7 +5,7 @@ import { forcedProviderModel, isProviderName } from '../agents/registry.js';
 import type { CustomProviderEntry } from '../agents/registry.js';
 import { labelValue } from '../core/labels.js';
 import { resolveTargetBase } from '../core/base-branch.js';
-import { poolTaskKey } from '../core/model-pool.js';
+import { entryKey, parseFallbackList, poolOf, poolTaskKey } from '../core/model-pool.js';
 import { routeModelPools, resolveFlowStagePools } from './model-pool-routing.js';
 import type { PoolRouting, StagePick } from './model-pool-routing.js';
 import { assembleReviewPipeline, implementReviewSimplifyStages, withPrimaryFallback, withStageFallback, withStageFallbackModel, withStageMaxTurns, withStageModel, withStageModelExcept, withStageProvider, withStageResumeUntilComplete, STAGE } from '../pipeline/pipeline.js';
@@ -127,6 +127,19 @@ export function routeIssuePools(
     cooling: isCooling,
     ...(labelModel !== undefined ? { labelModel } : {}),
   });
+  // Name the entries the implementer passed over for being out of quota, so the run record can say why it moved on.
+  const impl = routing.picks.implementer;
+  if (impl !== undefined && (impl.pick === 'skip-limit' || impl.pick === 'fallback')) {
+    const primary = poolOf(configuredDeps.providerModel, poolProvider) ?? [{ provider: configuredDeps.provider ?? 'claude', ...(configuredDeps.providerModel !== undefined ? { model: configuredDeps.providerModel } : {}) }];
+    const skipped = [...primary, ...parseFallbackList(configuredDeps.fallbackProvider, configuredDeps.fallbackModel)]
+      .map((e) => entryKey(e))
+      .filter((key, i, all) => all.indexOf(key) === i && key !== entryKey(impl) && isCooling(key))
+      .map((key) => {
+        const until = cooling.cooldowns.get(key);
+        return { entry: key, ...(until instanceof Date ? { until: until.toISOString() } : {}) };
+      });
+    if (skipped.length > 0) routing.picks.implementer = { ...impl, skipped };
+  }
   // A flow stage whose model is a pool (Workflow editor) resolves to one entry for this task; an entry on
   // another provider pins the stage to it, and that provider's credential joins the run's secrets.
   const flowPools = resolveFlowStagePools(baseStages, poolTaskKey(taskId), {

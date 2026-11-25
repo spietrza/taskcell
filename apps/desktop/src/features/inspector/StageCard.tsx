@@ -3,11 +3,12 @@ import { AlertCircle, CheckCircle, ChevronDown } from 'lucide-react'
 import { AgentText } from '../../components/AgentText'
 import type { StageDetail } from '../../taskcell-output'
 import { estTitle } from '../../cost'
-import { buildStageMeta } from './stage-meta'
+import { buildStageMeta, fallbackLine } from './stage-meta'
 
 export function StageCard({ stage }: { stage: StageDetail }) {
   const r = stage.record
   const meta = buildStageMeta(r)
+  const moved = fallbackLine(r)
 
   return (
     <Collapsible.Root>
@@ -30,6 +31,7 @@ export function StageCard({ stage }: { stage: StageDetail }) {
               <span key={i} {...estTitle(m)}>{m}</span>
             ))}
           </div>
+          {moved !== undefined && <div className="mb-1 text-xs text-muted-foreground">{moved}</div>}
           {!!r.findings?.length && <ul>{r.findings.map((finding, i) => (
             <li key={i} className="mb-2 text-sm">
               <strong>{finding.severity}</strong> ({finding.kind}) — {finding.title}

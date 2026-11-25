@@ -604,3 +604,27 @@ describe('hub admins by sign-in identity', () => {
     expect(() => svc.assertManager(user({ login: 'gitlab:mallory' }), false)).toThrow('hub admin');
   });
 });
+
+describe('resolveForRun with fallback-chain providers (extra)', () => {
+  const u = { id: 'u1', email: 'u@example.com', name: 'U' };
+  it('merges the chain providers\' names; the source is decided by the primary; no instance top-up on a user run', async () => {
+    const d = await dir();
+    const store = new ScopedCredentialStore(d);
+    await store.put('instance', 'CLAUDE_CODE_OAUTH_TOKEN', 'inst-claude');
+    await store.put('instance', 'CODEX_API_KEY', 'inst-codex');
+    await store.put('instance', 'CURSOR_API_KEY', 'inst-cursor');
+    const svc = createCredentialService(d);
+    // extra absent: today's behaviour, only the primary's names.
+    expect(await svc.resolveForRun(undefined, 'claude')).toEqual({ source: 'instance', env: { CLAUDE_CODE_OAUTH_TOKEN: 'inst-claude' } });
+    expect(await svc.resolveForRun(undefined, 'claude', ['codex'])).toEqual({ source: 'instance', env: { CLAUDE_CODE_OAUTH_TOKEN: 'inst-claude', CODEX_API_KEY: 'inst-codex' } });
+
+    await svc.setPolicy('user-first');
+    await store.put('user:u1', 'CLAUDE_CODE_OAUTH_TOKEN', 'mine');
+    // The user has no codex key: the chain entry is not funded from the instance.
+    expect(await svc.resolveForRun(u, 'claude', ['codex'])).toEqual({ source: 'user', env: { CLAUDE_CODE_OAUTH_TOKEN: 'mine' } });
+    await store.put('user:u1', 'CODEX_API_KEY', 'my-codex');
+    expect(await svc.resolveForRun(u, 'claude', ['codex'])).toEqual({ source: 'user', env: { CLAUDE_CODE_OAUTH_TOKEN: 'mine', CODEX_API_KEY: 'my-codex' } });
+    // A user key for a fallback provider alone does not make it a user run: the primary decides.
+    expect(await svc.resolveForRun(u, 'cursor', ['codex'])).toEqual({ source: 'instance', env: { CURSOR_API_KEY: 'inst-cursor', CODEX_API_KEY: 'inst-codex' } });
+  });
+});

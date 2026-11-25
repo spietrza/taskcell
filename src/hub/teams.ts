@@ -4,7 +4,7 @@ import { copyFile, mkdir, readFile, realpath, rename, writeFile } from 'node:fs/
 import { join, sep } from 'node:path';
 import { BadRequestError } from '../sidecar/sidecar.js';
 import { ForbiddenError } from './credentials.js';
-import type { Team, TeamMember, TeamRole } from '../wire.js';
+import { firstFallbackChainError, type FallbackEntry, type Team, type TeamMember, type TeamRole } from '../wire.js';
 import type { HubUser } from './auth.js';
 import { loadPaths } from './projects.js';
 
@@ -220,6 +220,15 @@ export const addMember = (configDir: string, caller: Caller, id: string, m: Team
 export const removeMember = (configDir: string, caller: Caller, id: string, login: string): Promise<Team> =>
   change(configDir, caller, id, (t) => {
     t.members = t.members.filter((x) => !same(x.login, login));
+  });
+
+/** The team's default fallback chain (projects without their own use it); an empty list clears it. Team admin only. */
+export const setFallbackChain = (configDir: string, caller: Caller, id: string, chain: FallbackEntry[]): Promise<Team> =>
+  change(configDir, caller, id, (t) => {
+    const problem = firstFallbackChainError(chain, { primary: '' });
+    if (problem !== undefined) throw new BadRequestError(problem);
+    if (chain.length === 0) delete t.fallbackChain;
+    else t.fallbackChain = chain.map((e) => ({ provider: e.provider, ...(typeof e.model === 'string' && e.model !== '' ? { model: e.model } : {}) }));
   });
 
 const DEFAULT_MIRRORS = 'the default team mirrors the project list; use add_project / remove_project';

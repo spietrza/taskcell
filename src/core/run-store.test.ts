@@ -909,3 +909,17 @@ describe('persisted review verdict (T5–T9)', () => {
     expect(record).not.toHaveProperty('findings');
   });
 });
+
+describe('listRuns — ranOn (fallback chain)', () => {
+  it('names the entry an implementer moved to and the entries it passed over; a plain pick has no ranOn', async () => {
+    await beginRun(repo, 'TES-FB', TS).writeStages([{ name: 'implementer', result: { ...result, taskId: 'TES-FB' }, model: 'm1' }], {
+      modelPicks: { implementer: { provider: 'cursor', model: 'm1', pick: 'skip-limit', skipped: [{ entry: 'claude/', until: '2026-06-06T11:00:00.000Z' }, { entry: 'codex/' }] } },
+    });
+    await beginRun(repo, 'TES-PL', TS).writeStages([{ name: 'implementer', result: { ...result, taskId: 'TES-PL' } }], {
+      modelPicks: { implementer: { provider: 'claude', pick: 'config' } },
+    });
+    const byId = new Map((await listRuns(runsRoot(repo))).map((r) => [r.taskId, r]));
+    expect(byId.get('TES-FB')?.ranOn).toEqual({ entry: 'cursor/m1', pick: 'skip-limit', skipped: ['claude/ until 2026-06-06T11:00:00.000Z', 'codex/'] });
+    expect(byId.get('TES-PL')).not.toHaveProperty('ranOn');
+  });
+});

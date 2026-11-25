@@ -112,7 +112,7 @@ export function stagePicks(
     const model = o.model;
     const own = picks[o.name];
     if (own !== undefined && own.provider === provider) {
-      out[o.name] = { provider, ...(model !== undefined ? { model } : {}), pick: own.pick };
+      out[o.name] = { provider, ...(model !== undefined ? { model } : {}), pick: own.pick, ...(own.skipped !== undefined ? { skipped: own.skipped } : {}) };
       continue;
     }
     const tier = REVIEW_TIER.has(o.name) && picks.reviewer !== undefined && picks.reviewer.provider === provider ? picks.reviewer : undefined;
@@ -126,7 +126,11 @@ export function stagePicks(
           : labelModel !== undefined && model === labelModel
             ? 'label'
             : 'config';
-    out[o.name] = { provider, ...(model !== undefined ? { model } : {}), pick };
+    // A stage rescued in-run by the fallback names the primary that hit its limit; a re-routed run names the entries it passed over.
+    const skipped = fell
+      ? [{ entry: entryKey(picks.implementer ?? { provider: primaryName }), ...(o.primaryLimitResetAt !== undefined ? { until: o.primaryLimitResetAt } : {}) }]
+      : (pick === 'skip-limit' || pick === 'fallback') && provider === primaryName ? picks.implementer?.skipped : undefined;
+    out[o.name] = { provider, ...(model !== undefined ? { model } : {}), pick, ...(skipped !== undefined ? { skipped } : {}) };
   }
   return out;
 }
