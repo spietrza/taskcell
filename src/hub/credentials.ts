@@ -10,7 +10,6 @@ import { join } from 'node:path';
 import { BadRequestError } from '../sidecar/sidecar.js';
 import { readCooldownFile, recordCooldownFile } from '../core/cooldowns.js';
 import type { AccountType, CredentialAccountView, CredentialRotation, RunCredential } from '../wire.js';
-import { fallbackSlot } from '../wire.js';
 import { parseSignupAllowlist, type HubUser } from './auth.js';
 
 const LEGACY_MAGIC = 'VHC1';
@@ -132,18 +131,42 @@ export class ForbiddenError extends BadRequestError {}
 
 type Scope = 'instance' | `user:${string}`;
 
-/** Stored accounts: several credentials per provider, each named and switchable. Only `claude` for now; other providers keep one value per variable. */
+/** Stored accounts: several credentials per provider, each named and switchable. `claude` and `codex` (ChatGPT plans); other providers keep one value per variable. */
 export const ACCOUNT_TYPES = ['subscription', 'api-key', 'auth-token'] as const satisfies readonly AccountType[];
-export const ACCOUNT_PROVIDERS = ['claude'] as const;
+export const ACCOUNT_PROVIDERS = ['claude', 'codex'] as const;
 export type AccountProvider = (typeof ACCOUNT_PROVIDERS)[number];
 /** Per provider, per scope (the instance scope is hub-wide; each signed-in user has their own). Disabled accounts count. */
 export const MAX_ACCOUNTS_PER_PROVIDER = 20;
-export const ACCOUNT_ENV: Record<AccountType, string> = {
-  subscription: 'CLAUDE_CODE_OAUTH_TOKEN',
-  'api-key': 'ANTHROPIC_API_KEY',
-  'auth-token': 'ANTHROPIC_AUTH_TOKEN',
+/** The env variable each provider's account type is stored under. Codex accounts are ChatGPT plans only (`CODEX_AUTH_JSON`). */
+export const ACCOUNT_ENVS: Record<AccountProvider, Partial<Record<AccountType, string>>> = {
+  claude: { subscription: 'CLAUDE_CODE_OAUTH_TOKEN', 'api-key': 'ANTHROPIC_API_KEY', 'auth-token': 'ANTHROPIC_AUTH_TOKEN' },
+  codex: { subscription: 'CODEX_AUTH_JSON' },
 };
-const ACCOUNT_TYPE_OF_ENV: Record<string, AccountType> = Object.fromEntries(Object.entries(ACCOUNT_ENV).map(([type, env]) => [env, type as AccountType]));
+/** The Claude variables (the original, Anthropic-only map). */
+export const ACCOUNT_ENV = ACCOUNT_ENVS.claude as Record<AccountType, string>;
+export const accountEnvName = (a: { provider: AccountProvider; type: AccountType }): string => ACCOUNT_ENVS[a.provider][a.type]!;
+export const isAccountProvider = (p: string): p is AccountProvider => (ACCOUNT_PROVIDERS as readonly string[]).includes(p);
+const ACCOUNT_TYPE_OF_ENV: Record<string, { provider: AccountProvider; type: AccountType }> = Object.fromEntries(
+  ACCOUNT_PROVIDERS.flatMap((provider) => Object.entries(ACCOUNT_ENVS[provider]).map(([type, env]) => [env, { provider, type: type as AccountType }] as const)),
+);
+const CODEX_ENV = ACCOUNT_ENVS.codex.subscription!;
+const refreshTokenOf = (json: string): string | undefined => {
+  try {
+    const t = (JSON.parse(json) as { tokens?: { refresh_token?: unknown } } | null)?.tokens?.refresh_token;
+    return typeof t === 'string' && t !== '' ? t : undefined;
+  } catch {
+    return undefined;
+  }
+};
+/** A ChatGPT-plan auth.json: an object carrying access and refresh tokens (write-back and leases key on the refresh token). */
+const isCodexAuthJson = (json: string): boolean => {
+  try {
+    const t = (JSON.parse(json) as { tokens?: { access_token?: unknown } } | null)?.tokens;
+    return typeof t?.access_token === 'string' && t.access_token !== '' && refreshTokenOf(json) !== undefined;
+  } catch {
+    return false;
+  }
+};
 
 /** An account as stored (encrypted). `value` never leaves the store except into a run's env. Array order is pick order. */
 export interface StoredAccount {
@@ -174,7 +197,20 @@ interface Secrets {
 
 function normalise(raw: unknown): Secrets {
   const r = (raw ?? {}) as Record<string, unknown>;
-  if (r.v === 2 && typeof r.env === 'object' && r.env !== null && typeof r.accounts === 'object' && r.accounts !== null) return r as unknown as Secrets;
+  if (r.v === 2 && typeof r.env === 'object' && r.env !== null && typeof r.accounts === 'object' && r.accounts !== null) {
+    // A single-slot CODEX_AUTH_JSON becomes the account named after it (an existing account of that name wins).
+    const v2 = r as unknown as Secrets;
+    for (const [scope, env] of Object.entries(v2.env)) {
+      if (typeof env[CODEX_ENV] !== 'string') continue;
+      const { [CODEX_ENV]: value, ...rest } = env;
+      v2.env[scope] = rest;
+      const list = v2.accounts[scope] ?? [];
+      if (!list.some((a) => a.provider === 'codex' && a.name.toLowerCase() === CODEX_ENV.toLowerCase())) {
+        v2.accounts[scope] = [...list, { id: 'env-codex-subscription', provider: 'codex', name: CODEX_ENV, type: 'subscription', enabled: true, value: value! }];
+      }
+    }
+    return v2;
+  }
   const out: Secrets = { v: 2, env: {}, accounts: {} };
   for (const [scope, vars] of Object.entries(r as Record<string, Record<string, string>>)) {
     const env: Record<string, string> = {};
@@ -183,6 +219,7 @@ function normalise(raw: unknown): Secrets {
       const name = ACCOUNT_ENV[type];
       if (typeof vars[name] === 'string') accounts.push({ id: `v1-${type}`, provider: 'claude', name, type, enabled: true, value: vars[name] });
     }
+    if (typeof vars[CODEX_ENV] === 'string') accounts.push({ id: 'v1-codex-subscription', provider: 'codex', name: CODEX_ENV, type: 'subscription', enabled: true, value: vars[CODEX_ENV] });
     for (const [k, v] of Object.entries(vars)) if (!Object.hasOwn(ACCOUNT_TYPE_OF_ENV, k)) env[k] = v;
     out.env[scope] = env;
     if (accounts.length > 0) out.accounts[scope] = accounts;
@@ -210,7 +247,8 @@ export interface AccountInput {
 const upsert = (list: readonly StoredAccount[], next: StoredAccount, exists: boolean): StoredAccount[] =>
   exists ? list.map((a) => (a.id === next.id ? next : a)) : [...list, next];
 
-const isEnabledSubscription = (a: StoredAccount | undefined): boolean => a !== undefined && a.enabled && a.type === 'subscription';
+/** The Anthropic terms rule covers Claude subscription tokens only. */
+const isEnabledSubscription = (a: StoredAccount | undefined): boolean => a !== undefined && a.enabled && a.provider === 'claude' && a.type === 'subscription';
 
 /** The value-free status warning for a scope (instance or user) while more than one subscription token is enabled in it. */
 export const termsWarningFor = (accounts: readonly StoredAccount[]): string | undefined =>
@@ -226,6 +264,10 @@ function assertAccountAllowed(list: readonly StoredAccount[], prior: StoredAccou
   if (others.some((a) => a.name.toLowerCase() === name.toLowerCase())) throw new CredentialStoreError('another credential already has that name');
   if (prior === undefined && others.length >= MAX_ACCOUNTS_PER_PROVIDER) {
     throw new CredentialStoreError(`at most ${MAX_ACCOUNTS_PER_PROVIDER} ${next.provider} credentials can be stored`);
+  }
+  if (next.provider === 'codex') {
+    if (next.type !== 'subscription') throw new CredentialStoreError('codex credentials must be of type subscription (a ChatGPT-plan auth.json)');
+    if ((prior === undefined || next.value !== prior.value) && !isCodexAuthJson(next.value)) throw new CredentialStoreError('value must be a ChatGPT-plan auth.json (codex login)');
   }
   if (isEnabledSubscription(next) && !isEnabledSubscription(prior) && others.some(isEnabledSubscription) && !acknowledgeTerms) {
     throw new CredentialStoreError(TERMS_ACK_REQUIRED);
@@ -430,13 +472,13 @@ export class ScopedCredentialStore {
   }
 
   /** Credential values for a scope (server-internal: only run resolution reads these): the plain variables plus the
-   * first enabled account per Claude variable. */
+   * first enabled account per account variable. */
   values(scope: Scope): Promise<Record<string, string>> {
     return this.serial(async () => {
       const all = await this.load();
       const env = { ...(all.env[scope] ?? {}) };
       for (const a of all.accounts[scope] ?? []) {
-        const name = ACCOUNT_ENV[a.type];
+        const name = accountEnvName(a);
         if (a.enabled && env[name] === undefined) env[name] = a.value;
       }
       return env;
@@ -487,28 +529,47 @@ export class ScopedCredentialStore {
     });
   }
 
-  /** `ids` must be a permutation of the scope's account ids: the new pick order. */
-  reorderAccounts(scope: Scope, ids: readonly string[]): Promise<void> {
+  /** `ids` must be a permutation of the scope's account ids (or, with `provider`, of that provider's): the new pick
+   * order. With `provider` the ids are written into the slots that provider's accounts held, so other providers keep their positions. */
+  reorderAccounts(scope: Scope, ids: readonly string[], provider?: AccountProvider): Promise<void> {
     return this.serial(async () => {
       const all = await this.load();
       const list = all.accounts[scope] ?? [];
-      if (ids.length !== list.length || new Set(ids).size !== ids.length || !list.every((a) => ids.includes(a.id))) {
-        throw new CredentialStoreError('ids must list every stored credential exactly once');
+      const subset = provider === undefined ? list : list.filter((a) => a.provider === provider);
+      if (ids.length !== subset.length || new Set(ids).size !== ids.length || !subset.every((a) => ids.includes(a.id))) {
+        throw new CredentialStoreError(provider === undefined ? 'ids must list every stored credential exactly once' : `ids must list every stored ${provider} credential exactly once`);
       }
-      all.accounts[scope] = ids.map((id) => list.find((a) => a.id === id)!);
+      const order = ids.map((id) => subset.find((a) => a.id === id)!);
+      let i = 0;
+      all.accounts[scope] = provider === undefined ? order : list.map((a) => (a.provider === provider ? order[i++]! : a));
       await this.save(all);
     });
   }
 
+  /** Write a refreshed CODEX_AUTH_JSON to exactly one account: only if it still exists, is codex/subscription, and its
+   * stored refresh token is still `expectRefreshToken` (a newer save is never overwritten). Name, switch and position stay. */
+  replaceAccountValue(scope: Scope, id: string, expectRefreshToken: string, value: string): Promise<boolean> {
+    return this.serial(async () => {
+      const all = await this.load();
+      const list = all.accounts[scope] ?? [];
+      const prior = list.find((a) => a.id === id);
+      if (prior === undefined || prior.provider !== 'codex' || prior.type !== 'subscription' || refreshTokenOf(prior.value) !== expectRefreshToken || !isCodexAuthJson(value)) return false;
+      all.accounts[scope] = upsert(list, { ...prior, value }, true);
+      await this.save(all);
+      return true;
+    });
+  }
+
   put(scope: Scope, name: string, value: string): Promise<void> {
-    const type = ACCOUNT_TYPE_OF_ENV[name];
-    // A Claude variable is the account named after it (created if none); the single-slot RPCs stay a subset of the account model.
-    if (type !== undefined) {
+    const of = ACCOUNT_TYPE_OF_ENV[name];
+    // An account variable is the account named after it (created if none); the single-slot RPCs stay a subset of the account model.
+    if (of !== undefined) {
+      const { provider, type } = of;
       return this.serial(async () => {
         const all = await this.load();
         const list = all.accounts[scope] ?? [];
-        const prior = list.find((a) => a.type === type && a.name === name);
-        const next: StoredAccount = { id: prior?.id ?? randomUUID(), provider: 'claude', name, type, enabled: prior?.enabled ?? true, value };
+        const prior = list.find((a) => a.provider === provider && a.type === type && a.name === name);
+        const next: StoredAccount = { id: prior?.id ?? randomUUID(), provider, name, type, enabled: prior?.enabled ?? true, value };
         assertAccountAllowed(list, prior, next, false);
         all.accounts[scope] = upsert(list, next, prior !== undefined);
         await this.save(all);
@@ -522,11 +583,11 @@ export class ScopedCredentialStore {
   }
 
   remove(scope: Scope, name: string): Promise<void> {
-    const type = ACCOUNT_TYPE_OF_ENV[name];
+    const of = ACCOUNT_TYPE_OF_ENV[name];
     return this.serial(async () => {
       const all = await this.load();
-      if (type !== undefined) {
-        all.accounts[scope] = (all.accounts[scope] ?? []).filter((a) => !(a.type === type && a.name === name));
+      if (of !== undefined) {
+        all.accounts[scope] = (all.accounts[scope] ?? []).filter((a) => !(a.provider === of.provider && a.type === of.type && a.name === name));
       } else {
         const { [name]: _gone, ...rest } = all.env[scope] ?? {};
         all.env[scope] = rest;
@@ -555,7 +616,7 @@ export interface CredentialService {
   instanceStatus(): Promise<{ names: string[]; reason?: string; accounts: CredentialAccountView[]; termsWarning?: string }>;
   /** A scope's stored accounts as RPC-safe views (never a value), with the time a limited one cools until. */
   accountViews(scope: Scope): Promise<CredentialAccountView[]>;
-  /** Rotation for one run: same scope, same provider, list order. Undefined unless the provider is claude and `first` is a stored account. */
+  /** Rotation for one run: same scope, same provider, list order. Undefined unless the provider has stored accounts (claude, codex) and `first` is one. */
   rotationFor(user: HubUser | undefined, provider: string | undefined, first: RunCredential): CredentialRotation | undefined;
   /** Move the retired `credentials.enc` into the store (names logged, never values). A failure is kept as the
    * status reason and retried on later status reads, so it clears without a restart once it succeeds. */
@@ -568,7 +629,7 @@ export interface CredentialService {
   /** The credential a run started by `user` uses, per the admin switch. Throws a bad-request —
    * BEFORE the run claims the slot — when `user only` is on and the user has none for `provider`
    * (default claude). Resolved per provider: only that provider's variables are returned. */
-  resolveForRun(user: HubUser | undefined, provider?: string, extra?: readonly string[], customKeys?: Readonly<Record<string, readonly string[]>>): Promise<RunCredential>;
+  resolveForRun(user: HubUser | undefined, provider?: string, extra?: readonly string[]): Promise<RunCredential>;
 }
 
 export function createCredentialService(configDir: string, adminLogins: readonly string[] = [], secret?: string, hubAdmins: readonly string[] = []): CredentialService {
@@ -596,15 +657,22 @@ export function createCredentialService(configDir: string, adminLogins: readonly
     cooldownChain = next.catch(() => undefined);
     return next;
   };
-  const toCredential = (source: 'instance' | 'user', a: StoredAccount): RunCredential => ({ source, env: { [ACCOUNT_ENV[a.type]]: a.value }, accountId: a.id, accountName: a.name });
-  // Only the types the claude provider authenticates with (`authFromEnv`): an auth-token (gateway) account is not rotated onto.
-  const enabledAccounts = async (scope: Scope): Promise<StoredAccount[]> => (await store.accounts(scope)).filter((a) => a.enabled && a.provider === 'claude' && a.type !== 'auth-token');
-  /** The first enabled, non-cooling account (not in `skip`), or why none: how many are enabled and when the first resets. */
-  const pickAccount = async (scope: Scope, source: 'instance' | 'user', skip: ReadonlySet<string> = new Set()): Promise<{ credential?: RunCredential; enabled: number; resets?: Date; soonest?: RunCredential }> => {
-    const enabled = await enabledAccounts(scope);
+  const toCredential = (source: 'instance' | 'user', a: StoredAccount): RunCredential => ({ source, env: { [accountEnvName(a)]: a.value }, accountId: a.id, accountName: a.name, accountProvider: a.provider });
+  // Claude: only the types the provider authenticates with (`authFromEnv`): an auth-token (gateway) account is not rotated onto. Codex: ChatGPT plans.
+  const enabledAccounts = async (scope: Scope, provider: AccountProvider): Promise<StoredAccount[]> =>
+    (await store.accounts(scope)).filter((a) => a.enabled && a.provider === provider && a.type !== 'auth-token');
+  // Codex only: a ChatGPT refresh token is replaced on every use, so an account in use by a run is never given to another.
+  // In memory (a hub restart kills its runs), keyed like the cool-down; the value is the owning rotation's token.
+  const leases = new Map<string, symbol>();
+  /** The first enabled, non-cooling account (not in `skip`), or why none: how many are enabled and when the first resets.
+   * Codex accounts leased by another rotation are passed over; non-strict (queue time) falls back to a leased one, which the dequeue re-pick corrects. */
+  const pickAccount = async (scope: Scope, source: 'instance' | 'user', provider: AccountProvider, skip: ReadonlySet<string> = new Set(), lease?: { token: symbol; strict: boolean }): Promise<{ credential?: RunCredential; enabled: number; resets?: Date; soonest?: RunCredential }> => {
+    const enabled = await enabledAccounts(scope, provider);
     const cooling = await readCooling();
     const live = enabled.filter((a) => !skip.has(a.id));
-    const free = live.find((a) => !cooling.has(coolKey(scope, a.id)));
+    const usable = live.filter((a) => !cooling.has(coolKey(scope, a.id)));
+    const takenByOther = (a: StoredAccount): boolean => provider === 'codex' && leases.get(coolKey(scope, a.id)) !== undefined && leases.get(coolKey(scope, a.id)) !== lease?.token;
+    const free = usable.find((a) => !takenByOther(a)) ?? (lease?.strict === true ? undefined : usable[0]);
     if (free !== undefined) return { credential: toCredential(source, free), enabled: enabled.length };
     const byReset = live
       .map((a) => ({ a, until: cooling.get(coolKey(scope, a.id)) }))
@@ -613,8 +681,8 @@ export function createCredentialService(configDir: string, adminLogins: readonly
     const first = byReset[0];
     return { enabled: enabled.length, ...(first !== undefined ? { resets: first.until, soonest: toCredential(source, first.a) } : {}) };
   };
-  const allCooling = (enabled: number, resets: Date | undefined): BadRequestError =>
-    new BadRequestError(`all ${enabled} Claude credentials are cooling down after a provider limit${resets !== undefined ? `; the first resets at ${resets.toISOString()}` : ''}`);
+  const allCooling = (enabled: number, resets: Date | undefined, provider: AccountProvider = 'claude'): BadRequestError =>
+    new BadRequestError(`all ${enabled} ${provider === 'codex' ? 'Codex' : 'Claude'} credentials are cooling down after a provider limit${resets !== undefined ? `; the first resets at ${resets.toISOString()}` : ''}`);
   const service: CredentialService = {
     store,
     // A GitHub or GitLab sign-in carries `login: '<provider>:<login>'`; an e-mail or domain entry needs a verified address.
@@ -663,30 +731,46 @@ export function createCredentialService(configDir: string, adminLogins: readonly
       return (await store.accounts(scope)).map((a) => toView(a, cooling.get(coolKey(scope, a.id))));
     },
     rotationFor(user, provider, first) {
-      if ((provider ?? 'claude') !== 'claude' || first.accountId === undefined) return undefined;
+      const rotated = provider ?? 'claude';
+      if (!isAccountProvider(rotated) || first.accountId === undefined || (first.accountProvider ?? 'claude') !== rotated) return undefined;
+      const accountProvider: AccountProvider = rotated;
+      const codex = accountProvider === 'codex';
       const scope: Scope = first.source === 'user' && user !== undefined ? USER_SCOPE(user) : 'instance';
       const exhausted = new Set<string>();
+      const token = Symbol('rotation');
       let current = first.accountId;
-      // The fallback chain's keys ride along on every account the run moves to; only the Anthropic variable changes.
-      const anthropic = new Set(Object.values(ACCOUNT_ENV));
-      const chainEnv = Object.fromEntries(Object.entries(first.env).filter(([name]) => !anthropic.has(name)));
+      // The fallback chain's keys ride along on every account the run moves to; only the provider's account variable changes.
+      const accountNames = new Set(Object.values(ACCOUNT_ENVS[accountProvider]));
+      const chainEnv = Object.fromEntries(Object.entries(first.env).filter(([name]) => !accountNames.has(name)));
       const withChain = (c: RunCredential | undefined): RunCredential | undefined => (c === undefined ? undefined : { ...c, env: { ...chainEnv, ...c.env } });
+      const lease = { token, strict: true };
+      const hold = (c: RunCredential | undefined): void => {
+        if (codex && c?.accountId !== undefined) leases.set(coolKey(scope, c.accountId), token);
+      };
+      const release = (id?: string): void => {
+        for (const [key, owner] of leases) if (owner === token && (id === undefined || key === coolKey(scope, id))) leases.delete(key);
+      };
+      const next = async (skip: ReadonlySet<string>): Promise<RunCredential | undefined> => {
+        const picked = (await pickAccount(scope, first.source, accountProvider, skip, codex ? lease : undefined)).credential;
+        if (picked?.accountId !== undefined) current = picked.accountId;
+        hold(picked);
+        return withChain(picked);
+      };
       return {
-        provider: 'claude',
+        provider: accountProvider,
         async hasNext() {
           try {
-            return (await pickAccount(scope, first.source, new Set([...exhausted, current]))).credential !== undefined;
+            return (await pickAccount(scope, first.source, accountProvider, new Set([...exhausted, current]), codex ? lease : undefined)).credential !== undefined;
           } catch {
             return false;
           }
         },
         async limited(accountId, until) {
           exhausted.add(accountId);
+          release(accountId);
           await recordCooling(scope, accountId, until).catch(() => undefined);
           try {
-            const next = (await pickAccount(scope, first.source, exhausted)).credential;
-            if (next?.accountId !== undefined) current = next.accountId;
-            return withChain(next);
+            return await next(exhausted);
           } catch {
             return undefined;
           }
@@ -695,10 +779,37 @@ export function createCredentialService(configDir: string, adminLogins: readonly
           await recordCooling(scope, accountId, until);
         },
         async refresh(cur) {
-          if (cur.accountId === undefined || !(await readCooling()).has(coolKey(scope, cur.accountId))) return cur;
-          const next = (await pickAccount(scope, first.source, exhausted)).credential;
-          if (next?.accountId !== undefined) current = next.accountId;
-          return withChain(next) ?? cur;
+          if (!codex) {
+            if (cur.accountId === undefined || !(await readCooling()).has(coolKey(scope, cur.accountId))) return cur;
+            return (await next(exhausted)) ?? cur;
+          }
+          // Codex: the account is leased to this run, or another is picked; rebuilt from the store so a queued run never starts on a token another run has since refreshed.
+          const stored = cur.accountId === undefined ? undefined : (await store.accounts(scope)).find((a) => a.id === cur.accountId && a.enabled);
+          const cooling = await readCooling();
+          const owner = cur.accountId === undefined ? undefined : leases.get(coolKey(scope, cur.accountId));
+          if (stored !== undefined && !cooling.has(coolKey(scope, stored.id)) && !exhausted.has(stored.id) && (owner === undefined || owner === token)) {
+            current = stored.id;
+            hold({ ...cur, accountId: stored.id });
+            return withChain(toCredential(first.source, stored))!;
+          }
+          const picked = await next(exhausted);
+          if (picked === undefined) {
+            const { enabled, resets } = await pickAccount(scope, first.source, accountProvider, exhausted);
+            throw new BadRequestError(`all ${enabled} Codex credentials are in use by other runs or cooling down${resets !== undefined ? `; the first resets at ${resets.toISOString()}` : ''}`);
+          }
+          return picked;
+        },
+        release() {
+          release();
+        },
+        async saveRotated(accountId, originalRefreshToken, authJson) {
+          if (!codex) return false;
+          try {
+            return await store.replaceAccountValue(scope, accountId, originalRefreshToken, authJson);
+          } catch (error) {
+            console.error(`vanguard-hub: saving a refreshed Codex credential failed: ${shownReason(error, 'credential store write failed')}`);
+            return false;
+          }
         },
       };
     },
@@ -733,43 +844,38 @@ export function createCredentialService(configDir: string, adminLogins: readonly
       const names = provider === undefined ? CREDENTIAL_NAMES : PROVIDER_NAMES[provider] ?? [];
       return { ...process.env, ...pick(instanceValues, names) };
     },
-    async resolveForRun(user, provider = 'claude', extra = [], customKeys = {}) {
+    async resolveForRun(user, provider = 'claude', extra = []) {
       const policy = await service.policy();
       const names = PROVIDER_NAMES[provider];
       // The fallback chain's providers add their names to the env, but the source is decided by the primary alone.
-      // A non-Claude Engine takes Claude from the chain as ONE variable of the account list (`withClaudeVar`), never all three names.
-      const anthropic = new Set(Object.values(ACCOUNT_ENV));
-      // A chain entry's key names: a built-in's, else a repo custom's `keyEnv` as the caller resolved it (`customKeys`).
-      const namesOf = (p: string): readonly string[] => PROVIDER_NAMES[p] ?? customKeys[p] ?? [];
-      const allNames = names === undefined ? undefined : [...new Set([...names, ...extra.flatMap((p) => (provider !== 'claude' && p === 'claude' ? [] : namesOf(p)))])];
-      const withClaudeVar = async (credential: RunCredential, scope: Scope): Promise<RunCredential> => {
-        if (provider === 'claude' || !extra.includes('claude') || names === undefined) return credential;
-        const picked = await pickAccount(scope, credential.source).catch(() => undefined);
-        return picked?.credential === undefined ? credential : { ...credential, env: { ...picked.credential.env, ...credential.env } };
-      };
-      // A stored Claude account funds the run alone; the chain providers' keys from the same scope join it (still one Anthropic variable).
-      const chainNames = (allNames ?? []).filter((n) => !anthropic.has(n));
+      const allNames = names === undefined ? undefined : [...new Set([...names, ...extra.flatMap((p) => PROVIDER_NAMES[p] ?? [])])];
+      // A stored account funds the run alone; the chain providers' keys from the same scope join it (still one variable of the provider's).
+      const accountProvider = isAccountProvider(provider) ? provider : undefined;
+      const accountNames = new Set(accountProvider !== undefined ? Object.values(ACCOUNT_ENVS[accountProvider]) : []);
+      const chainNames = (allNames ?? []).filter((n) => !accountNames.has(n));
       const withChain = async (credential: RunCredential, scope: Scope): Promise<RunCredential> => {
         if (chainNames.length === 0) return credential;
         const values = await store.values(scope).catch(() => ({}));
         return { ...credential, env: { ...pick(values, chainNames), ...credential.env } };
       };
       // Every account cooling is no refusal while a chain entry can take the run: it starts and the engine moves to the chain
-      // (as without stored accounts). Mirrors deps' `fundedParams`: a built-in or a repo custom with a key counts (meridian
-      // cannot run on a stored key), and a lone entry on the Engine's own transport (claude → zai or a custom) is dropped there.
+      // (as without stored accounts). A custom provider's keys are not known here, so it counts; deps drops it if unfunded.
       const chainFunded = async (scope: Scope): Promise<boolean> => {
         const values: Record<string, string> = await store.values(scope).catch(() => ({}));
         const hostFunds = scope === 'instance';
-        const funded = extra.filter((p) => p !== 'claude' && namesOf(p).some((n) => (values[n] ?? '') !== '' || (hostFunds && (process.env[n] ?? '') !== '')));
-        return funded.length > 1 || (funded.length === 1 && fallbackSlot(funded[0]!) !== fallbackSlot('claude'));
+        return extra.some((p) => {
+          if (p === accountProvider) return false;
+          const keys = PROVIDER_NAMES[p];
+          return keys === undefined || keys.some((n) => (values[n] ?? '') !== '' || (hostFunds && (process.env[n] ?? '') !== ''));
+        });
       };
       const instance = async (): Promise<RunCredential> => {
-        if (provider === 'claude') {
+        if (accountProvider !== undefined) {
           try {
-            const { credential, enabled, resets, soonest } = await pickAccount('instance', 'instance');
+            const { credential, enabled, resets, soonest } = await pickAccount('instance', 'instance', accountProvider);
             if (credential !== undefined) return await withChain(credential, 'instance');
             if (soonest !== undefined && (await chainFunded('instance'))) return await withChain(soonest, 'instance');
-            if (enabled > 0) throw allCooling(enabled, resets);
+            if (enabled > 0) throw allCooling(enabled, resets, accountProvider);
           } catch (error) {
             if (error instanceof BadRequestError && !(error instanceof CredentialStoreError)) throw error;
             // An unreadable store falls through to the plain read below, which reports it (or lets the start-up env fund the run).
@@ -785,20 +891,20 @@ export function createCredentialService(configDir: string, adminLogins: readonly
           const fundable = names ?? (provider === 'meridian' ? ['MERIDIAN_API_KEY'] : []);
           if (!fundable.some((n) => (process.env[n] ?? '') !== '')) throw new BadRequestError(shownReason(error, STORE_UNREADABLE));
         }
-        return withClaudeVar({ source: 'instance', env: allNames === undefined ? env : pick(env, allNames) }, 'instance');
+        return { source: 'instance', env: allNames === undefined ? env : pick(env, allNames) };
       };
       if (policy === 'off') return instance();
       if (user === undefined) {
         if (policy === 'user-only') throw new BadRequestError(SIGN_IN_REQUIRED);
         return instance();
       }
-      if (provider === 'claude') {
+      if (accountProvider !== undefined) {
         // The user's own accounts: never silently moved onto the instance's when they are all cooling (that spends the hub's money).
         try {
-          const { credential, enabled, resets, soonest } = await pickAccount(USER_SCOPE(user), 'user');
+          const { credential, enabled, resets, soonest } = await pickAccount(USER_SCOPE(user), 'user', accountProvider);
           if (credential !== undefined) return await withChain(credential, USER_SCOPE(user));
           if (soonest !== undefined && (await chainFunded(USER_SCOPE(user)))) return await withChain(soonest, USER_SCOPE(user));
-          if (enabled > 0) throw allCooling(enabled, resets);
+          if (enabled > 0) throw allCooling(enabled, resets, accountProvider);
         } catch (error) {
           if (error instanceof BadRequestError && !(error instanceof CredentialStoreError)) throw error;
           if (policy === 'user-only') throw new BadRequestError(shownReason(error, STORE_UNREADABLE));
@@ -812,7 +918,7 @@ export function createCredentialService(configDir: string, adminLogins: readonly
       }
       // Meridian / custom providers (no `names`): any saved credential makes it a user run (credentialEnv refuses it if unusable).
       const mine = names === undefined ? own : pick(own, names);
-      if (Object.keys(mine).length > 0) return withClaudeVar({ source: 'user', env: allNames === undefined ? mine : pick(own, allNames) }, USER_SCOPE(user));
+      if (Object.keys(mine).length > 0) return { source: 'user', env: allNames === undefined ? mine : pick(own, allNames) };
       if (policy === 'user-only') {
         throw new BadRequestError(names === undefined ? USER_CREDENTIAL_REQUIRED : userCredentialRequiredFor(provider, names));
       }

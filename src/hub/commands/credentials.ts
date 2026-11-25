@@ -1,7 +1,7 @@
 // Hub commands: instance and per-user provider credentials, and the credential policy. One module per feature — contract, validation and handler live here;
 // `pnpm gen:wire` derives Commands, COMMAND_NAMES and dispatch from it (see CONTRIBUTING.md).
 import { BadRequestError } from '../../sidecar/sidecar.js';
-import { USER_SCOPE, CREDENTIAL_NAMES, termsWarningFor, CREDENTIAL_POLICIES, ACCOUNT_PROVIDERS, ACCOUNT_TYPES, parseCredentialInput, parseCredentialName, type AccountInput, type CredentialService, type HubUser } from '../credentials.js';
+import { USER_SCOPE, CREDENTIAL_NAMES, termsWarningFor, CREDENTIAL_POLICIES, ACCOUNT_PROVIDERS, ACCOUNT_TYPES, parseCredentialInput, parseCredentialName, type AccountInput, type AccountProvider, type CredentialService, type HubUser } from '../credentials.js';
 import type { AccountType, CredentialAccountView, CredentialPolicy } from '../../wire.js';
 import type { RpcContext } from '../rpc.js';
 import { defineCommands, type AuditSpec } from '../command-kit.js';
@@ -12,18 +12,18 @@ export interface CredentialsCommands {
   set_credential_policy: { args: { policy: CredentialPolicy }; result: void };
   /** HUB_ONLY, hub owner or admin only: instance provider credentials. Write-only — status lists names, never values. */
   instance_credentials_status: { args: undefined; result: { names: string[]; reason?: string; accounts: CredentialAccountView[]; termsWarning?: string } };
-  /** HUB_ONLY, hub owner or admin only: the instance's Claude accounts (up to 20, tried in list order; a limited one cools until its reset). `value` is required to create and optional to rename or switch one; it is never returned. A second enabled subscription token needs `acknowledgeTerms` (see docs/hub.md). */
-  save_instance_account: { args: { id?: string; provider: 'claude'; name: string; type: AccountType; value?: string; enabled?: boolean; acknowledgeTerms?: boolean }; result: { id: string } };
+  /** HUB_ONLY, hub owner or admin only: the instance's Claude and Codex (ChatGPT plan) accounts (up to 20 per provider, tried in list order; a limited one cools until its reset). `value` is required to create and optional to rename or switch one; it is never returned. A second enabled subscription token needs `acknowledgeTerms` (see docs/hub.md). */
+  save_instance_account: { args: { id?: string; provider: 'claude' | 'codex'; name: string; type: AccountType; value?: string; enabled?: boolean; acknowledgeTerms?: boolean }; result: { id: string } };
   delete_instance_account: { args: { id: string }; result: void };
-  reorder_instance_accounts: { args: { ids: string[] }; result: void };
+  reorder_instance_accounts: { args: { ids: string[]; provider?: 'claude' | 'codex' }; result: void };
   save_instance_credential: { args: { name: string; value: string }; result: void };
   delete_instance_credential: { args: { name: string }; result: void };
   /** HUB_ONLY: the signed-in user's OWN credentials (no RPC takes a user id). Write-only. */
   user_credentials_status: { args: undefined; result: { enabled: boolean; admin: boolean; names: string[]; accounts: CredentialAccountView[]; termsWarning?: string } };
-  /** HUB_ONLY: the signed-in user's OWN Claude accounts. A second enabled subscription token needs `acknowledgeTerms`, as on the instance (see docs/hub.md). */
-  save_user_account: { args: { id?: string; provider: 'claude'; name: string; type: AccountType; value?: string; enabled?: boolean; acknowledgeTerms?: boolean }; result: { id: string } };
+  /** HUB_ONLY: the signed-in user's OWN Claude and Codex accounts. A second enabled subscription token needs `acknowledgeTerms`, as on the instance (see docs/hub.md). */
+  save_user_account: { args: { id?: string; provider: 'claude' | 'codex'; name: string; type: AccountType; value?: string; enabled?: boolean; acknowledgeTerms?: boolean }; result: { id: string } };
   delete_user_account: { args: { id: string }; result: void };
-  reorder_user_accounts: { args: { ids: string[] }; result: void };
+  reorder_user_accounts: { args: { ids: string[]; provider?: 'claude' | 'codex' }; result: void };
   save_user_credential: { args: { name: string; value: string }; result: void };
   delete_user_credential: { args: { name: string }; result: void };
 }
@@ -41,7 +41,7 @@ function requireUser(ctx: RpcContext): HubUser {
 }
 
 /** Validate an account save. `value` is trimmed and non-blank when present, and required when `id` is absent. Unknown keys are ignored. */
-export function parseAccountInput(args: Record<string, unknown>): AccountInput & { provider: 'claude'; name: string; type: AccountType } {
+export function parseAccountInput(args: Record<string, unknown>): AccountInput & { provider: AccountProvider; name: string; type: AccountType } {
   const { id, provider, name, type, value, enabled, acknowledgeTerms } = args;
   if (id !== undefined && typeof id !== 'string') throw new BadRequestError('id must be a string');
   if (!(ACCOUNT_PROVIDERS as readonly unknown[]).includes(provider)) throw new BadRequestError(`provider must be one of: ${ACCOUNT_PROVIDERS.join(', ')}`);
@@ -49,10 +49,11 @@ export function parseAccountInput(args: Record<string, unknown>): AccountInput &
   if (!(ACCOUNT_TYPES as readonly unknown[]).includes(type)) throw new BadRequestError(`type must be one of: ${ACCOUNT_TYPES.join(', ')}`);
   if (value !== undefined && (typeof value !== 'string' || value.trim() === '')) throw new BadRequestError('value must be a non-blank string');
   if (value === undefined && id === undefined) throw new BadRequestError('value is required for a new credential');
+  if (provider === 'codex' && type !== 'subscription') throw new BadRequestError('codex credentials must be of type subscription (a ChatGPT-plan auth.json)');
   if (enabled !== undefined && typeof enabled !== 'boolean') throw new BadRequestError('enabled must be a boolean');
   return {
     ...(id !== undefined ? { id } : {}),
-    provider: 'claude',
+    provider: provider as AccountProvider,
     name: name.trim(),
     type: type as AccountType,
     ...(value !== undefined ? { value: (value as string).trim() } : {}),
@@ -65,6 +66,14 @@ function requireIds(args: Record<string, unknown>): string[] {
   const { ids } = args;
   if (!Array.isArray(ids) || ids.some((i) => typeof i !== 'string')) throw new BadRequestError('ids must be a list of credential ids');
   return ids as string[];
+}
+
+/** The optional provider a reorder is scoped to (absent: the whole list). */
+function optionalProvider(args: Record<string, unknown>): AccountProvider | undefined {
+  const { provider } = args;
+  if (provider === undefined) return undefined;
+  if (!(ACCOUNT_PROVIDERS as readonly unknown[]).includes(provider)) throw new BadRequestError(`provider must be one of: ${ACCOUNT_PROVIDERS.join(', ')}`);
+  return provider as AccountProvider;
 }
 
 function requireId(args: Record<string, unknown>): string {
@@ -137,7 +146,7 @@ export const commands = defineCommands<CredentialsCommands>({
   reorder_instance_accounts: async ({ ctx, args, caller }) => {
     const svc = requireCredentials(ctx);
     svc.assertManager(ctx.user, caller.owner);
-    await svc.store.reorderAccounts('instance', requireIds(args));
+    await svc.store.reorderAccounts('instance', requireIds(args), optionalProvider(args));
     return null;
   },
   save_instance_credential: async ({ ctx, args, caller }) => {
@@ -172,7 +181,7 @@ export const commands = defineCommands<CredentialsCommands>({
   },
   reorder_user_accounts: async ({ ctx, args }) => {
     const { svc, scope } = await userScope(ctx);
-    await svc.store.reorderAccounts(scope, requireIds(args));
+    await svc.store.reorderAccounts(scope, requireIds(args), optionalProvider(args));
     return null;
   },
   save_user_credential: async ({ ctx, args }) => {

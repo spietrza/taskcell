@@ -296,3 +296,28 @@ describe('CodexProvider', () => {
     expect(captured.command).toContain('o4-mini');
   });
 });
+
+describe('CodexProvider provider limits', () => {
+  const failing = (stdout: string, stderr: string): IsolatedSandboxProvider =>
+    ({ exec: async (): Promise<ExecResult> => ({ stdout, stderr, exitCode: 1 }) }) as unknown as IsolatedSandboxProvider;
+
+  it('a usage limit on stderr or in an error event is a ProviderLimitError (still an AgentError)', async () => {
+    const { ProviderLimitError, AgentError } = await import('../core/errors.js');
+    const onStderr = await drain(failing('', "You've hit your usage limit. Try again later.")).catch((e: unknown) => e);
+    expect(onStderr).toBeInstanceOf(ProviderLimitError);
+    expect(onStderr).toBeInstanceOf(AgentError);
+    const event = JSON.stringify({ type: 'turn.failed', error: { message: 'usage limit reached' } });
+    expect(await drain(failing(event, '')).catch((e: unknown) => e)).toBeInstanceOf(ProviderLimitError);
+  });
+
+  it('a generic failure, or limit words only in agent prose, is a plain AgentError', async () => {
+    const { ProviderLimitError, AgentError } = await import('../core/errors.js');
+    const generic = await drain(failing('', 'boom')).catch((e: unknown) => e);
+    expect(generic).toBeInstanceOf(AgentError);
+    expect(generic).not.toBeInstanceOf(ProviderLimitError);
+    const prose = JSON.stringify({ type: 'item.completed', item: { type: 'agent_message', text: 'the usage limit reached message is handled' } });
+    const err = await drain(failing(prose, '')).catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(AgentError);
+    expect(err).not.toBeInstanceOf(ProviderLimitError);
+  });
+});

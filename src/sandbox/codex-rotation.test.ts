@@ -163,3 +163,32 @@ describe('reportRotation', () => {
     expect(warn.mock.calls.flat().join('\n')).toContain('now stale');
   });
 });
+
+describe('reportRotation with persist (a hub stored account)', () => {
+  const held = JSON.stringify({ OPENAI_API_KEY: 'sk-keep', tokens: { id_token: 'real-id', access_token: 'old-access', refresh_token: 'old-refresh' }, last_refresh: 'old' });
+
+  it('hands the merged auth.json to persist with the original refresh token, writes no host file, and logs the save', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const { file, env } = await setup(host); // a host file holding the same token is left alone
+    const persist = vi.fn(async () => true);
+    await reportRotation(rotated, 'old-refresh', { ...env, CODEX_AUTH_JSON: held }, { storedCredential: true, persist });
+    expect(persist).toHaveBeenCalledTimes(1);
+    const [original, json] = persist.mock.calls[0] as unknown as [string, string];
+    expect(original).toBe('old-refresh');
+    expect(JSON.parse(json)).toEqual({ OPENAI_API_KEY: 'sk-keep', tokens: { id_token: 'real-id', access_token: 'new-access', refresh_token: 'new-refresh' }, last_refresh: '2026-01-01T00:00:00Z' });
+    expect(await readFile(file, 'utf8')).toBe(host);
+    expect(warn.mock.calls.flat().join('\n')).toContain('saved to the hub credential it came from');
+  });
+
+  it('names the stored copy as stale when persist reports false or throws; no call without a rotation or with malformed output', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    for (const persist of [vi.fn(async () => false), vi.fn(async () => { throw new Error('x'); })]) {
+      await reportRotation(rotated, 'old-refresh', { CODEX_AUTH_JSON: held }, { storedCredential: true, persist });
+    }
+    expect(warn.mock.calls.flat().join('\n')).toContain('holds the old token');
+    const none = vi.fn(async () => true);
+    await reportRotation(JSON.stringify({ tokens: { access_token: 'a', refresh_token: 'old-refresh' } }), 'old-refresh', { CODEX_AUTH_JSON: held }, { persist: none });
+    await reportRotation(JSON.stringify({ tokens: { access_token: 'a\x1b', refresh_token: 'new-refresh' } }), 'old-refresh', { CODEX_AUTH_JSON: held }, { persist: none });
+    expect(none).not.toHaveBeenCalled();
+  });
+});

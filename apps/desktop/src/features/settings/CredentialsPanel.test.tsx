@@ -65,7 +65,7 @@ test('an admin sees the switch and instance credentials; values are write-only a
   expect(input.type).toBe('password');
   fireEvent.change(input, { target: { value: 'sk-secret' } });
   fireEvent.click(screen.getAllByRole('button', { name: 'Save' })[1]!);
-  await waitFor(() => expect(spy).toHaveBeenCalledWith('save_user_credential', { name: 'CODEX_AUTH_JSON', value: 'sk-secret' }));
+  await waitFor(() => expect(spy).toHaveBeenCalledWith('save_user_credential', { name: 'CODEX_API_KEY', value: 'sk-secret' }));
   await waitFor(() => expect(input.value).toBe(''));
 });
 
@@ -114,7 +114,7 @@ test('accounts: toggle, reorder and remove call the hub with ids only', async ()
   fireEvent.click(screen.getByLabelText('Key 1 on'));
   await waitFor(() => expect(spy).toHaveBeenCalledWith('save_instance_account', { provider: 'claude', id: 'a1', name: 'Key 1', type: 'api-key', enabled: false }));
   fireEvent.click(screen.getByLabelText('Move Key 1 down'));
-  await waitFor(() => expect(spy).toHaveBeenCalledWith('reorder_instance_accounts', { ids: ['a2', 'a1'] }));
+  await waitFor(() => expect(spy).toHaveBeenCalledWith('reorder_instance_accounts', { ids: ['a2', 'a1'], provider: 'claude' }));
   fireEvent.click(screen.getByLabelText('Remove Key 2'));
   await waitFor(() => expect(spy).toHaveBeenCalledWith('delete_instance_account', { id: 'a2' }));
 });
@@ -136,7 +136,7 @@ test('accounts: a second subscription token shows the terms caveat and needs the
   expect(screen.getByText(/ordinary, individual usage/)).toBeInTheDocument();
   fireEvent.change(screen.getByLabelText('Instance Anthropic accounts name'), { target: { value: 'Second' } });
   fireEvent.change(screen.getByLabelText('Instance Anthropic accounts secret'), { target: { value: 'tok' } });
-  const add = screen.getByRole('button', { name: 'Add account' });
+  const add = screen.getAllByRole('button', { name: 'Add account' })[0]!;
   expect(add).toBeDisabled();
   fireEvent.click(screen.getByLabelText(/I understand the terms caveat/));
   expect(add).toBeEnabled();
@@ -159,7 +159,7 @@ test('accounts: a user scope follows the same terms rule — warning, acknowledg
   expect(screen.getByText(/ordinary, individual usage/)).toBeInTheDocument();
   fireEvent.change(screen.getByLabelText('Your Anthropic accounts name'), { target: { value: 'Mine 2' } });
   fireEvent.change(screen.getByLabelText('Your Anthropic accounts secret'), { target: { value: 'tok' } });
-  const add = screen.getByRole('button', { name: 'Add account' });
+  const add = screen.getAllByRole('button', { name: 'Add account' })[0]!;
   expect(add).toBeDisabled();
   fireEvent.click(screen.getByLabelText(/I understand the terms caveat for a second/));
   fireEvent.click(add);
@@ -203,4 +203,34 @@ test('the per-variable editor does not list Claude variables (accounts own them)
   await screen.findByText('Your credentials');
   expect(screen.queryAllByText('ANTHROPIC_API_KEY')).toHaveLength(0);
   expect(screen.getAllByText('OPENAI_API_KEY').length).toBeGreaterThan(1);
+});
+
+test('codex accounts: add, rename, toggle, reorder and remove use provider codex; no terms caveat; counted per provider', async () => {
+  asUser({ enabled: false, admin: true, names: [] });
+  instanceAccounts = [accountOf(1), accountOf(2, { provider: 'codex', type: 'subscription' }), accountOf(3, { provider: 'codex', type: 'subscription' })];
+  render(<CredentialsPanel />);
+  await screen.findByLabelText('Name of Key 3');
+  expect(screen.getByText('Instance Codex (ChatGPT plan) accounts')).toBeInTheDocument();
+  expect(screen.getByText(/^A run uses the first switched-on account.*2 of 20/)).toBeInTheDocument();
+  expect(screen.queryByText(/ordinary, individual usage/)).not.toBeInTheDocument();
+  fireEvent.change(screen.getByLabelText('Instance Codex (ChatGPT plan) accounts name'), { target: { value: 'Plan C' } });
+  fireEvent.change(screen.getByLabelText('Instance Codex (ChatGPT plan) accounts secret'), { target: { value: '{"tokens":{}}' } });
+  fireEvent.click(screen.getAllByRole('button', { name: 'Add account' })[1]!);
+  await waitFor(() => expect(spy).toHaveBeenCalledWith('save_instance_account', { provider: 'codex', name: 'Plan C', type: 'subscription', value: '{"tokens":{}}' }));
+  fireEvent.click(screen.getByLabelText('Key 2 on'));
+  await waitFor(() => expect(spy).toHaveBeenCalledWith('save_instance_account', { provider: 'codex', id: 'a2', name: 'Key 2', type: 'subscription', enabled: false }));
+  fireEvent.click(screen.getByLabelText('Move Key 2 down'));
+  await waitFor(() => expect(spy).toHaveBeenCalledWith('reorder_instance_accounts', { ids: ['a3', 'a2'], provider: 'codex' }));
+  fireEvent.click(screen.getByLabelText('Remove Key 3'));
+  await waitFor(() => expect(spy).toHaveBeenCalledWith('delete_instance_account', { id: 'a3' }));
+});
+
+test('codex accounts: a user gets their own Codex section; CODEX_AUTH_JSON is not in the per-variable editor', async () => {
+  asUser({ enabled: true, admin: false, names: ['CODEX_AUTH_JSON'], accounts: [accountOf(1, { provider: 'codex', type: 'subscription' })] });
+  render(<CredentialsPanel />);
+  await screen.findByLabelText('Name of Key 1');
+  expect(screen.getByText('Your Codex (ChatGPT plan) accounts')).toBeInTheDocument();
+  expect(screen.queryByText('CODEX_AUTH_JSON')).not.toBeInTheDocument();
+  fireEvent.click(screen.getByLabelText('Remove Key 1'));
+  await waitFor(() => expect(spy).toHaveBeenCalledWith('delete_user_account', { id: 'a1' }));
 });

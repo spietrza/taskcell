@@ -923,3 +923,129 @@ describe('resolveForRun with fallback-chain providers (extra)', () => {
     expect(next?.env).toEqual({ CLAUDE_CODE_OAUTH_TOKEN: 'oat-B', CODEX_API_KEY: 'inst-codex' });
   });
 });
+
+describe('multiple Codex accounts', () => {
+  const authJson = (n: string, refresh = `rt-${n}`): string => JSON.stringify({ auth_mode: 'chatgpt', tokens: { access_token: `at-${n}`, refresh_token: refresh, account_id: n } });
+  const acct = (name: string, over: Record<string, unknown> = {}) => ({ provider: 'codex', name, type: 'subscription' as const, value: authJson(name), ...over });
+  const user = { id: 'u1', email: 'u@x.y', name: 'U' } as never;
+
+  it('putAccount: validates the auth.json, subscription only, no terms ack, cap counted per provider, unique names per provider', async () => {
+    const store = new ScopedCredentialStore(await dir());
+    await store.putAccount('instance', acct('A'));
+    await store.putAccount('instance', acct('B')); // a second enabled subscription needs no acknowledgement
+    await expect(store.putAccount('instance', acct('C', { type: 'api-key' }))).rejects.toThrow(/must be of type subscription/);
+    await expect(store.putAccount('instance', acct('C', { value: 'not json' }))).rejects.toThrow(/auth\.json/);
+    await expect(store.putAccount('instance', acct('a'))).rejects.toThrow(/already has that name/);
+    await store.putAccount('instance', { provider: 'claude', name: 'A', type: 'api-key', value: 'sk' }); // same name, other provider
+    for (let i = 2; i < 20; i++) await store.putAccount('instance', acct(`N${i}`));
+    await expect(store.putAccount('instance', acct('over'))).rejects.toThrow(/at most 20 codex/);
+    expect(termsWarningFor(await store.accounts('instance'))).toBeUndefined();
+  });
+
+  it('reorderAccounts(provider) moves only that provider and keeps other slots', async () => {
+    const store = new ScopedCredentialStore(await dir());
+    const c1 = await store.putAccount('instance', acct('X1'));
+    const k = await store.putAccount('instance', { provider: 'claude', name: 'K', type: 'api-key', value: 'sk' });
+    const c2 = await store.putAccount('instance', acct('X2'));
+    await store.reorderAccounts('instance', [c2, c1], 'codex');
+    expect((await store.accounts('instance')).map((a) => a.id)).toEqual([c2, k, c1]);
+    await expect(store.reorderAccounts('instance', [c2, k], 'codex')).rejects.toThrow(/every stored codex/);
+    await expect(store.reorderAccounts('instance', [c2, c1])).rejects.toThrow(/every stored credential/);
+  });
+
+  it('a single-slot CODEX_AUTH_JSON (v2 env or put/remove) is the account named CODEX_AUTH_JSON', async () => {
+    const store = new ScopedCredentialStore(await dir());
+    await store.put('instance', 'CODEX_AUTH_JSON', authJson('one'));
+    expect((await store.accounts('instance')).map((a) => [a.provider, a.name])).toEqual([['codex', 'CODEX_AUTH_JSON']]);
+    expect(await store.names('instance')).toEqual(['CODEX_AUTH_JSON']);
+    await store.remove('instance', 'CODEX_AUTH_JSON');
+    expect(await store.accounts('instance')).toEqual([]);
+  });
+
+  it('resolveForRun picks the first enabled codex account; rotation cools, continues, and parks when all are out', async () => {
+    const d = await dir();
+    const svc = createCredentialService(d);
+    const a = await svc.store.putAccount('instance', acct('A'));
+    const b = await svc.store.putAccount('instance', acct('B'));
+    const first = await svc.resolveForRun(undefined, 'codex');
+    expect(first).toMatchObject({ accountId: a, accountProvider: 'codex', env: { CODEX_AUTH_JSON: authJson('A') } });
+    const rotation = svc.rotationFor(undefined, 'codex', first)!;
+    expect(rotation.provider).toBe('codex');
+    await rotation.refresh(first);
+    const until = new Date(Date.now() + 3600_000);
+    expect(await rotation.limited(a, until)).toMatchObject({ accountId: b });
+    const file = JSON.parse(await readFile(join(d, 'credential-cooldowns.json'), 'utf8')) as Record<string, string>;
+    expect(file).toEqual({ [`credential:instance:${a}`]: until.toISOString() });
+    expect(await rotation.limited(b, until)).toBeUndefined();
+    await expect(svc.resolveForRun(undefined, 'codex')).rejects.toThrow(/all 2 Codex credentials are cooling down.*resets at/);
+  });
+
+  it('a user whose codex accounts are all cooling is refused, not moved onto the instance', async () => {
+    const svc = createCredentialService(await dir());
+    await svc.setPolicy('user-first');
+    await svc.store.putAccount('instance', acct('I'));
+    const mine = await svc.store.putAccount('user:u1', acct('M'));
+    const first = await svc.resolveForRun(user, 'codex');
+    expect(first).toMatchObject({ source: 'user', accountId: mine });
+    await svc.rotationFor(user, 'codex', first)!.cool(mine, new Date(Date.now() + 3600_000));
+    await expect(svc.resolveForRun(user, 'codex')).rejects.toThrow(/Codex credentials are cooling down/);
+  });
+
+  it('two runs never hold the same account: leases, release, limited moves the lease, refresh rebuilds from the store', async () => {
+    const svc = createCredentialService(await dir());
+    const a = await svc.store.putAccount('instance', acct('A'));
+    const b = await svc.store.putAccount('instance', acct('B'));
+    const first = await svc.resolveForRun(undefined, 'codex');
+    const r1 = svc.rotationFor(undefined, 'codex', first)!;
+    const r2 = svc.rotationFor(undefined, 'codex', first)!;
+    expect((await r1.refresh(first)).accountId).toBe(a);
+    expect((await r2.refresh(first)).accountId).toBe(b);
+    expect(await r1.hasNext()).toBe(false); // b is leased by r2
+    const r3 = svc.rotationFor(undefined, 'codex', first)!;
+    await expect(r3.refresh(first)).rejects.toThrow(/in use by other runs/);
+    // queue time prefers a free account but does not refuse when all are leased
+    expect((await svc.resolveForRun(undefined, 'codex')).accountId).toBeDefined();
+    r2.release();
+    r2.release(); // idempotent
+    expect((await r3.refresh(first)).accountId).toBe(b);
+    // limited() moves the lease off the cooled account
+    r1.release();
+    const moved = await r1.limited(a, new Date(Date.now() + 3600_000));
+    expect(moved).toBeUndefined(); // b is r3's
+    r3.release();
+    // a queued run's refresh sees a value saved since it was queued
+    const stale = await svc.resolveForRun(undefined, 'codex');
+    await svc.store.putAccount('instance', { id: stale.accountId!, value: authJson('B2') });
+    const r4 = svc.rotationFor(undefined, 'codex', stale)!;
+    expect((await r4.refresh(stale)).env.CODEX_AUTH_JSON).toBe(stale.accountId === b ? authJson('B2') : authJson('A'));
+  });
+
+  it('claude ignores leases', async () => {
+    const svc = createCredentialService(await dir());
+    await svc.store.putAccount('instance', { name: 'K', type: 'api-key', value: 'sk-K' });
+    const first = await svc.resolveForRun(undefined, 'claude');
+    const one = svc.rotationFor(undefined, 'claude', first)!;
+    const two = svc.rotationFor(undefined, 'claude', first)!;
+    expect((await one.refresh(first)).accountId).toBe(first.accountId);
+    expect((await two.refresh(first)).accountId).toBe(first.accountId);
+    expect(await one.saveRotated(first.accountId!, 'x', 'y')).toBe(false);
+  });
+
+  it('saveRotated writes to exactly one account, only while its refresh token matches', async () => {
+    const svc = createCredentialService(await dir());
+    const a = await svc.store.putAccount('instance', acct('A', { value: authJson('A', 'shared') }));
+    const b = await svc.store.putAccount('instance', acct('B', { value: authJson('B', 'shared') }));
+    const mine = await svc.store.putAccount('user:u1', acct('M', { value: authJson('M', 'shared') }));
+    await svc.store.reorderAccounts('instance', [b, a]);
+    const first = { source: 'instance' as const, env: {}, accountId: a, accountProvider: 'codex' };
+    const rotation = svc.rotationFor(undefined, 'codex', first)!;
+    const next = authJson('A2', 'rt-new');
+    expect(await rotation.saveRotated(a, 'shared', next)).toBe(true);
+    const accounts = await svc.store.accounts('instance');
+    expect(accounts.map((x) => [x.id, x.name, x.enabled, x.value])).toEqual([[b, 'B', true, authJson('B', 'shared')], [a, 'A', true, next]]);
+    expect((await svc.store.accounts('user:u1')).find((x) => x.id === mine)!.value).toBe(authJson('M', 'shared'));
+    expect(await rotation.saveRotated(a, 'shared', authJson('A3', 'rt-3'))).toBe(false); // re-saved since: compare-and-set
+    expect(await rotation.saveRotated('gone', 'shared', next)).toBe(false);
+    expect((await svc.store.accounts('instance')).find((x) => x.id === a)!.value).toBe(next);
+  });
+});

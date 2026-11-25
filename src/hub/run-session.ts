@@ -243,6 +243,8 @@ export function createRunSession(
         hasNext: () => rotation.hasNext(),
         cool: (id, until) => rotation.cool(id, until),
         refresh: (c) => rotation.refresh(c),
+        release: () => rotation.release(),
+        saveRotated: (id, original, json) => rotation.saveRotated(id, original, json),
         limited: async (id, until) => {
           const next = await rotation.limited(id, until);
           if (next !== undefined) {
@@ -279,6 +281,8 @@ export function createRunSession(
       }
     } finally {
       if (eventLog?.runId === runId) eventLog = null;
+      // The run's account leases end with it (success, error, cancel, refusal).
+      rotation?.release();
       // Unconditional: a throw above must not leave `active` set and wedge every queued run behind it.
       finishRun(runId);
       startNext();

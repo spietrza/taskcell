@@ -96,6 +96,8 @@ export interface RunCredential {
    * environment or a variable that is not a stored account. The name is shown in run records; never the value. */
   accountId?: string;
   accountName?: string;
+  /** Which provider the stored account is for (default claude); server-internal. */
+  accountProvider?: string;
 }
 
 /** Hub-only, in-process (never serialised): rotation across a provider's stored accounts for ONE run, in list order. */
@@ -109,6 +111,10 @@ export interface CredentialRotation {
   cool(accountId: string, until: Date): Promise<void>;
   /** Re-pick at dequeue: a queued run whose account has since cooled starts on the next one. */
   refresh(current: RunCredential): Promise<RunCredential>;
+  /** Drop every account lease this run holds (Codex: an account in use by a run is skipped by others). Idempotent. */
+  release(): void;
+  /** Save a refreshed `CODEX_AUTH_JSON` back to the stored account `accountId` only, if it still holds `originalRefreshToken`. False when nothing was written; never throws. */
+  saveRotated(accountId: string, originalRefreshToken: string, authJson: string): Promise<boolean>;
 }
 
 /** Result of the sidecar `createRun` method. */

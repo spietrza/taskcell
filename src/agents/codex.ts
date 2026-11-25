@@ -1,4 +1,4 @@
-import { AgentError } from '../core/errors.js';
+import { AgentError, isProviderLimitError, ProviderLimitError } from '../core/errors.js';
 import { redactForPublish } from '../core/secret-scan.js';
 import type { AgentProvider, AgentRunInput, AgentTurn, AgentRunOutput, AgentUsage } from './provider.js';
 import type { ExecOptions, ExecResult } from '../sandbox/provider.js';
@@ -8,6 +8,8 @@ import { parseCodexUtilization, recordUtilization } from '../core/usage-cap.js';
 interface CodexEvent {
   type?: string;
   thread_id?: string;
+  message?: unknown;
+  error?: { message?: unknown };
   item?: {
     type?: string;
     text?: string;
@@ -117,6 +119,8 @@ export class CodexProvider implements AgentProvider {
     let usage: AgentUsage | undefined;
     let sawTurnCompleted = false;
     let parsedAny = false;
+    // Codex's own error / turn.failed messages (never agent prose): with stderr, what a provider limit is recognised from.
+    const errorMessages: string[] = [];
 
     for (const line of res.stdout.split('\n')) {
       const trimmed = line.trim();
@@ -140,6 +144,9 @@ export class CodexProvider implements AgentProvider {
           finalText = text;
           yield sessionId !== undefined ? { text, sessionId } : { text };
         }
+      } else if (event.type === 'error' || event.type === 'turn.failed') {
+        const message = event.type === 'error' ? event.message : event.error?.message;
+        if (typeof message === 'string') errorMessages.push(message);
       } else if (event.type === 'turn.completed') {
         sawTurnCompleted = true;
         usage = toUsage(event.usage);
@@ -158,7 +165,9 @@ export class CodexProvider implements AgentProvider {
     if (!parsedAny || !sawTurnCompleted) {
       const reason = parsedAny ? 'exited without a result' : 'produced no parseable output';
       console.error(`codex ${reason} (exit ${res.exitCode})\n--- codex stdout ---\n${redactForPublish(res.stdout)}\n--- codex stderr ---\n${redactForPublish(res.stderr)}`);
-      throw new AgentError(`Agent ${reason} (exit ${res.exitCode}): ${detail()}`);
+      const message = `Agent ${reason} (exit ${res.exitCode}): ${detail()}`;
+      // A usage/rate limit is a structured limit: the hub rotates to the next account or parks the run.
+      throw isProviderLimitError([res.stderr, ...errorMessages].join('\n')) ? new ProviderLimitError(message) : new AgentError(message);
     }
 
     const output: AgentRunOutput = { finalText, turns, transcript: res.stdout, cachedInInput: true };
