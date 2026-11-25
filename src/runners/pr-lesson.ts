@@ -79,6 +79,8 @@ export async function fetchPrHistory(
     /** The App's slug: its lesson marker counts for dedupe only, its comments never become trusted input. */
     appSlug?: string | undefined;
     gh?: GhRunner;
+    /** Receives a swallowed App-dedupe REST failure (error or malformed response), so a duplicate lesson can be traced. */
+    log?: (line: string) => void;
   } = {},
 ): Promise<PrHistory> {
   const gh = opts.gh ?? defaultGhRunner;
@@ -110,7 +112,7 @@ export async function fetchPrHistory(
     hasLessonComment: comments.some((c) => hasMarker('lesson', c.body ?? '')),
   };
   // The REST call only matters when a lesson could be written: skip it for a clean PR.
-  if (!history.hasLessonComment && hasSomethingToLearn(history)) history.hasLessonComment = await hasAppLessonComment(gh, repo, number, opts.appSlug);
+  if (!history.hasLessonComment && hasSomethingToLearn(history)) history.hasLessonComment = await hasAppLessonComment(gh, repo, number, opts.appSlug, opts.log ?? console.warn);
   return history;
 }
 
@@ -118,18 +120,29 @@ export async function fetchPrHistory(
  * True when the App posted a lesson marker. `gh pr view` reports an App comment's author as the bare slug, which any
  * user can register, so read REST, where only the App itself is `user.type: Bot` with login `<slug>[bot]`.
  */
-async function hasAppLessonComment(gh: GhRunner, repo: string, number: number, appSlug: string | undefined): Promise<boolean> {
+async function hasAppLessonComment(
+  gh: GhRunner,
+  repo: string,
+  number: number,
+  appSlug: string | undefined,
+  log: (line: string) => void,
+): Promise<boolean> {
   const slug = appSlug?.trim().toLowerCase() ?? '';
   if (slug === '') return false;
   const botLogin = `${slug}[bot]`;
   type RestComment = { user?: { login?: string; type?: string } | null; body?: string | null };
+  // A transient or malformed REST response falls back to not-deduped rather than failing the step.
+  const notDeduped = (why: string): false => {
+    log(`lessons ${repo}#${number}: App lesson dedupe check ${why}, a duplicate lesson may be posted`);
+    return false;
+  };
   let pages: unknown;
   try {
     pages = JSON.parse(await gh(['api', '--paginate', '--slurp', `repos/${repo}/issues/${number}/comments?per_page=100`]));
-  } catch {
-    return false; // a transient REST error falls back to not-deduped rather than failing the step
+  } catch (err) {
+    return notDeduped(`failed (${String(err)})`);
   }
-  if (!Array.isArray(pages)) return false;
+  if (!Array.isArray(pages)) return notDeduped('got a non-array REST response');
   return pages
     .flatMap((page): RestComment[] => (Array.isArray(page) ? (page as RestComment[]) : []))
     .some((c) => c?.user?.type === 'Bot' && c.user.login?.toLowerCase() === botLogin && hasMarker('lesson', c.body ?? ''));

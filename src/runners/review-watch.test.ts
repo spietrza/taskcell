@@ -135,6 +135,15 @@ describe('reviewWatchLoop', () => {
     expect(tick?.failed).toEqual(['h#9']);
   });
 
+  it('logs the tick summary, counting paused items', async () => {
+    const logs: string[] = [];
+    const review = async (): Promise<void> => {
+      throw new UsageCapError('claude', 95, 90, new Date('2026-11-09T05:00:00Z'));
+    };
+    await reviewWatchLoop(quiet({ listReady: async () => [{ id: 1 }], review }), idOf, { once: true, phase: 'watch-x', log: (l) => logs.push(l) });
+    expect(logs).toContain('watch-x: 0 reviewed, 0 failed, 0 skipped, 1 paused.');
+  });
+
   it('continuous ticks leave no abort listener behind on the signal', async () => {
     const controller = new AbortController();
     const listeners: number[] = [];
