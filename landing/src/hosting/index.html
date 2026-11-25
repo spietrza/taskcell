@@ -3,8 +3,10 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Request a hosted factory · Taskcell</title>
-<meta name="description" content="Taskcell hosting is planned and not open yet. This page shows the request form and the planned plans; it sends nothing. Self-hosting works today.">
+<title data-planned>Request a hosted factory · Taskcell</title>
+<title data-live>Hosted factory · Taskcell</title>
+<meta name="description" data-planned content="Taskcell hosting is planned and not open yet. This page shows the request form and the planned plans; it sends nothing. Self-hosting works today.">
+<meta name="description" data-live content="Pick a hosted Taskcell plan and pay by card. Self-hosting works today.">
 <link rel="canonical" href="https://taskcell.dev/hosting/">
 <link rel="alternate" hreflang="en" href="https://taskcell.dev/hosting/">
 <link rel="alternate" hreflang="pl" href="https://taskcell.dev/pl/hosting/">
@@ -37,15 +39,19 @@
 
 <main id="main" class="request wrap">
   <div class="report sent" id="paid" role="status" tabindex="-1" hidden>
-    <p><b>Test payment received. No money moved.</b> This was a test checkout: hosting is not open yet, so no server was started.</p>
+    <p data-planned><b>Test payment received. No money moved.</b> This was a test checkout: hosting is not open yet, so no server was started.</p>
+    <p data-live><b>Payment received. Thank you.</b> Stripe emails your receipt. If anything looks wrong, write to <a href="mailto:support@taskcell.dev">support@taskcell.dev</a>.</p>
     <p id="paid-pass" hidden><a class="btn" href="/hosting/?plan=solo">Continue to Solo with the pass credited</a></p>
   </div>
-  <h1>Request a hosted factory</h1>
-  <p class="lede">Hosting is planned and not open yet. The form below is a placeholder: it shows what we will ask for, and it sends nothing. When you press the button, the page only tells you that requests are not open; your answers stay in this browser.</p>
-  <p>What works today: <a href="/#install">install Taskcell on your own machine</a> for free, or read the <a href="/#pricing">planned prices</a>.</p>
+  <h1><span data-planned>Request a hosted factory</span><span data-live>Hosted factory</span></h1>
+  <p class="lede" data-live>Hosting is open. Pick a plan on the <a href="/#pricing">pricing page</a> and pay by card.</p>
+  <p class="lede" data-planned>Hosting is planned and not open yet. The form below is a placeholder: it shows what we will ask for, and it sends nothing. When you press the button, the page only tells you that requests are not open; your answers stay in this browser.</p>
+  <p data-planned>What works today: <a href="/#install">install Taskcell on your own machine</a> for free, or read the <a href="/#pricing">planned prices</a>.</p>
 
-  <p id="request-nojs">The placeholder form needs JavaScript, so it is not shown. Nothing can be sent from this page.</p>
-  <form class="form" id="request" hidden>
+  <p>Questions? Write to <a href="mailto:support@taskcell.dev">support@taskcell.dev</a>.</p>
+
+  <p id="request-nojs" data-planned>The placeholder form needs JavaScript, so it is not shown. Nothing can be sent from this page.</p>
+  <form class="form" id="request" data-planned hidden>
     <label class="field">Email
       <input type="email" name="email" autocomplete="email" required>
     </label>
@@ -67,7 +73,7 @@
     <button class="btn" type="submit">Request hosting</button>
   </form>
 
-  <div class="report sent" id="sent" role="status" tabindex="-1" hidden>
+  <div class="report sent" id="sent" data-planned role="status" tabindex="-1" hidden>
     <p><b>Requests are not open yet. Nothing was sent.</b> Your answers stayed in this browser. Until hosting opens, these work:</p>
     <div class="links-row">
       <a href="/#install">Self-host instructions</a>

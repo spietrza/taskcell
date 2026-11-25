@@ -74,7 +74,14 @@ function isBlocking(body: string, state: string | undefined): boolean {
 export async function fetchPrHistory(
   repo: string,
   number: number,
-  opts: { allowedAuthors?: readonly string[]; gh?: GhRunner } = {},
+  opts: {
+    allowedAuthors?: readonly string[];
+    /** The App's slug: its lesson marker counts for dedupe only, its comments never become trusted input. */
+    appSlug?: string | undefined;
+    gh?: GhRunner;
+    /** Receives a swallowed App-dedupe REST failure (error or malformed response), so a duplicate lesson can be traced. */
+    log?: (line: string) => void;
+  } = {},
 ): Promise<PrHistory> {
   const gh = opts.gh ?? defaultGhRunner;
   const pr = JSON.parse(
@@ -88,7 +95,7 @@ export async function fetchPrHistory(
     ...reviews.filter((r) => (r.body ?? '').trim() !== '').map((r) => ({ url: pr.url, body: r.body ?? '' })),
     ...comments.filter((c) => (c.body ?? '').trim() !== '' && !hasMarker('lesson', c.body ?? '')).map((c) => ({ url: c.url ?? pr.url, body: c.body ?? '' })),
   ].slice(-NOTES_MAX);
-  return {
+  const history: PrHistory = {
     repo,
     number: pr.number,
     url: pr.url,
@@ -101,9 +108,44 @@ export async function fetchPrHistory(
     additions: pr.additions ?? 0,
     deletions: pr.deletions ?? 0,
     notes,
-    // Trusted authors only: a forged marker from anyone else must not suppress the lesson.
+    // Trusted authors and the App identity only: a forged marker from anyone else must not suppress the lesson.
     hasLessonComment: comments.some((c) => hasMarker('lesson', c.body ?? '')),
   };
+  // The REST call only matters when a lesson could be written: skip it for a clean PR.
+  if (!history.hasLessonComment && hasSomethingToLearn(history)) history.hasLessonComment = await hasAppLessonComment(gh, repo, number, opts.appSlug, opts.log ?? console.warn);
+  return history;
+}
+
+/**
+ * True when the App posted a lesson marker. `gh pr view` reports an App comment's author as the bare slug, which any
+ * user can register, so read REST, where only the App itself is `user.type: Bot` with login `<slug>[bot]`.
+ */
+async function hasAppLessonComment(
+  gh: GhRunner,
+  repo: string,
+  number: number,
+  appSlug: string | undefined,
+  log: (line: string) => void,
+): Promise<boolean> {
+  const slug = appSlug?.trim().toLowerCase() ?? '';
+  if (slug === '') return false;
+  const botLogin = `${slug}[bot]`;
+  type RestComment = { user?: { login?: string; type?: string } | null; body?: string | null };
+  // A transient or malformed REST response falls back to not-deduped rather than failing the step.
+  const notDeduped = (why: string): false => {
+    log(`lessons ${repo}#${number}: App lesson dedupe check ${why}, a duplicate lesson may be posted`);
+    return false;
+  };
+  let pages: unknown;
+  try {
+    pages = JSON.parse(await gh(['api', '--paginate', '--slurp', `repos/${repo}/issues/${number}/comments?per_page=100`]));
+  } catch (err) {
+    return notDeduped(`failed (${String(err)})`);
+  }
+  if (!Array.isArray(pages)) return notDeduped('got a non-array REST response');
+  return pages
+    .flatMap((page): RestComment[] => (Array.isArray(page) ? (page as RestComment[]) : []))
+    .some((c) => c?.user?.type === 'Bot' && c.user.login?.toLowerCase() === botLogin && hasMarker('lesson', c.body ?? ''));
 }
 
 interface GlabLessonMr {

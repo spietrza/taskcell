@@ -1,6 +1,7 @@
 // Slack answers: a reply in the thread of a posted question becomes its answer, over Socket Mode (outbound websocket,
 // no public endpoint). A mapped Slack user acts as that hub user with a NON-owner caller, through the same dispatchRpc
 // call the UI makes (visibility, write gate, audit). Server mode only. See docs/hub.md "Slack".
+import { setTimeout as sleep } from 'node:timers/promises';
 import type { Caller } from './teams.js';
 import { dispatchRpc, type RpcContext } from './rpc.js';
 import type { Actor } from './audit.js';
@@ -11,6 +12,7 @@ import { findSlackThread, slackEscape } from './slack.js';
 const MAX_ANSWER = 10_000;
 const MAX_SEEN = 1000;
 const TIMEOUT_MS = 15_000;
+const REPLY_TIMEOUT_MS = 120_000;
 const BACKOFF_START_MS = 1000;
 const BACKOFF_MAX_MS = 60_000;
 
@@ -29,7 +31,18 @@ export interface SlackAnswerConfig {
   WebSocketImpl?: typeof WebSocket;
   /** First reconnect delay (tests); doubles to 60 s. */
   backoffStartMs?: number;
+  /** Longest one reply may hold its thread's queue (tests); 120 s by default. */
+  replyTimeoutMs?: number;
 }
+
+/** A note for the channel never shows a server path. */
+const stripPaths = (s: string): string =>
+  s
+    .replace(/file:\/\/[^\s'"`]*/gi, '[path]')
+    .replace(/\\\\[^\s'"`]+/g, '[path]')
+    .replace(/\b[A-Za-z]:[\\/][^\s'"`]*/g, '[path]')
+    // A POSIX path, one segment or more; a space belongs to it only when a `/` follows the next word (`/Users/John Smith/repo`).
+    .replace(/(?<![\w/:])\/[^\s'"`/]+(?:\/[^\s'"`/]+| [^\s'"`/]+(?=\/))*\/?[^\s'"`]*/g, '[path]');
 
 export function parseSlackUsers(raw: string | undefined): Map<string, string> {
   const map = new Map<string, string>();
@@ -61,7 +74,8 @@ export function startSlackAnswers(cfg: SlackAnswerConfig): { close(): void } {
   const users = parseSlackUsers(cfg.users);
   const seen = new Set<string>();
   let stopped = false;
-  let chain: Promise<void> = Promise.resolve(); // one reply at a time: the next sees the previous answer
+  const chains = new Map<string, Promise<void>>(); // per thread, one reply at a time (the next sees the previous answer, unless that one timed out)
+  const replyTimeout = cfg.replyTimeoutMs ?? REPLY_TIMEOUT_MS;
   let ws: WebSocket | undefined;
   let timer: NodeJS.Timeout | undefined;
   const start = cfg.backoffStartMs ?? BACKOFF_START_MS;
@@ -80,7 +94,7 @@ export function startSlackAnswers(cfg: SlackAnswerConfig): { close(): void } {
     await api('chat.postMessage', cfg.botToken, { channel, thread_ts: threadTs, text: slackEscape(text), mrkdwn: false, link_names: false, unfurl_links: false, unfurl_media: false }).catch(() => undefined);
   };
 
-  const handle = async (ev: SlackEvent): Promise<void> => {
+  const handle = async (ev: SlackEvent, abandoned: AbortSignal): Promise<void> => {
     if (ev.type !== 'message' || ev.subtype !== undefined || ev.bot_id !== undefined) return;
     if (ev.channel !== cfg.channel || typeof ev.thread_ts !== 'string' || typeof ev.text !== 'string') return;
     const text = ev.text.trim().slice(0, MAX_ANSWER);
@@ -97,12 +111,14 @@ export function startSlackAnswers(cfg: SlackAnswerConfig): { close(): void } {
     // Never an owner, whatever the mapping or the user's stored flag: the answer runs with the user's own reach.
     const user = caller.user;
     const actor: Actor = { login: user.email, admin: false, id: user.id, name: user.name };
+    // A reply that timed out while it looked things up is not posted afterwards.
+    if (abandoned.aborted) return;
     try {
       await dispatchRpc({ ...cfg.ctx, user, actor }, 'reply_needs_you', { repoPath, id, kind, body: text }, { ...caller, owner: false });
     } catch (e) {
       // Only a caller-correctable refusal (bad request, forbidden) shows the hub's words; an internal fault stays in the hub.
       const { kind: errKind, message } = classifyError(e);
-      await note(cfg.channel, ev.thread_ts, errKind === 'bad-request' ? redactForPublish(message) : 'the hub could not take this answer');
+      await note(cfg.channel, ev.thread_ts, errKind === 'bad-request' ? stripPaths(redactForPublish(message)) : 'the hub could not take this answer');
     }
   };
 
@@ -124,7 +140,19 @@ export function startSlackAnswers(cfg: SlackAnswerConfig): { close(): void } {
         if (seen.size > MAX_SEEN) seen.delete(seen.values().next().value as string);
       }
       const event = env.payload.event;
-      chain = chain.then(() => handle(event)).catch(() => undefined);
+      const key = typeof event.thread_ts === 'string' ? event.thread_ts : '';
+      // A hung reply holds only its own thread, and only until the timeout (a timed-out reply not yet dispatched is dropped; one already running cannot be cancelled).
+      const run = async (): Promise<void> => {
+        const ac = new AbortController();
+        const timedOut = new AbortController();
+        const limit = sleep(replyTimeout, undefined, { signal: ac.signal, ref: false }).then(() => timedOut.abort(), () => undefined);
+        await Promise.race([handle(event, timedOut.signal), limit]).finally(() => ac.abort());
+      };
+      const next = (chains.get(key) ?? Promise.resolve()).then(run).catch(() => undefined);
+      chains.set(key, next);
+      void next.then(() => {
+        if (chains.get(key) === next) chains.delete(key);
+      });
     }
   };
 

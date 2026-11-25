@@ -128,38 +128,54 @@ let running = false;
  * Returns the number of pushes sent.
  */
 export async function notifyNewItems(deps: NotifierDeps): Promise<number> {
-  if (running) return 0;
+  const { sent, items } = await pushPass(deps);
+  // Slack posts after the push lock is released: a slow Slack never delays the next push pass.
+  if (deps.slack !== undefined && items !== undefined) await postQuestions(deps.configDir, items, deps.slack);
+  return sent;
+}
+
+async function pushPass(deps: NotifierDeps): Promise<{ sent: number; items?: WaitingItem[] }> {
+  if (running) return { sent: 0 };
   running = true;
   try {
     const regs = await loadPushTokens(deps.configDir);
-    if (regs.length === 0 && deps.slack === undefined) return 0;
+    if (regs.length === 0 && deps.slack === undefined) return { sent: 0 };
     const items = await deps.listWaiting();
-    if (deps.slack !== undefined) await postQuestions(deps.configDir, items, deps.slack);
-    if (regs.length === 0) return 0;
-    const stored = await readJson(notifiedFile(deps.configDir));
-    const seen: string[] = Array.isArray(stored) ? stored.filter((k): k is string => typeof k === 'string') : [];
-    const known = new Set(seen);
-    const fresh = items.filter((i) => !known.has(itemKey(i)));
-    if (fresh.length === 0 && stored !== undefined) return 0;
-    await writeJson(notifiedFile(deps.configDir), [...seen, ...fresh.map(itemKey)].slice(-MAX_NOTIFIED));
-    if (stored === undefined) return 0;
-
-    const visible = new Map<string, RepoVisibility | undefined>();
-    const messages: Record<string, unknown>[] = [];
-    for (const reg of regs) {
-      if (!visible.has(reg.userId)) {
-        const caller = await deps.callerOf(reg);
-        visible.set(reg.userId, caller === undefined ? undefined : await repoVisibility(deps.configDir, caller));
-      }
-      const mine = visible.get(reg.userId);
-      for (const item of fresh) {
-        if (mine !== undefined && (await mine.hasResolved(item.repoPath ?? ''))) messages.push(pushMessage(reg.token, item));
-      }
+    let sent = 0;
+    try {
+      sent = regs.length === 0 ? 0 : await pushTo(deps, regs, items);
+    } catch (e) {
+      // A failed push pass must not skip the Slack post for these items.
+      console.error(`taskcell-hub: push: pass failed (${e instanceof Error ? e.name : 'error'})`);
     }
-    return await send(deps, messages);
+    return { sent, items };
   } finally {
     running = false;
   }
+}
+
+async function pushTo(deps: NotifierDeps, regs: PushRegistration[], items: WaitingItem[]): Promise<number> {
+  const stored = await readJson(notifiedFile(deps.configDir));
+  const seen: string[] = Array.isArray(stored) ? stored.filter((k): k is string => typeof k === 'string') : [];
+  const known = new Set(seen);
+  const fresh = items.filter((i) => !known.has(itemKey(i)));
+  if (fresh.length === 0 && stored !== undefined) return 0;
+  await writeJson(notifiedFile(deps.configDir), [...seen, ...fresh.map(itemKey)].slice(-MAX_NOTIFIED));
+  if (stored === undefined) return 0;
+
+  const visible = new Map<string, RepoVisibility | undefined>();
+  const messages: Record<string, unknown>[] = [];
+  for (const reg of regs) {
+    if (!visible.has(reg.userId)) {
+      const caller = await deps.callerOf(reg);
+      visible.set(reg.userId, caller === undefined ? undefined : await repoVisibility(deps.configDir, caller));
+    }
+    const mine = visible.get(reg.userId);
+    for (const item of fresh) {
+      if (mine !== undefined && (await mine.hasResolved(item.repoPath ?? ''))) messages.push(pushMessage(reg.token, item));
+    }
+  }
+  return await send(deps, messages);
 }
 
 async function send(deps: NotifierDeps, messages: Record<string, unknown>[]): Promise<number> {

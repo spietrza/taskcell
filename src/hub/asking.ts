@@ -92,17 +92,27 @@ interface GithubRead {
   at: number;
   /** GitHub's needs-info issues and PRs. */
   items: Promise<NeedsYouItem[]>;
-  /** Last comments fetched for Home's lists, kept per item for the life of this read. */
+  /** Last comments fetched for Home's lists, kept per item; carried from a short read to the next one, an item whose `updatedAt` changed is dropped from it. */
   comments: CommentMemo;
+  /** The `updatedAt` each memoized comment was fetched for. */
+  stamps: Map<string, string | undefined>;
   /** The read failed: kept (as a failure) for FAILED_TTL_MS only. */
   failed?: true;
+  /** The first read after a drop: kept for AFTER_DROP_TTL_MS only. */
+  short?: true;
   /** The `gh issue view` answers of this read's cards, shared until it expires. */
   views: Map<string, Promise<string>>;
 }
 /** How long a failed read is kept: long enough that a rate-limited poll does not retry every few seconds. */
 const FAILED_TTL_MS = 15_000;
+/** How long the first read after a drop (Merge, Reply, a card change) is kept: a stale search answer read right after it must not stick for NEEDS_YOU_TTL_MS. */
+const AFTER_DROP_TTL_MS = 3_000;
+/** How long last-good items are served while GitHub cannot be read; older ones are dropped, not shown as current. */
+const LAST_GOOD_MAX_AGE_MS = 10 * 60_000;
 const githubCache = new Map<string, GithubRead>();
-const lastGood = new Map<string, NeedsYouItem[]>();
+const lastGood = new Map<string, { at: number; items: NeedsYouItem[] }>();
+/** Repositories whose read was dropped and not yet re-read, and when; an entry no read came for is forgotten after LAST_GOOD_MAX_AGE_MS. */
+const dropped = new Map<string, number>();
 
 /**
  * What waits on the person in one repository, shared by the board (`list_tasks`) and Home (`list_needs_you`).
@@ -117,30 +127,40 @@ export async function cachedNeedsYou(
   gh?: GhRunner,
   /** Home's lists pass the comment-fetch budget (shared across repositories); the board passes none and gets no comments. */
   commentBudget?: { remaining: number },
+  /** False for a caller that only needs GitHub's issues and PRs (a membership check): the run-record cards are not read. */
+  withCards = true,
 ): Promise<NeedsYouRead> {
   const repoSlug = await githubSlug(repoPath);
   const held = githubCache.get(repoPath);
-  const entry: GithubRead = held !== undefined && Date.now() - held.at < (held.failed ? FAILED_TTL_MS : NEEDS_YOU_TTL_MS)
+  const carried = held?.short && !held.failed ? held : undefined;
+  const entry: GithubRead = held !== undefined && Date.now() - held.at < (held.failed ? FAILED_TTL_MS : held.short ? AFTER_DROP_TTL_MS : NEEDS_YOU_TTL_MS)
     ? held
     : {
       at: Date.now(),
+      ...(takeDropped(repoPath) ? { short: true as const } : {}),
       items: repoSlug === undefined ? Promise.resolve([]) : listNeedsYou(repoSlug, gh, { commentBudget: { remaining: 0 } }),
-      comments: new Map(),
+      // The short read after a drop hands its comments on, so they are fetched once, not once more when it expires.
+      comments: carried?.comments ?? new Map(),
+      stamps: carried?.stamps ?? new Map(),
       views: new Map(),
     };
   githubCache.set(repoPath, entry);
   let unchecked = false;
-  const github = await entry.items.then(
-    (items) => {
-      if (githubCache.get(repoPath) === entry) lastGood.set(repoPath, items);
-      return items;
-    },
-    () => {
-      unchecked = true;
-      entry.failed = true;
-      return lastGood.get(repoPath) ?? [];
-    },
-  );
+  const github = await entry.items.catch(() => {
+    unchecked = true;
+    entry.failed = true;
+    const good = lastGood.get(repoPath);
+    if (good !== undefined && Date.now() - good.at >= LAST_GOOD_MAX_AGE_MS) lastGood.delete(repoPath);
+    return lastGood.get(repoPath)?.items ?? [];
+  });
+  // A comment is kept only for the item version it was fetched for; an item without `updatedAt` cannot tell, so it is fetched again.
+  for (const id of [...entry.comments.keys()]) {
+    const item = github.find((i) => i.id === id);
+    if (item === undefined || item.updatedAt === undefined || entry.stamps.get(id) !== item.updatedAt) {
+      entry.comments.delete(id);
+      entry.stamps.delete(id);
+    }
+  }
   const run = gh ?? defaultGhRunner;
   const memo: GhRunner = (args) => {
     const key = args.join('\0');
@@ -151,15 +171,40 @@ export async function cachedNeedsYou(
     read.catch(() => entry.views.delete(key));
     return read;
   };
-  const target = await answerTarget(repoPath, repoSlug, memo);
-  const waiting = commentBudget !== undefined && repoSlug !== undefined ? await withLastComments(repoSlug, github, run, entry.comments, commentBudget) : github;
-  return { items: [...waiting, ...(await askingCards(configDir, repoPath, target))], ...(unchecked ? { unchecked: true as const } : {}) };
+  const target = withCards ? await answerTarget(repoPath, repoSlug, memo) : undefined;
+  // While GitHub cannot be read, no per-item comment fetches (each would fail too): the last good items keep their comments.
+  const waiting = commentBudget !== undefined && repoSlug !== undefined && !unchecked ? await withLastComments(repoSlug, github, run, entry.comments, commentBudget) : github;
+  for (const i of github) if (entry.comments.has(i.id) && !entry.stamps.has(i.id)) entry.stamps.set(i.id, i.updatedAt);
+  if (!unchecked && githubCache.get(repoPath) === entry) {
+    // The board reads fetch no comments: keep those an earlier read of the same (unchanged) item had.
+    const before = new Map(lastGood.get(repoPath)?.items.map((i) => [i.id, i]));
+    lastGood.set(repoPath, {
+      at: Date.now(),
+      items: waiting.map((i) => {
+        const old = before.get(i.id);
+        return i.lastComment !== undefined || old?.lastComment === undefined || i.updatedAt === undefined || old.updatedAt !== i.updatedAt
+          ? i
+          : { ...i, lastComment: old.lastComment, ...(old.ask !== undefined ? { ask: old.ask } : {}) };
+      }),
+    });
+  }
+  return { items: [...waiting, ...(withCards ? await askingCards(configDir, repoPath, target) : [])], ...(unchecked ? { unchecked: true as const } : {}) };
 }
 
 /** Drop a repository's kept read of what waits: something was answered, merged or moved on. */
 export function forgetBoardWaiting(repoPath: string): void {
   githubCache.delete(repoPath);
   lastGood.delete(repoPath);
+  const now = Date.now();
+  for (const [path, at] of dropped) if (now - at >= LAST_GOOD_MAX_AGE_MS) dropped.delete(path);
+  dropped.set(repoPath, now);
+}
+
+/** Whether `repoPath` was dropped and not re-read since (and recently enough to matter); clears the mark. */
+function takeDropped(repoPath: string): boolean {
+  const at = dropped.get(repoPath);
+  dropped.delete(repoPath);
+  return at !== undefined && Date.now() - at < LAST_GOOD_MAX_AGE_MS;
 }
 
 /**

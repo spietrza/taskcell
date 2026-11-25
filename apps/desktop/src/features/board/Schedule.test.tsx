@@ -9,7 +9,6 @@ vi.mock('../../ipc', () => ({
   hubTaskCreate: vi.fn().mockResolvedValue({ id: 'hub-3' }),
   callerCapabilities: vi.fn(async () => ({})),
   apiCapabilitiesCached: vi.fn(async () => ({ flows: [{ name: 'plan', label: 'Plan' }] })),
-  apiListFlows: vi.fn(async () => ({ flows: [] })),
 }));
 import { hubTaskCreate, hubTaskRetry, hubTaskSchedule } from '../../ipc';
 import { stubHubCalls } from '../../testHub';

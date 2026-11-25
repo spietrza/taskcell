@@ -41,7 +41,17 @@ function Activity({ detail, steps = withGateSteps(stagesFromRecords(detail.stage
 }
 
 /** `prLink` off when the surrounding header already links the PR (the Runs split view); `steps` = the caller's own stage line (with the event log's timings). */
-export function RunDetail({ detail, project, prLink = true, steps, flow }: { detail: RunDetailT; project: string; prLink?: boolean; steps?: PaneStage[]; flow?: string | undefined }) {
+/** The "Flow <name>" line of a run; nothing without a flow. `unavailable`: its event log could not be read. */
+export function FlowLine({ flow, unavailable }: { flow?: string | undefined; unavailable?: boolean }) {
+  if (flow === undefined && unavailable) return <div className="text-sm text-muted-foreground">Flow unavailable (the run's events could not be read)</div>;
+  return flow === undefined ? null : (
+    <div className="text-sm text-muted-foreground">
+      Flow <code className="rounded bg-muted px-1 py-0.5">{flow}</code>
+    </div>
+  );
+}
+
+export function RunDetail({ detail, project, prLink = true, steps, flow, flowUnavailable }: { detail: RunDetailT; project: string; prLink?: boolean; steps?: PaneStage[]; flow?: string | undefined; flowUnavailable?: boolean }) {
   const [tab, setTab] = useState('activity');
   const baseBranch = detail.stages.find((s) => s.record.baseBranch !== undefined)?.record.baseBranch;
   const configPaths = detail.stages.find((s) => s.record.configPaths !== undefined)?.record.configPaths;
@@ -71,11 +81,7 @@ export function RunDetail({ detail, project, prLink = true, steps, flow }: { det
             Target branch <code className="rounded bg-muted px-1 py-0.5">{baseBranch}</code>
           </div>
         )}
-        {flow !== undefined && (
-          <div className="text-sm text-muted-foreground">
-            Flow <code className="rounded bg-muted px-1 py-0.5">{flow}</code>
-          </div>
-        )}
+        <FlowLine flow={flow} unavailable={flowUnavailable} />
         {configPaths !== undefined && configPaths.length > 0 && (
           <div role="note" className="text-sm text-warning-text" title="This run changed a file your test commands come from. Check it before merging.">
             Gate config changed: <code className="rounded bg-muted px-1 py-0.5">{configPaths.join(', ')}</code>

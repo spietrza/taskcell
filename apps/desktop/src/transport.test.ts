@@ -1,5 +1,5 @@
 import { test, expect, afterEach, vi } from 'vitest';
-import { hub, subscribe, onHubRestart, onHubConnectionIssue, captureHubToken, watchHubToken } from './transport';
+import { hub, subscribe, onHubRestart, onHubConnectionIssue, onHubConnectionRecovered, captureHubToken, watchHubToken, STREAM_EVENTS, type HubEventsListed } from './transport';
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 const invoke = (cmd: string, args?: Record<string, unknown>): Promise<any> => hub().call(cmd as 'list_runs', args as never);
@@ -635,4 +635,46 @@ test("a proxy's non-JSON 401 on the events-session request is a connection issue
   unlistenSub();
   unlistenIssue();
   unlistenRestart();
+});
+
+test('the connection-recovered signal fires once the stream re-opens after a connection issue', async () => {
+  window.__TASKCELL_HUB__ = true;
+  vi.stubGlobal('EventSource', FakeEventSource);
+  let sessions = 0;
+  vi.stubGlobal('fetch', vi.fn(async () => (++sessions === 1 ? new Response('{}', { status: 502 }) : new Response('{}', { status: 200 }))));
+  const issues: number[] = [];
+  const recovered: number[] = [];
+  const unlistenIssue = await onHubConnectionIssue(() => issues.push(1));
+  const unlistenRecovered = await onHubConnectionRecovered(() => recovered.push(1));
+  const unlistenSub = await subscribe('api:event', () => {});
+  for (let i = 0; i < 10 && issues.length === 0; i++) await new Promise((r) => setTimeout(r, 0));
+  expect(issues).toEqual([1]);
+  expect(recovered).toEqual([]);
+  await vi.waitFor(() => expect(FakeEventSource.instances).toHaveLength(1), { timeout: 3000 }); // the session's backoff retry (1 s)
+  const es = FakeEventSource.instances[0]!;
+  es.emit('open', {});
+  expect(recovered).toEqual([1]);
+  unlistenSub();
+  unlistenRecovered();
+  unlistenIssue();
+});
+
+test('every hub event name is registered on the EventSource', async () => {
+  const listed: HubEventsListed = true; // typecheck: fails when a key of the hub `Events` is missing from STREAM_EVENTS
+  expect(listed).toBe(true);
+  window.__TASKCELL_HUB__ = true;
+  vi.stubGlobal('EventSource', FakeEventSource);
+  vi.stubGlobal('fetch', vi.fn(async () => new Response('{}', { status: 200 })));
+  const unlistenSub = await subscribe('api:event', () => {});
+  const es = await sourceOpened();
+  for (const name of STREAM_EVENTS) expect(es.listeners.has(name)).toBe(true);
+  unlistenSub();
+});
+
+test('a fixture error reaches the caller as the bare message, as a hub error does', async () => {
+  window.__TASKCELL_MOCK__ = true;
+  const backend = await import('./dev/mockBackend');
+  vi.spyOn(backend, 'handle').mockRejectedValueOnce(new Error('boom'));
+  await expect(invoke('list_active')).rejects.toBe('boom');
+  vi.restoreAllMocks();
 });

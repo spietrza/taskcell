@@ -22,12 +22,15 @@ export const METRICS_FILE = 'metrics.jsonl';
 export interface MetricsBranchOptions {
   branch?: string;
   remote?: string;
+  /** Aborting kills the `git fetch` child (a fetch still queued for the tip lock never starts). */
+  signal?: AbortSignal;
 }
 
 export interface BranchFileOptions {
   branch?: string;
   remote?: string;
   file?: string;
+  signal?: AbortSignal;
 }
 
 export interface PushMetricsResult {
@@ -38,8 +41,66 @@ export interface PushMetricsResult {
   total: number;
 }
 
-const git = (cwd: string, args: string[]): Promise<string> =>
-  execa('git', args, { cwd }).then((r) => r.stdout);
+/** Signal a detached child's whole process group (its transport helpers too); the child alone where groups do not exist. */
+function signalGroup(pid: number, sig: NodeJS.Signals): void {
+  try {
+    process.kill(process.platform === 'win32' ? pid : -pid, sig);
+  } catch {
+    // already gone
+  }
+}
+
+const KILL_GRACE_MS = 2000;
+/** Detached children still running, and killed ones inside their grace: a process exit sends them SIGKILL (an `unref`'d timer would never fire then). */
+const liveGroups = new Set<number>();
+const killing = new Set<number>();
+let exitHooked = false;
+function trackGroup(pid: number): void {
+  liveGroups.add(pid);
+  if (exitHooked) return;
+  exitHooked = true;
+  process.once('exit', () => [...liveGroups, ...killing].forEach((p) => signalGroup(p, 'SIGKILL')));
+}
+
+/** SIGTERM first so git can remove its lockfiles; SIGKILL after a grace period for what ignores it. */
+function killGroup(pid: number | undefined): void {
+  if (pid === undefined) return;
+  signalGroup(pid, 'SIGTERM');
+  killing.add(pid);
+  setTimeout(() => {
+    killing.delete(pid);
+    signalGroup(pid, 'SIGKILL');
+  }, KILL_GRACE_MS).unref();
+}
+
+/**
+ * Run git. With a signal, aborting settles the call at once and kills git's whole process group: killing
+ * only `git fetch` leaves `git remote-http` alive holding the stderr pipe, so the child never settles
+ * (and the tip lock its caller holds is never released).
+ */
+function git(cwd: string, args: string[], signal?: AbortSignal): Promise<string> {
+  if (signal === undefined) return execa('git', args, { cwd }).then((r) => r.stdout);
+  signal.throwIfAborted();
+  const child = execa('git', args, {
+    cwd,
+    detached: process.platform !== 'win32',
+    // Never wait on a credential prompt nobody can answer.
+    env: { GIT_TERMINAL_PROMPT: '0' },
+  });
+  const pid = child.pid;
+  if (pid !== undefined) trackGroup(pid);
+  return new Promise<string>((resolve, reject) => {
+    const onAbort = (): void => {
+      killGroup(child.pid);
+      reject(signal.reason);
+    };
+    signal.addEventListener('abort', onAbort, { once: true });
+    child.then((r) => resolve(r.stdout), reject).finally(() => {
+      signal.removeEventListener('abort', onAbort);
+      if (pid !== undefined) liveGroups.delete(pid);
+    });
+  });
+}
 
 /** The named ref a branch's tip is fetched into: unlike FETCH_HEAD, a concurrent fetch of another branch cannot overwrite it. */
 export const tipRef = (remote: string, branch: string): string => `refs/taskcell/tips/${remote}/${branch}`;
@@ -63,20 +124,25 @@ export function tipLockKey(cwd: string, remote: string, branch: string): string 
 const isLockError = (err: unknown): boolean => /cannot lock ref/i.test(String((err as { stderr?: unknown }).stderr ?? ''));
 
 /** The branch tip's commit sha, or undefined when the remote has no such branch yet. */
-function fetchTip(cwd: string, remote: string, branch: string): Promise<string | undefined> {
+function fetchTip(cwd: string, remote: string, branch: string, signal?: AbortSignal): Promise<string | undefined> {
   return tipLock(tipLockKey(cwd, remote, branch), async () => {
+    // Aborted while queued: do not start a fetch nobody waits for.
+    signal?.throwIfAborted();
     const ref = tipRef(remote, branch);
-    const fetch = (): Promise<string> => git(cwd, ['fetch', '--quiet', remote, `+refs/heads/${branch}:${ref}`]);
+    const fetch = (): Promise<string> => git(cwd, ['fetch', '--quiet', remote, `+refs/heads/${branch}:${ref}`], signal);
     const revParse = (args: string[]): Promise<string | undefined> => git(cwd, ['rev-parse', ...args, ref]).catch(() => undefined);
     try {
       await fetch();
     } catch (err) {
+      // A killed fetch is a failure, not "no such branch".
+      if (signal?.aborted) throw err;
       if (!isLockError(err)) return undefined;
       // Another process (a CLI run beside the hub) fetching the same ref: retry once rather than read as empty.
       await new Promise((r) => setTimeout(r, TIP_LOCK_RETRY_MS));
       try {
         await fetch();
       } catch (again) {
+        if (signal?.aborted) throw again;
         if (!isLockError(again)) return undefined;
         // Still locked: read the tip ref as it stands (possibly behind) rather than report the branch absent.
         // With no tip ref yet the lock failure propagates: it is not "no such branch".
@@ -92,10 +158,10 @@ function fetchTip(cwd: string, remote: string, branch: string): Promise<string |
  * readers keep seeing the old history, and the first append starts the new branch on top of it. An
  * explicit `--branch` never falls back.
  */
-async function fetchTipWithLegacy(cwd: string, remote: string, branch: string | undefined): Promise<string | undefined> {
-  const tip = await fetchTip(cwd, remote, branch ?? METRICS_BRANCH_DEFAULT);
+async function fetchTipWithLegacy(cwd: string, remote: string, branch: string | undefined, signal?: AbortSignal): Promise<string | undefined> {
+  const tip = await fetchTip(cwd, remote, branch ?? METRICS_BRANCH_DEFAULT, signal);
   if (tip !== undefined || branch !== undefined) return tip;
-  return fetchTip(cwd, remote, METRICS_BRANCH_LEGACY);
+  return fetchTip(cwd, remote, METRICS_BRANCH_LEGACY, signal);
 }
 
 async function fileAtName(cwd: string, commit: string | undefined, file: string): Promise<string> {
@@ -111,7 +177,7 @@ async function fileAtName(cwd: string, commit: string | undefined, file: string)
 export async function readBranchFile(repoPath: string, opts: BranchFileOptions = {}): Promise<string> {
   const remote = opts.remote ?? 'origin';
   const file = opts.file ?? METRICS_FILE;
-  return fileAtName(repoPath, await fetchTipWithLegacy(repoPath, remote, opts.branch), file);
+  return fileAtName(repoPath, await fetchTipWithLegacy(repoPath, remote, opts.branch, opts.signal), file);
 }
 
 /** The metrics file as currently on the branch ('' when the branch does not exist). */

@@ -1,6 +1,7 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { mkdtemp, rm, mkdir, writeFile, symlink } from 'node:fs/promises';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+import { mkdtemp, rm, mkdir, writeFile, symlink, readFile, chmod } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
+import { createServer, type Socket } from 'node:net';
 import { join } from 'node:path';
 import { execa } from 'execa';
 import { pushMetrics, readBranchMetrics, appendBranchLines, readBranchFile, tipLockKey, METRICS_BRANCH_DEFAULT, METRICS_BRANCH_LEGACY } from './metrics-branch.js';
@@ -41,6 +42,7 @@ beforeEach(async () => {
 });
 
 afterEach(async () => {
+  vi.unstubAllEnvs();
   await rm(root, { recursive: true, force: true });
 });
 
@@ -226,4 +228,68 @@ describe('tip fetch', () => {
       for (const text of texts) expect(text).toContain(`{"id":${n}}`);
     }
   });
+});
+
+describe('aborted tip fetch', () => {
+  it('settles at once, kills the transport helper and frees the tip lock, against a remote that never answers', async () => {
+    await appendBranchLines(repo, ['{"id":0}'], { file: 'decisions.jsonl' });
+    vi.stubEnv('no_proxy', '127.0.0.1');
+    vi.stubEnv('NO_PROXY', '127.0.0.1');
+    // Accepts the connection and never answers: `git fetch` hangs in its `git remote-http` helper.
+    const sockets: Socket[] = [];
+    const server = createServer((s) => sockets.push(s.resume()));
+    await new Promise<void>((r) => server.listen(0, '127.0.0.1', r));
+    const { port } = server.address() as { port: number };
+    try {
+      await execa('git', ['-C', repo, 'remote', 'set-url', 'origin', `http://127.0.0.1:${port}/r.git`]);
+      const controller = new AbortController();
+      const read = readBranchFile(repo, { file: 'decisions.jsonl', signal: controller.signal });
+      for (let i = 0; sockets.length === 0; i++) {
+        if (i > 250) throw new Error('git never connected to the test server');
+        await new Promise((r) => setTimeout(r, 20));
+      }
+      const closed = new Promise((r) => sockets[0]?.once('close', r));
+      const t = Date.now();
+      controller.abort(new Error('timed out'));
+      await expect(read).rejects.toThrow('timed out');
+      expect(Date.now() - t).toBeLessThan(1000);
+      // The helper holding the connection died with git's process group.
+      await closed;
+      // The tip lock is free: a read of the same tip runs (and reads the real remote) instead of queueing forever.
+      await execa('git', ['-C', repo, 'remote', 'set-url', 'origin', origin]);
+      const next = readBranchFile(repo, { file: 'decisions.jsonl' });
+      const stuck = new Promise<string>((r) => setTimeout(() => r('lock still held'), 3000));
+      expect((await Promise.race([next, stuck])).trim()).toBe('{"id":0}');
+    } finally {
+      for (const s of sockets) s.destroy();
+      await new Promise((r) => server.close(r));
+    }
+  });
+
+  it('sends SIGKILL to a fetch group that ignores SIGTERM, after the grace period', async () => {
+    await appendBranchLines(repo, ['{"id":0}'], { file: 'decisions.jsonl' });
+    const { stdout: realGit } = await execa('which', ['git']);
+    // A `git` that ignores SIGTERM (as do its children) when it is asked to fetch, the real one otherwise.
+    const bin = join(root, 'bin');
+    await mkdir(bin);
+    const pidFile = join(root, 'fake-git.pid');
+    await writeFile(join(bin, 'git'), `#!/bin/sh\nif [ "$3" != fetch ] && [ "$1" != fetch ]; then exec ${realGit} "$@"; fi\ntrap '' TERM\necho $$ > ${pidFile}\nwhile :; do sleep 1; done\n`);
+    await chmod(join(bin, 'git'), 0o755);
+    vi.stubEnv('PATH', `${bin}:${process.env.PATH ?? ''}`);
+    const controller = new AbortController();
+    const read = readBranchFile(repo, { file: 'decisions.jsonl', signal: controller.signal });
+    for (let i = 0; ; i++) {
+      if (await readFile(pidFile, 'utf8').then((t) => t.trim() !== '', () => false)) break;
+      if (i > 250) throw new Error('the fake git never started');
+      await new Promise((r) => setTimeout(r, 20));
+    }
+    const pid = Number((await readFile(pidFile, 'utf8')).trim());
+    controller.abort(new Error('timed out'));
+    await expect(read).rejects.toThrow('timed out');
+    // SIGTERM is ignored: the group is still there inside the grace period, gone after it.
+    await new Promise((r) => setTimeout(r, 500));
+    expect(() => process.kill(pid, 0)).not.toThrow();
+    await new Promise((r) => setTimeout(r, 2200));
+    expect(() => process.kill(pid, 0)).toThrow();
+  }, 15_000);
 });

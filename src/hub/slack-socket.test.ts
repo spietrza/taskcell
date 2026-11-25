@@ -232,3 +232,87 @@ describe('app token', () => {
     expect(JSON.stringify(createCredentialService(configDir, [], 'secret').childEnv())).not.toContain('xapp-secret');
   });
 });
+
+describe('slack answers: isolation and redaction', () => {
+  test('a hung reply does not block a reply in another thread', async () => {
+    dispatch.mockImplementation(async (_c: unknown, _m: string, a: { id: string }) => (a.id === 'hub-1' ? new Promise(() => undefined) : null));
+    const h = start();
+    await tick();
+    FakeWS.all[0]!.push(ev({}, 'A'));
+    FakeWS.all[0]!.push(ev({ thread_ts: '5.6' }, 'B'));
+    await tick();
+    expect(dispatch.mock.calls.map((c) => c[2].id).sort()).toEqual(['hub-1', 'hub-2']);
+    h.close();
+  });
+
+  test('a hung reply releases its own thread after the timeout', async () => {
+    dispatch.mockImplementationOnce(() => new Promise(() => undefined));
+    const h = start({ replyTimeoutMs: 20 });
+    await tick();
+    FakeWS.all[0]!.push(ev({}, 'A'));
+    FakeWS.all[0]!.push(ev({ text: 'again' }, 'B'));
+    await tick(80);
+    expect(dispatch).toHaveBeenCalledTimes(2);
+    h.close();
+  });
+
+  test('stripPaths covers single-segment, file://, drive, UNC and spaced paths', async () => {
+    dispatch.mockRejectedValue(new BadRequestError('a /workspace b file:///etc/x c C:/srv/r d \\\\host\\share\\f e /Users/John Smith/repo f'));
+    const h = start();
+    await tick();
+    FakeWS.all[0]!.push(ev());
+    await tick();
+    expect(notes()).toEqual(['a [path] b [path] c [path] d [path] e [path] f']);
+    h.close();
+  });
+
+  test('a reply that timed out while its caller was looked up is not dispatched afterwards', async () => {
+    let release: () => void = () => undefined;
+    const slow = new Promise<void>((r) => { release = r; });
+    const h = start({ replyTimeoutMs: 20, ofRegistration: async () => { await slow; return { user, owner: false }; } });
+    await tick();
+    FakeWS.all[0]!.push(ev());
+    await tick(60);
+    release();
+    await tick();
+    expect(dispatch).not.toHaveBeenCalled();
+    h.close();
+  });
+
+  test('stripPaths covers paths after a dot: ../, ./ and a name ending in a dot', async () => {
+    dispatch.mockRejectedValue(new BadRequestError('a ../../srv/hub/repos/x b foo./etc/passwd c 1./srv/a d ./srv/hub/x'));
+    const h = start();
+    await tick();
+    FakeWS.all[0]!.push(ev());
+    await tick();
+    expect(notes().join(' ')).not.toMatch(/srv|etc/);
+    h.close();
+  });
+
+  test('replies in one thread run in order', async () => {
+    const order: string[] = [];
+    dispatch.mockImplementation(async (_c: unknown, _m: string, a: { body: string }) => {
+      order.push(`start ${a.body}`);
+      await new Promise((r) => setTimeout(r, a.body === 'one' ? 30 : 0));
+      order.push(`end ${a.body}`);
+      return null;
+    });
+    const h = start();
+    await tick();
+    FakeWS.all[0]!.push(ev({ text: 'one' }, 'A'));
+    FakeWS.all[0]!.push(ev({ text: 'two' }, 'B'));
+    await tick(120);
+    expect(order).toEqual(['start one', 'end one', 'start two', 'end two']);
+    h.close();
+  });
+
+  test('the note posted to the channel has no absolute paths', async () => {
+    dispatch.mockRejectedValue(new BadRequestError("cannot read /home/hub/repos/x/.git/config or C:\\srv\\repo\\a.txt"));
+    const h = start();
+    await tick();
+    FakeWS.all[0]!.push(ev());
+    await tick();
+    expect(notes()).toEqual(['cannot read [path] or [path]']);
+    h.close();
+  });
+});

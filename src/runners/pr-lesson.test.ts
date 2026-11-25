@@ -28,6 +28,72 @@ const cleanReview = { ...blockingReview, body: '## Taskcell Review\n\nVerdict: N
 const MODEL_REPLY = `<lessons>{"lessons":[{"rule":"Exclude every state dir from .dockerignore","why":"run transcripts leaked into images","evidence":"${URL}","paths":["src/core/**"],"stage":"implement"}]}</lessons>`;
 
 describe('fetchPrHistory', () => {
+  describe('App lesson dedupe (pr view shows the bare slug, REST shows <slug>[bot] / Bot)', () => {
+    const lessonBody = `Lesson.\n${LESSON_MARKER}`;
+    // Shaped like real `gh pr view --json comments`: an App comment's author is the bare slug.
+    const json = prJson({
+      labels: [{ name: 'vanguard:verify-failed' }],
+      comments: [
+        { author: { login: 'tc' }, authorAssociation: 'CONTRIBUTOR', url: `${URL}#issuecomment-4`, body: lessonBody },
+        { author: { login: 'tc' }, authorAssociation: 'CONTRIBUTOR', url: `${URL}#issuecomment-5`, body: blockingReview.body },
+      ],
+    });
+    const ghWithRest = (rest: unknown[]): GhRunner => vi.fn(async (args: string[]) => (args[0] === 'api' ? JSON.stringify([rest]) : json));
+
+    it('dedupes on the App bot comment read from REST, never using it as trusted input', async () => {
+      const g = ghWithRest([{ user: { login: 'tc[bot]', type: 'Bot' }, body: lessonBody }]);
+      expect((await fetchPrHistory('o/r', 9, { gh: g })).hasLessonComment).toBe(false);
+      const h = await fetchPrHistory('o/r', 9, { gh: g, appSlug: 'tc' });
+      expect(g).toHaveBeenCalledWith(['api', '--paginate', '--slurp', 'repos/o/r/issues/9/comments?per_page=100']);
+      expect(h.hasLessonComment).toBe(true);
+      expect(h.notes).toEqual([]);
+      expect(h.blockingReviews).toBe(0);
+    });
+
+    it('handles empty, multi-page and malformed REST responses', async () => {
+      const mk = (out: string): GhRunner => vi.fn(async (args: string[]) => (args[0] === 'api' ? out : json));
+      const bot = { user: { login: 'tc[bot]', type: 'Bot' }, body: lessonBody };
+      const logs: string[] = [];
+      const dedup = async (g: GhRunner): Promise<boolean> => (await fetchPrHistory('o/r', 9, { gh: g, appSlug: 'tc', log: (l) => logs.push(l) })).hasLessonComment;
+      expect(await dedup(mk('[[]]'))).toBe(false);
+      expect(await dedup(mk(JSON.stringify([[{ user: null, body: null }], [bot]])))).toBe(true);
+      expect(await dedup(mk('{"message":"x"}'))).toBe(false);
+      expect(await dedup(mk('[null,{}]'))).toBe(false);
+      expect(logs).toEqual([expect.stringContaining('o/r#9: App lesson dedupe check got a non-array REST response')]);
+    });
+
+    it('a failing REST call falls back to not-deduped', async () => {
+      const g: GhRunner = vi.fn(async (args: string[]) => {
+        if (args[0] === 'api') throw new Error('boom');
+        return json;
+      });
+      const logs: string[] = [];
+      expect((await fetchPrHistory('o/r', 9, { gh: g, appSlug: 'tc', log: (l) => logs.push(l) })).hasLessonComment).toBe(false);
+      expect(logs).toEqual([expect.stringContaining('o/r#9: App lesson dedupe check failed (Error: boom)')]);
+    });
+
+    it('skips the REST call on a clean PR, where no lesson could be written', async () => {
+      const clean = prJson({ comments: [{ author: { login: 'tc' }, authorAssociation: 'CONTRIBUTOR', url: `${URL}#issuecomment-4`, body: cleanReview.body }] });
+      const g: GhRunner = vi.fn(async (args: string[]) => (args[0] === 'api' ? JSON.stringify([[{ user: { login: 'tc[bot]', type: 'Bot' }, body: lessonBody }]]) : clean));
+      expect((await fetchPrHistory('o/r', 9, { gh: g, appSlug: 'tc' })).hasLessonComment).toBe(false);
+      expect(g).toHaveBeenCalledTimes(1);
+      expect(g).not.toHaveBeenCalledWith(expect.arrayContaining(['api']));
+    });
+
+    it('a bare-slug User comment with a marker does not dedupe', async () => {
+      const g = ghWithRest([{ user: { login: 'tc', type: 'User' }, body: lessonBody }]);
+      expect((await fetchPrHistory('o/r', 9, { gh: g, appSlug: 'tc' })).hasLessonComment).toBe(false);
+    });
+
+    it('a User claiming the <slug>[bot] login, or another bot, does not dedupe', async () => {
+      const g = ghWithRest([
+        { user: { login: 'tc[bot]', type: 'User' }, body: lessonBody },
+        { user: { login: 'other[bot]', type: 'Bot' }, body: lessonBody },
+      ]);
+      expect((await fetchPrHistory('o/r', 9, { gh: g, appSlug: 'tc' })).hasLessonComment).toBe(false);
+    });
+  });
+
   it('reads the legacy verify-failed label on a GitHub PR', async () => {
     const h = await fetchPrHistory('o/r', 9, { gh: gh(prJson({ labels: [{ name: 'vanguard:verify-failed' }] })) });
     expect(h.verifyFailed).toBe(true);
