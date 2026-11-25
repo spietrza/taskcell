@@ -1,5 +1,28 @@
 # Changelog
 
+## [1.17.4](https://github.com/spietrza/taskcell/compare/v1.17.3...v1.17.4) (2026-11-25)
+
+
+### Features
+
+* desktop release workflow; apps named Taskcell Desktop and Taskcell Mobile ([#1435](https://github.com/spietrza/taskcell/issues/1435)) ([d3d19f1](https://github.com/spietrza/taskcell/commit/d3d19f19813b7f1e1d4367c0f74e5fb519416511))
+* Factory: several Anthropic subscription tokens in CLAUDE_CODE_OAUTH_TOKEN, rotated on limits (spietrza/taskcell[#1412](https://github.com/spietrza/taskcell/issues/1412)) ([#1428](https://github.com/spietrza/taskcell/issues/1428)) ([53369ca](https://github.com/spietrza/taskcell/commit/53369cae9354386f21f1f5e6dbbf715ec1d8eda6))
+* Follow-ups: Hub fallback chain review findings (spietrza/taskcell[#1408](https://github.com/spietrza/taskcell/issues/1408)) ([#1424](https://github.com/spietrza/taskcell/issues/1424)) ([df2576d](https://github.com/spietrza/taskcell/commit/df2576d497ebcc754ad8705f4323d87fa0ebc4f0))
+* Follow-ups: revise turn-cap notice review findings (spietrza/taskcell[#1426](https://github.com/spietrza/taskcell/issues/1426)) ([#1427](https://github.com/spietrza/taskcell/issues/1427)) ([0be0bd6](https://github.com/spietrza/taskcell/commit/0be0bd6faa0f58dba80d70eeb2a9e5781d4867eb))
+* **hub:** Hub: several credentials per provider (up to 20 Anthropic accounts), rotated on limits (spietrza/taskcell[#1392](https://github.com/spietrza/taskcell/issues/1392)) ([#1398](https://github.com/spietrza/taskcell/issues/1398)) ([477d2ec](https://github.com/spietrza/taskcell/commit/477d2eca47f951253fb812f790f4205589d56258))
+* Revise: a max-turns stop is recorded as incomplete and reported as unanswered items (spietrza/taskcell[#1405](https://github.com/spietrza/taskcell/issues/1405)) ([#1414](https://github.com/spietrza/taskcell/issues/1414)) ([2f978d6](https://github.com/spietrza/taskcell/commit/2f978d6b04d89c02b8b120c1f4f08630ed5c6271))
+
+
+### Bug Fixes
+
+* desktop AppImage build on Linux runners ([#1440](https://github.com/spietrza/taskcell/issues/1440)) ([b1c6e5e](https://github.com/spietrza/taskcell/commit/b1c6e5ef30f1bbb85e0abcddbe1242f86ea1dbc1))
+* in-run reviewer checks the issue's acceptance criteria ([#1420](https://github.com/spietrza/taskcell/issues/1420)) ([92d5720](https://github.com/spietrza/taskcell/commit/92d57208a4b5f8b506519899dbbea23a2593ffee))
+
+
+### Miscellaneous
+
+* release 1.17.4 ([#1425](https://github.com/spietrza/taskcell/issues/1425)) ([ff733a2](https://github.com/spietrza/taskcell/commit/ff733a2ebce03cbac6d366031a665b25206baab7))
+
 ## [1.17.3](https://github.com/spietrza/taskcell/compare/v1.17.2...v1.17.3) (2026-11-25)
 
 
