@@ -599,14 +599,18 @@ export function createCredentialService(configDir: string, adminLogins: readonly
   // Only the types the claude provider authenticates with (`authFromEnv`): an auth-token (gateway) account is not rotated onto.
   const enabledAccounts = async (scope: Scope): Promise<StoredAccount[]> => (await store.accounts(scope)).filter((a) => a.enabled && a.provider === 'claude' && a.type !== 'auth-token');
   /** The first enabled, non-cooling account (not in `skip`), or why none: how many are enabled and when the first resets. */
-  const pickAccount = async (scope: Scope, source: 'instance' | 'user', skip: ReadonlySet<string> = new Set()): Promise<{ credential?: RunCredential; enabled: number; resets?: Date }> => {
+  const pickAccount = async (scope: Scope, source: 'instance' | 'user', skip: ReadonlySet<string> = new Set()): Promise<{ credential?: RunCredential; enabled: number; resets?: Date; soonest?: RunCredential }> => {
     const enabled = await enabledAccounts(scope);
     const cooling = await readCooling();
     const live = enabled.filter((a) => !skip.has(a.id));
     const free = live.find((a) => !cooling.has(coolKey(scope, a.id)));
     if (free !== undefined) return { credential: toCredential(source, free), enabled: enabled.length };
-    const resets = live.map((a) => cooling.get(coolKey(scope, a.id))).filter((d): d is Date => d !== undefined).sort((x, y) => x.getTime() - y.getTime())[0];
-    return { enabled: enabled.length, ...(resets !== undefined ? { resets } : {}) };
+    const byReset = live
+      .map((a) => ({ a, until: cooling.get(coolKey(scope, a.id)) }))
+      .filter((x): x is { a: StoredAccount; until: Date } => x.until !== undefined)
+      .sort((x, y) => x.until.getTime() - y.until.getTime());
+    const first = byReset[0];
+    return { enabled: enabled.length, ...(first !== undefined ? { resets: first.until, soonest: toCredential(source, first.a) } : {}) };
   };
   const allCooling = (enabled: number, resets: Date | undefined): BadRequestError =>
     new BadRequestError(`all ${enabled} Claude credentials are cooling down after a provider limit${resets !== undefined ? `; the first resets at ${resets.toISOString()}` : ''}`);
@@ -741,11 +745,23 @@ export function createCredentialService(configDir: string, adminLogins: readonly
         const values = await store.values(scope).catch(() => ({}));
         return { ...credential, env: { ...pick(values, chainNames), ...credential.env } };
       };
+      // Every account cooling is no refusal while a chain entry can take the run: it starts and the engine moves to the chain
+      // (as without stored accounts). A custom provider's keys are not known here, so it counts; deps drops it if unfunded.
+      const chainFunded = async (scope: Scope): Promise<boolean> => {
+        const values: Record<string, string> = await store.values(scope).catch(() => ({}));
+        const hostFunds = scope === 'instance';
+        return extra.some((p) => {
+          if (p === 'claude') return false;
+          const keys = PROVIDER_NAMES[p];
+          return keys === undefined || keys.some((n) => (values[n] ?? '') !== '' || (hostFunds && (process.env[n] ?? '') !== ''));
+        });
+      };
       const instance = async (): Promise<RunCredential> => {
         if (provider === 'claude') {
           try {
-            const { credential, enabled, resets } = await pickAccount('instance', 'instance');
+            const { credential, enabled, resets, soonest } = await pickAccount('instance', 'instance');
             if (credential !== undefined) return await withChain(credential, 'instance');
+            if (soonest !== undefined && (await chainFunded('instance'))) return await withChain(soonest, 'instance');
             if (enabled > 0) throw allCooling(enabled, resets);
           } catch (error) {
             if (error instanceof BadRequestError && !(error instanceof CredentialStoreError)) throw error;
@@ -772,8 +788,9 @@ export function createCredentialService(configDir: string, adminLogins: readonly
       if (provider === 'claude') {
         // The user's own accounts: never silently moved onto the instance's when they are all cooling (that spends the hub's money).
         try {
-          const { credential, enabled, resets } = await pickAccount(USER_SCOPE(user), 'user');
+          const { credential, enabled, resets, soonest } = await pickAccount(USER_SCOPE(user), 'user');
           if (credential !== undefined) return await withChain(credential, USER_SCOPE(user));
+          if (soonest !== undefined && (await chainFunded(USER_SCOPE(user)))) return await withChain(soonest, USER_SCOPE(user));
           if (enabled > 0) throw allCooling(enabled, resets);
         } catch (error) {
           if (error instanceof BadRequestError && !(error instanceof CredentialStoreError)) throw error;

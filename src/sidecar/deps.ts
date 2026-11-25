@@ -283,7 +283,7 @@ export function productionDeps(): SidecarDeps {
             registerInjectedSecretValue(v);
           }
           try {
-            return await createRunAttempt(params, onEvent, current, rotation);
+            return await createRunAttempt(params, onEvent, current, rotation, current === credential);
           } catch (error) {
             if (!(error instanceof CredentialLimited) || rotation === undefined || current?.accountId === undefined) throw error;
             const next = await rotation.limited(current.accountId, error.until);
@@ -302,7 +302,7 @@ export function productionDeps(): SidecarDeps {
   };
 }
 
-async function createRunAttempt(rawParams: CreateRunParams, onEvent: (e: RunEvent) => void, credential: RunCredential | undefined, rotation: CredentialRotation | undefined): Promise<CreateRunResult> {
+async function createRunAttempt(rawParams: CreateRunParams, onEvent: (e: RunEvent) => void, credential: RunCredential | undefined, rotation: CredentialRotation | undefined, firstAttempt: boolean): Promise<CreateRunResult> {
       // FIRST statements, before beginRun() and the sandbox: an unresolvable flow (typo, broken or
       // duplicate .hcl) or provider (unknown name, broken customs entry, http custom on this
       // always-egress path) must cost nothing and classify bad-request — and must not leave an
@@ -378,7 +378,8 @@ async function createRunAttempt(rawParams: CreateRunParams, onEvent: (e: RunEven
         throw error;
       }
       onEvent({ type: 'stage-end', name: SANDBOX_STAGE, index: 0, of: 1, outcome: 'completed' });
-      for (const message of chainWarnings) onEvent({ type: 'warning', message });
+      // Once per run: a later account carries the same chain keys, so it would only repeat them.
+      if (firstAttempt) for (const message of chainWarnings) onEvent({ type: 'warning', message });
       const exposed = exposureReason({ provider, subscriptionProvider, proxySupported, llmProxy });
       if (exposed !== undefined) {
         onEvent({ type: 'warning', message: `${exposed} to the agent inside the sandbox for this run.` });

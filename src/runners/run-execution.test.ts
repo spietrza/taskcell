@@ -18,6 +18,7 @@ import type { SkillRegistry } from '../context/skill-registry.js';
 import type { PipelineStage } from '../pipeline/pipeline.js';
 import { AgentError, ProviderLimitError } from '../core/errors.js';
 import { readCooldowns } from '../core/model-pool.js';
+import { withPrimaryFallback } from '../pipeline/pipeline.js';
 
 // Execution against fakes only: a fake Tracker, a fake ReviewHost, a fake sandbox session and a scripted agent. No module is mocked.
 
@@ -286,6 +287,30 @@ describe('executeIssueRun: credential rotation', () => {
   it('with no account left the original limit error escapes (park)', async () => {
     const thrown = await limited(limit(), { credentialRotation: { provider: 'claude', hasNext: async () => false } });
     expect(thrown).toBeInstanceOf(ProviderLimitError);
+  });
+
+  it('with a fallback (chain) configured, a limit rotates to the next account before the fallback runs', async () => {
+    const primary = scriptedAgent(() => limit());
+    const fallback = scriptedAgent();
+    const f = fakes();
+    await dirtyTree(f);
+    const stages = withPrimaryFallback(STAGES, { provider: { ...fallback.agent, name: 'codex' } });
+    const thrown = await run(f, { credentialRotation: { provider: 'claude', hasNext: async () => true } }, [], { stages, agent: primary.agent }).then(() => undefined, (e: unknown) => e);
+    expect(thrown).toBeInstanceOf(CredentialLimited);
+    expect(primary.calls).toHaveLength(1);
+    expect(fallback.calls).toHaveLength(0);
+  });
+
+  it('with no other account, the same limit is rescued in-run by the fallback', async () => {
+    const primary = scriptedAgent(() => limit());
+    const fallback = scriptedAgent();
+    const f = fakes();
+    await dirtyTree(f);
+    const stages = withPrimaryFallback(STAGES, { provider: { ...fallback.agent, name: 'codex' } });
+    const cooled = vi.fn(async () => {});
+    await run(f, { credentialRotation: { provider: 'claude', hasNext: async () => false }, onCredentialCooled: cooled }, [], { stages, agent: primary.agent });
+    expect(fallback.calls.length).toBeGreaterThan(0);
+    expect(cooled).toHaveBeenCalledOnce();
   });
 
   it('a limit on another provider does not rotate', async () => {

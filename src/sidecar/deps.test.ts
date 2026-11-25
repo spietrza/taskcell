@@ -611,6 +611,40 @@ describe('createRun credential rotation', () => {
     expect(runGithubIssue.mock.calls.at(-1)![1]).toMatchObject({ credentialName: 'Key B' });
   });
 
+  it('one account rescued in-run by a [codex] chain: the next run still starts and carries the chain', async () => {
+    const { createCredentialService } = await import('../hub/credentials.js');
+    const svc = createCredentialService(await plainRepo());
+    await svc.store.putAccount('instance', { name: 'Only', type: 'api-key', value: 'sk-ant-only' });
+    await svc.store.put('instance', 'CODEX_API_KEY', 'ck');
+    const repoPath = await plainRepo();
+    const params = { issueRef: 'o/r#1', repoPath, provider: 'claude', fallbackProvider: 'codex' };
+    // Run 1: the engine's fallback rescued the Claude limit, so the run cools its account (no other account to rotate to).
+    const first = await svc.resolveForRun(undefined, 'claude', ['codex']);
+    runGithubIssue.mockImplementationOnce(async (_ref: unknown, opts: { onCredentialCooled?: (until: Date) => Promise<void> }) => {
+      await opts.onCredentialCooled?.(new Date(Date.now() + 3600_000));
+      return { prUrl: 'https://example/pr/1' };
+    });
+    await productionDeps().createRun(params, () => {}, first, svc.rotationFor(undefined, 'claude', first));
+    expect((await svc.accountViews('instance'))[0]?.coolingUntil).toBeDefined();
+    // Run 2: not refused; it starts with the chain so the engine moves to codex.
+    const second = await svc.resolveForRun(undefined, 'claude', ['codex']);
+    await expect(productionDeps().createRun(params, () => {}, second, svc.rotationFor(undefined, 'claude', second))).resolves.toEqual({ prUrl: 'https://example/pr/1' });
+    expect(runGithubIssue.mock.calls.at(-1)![1]).toMatchObject({ fallbackProvider: 'codex' });
+  });
+
+  it('chain warnings are emitted once per run, not again on the next account', async () => {
+    const repoPath = await plainRepo();
+    runGithubIssue.mockImplementationOnce(async () => {
+      throw new CredentialLimited(new ProviderLimitError('limit'), new Date(Date.now() + 3600_000));
+    });
+    const events: RunEvent[] = [];
+    await productionDeps().createRun({ issueRef: 'o/r#1', repoPath, provider: 'claude', fallbackProvider: 'cursor,codex' }, (e) => events.push(e), credA, mkRotation(credB) as never);
+    const chain = events.flatMap((e) => (e.type === 'warning' && e.message.startsWith('fallback entry') ? [e.message] : []));
+    // credA funds neither entry: one warning each, from the first attempt only.
+    expect(chain).toEqual(['fallback entry cursor skipped: no stored credential for it', 'fallback entry codex skipped: no stored credential for it']);
+    expect(runGithubIssue).toHaveBeenCalledTimes(2);
+  });
+
   it('with every account out, the original limit error escapes (the run parks)', async () => {
     const repoPath = await plainRepo();
     const limit = new ProviderLimitError('limit');

@@ -826,6 +826,27 @@ describe('resolveForRun with fallback-chain providers (extra)', () => {
     expect(plain(await svc.resolveForRun(u, 'cursor', ['codex']))).toEqual({ source: 'instance', env: { CURSOR_API_KEY: 'inst-cursor', CODEX_API_KEY: 'inst-codex' } });
   });
 
+  it('every Claude account cooling is no refusal while a chain entry is funded: the run starts on the soonest-resetting account plus the chain keys', async () => {
+    const d = await dir();
+    const svc = createCredentialService(d);
+    const a = await svc.store.putAccount('instance', { name: 'A', type: 'api-key', value: 'sk-A' });
+    const first = await svc.resolveForRun(undefined, 'claude', ['codex']);
+    await svc.rotationFor(undefined, 'claude', first)!.cool(a, new Date(Date.now() + 3600_000));
+    // No funded chain entry: refused as before.
+    await expect(svc.resolveForRun(undefined, 'claude', ['codex'])).rejects.toThrow(/all 1 Claude credentials are cooling down/);
+    await expect(svc.resolveForRun(undefined, 'claude')).rejects.toThrow(/cooling down/);
+    await svc.store.put('instance', 'CODEX_API_KEY', 'inst-codex');
+    expect(await svc.resolveForRun(undefined, 'claude', ['codex'])).toMatchObject({ accountId: a, env: { ANTHROPIC_API_KEY: 'sk-A', CODEX_API_KEY: 'inst-codex' } });
+    await expect(svc.resolveForRun(undefined, 'claude')).rejects.toThrow(/cooling down/);
+    // A user's own cooling accounts with a chain key of their own start too; one funded only by the instance does not.
+    await svc.setPolicy('user-first');
+    const mine = await svc.store.putAccount('user:u1', { name: 'Mine', type: 'api-key', value: 'sk-mine' });
+    await svc.rotationFor(u, 'claude', await svc.resolveForRun(u, 'claude'))!.cool(mine, new Date(Date.now() + 3600_000));
+    await expect(svc.resolveForRun(u, 'claude', ['codex'])).rejects.toThrow(/cooling down/);
+    await svc.store.put('user:u1', 'CODEX_API_KEY', 'my-codex');
+    expect(await svc.resolveForRun(u, 'claude', ['codex'])).toMatchObject({ source: 'user', env: { ANTHROPIC_API_KEY: 'sk-mine', CODEX_API_KEY: 'my-codex' } });
+  });
+
   it('a stored Claude account carries the chain providers\' keys, also onto the next account after a limit', async () => {
     const d = await dir();
     const svc = createCredentialService(d);
