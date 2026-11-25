@@ -53,6 +53,13 @@ describe('ci-watch', () => {
     expect(report.ciFailed).toHaveLength(1);
   });
 
+  it('a failure beside a cancelled check still comments, naming only the failure', async () => {
+    const { calls } = await run([{ number: 5, checks: [...FAIL, { name: 'zz-cancelled', bucket: 'cancel' }] }]);
+    const w = writes(calls);
+    expect(w).toHaveLength(2);
+    expect(w[0]?.[w[0].indexOf('--body') + 1]).not.toContain('zz-cancelled');
+  });
+
   it('does not repeat on the same head, and stops at two comments', async () => {
     expect(writes((await run([{ number: 5, comments: ['<!-- taskcell-ci-failed: abcdef1234 -->'] }])).calls)).toEqual([]);
     const two = ['<!-- taskcell-ci-failed: a -->', '<!-- taskcell-ci-failed: b -->'];

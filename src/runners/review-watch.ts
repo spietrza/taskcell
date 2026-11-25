@@ -20,6 +20,8 @@ export interface ReviewWatchTick {
   reviewed: string[];
   failed: string[];
   skipped: string[];
+  /** Parked on a usage cap: neither reviewed nor failed. */
+  paused: string[];
 }
 
 export interface ReviewWatchOnceOptions {
@@ -102,7 +104,7 @@ export async function reviewWatchOnce<T>(
   );
   const ids = (kind: Kind): string[] =>
     results.flatMap((outcome) => (outcome.status === 'fulfilled' && outcome.value.kind === kind ? [outcome.value.id] : []));
-  return { reviewed: ids('reviewed'), failed: [...listFailed, ...ids('failed')], skipped: ids('skipped') };
+  return { reviewed: ids('reviewed'), failed: [...listFailed, ...ids('failed')], skipped: ids('skipped'), paused: ids('paused') };
 }
 
 /** Poll until stopped. Returns the last tick so `--once` callers can report failures truthfully. */
@@ -117,7 +119,7 @@ export async function reviewWatchLoop<T>(
   for (;;) {
     if (opts.signal?.aborted === true) return last;
     last = await reviewWatchOnce(primitives, idOf, opts);
-    opts.log?.(`${phase}: ${last.reviewed.length} reviewed, ${last.failed.length} failed, ${last.skipped.length} skipped.`);
+    opts.log?.(`${phase}: ${last.reviewed.length} reviewed, ${last.failed.length} failed, ${last.skipped.length} skipped, ${last.paused.length} paused.`);
     if (opts.once === true) return last;
     await delay(intervalMs, opts.signal);
   }

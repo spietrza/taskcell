@@ -809,7 +809,7 @@ describe('githubPullRequestWatchPrimitives trust', () => {
     expect(unpinned.failed).toEqual([]);
 
     const pinned = await watchPullRequestsOnce(primitivesFor(broken, { hintPr: 12 }));
-    expect(pinned).toEqual({ reviewed: [], failed: ['o/r#12'], skipped: [] });
+    expect(pinned).toEqual({ reviewed: [], failed: ['o/r#12'], skipped: [], paused: [] });
   });
 
   it('a usage-cap pause is not a failed item, a real review failure is', async () => {
@@ -819,7 +819,7 @@ describe('githubPullRequestWatchPrimitives trust', () => {
       return trustedAuthorApi(args);
     };
     const paused = await watchPullRequestsOnce(primitivesFor(gh, { reviewOne: async () => { throw new UsageCapError('claude', 95, 90, new Date('2026-11-09T05:00:00Z')); } }));
-    expect(paused).toEqual({ reviewed: [], failed: [], skipped: [] });
+    expect(paused).toEqual({ reviewed: [], failed: [], skipped: [], paused: ['o/r#12'] });
     const failed = await watchPullRequestsOnce(primitivesFor(gh, { reviewOne: async () => { throw new Error('boom'); } }));
     expect(failed.failed).toEqual(['o/r#12']);
   });
