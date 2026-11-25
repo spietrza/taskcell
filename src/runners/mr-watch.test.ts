@@ -96,7 +96,7 @@ describe('gitlabMergeRequestWatchPrimitives', () => {
     const listed = JSON.stringify([{ iid: 1, title: 'T', draft: false, author: { username: 'alice' }, sha: 'abc', labels: [] }]);
     const run = (reviewOne: () => Promise<void>) =>
       watchMergeRequestsOnce(gitlabMergeRequestWatchPrimitives({ project: 'g/p', label: 'l', reviewingLabel: 'r', reviewedLabel: 'd', glab: makeGlab(listed).glab, reviewOne }));
-    expect(await run(async () => { throw new UsageCapError('claude', 95, 90, new Date('2026-11-09T05:00:00Z')); })).toEqual({ reviewed: [], failed: [], skipped: [] });
+    expect(await run(async () => { throw new UsageCapError('claude', 95, 90, new Date('2026-11-09T05:00:00Z')); })).toEqual({ reviewed: [], failed: [], skipped: [], paused: ['g/p!1'] });
     expect((await run(async () => { throw new Error('boom'); })).failed).toEqual(['g/p!1']);
   });
 

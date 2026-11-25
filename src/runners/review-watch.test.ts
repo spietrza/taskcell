@@ -36,7 +36,7 @@ describe('reviewWatchOnce (fake adapter)', () => {
       idOf,
       { phase: 'watch-x', log: (l) => logs.push(l) },
     );
-    expect(tick).toEqual({ reviewed: ['h#1'], failed: [], skipped: [] });
+    expect(tick).toEqual({ reviewed: ['h#1'], failed: [], skipped: [], paused: [] });
     expect(order).toEqual(['claim:1', 'review:1', 'mark:1']);
     expect(logs).toEqual(['watch-x: poll -> 1 ready', 'watch-x h#1: claim -> reviewing', 'watch-x h#1: reviewed -> marked']);
   });
@@ -61,7 +61,7 @@ describe('reviewWatchOnce (fake adapter)', () => {
       idOf,
       { concurrency: 1, log: (l) => logs.push(l) },
     );
-    expect(tick).toEqual({ reviewed: [], failed: ['h#2', 'h#3'], skipped: ['h#1'] });
+    expect(tick).toEqual({ reviewed: [], failed: ['h#2', 'h#3'], skipped: ['h#1'], paused: [] });
     expect(restored).toEqual([2, 3]);
     expect(logs).toContain('watch h#2: failed -> retry later (boom)');
     expect(logs.some((l) => l.includes('watch h#3: restore failed -> manual label check'))).toBe(true);
@@ -85,7 +85,7 @@ describe('reviewWatchOnce (fake adapter)', () => {
       idOf,
       { concurrency: 1 },
     );
-    expect(tick).toEqual({ reviewed: [], failed: ['h#2'], skipped: [] });
+    expect(tick).toEqual({ reviewed: [], failed: ['h#2'], skipped: [], paused: ['h#1'] });
     expect(restored).toEqual([1, 2]);
   });
 

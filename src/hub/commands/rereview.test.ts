@@ -49,6 +49,8 @@ test.each([
   ['a closed PR', { state: 'CLOSED' }, 'not open'],
   ['a PR being reviewed', { labels: ['taskcell:reviewing'] }, 'is being reviewed, revised or run'],
   ['a running PR', { labels: ['taskcell:running'] }, 'is being reviewed, revised or run'],
+  ['a legacy-running PR', { labels: ['vanguard:running'] }, 'is being reviewed, revised or run'],
+  ['a mixed-case running PR', { labels: ['VANGUARD:Running'] }, 'is being reviewed, revised or run'],
   ['a PR being revised', { labels: ['taskcell:revising'] }, 'is being reviewed, revised or run'],
   ['a legacy-reviewing PR', { labels: ['vanguard:reviewing'] }, 'is being reviewed, revised or run'],
   ['a legacy-revising PR', { labels: ['vanguard:revising'] }, 'is being reviewed, revised or run'],

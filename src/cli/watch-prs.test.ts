@@ -18,7 +18,7 @@ describe('watchPrsCommand', () => {
       capturedPrimitives = primitives;
       capturedOptions = opts;
       opts.log?.('watch-prs: poll -> 0 ready');
-      return { reviewed: [], failed: [], skipped: [] };
+      return { reviewed: [], failed: [], skipped: [], paused: [] };
     });
     const cmd: Extract<Command, { kind: 'watch-prs' }> = {
       kind: 'watch-prs',
@@ -89,7 +89,7 @@ describe('watchPrsCommand', () => {
   it('pins --pr, logs it, and fails the process when a --once review failed', async () => {
     const previousExitCode = process.exitCode;
     const logs: string[] = [];
-    const watchPullRequests = vi.fn(async () => ({ reviewed: [], failed: ['o/r#316'], skipped: [] }));
+    const watchPullRequests = vi.fn(async () => ({ reviewed: [], failed: ['o/r#316'], skipped: [], paused: [] }));
     const cmd: Extract<Command, { kind: 'watch-prs' }> = {
       kind: 'watch-prs',
       repoSlug: 'o/r',
@@ -122,23 +122,23 @@ describe('watchPrsCommand', () => {
       concurrency: 1, intervalMs: 1000, once: true, egress: true,
     };
     try {
-      const alwaysFails = vi.fn(async () => ({ reviewed: [], failed: ['o/r#316'], skipped: [] }));
+      const alwaysFails = vi.fn(async () => ({ reviewed: [], failed: ['o/r#316'], skipped: [], paused: [] }));
       await watchPrsCommand(base, { reviewPr: vi.fn(async () => {}), watchPullRequests: alwaysFails, log: () => {} });
       expect(alwaysFails).toHaveBeenCalledTimes(3);
       expect(process.exitCode).toBe(1);
 
       process.exitCode = undefined;
       const secondWorks = vi.fn()
-        .mockResolvedValueOnce({ reviewed: [], failed: ['o/r#316'], skipped: [] })
-        .mockResolvedValueOnce({ reviewed: ['o/r#316'], failed: [], skipped: [] });
+        .mockResolvedValueOnce({ reviewed: [], failed: ['o/r#316'], skipped: [], paused: [] })
+        .mockResolvedValueOnce({ reviewed: ['o/r#316'], failed: [], skipped: [], paused: [] });
       await watchPrsCommand(base, { reviewPr: vi.fn(async () => {}), watchPullRequests: secondWorks, log: () => {} });
       expect(secondWorks).toHaveBeenCalledTimes(2);
       expect(process.exitCode).toBeUndefined();
 
       // Label not restored after the failure: the retry finds nothing, and the job must stay red.
       const secondEmpty = vi.fn()
-        .mockResolvedValueOnce({ reviewed: [], failed: ['o/r#316'], skipped: [] })
-        .mockResolvedValueOnce({ reviewed: [], failed: [], skipped: [] });
+        .mockResolvedValueOnce({ reviewed: [], failed: ['o/r#316'], skipped: [], paused: [] })
+        .mockResolvedValueOnce({ reviewed: [], failed: [], skipped: [], paused: [] });
       await watchPrsCommand(base, { reviewPr: vi.fn(async () => {}), watchPullRequests: secondEmpty, log: () => {} });
       expect(secondEmpty).toHaveBeenCalledTimes(2);
       expect(process.exitCode).toBe(1);
