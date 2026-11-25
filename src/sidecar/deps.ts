@@ -29,7 +29,7 @@ import { assertSkillsInstalled } from '../context/named-skills.js';
 import { hubSkillsDir, skillRegistryForRun } from '../context/skill-registry.js';
 import { BadRequestError } from './sidecar.js';
 import { CREDENTIAL_NAMES } from '../hub/credentials.js';
-import { fallbackFlags, fundableChain } from '../hub/fallback-chain.js';
+import { fallbackFlags, fundableChain, loneEntryRefused } from '../hub/fallback-chain.js';
 import { parseFallbackList } from '../core/model-pool.js';
 import { codexAuthSecretValues, forgetInjectedSecretValue, registerInjectedSecretValue } from '../core/secret-scan.js';
 import { AgentError } from '../core/errors.js';
@@ -100,11 +100,11 @@ async function resolveRunChoice(params: CreateRunParams): Promise<ProviderChoice
 
 /**
  * The Hub's fallback chain trimmed to the entries this run's credential can fund (a `user` run never borrows the instance's
- * keys). A chain entry must never refuse a run: an unfunded one is dropped and named for a warning, and so is a lone entry
- * left on the implementer's own provider (the engine refuses "fallback is the implementer itself").
+ * keys). A chain entry must never refuse a run: an unfunded one is dropped with a warning, and so is a lone entry one
+ * sandbox cannot host next to the Engine (the Engine itself, or its transport slot such as claude → zai; {@link loneEntryRefused}).
  */
-async function fundedParams(params: CreateRunParams, credential: RunCredential | undefined): Promise<{ params: CreateRunParams; dropped: string[] }> {
-  if (params.fallbackProvider === undefined) return { params, dropped: [] };
+async function fundedParams(params: CreateRunParams, credential: RunCredential | undefined): Promise<{ params: CreateRunParams; warnings: string[] }> {
+  if (params.fallbackProvider === undefined) return { params, warnings: [] };
   let chain;
   try {
     chain = parseFallbackList(params.fallbackProvider, params.fallbackModel);
@@ -112,9 +112,14 @@ async function fundedParams(params: CreateRunParams, credential: RunCredential |
     throw new BadRequestError(error instanceof Error ? error.message : String(error));
   }
   const { kept, dropped } = await fundableChain(chain, params.repoPath, credential);
-  const lone = kept.length === 1 && kept[0]!.provider === (params.provider ?? 'claude') ? kept.splice(0) : [];
+  const warnings = dropped.map((name) => `fallback entry ${name} skipped: no stored credential for it`);
+  const lone = kept[0];
+  if (lone !== undefined && (await loneEntryRefused(kept, params.repoPath, params.provider))) {
+    kept.length = 0;
+    warnings.push(`fallback entry ${lone.model !== undefined ? `${lone.provider}/${lone.model}` : lone.provider} skipped: it cannot take over from the Engine alone (same provider or transport); add another entry`);
+  }
   const { fallbackProvider: _p, fallbackModel: _m, ...rest } = params;
-  return { params: { ...rest, ...fallbackFlags(kept) }, dropped: [...dropped, ...lone.map((e) => e.provider)] };
+  return { params: { ...rest, ...fallbackFlags(kept) }, warnings };
 }
 
 /**
@@ -269,7 +274,7 @@ export function productionDeps(): SidecarDeps {
       // armed AbortController behind (endRun's finally only wraps the post-sandbox region). Pure
       // checks: no lowering, no ref import — repo TS must not execute on the untimed run pipe (S5 D6).
       if (rawParams.flow !== undefined) await assertFlowResolvable(rawParams.flow, rawParams.repoPath);
-      const { params, dropped } = await fundedParams(rawParams, credential);
+      const { params, warnings: chainWarnings } = await fundedParams(rawParams, credential);
       const choice = await resolveRunChoice(params);
       // A hub run reads every provider key from its resolved credential env. A `user` run must never
       // fall back to the host's provider credentials, so those are dropped before its own overlay.
@@ -338,7 +343,7 @@ export function productionDeps(): SidecarDeps {
         throw error;
       }
       onEvent({ type: 'stage-end', name: SANDBOX_STAGE, index: 0, of: 1, outcome: 'completed' });
-      for (const name of dropped) onEvent({ type: 'warning', message: `fallback entry ${name} skipped: no stored credential for it` });
+      for (const message of chainWarnings) onEvent({ type: 'warning', message });
       const exposed = exposureReason({ provider, subscriptionProvider, proxySupported, llmProxy });
       if (exposed !== undefined) {
         onEvent({ type: 'warning', message: `${exposed} to the agent inside the sandbox for this run.` });

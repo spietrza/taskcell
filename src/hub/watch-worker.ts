@@ -7,7 +7,7 @@ import { shellQuote } from '../agents/shell.js';
 import { NO_REMOTE_MESSAGE, type WatchWorkerChecklist } from '../wire.js';
 import { BadRequestError } from '../sidecar/sidecar.js';
 import { readAppConfig } from './app-config.js';
-import { fallbackFlags, resolveFallbackChain, type FallbackEntry } from './fallback-chain.js';
+import { fallbackFlags, loneEntryRefused, resolveFallbackChain, type FallbackEntry } from './fallback-chain.js';
 import { PROVIDER_NAMES } from './credentials.js';
 import { defaultExec, GITHUB_REPO_SLUG, type FactoryExec } from './enable-factory.js';
 import { GITLAB_HOSTNAME, GITLAB_PROJECT_PATH, hostOfOrigin, readOrigin } from './enable-factory-gitlab.js';
@@ -187,7 +187,9 @@ export async function watchWorkerChecklist(repoPath: string, exec: FactoryExec =
   const config = await readAppConfig(repoPath);
   const target = watchTarget(await readOrigin(exec, repoPath), resolveTaskSource(config));
   // `taskcell watch` takes built-in providers in its fallback list; a repo custom stays out of the generated command.
-  const chain = (await resolveFallbackChain(configDir, repoPath, config)).chain.filter((e) => e.provider in PROVIDER_NAMES);
+  // The command sets no --provider (the worker runs claude): a lone entry it cannot pair with would make `taskcell watch` refuse to start.
+  const builtins = (await resolveFallbackChain(configDir, repoPath, config)).chain.filter((e) => e.provider in PROVIDER_NAMES);
+  const chain = (await loneEntryRefused(builtins, repoPath, undefined)) ? [] : builtins;
   // Records inside the window are read; past it only a capped newest-first scan for the last watch run (so "stale" keeps its date).
   const since = now - WORKER_RECENT_MS;
   const [local, remote] = await Promise.all([recentWatchTimestamps(defaultRunsRoot(repoPath), since), remoteWatchTimestamps(repoPath, since, readRemote)]);

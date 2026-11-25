@@ -1,9 +1,9 @@
 // The Hub's fallback chain (Settings → Line → Cell): the ordered providers/models a run moves to when the Engine hits a
 // provider limit. Resolved server-side at every Hub start point and handed to the engine as `--fallback-provider` /
 // `--fallback-model` values — the engine's own routing, cooldowns and park logic do the rest (no second mechanism).
-import { PROVIDER_NAMES as REGISTRY_PROVIDERS, claudeCliKeyEnv } from '../agents/registry.js';
+import { PROVIDER_NAMES as REGISTRY_PROVIDERS, claudeCliKeyEnv, validateProviderChoice } from '../agents/registry.js';
 import { loadCustomProviders } from '../agents/custom.js';
-import { fallbackChainErrors, type FallbackEntry, type RunCredential } from '../wire.js';
+import { FALLBACK_CHAIN_MAX, fallbackChainErrors, type FallbackEntry, type RunCredential } from '../wire.js';
 import type { AppConfig } from './app-config.js';
 import type { HubUser } from './auth.js';
 import { PROVIDER_NAMES, type CredentialService } from './credentials.js';
@@ -20,7 +20,8 @@ async function teamChain(configDir: string | undefined, repoPath: string): Promi
 
 /**
  * The chain a run of this project uses: the project's own `fallbackChain` (including `[]` = none), else the team default.
- * Malformed or unknown entries are dropped silently — a hand-edited `app.json` must never fail a run.
+ * Malformed or unknown entries are dropped silently — a hand-edited `app.json` must never fail a run. A lone entry the
+ * Engine cannot pair with stays: the run drops it with a warning (see {@link loneEntryRefused}).
  */
 export async function resolveFallbackChain(configDir: string | undefined, repoPath: string, cfg: AppConfig): Promise<{ chain: FallbackEntry[]; source: 'project' | 'team' | 'none' }> {
   const own = Array.isArray(cfg.fallbackChain) ? cfg.fallbackChain : undefined;
@@ -29,11 +30,24 @@ export async function resolveFallbackChain(configDir: string | undefined, repoPa
   const primary = typeof cfg.provider === 'string' && cfg.provider.trim() !== '' ? cfg.provider : 'claude';
   const customs = (await loadCustomProviders(repoPath).catch(() => [])).filter((c) => c.error === undefined && c.name !== undefined).map((c) => c.name!);
   const providers = [...REGISTRY_PROVIDERS, ...customs];
-  const { rows, list } = fallbackChainErrors(raw, { primary, providers });
-  const clean = list === undefined ? raw.filter((_, i) => rows[i] === undefined).map((e) => ({ provider: e.provider, ...(typeof e.model === 'string' && e.model !== '' ? { model: e.model } : {}) })) : [];
-  // Dropping rows can leave a lone entry on the Engine's own provider, which the engine refuses; nothing then.
-  const chain = clean.length === 1 && clean[0]!.provider === primary ? [] : clean;
+  const { rows } = fallbackChainErrors(raw, { primary, providers });
+  const chain = raw.length > FALLBACK_CHAIN_MAX ? [] : raw.filter((_, i) => rows[i] === undefined).map((e) => ({ provider: e.provider, ...(typeof e.model === 'string' && e.model !== '' ? { model: e.model } : {}) }));
   return { chain, source: chain.length === 0 ? (own !== undefined ? 'project' : 'none') : own !== undefined ? 'project' : 'team' };
+}
+
+/**
+ * True for a lone entry one sandbox cannot host next to the Engine: the Engine itself, or a provider on its transport slot
+ * (claude → zai / openrouter). The engine pairs a single fallback in-run and refuses those; a list of two or more is routed per run.
+ */
+export async function loneEntryRefused(chain: readonly FallbackEntry[], repoPath: string, provider: string | undefined): Promise<boolean> {
+  if (chain.length !== 1) return false;
+  const customProviders = await loadCustomProviders(repoPath).catch(() => []);
+  try {
+    validateProviderChoice({ ...(provider !== undefined ? { provider } : {}), fallbackProvider: chain[0]!.provider, ...(customProviders.length > 0 ? { customProviders } : {}) });
+    return false;
+  } catch {
+    return true;
+  }
 }
 
 /** `--fallback-provider` / `--fallback-model` values for a chain (a model slot may be empty; all-empty models are omitted). */

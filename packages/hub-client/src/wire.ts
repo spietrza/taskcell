@@ -1058,6 +1058,8 @@ export const FALLBACK_CHAIN_MAX = 8;
 
 const FALLBACK_PROVIDER_RE = /^[a-z0-9][a-z0-9._-]*$/;
 const FALLBACK_MODEL_RE = /^[A-Za-z0-9][A-Za-z0-9._:/-]{0,79}$/;
+/** A provider's transport slot (agents/registry.ts `transport`): codex and cursor own theirs; every other built-in and repo custom drives the claude CLI. */
+const fallbackSlot = (provider: string): string => (provider === 'codex' || provider === 'cursor' ? provider : 'claude-cli');
 
 /**
  * Why a fallback chain cannot be saved: one message per row (`undefined` = fine) and one for the list as a whole.
@@ -1082,8 +1084,10 @@ export function fallbackChainErrors(chain: unknown, opts: { primary: string; pro
     seen.add(key);
     return undefined;
   });
-  const single = chain.length === 1 && (chain[0] as FallbackEntry | null)?.provider === opts.primary && rows[0] === undefined;
-  const list = chain.length > FALLBACK_CHAIN_MAX ? `A fallback chain holds at most ${FALLBACK_CHAIN_MAX} entries.` : single ? "A single entry on the Engine's own provider cannot take over; add a second entry or pick another provider." : undefined;
+  // A lone entry is the Engine's in-run fallback, which cannot share its transport slot (claude → zai); a team default has no Engine yet.
+  const lone = chain.length === 1 && rows[0] === undefined ? (chain[0] as FallbackEntry).provider : undefined;
+  const single = lone !== undefined && opts.primary !== '' && fallbackSlot(lone) === fallbackSlot(opts.primary);
+  const list = chain.length > FALLBACK_CHAIN_MAX ? `A fallback chain holds at most ${FALLBACK_CHAIN_MAX} entries.` : single ? "A single entry on the Engine's own provider or transport (e.g. claude → zai) cannot take over; add a second entry or pick another provider." : undefined;
   return { rows, ...(list !== undefined ? { list } : {}) };
 }
 

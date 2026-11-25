@@ -131,6 +131,12 @@ describe('fallbackChainErrors (shared by write_app_config and the Settings form)
   });
   it('refuses a single entry on the Engine\'s provider and a chain over the cap', () => {
     expect(fallbackChainErrors([{ provider: 'claude', model: 'sonnet' }], opts).list).toMatch(/add a second entry/);
+    // A lone entry on the Engine's transport slot (claude → zai / openrouter) is refused too; with a second entry it is fine.
+    expect(fallbackChainErrors([{ provider: 'zai' }], { ...opts, providers: [...opts.providers, 'zai'] }).list).toMatch(/provider or transport/);
+    expect(fallbackChainErrors([{ provider: 'zai' }, { provider: 'codex' }], { ...opts, providers: [...opts.providers, 'zai'] }).list).toBeUndefined();
+    expect(fallbackChainErrors([{ provider: 'codex' }], opts).list).toBeUndefined();
+    // A team default has no Engine yet: a lone zai is the project's call.
+    expect(fallbackChainErrors([{ provider: 'zai' }], { primary: '' }).list).toBeUndefined();
     const long = Array.from({ length: FALLBACK_CHAIN_MAX + 1 }, (_, i) => ({ provider: 'codex', model: `m${i}` }));
     expect(fallbackChainErrors(long, opts).list).toMatch(/at most 8/);
   });

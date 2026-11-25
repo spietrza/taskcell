@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, test } from 'vitest';
 import { tmpRepo } from './test-kit.js';
-import { fallbackFlags, fundableChain, resolveFallbackChain } from './fallback-chain.js';
+import { fallbackFlags, fundableChain, loneEntryRefused, resolveFallbackChain } from './fallback-chain.js';
 import { saveTeams } from './teams.js';
 
 async function setup(teamChain?: { provider: string; model?: string }[]): Promise<{ configDir: string; repo: string }> {
@@ -57,5 +57,20 @@ describe('fundableChain', () => {
     const chain = [{ provider: 'acme' }];
     expect(await fundableChain(chain, repo, { source: 'user', env: { ACME_KEY: 'k' } }, {})).toEqual({ kept: chain, dropped: [] });
     expect(await fundableChain(chain, repo, { source: 'user', env: {} }, { ACME_KEY: 'host' })).toEqual({ kept: [], dropped: ['acme'] });
+  });
+});
+
+describe('loneEntryRefused', () => {
+  test('a lone entry on the Engine or its transport slot is refused; a different transport or a longer list is not', async () => {
+    const repo = await tmpRepo();
+    expect(await loneEntryRefused([{ provider: 'zai' }], repo, 'claude')).toBe(true);
+    expect(await loneEntryRefused([{ provider: 'claude', model: 'sonnet' }], repo, undefined)).toBe(true);
+    expect(await loneEntryRefused([{ provider: 'codex' }], repo, 'claude')).toBe(false);
+    expect(await loneEntryRefused([{ provider: 'zai' }, { provider: 'codex' }], repo, 'claude')).toBe(false);
+  });
+
+  test('resolve keeps a lone same-transport entry, so the run drops it with a warning', async () => {
+    const { configDir, repo } = await setup();
+    expect((await resolveFallbackChain(configDir, repo, { fallbackChain: [{ provider: 'zai' }] })).chain).toEqual([{ provider: 'zai' }]);
   });
 });
