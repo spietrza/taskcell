@@ -532,6 +532,16 @@ describe('createRun with a `user` credential: no instance key fallback (user-onl
     const choice = { provider: 'my-proxy', customProviders: [{ ...ENTRY, index: 0 }] };
     expect(credentialEnv({ source: 'instance', env: {} }, choice).MY_PROXY_API_KEY).toBe('sk-host-proxy-key-123456');
   });
+
+  it('a picked stored account wins over a host Anthropic credential', () => {
+    setEnv({ CLAUDE_CODE_OAUTH_TOKEN: 'host-oauth-token-123456', ANTHROPIC_AUTH_TOKEN: 'host-gateway-123456' });
+    const env = credentialEnv({ source: 'instance', env: { ANTHROPIC_API_KEY: 'sk-ant-picked-123456' }, accountId: 'b', accountName: 'Key B' }, { provider: 'claude' });
+    expect(env.CLAUDE_CODE_OAUTH_TOKEN).toBeUndefined();
+    expect(env.ANTHROPIC_AUTH_TOKEN).toBeUndefined();
+    expect(env.ANTHROPIC_API_KEY).toBe('sk-ant-picked-123456');
+    // a credential that is not a stored account still overlays the host env, as before
+    expect(credentialEnv({ source: 'instance', env: {} }, { provider: 'claude' }).CLAUDE_CODE_OAUTH_TOKEN).toBe('host-oauth-token-123456');
+  });
 });
 
 describe('createRun registers a stored CODEX_AUTH_JSON\'s inner tokens for the secret gate', () => {

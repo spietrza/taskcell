@@ -446,8 +446,27 @@ describe('credential rotation through the run session', () => {
     const session = createRunSession(deps, (name, payload) => published.push({ name, payload }));
     await session.createRun({ issueRef: '1', repoPath: '/repo' } as CreateRunParams, undefined, first, rotation);
     expect(rotation.refresh).toHaveBeenCalledWith(first);
-    expect(seen[0]).toEqual([second, rotation]);
+    expect(seen[0]).toEqual([second, expect.objectContaining({ provider: 'claude' })]);
     expect(JSON.stringify(published)).toContain('"credentialName":"Key B"');
+    expect(JSON.stringify(published)).not.toContain('sk-B');
+  });
+
+  test('after a rotation, run-accepted (published and the backlog seed) names the account actually used', async () => {
+    const first = { source: 'instance' as const, env: { ANTHROPIC_API_KEY: 'sk-A' }, accountId: 'a', accountName: 'Key A' };
+    const second = { source: 'instance' as const, env: { ANTHROPIC_API_KEY: 'sk-B' }, accountId: 'b', accountName: 'Key B' };
+    const rotation = { provider: 'claude', hasNext: async () => true, limited: vi.fn(async () => second), cool: async () => {}, refresh: async (c: typeof first) => c };
+    const published: { name: string; payload: unknown }[] = [];
+    const deps = fakeDeps(async (_p, _e, _credential, rot) => {
+      await rot!.limited('a', new Date(Date.now() + 3600_000));
+      return {};
+    });
+    const session = createRunSession(deps, (name, payload) => published.push({ name, payload }));
+    const runId = await new Promise<string>((resolve) => {
+      void session.createRun({ issueRef: '1', repoPath: '/repo' } as CreateRunParams, { onStarted: resolve }, first, rotation);
+    });
+    await vi.waitFor(() => expect(JSON.stringify(published)).toContain('"credentialName":"Key B"'));
+    expect(rotation.limited).toHaveBeenCalledWith('a', expect.any(Date));
+    expect(session.backlog(runId)[0]).toMatchObject({ event: { type: 'run-accepted', credentialName: 'Key B' } });
     expect(JSON.stringify(published)).not.toContain('sk-B');
   });
 });

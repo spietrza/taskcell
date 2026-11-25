@@ -28,7 +28,7 @@ import { agentAuthFromEnv } from '../agents/auth.js';
 import { assertSkillsInstalled } from '../context/named-skills.js';
 import { hubSkillsDir, skillRegistryForRun } from '../context/skill-registry.js';
 import { BadRequestError } from './sidecar.js';
-import { CREDENTIAL_NAMES } from '../hub/credentials.js';
+import { ACCOUNT_ENV, CREDENTIAL_NAMES } from '../hub/credentials.js';
 import { codexAuthSecretValues, forgetInjectedSecretValue, registerInjectedSecretValue } from '../core/secret-scan.js';
 import { AgentError } from '../core/errors.js';
 import type { ProviderChoice } from '../agents/registry.js';
@@ -63,6 +63,8 @@ export function credentialEnv(credential: RunCredential | undefined, choice: Pro
       }
     }
   }
+  // A stored account is the run's one Anthropic credential: a host one must not outrank it (authFromEnv prefers the OAuth token).
+  if (credential.accountId !== undefined) for (const name of Object.values(ACCOUNT_ENV)) delete env[name];
   return Object.assign(env, credential.env);
 }
 

@@ -137,7 +137,7 @@ export const ACCOUNT_PROVIDERS = ['claude'] as const;
 export type AccountProvider = (typeof ACCOUNT_PROVIDERS)[number];
 /** Per provider, per scope (the instance scope is hub-wide; each signed-in user has their own). Disabled accounts count. */
 export const MAX_ACCOUNTS_PER_PROVIDER = 20;
-const ACCOUNT_ENV: Record<AccountType, string> = {
+export const ACCOUNT_ENV: Record<AccountType, string> = {
   subscription: 'CLAUDE_CODE_OAUTH_TOKEN',
   'api-key': 'ANTHROPIC_API_KEY',
   'auth-token': 'ANTHROPIC_AUTH_TOKEN',
@@ -595,7 +595,8 @@ export function createCredentialService(configDir: string, adminLogins: readonly
     return next;
   };
   const toCredential = (source: 'instance' | 'user', a: StoredAccount): RunCredential => ({ source, env: { [ACCOUNT_ENV[a.type]]: a.value }, accountId: a.id, accountName: a.name });
-  const enabledAccounts = async (scope: Scope): Promise<StoredAccount[]> => (await store.accounts(scope)).filter((a) => a.enabled && a.provider === 'claude');
+  // Only the types the claude provider authenticates with (`authFromEnv`): an auth-token (gateway) account is not rotated onto.
+  const enabledAccounts = async (scope: Scope): Promise<StoredAccount[]> => (await store.accounts(scope)).filter((a) => a.enabled && a.provider === 'claude' && a.type !== 'auth-token');
   /** The first enabled, non-cooling account (not in `skip`), or why none: how many are enabled and when the first resets. */
   const pickAccount = async (scope: Scope, source: 'instance' | 'user', skip: ReadonlySet<string> = new Set()): Promise<{ credential?: RunCredential; enabled: number; resets?: Date }> => {
     const enabled = await enabledAccounts(scope);

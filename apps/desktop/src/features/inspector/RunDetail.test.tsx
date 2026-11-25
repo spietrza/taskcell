@@ -104,3 +104,22 @@ test('the overview shows the stored credential name, never a value', () => {
   render(<RunDetail detail={{ taskId: 'task-1', timestamp: stage().record.timestamp, stages: [named] }} project="/repo" />);
   expect(screen.getByText(/billed to the hub's account "Team key 2"/)).toBeInTheDocument();
 });
+
+test('shows the flow line when the run has a flow, and none without', () => {
+  const detail: RunDetailT = { taskId: 'task-1', timestamp: 't', stages: [stage()] };
+  const { unmount } = render(<RunDetail detail={detail} project="/repo" flow="plan" />);
+  expect(screen.getByText('plan')).toBeInTheDocument();
+  expect(screen.getByText(/^Flow/)).toBeInTheDocument();
+  unmount();
+  render(<RunDetail detail={detail} project="/repo" />);
+  expect(screen.queryByText(/^Flow/)).toBeNull();
+});
+
+test('says the flow is unavailable when its events could not be read, and shows it when known', () => {
+  const detail: RunDetailT = { taskId: 'task-1', timestamp: '2026-07-06T19:12:02.000Z', stages: [stage()] };
+  const { rerender } = render(<RunDetail detail={detail} project="/repo" flowUnavailable />);
+  expect(screen.getByText(/Flow unavailable/)).toBeInTheDocument();
+  rerender(<RunDetail detail={detail} project="/repo" flow="plan" flowUnavailable />);
+  expect(screen.queryByText(/Flow unavailable/)).not.toBeInTheDocument();
+  expect(screen.getByText('plan')).toBeInTheDocument();
+});

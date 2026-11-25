@@ -235,8 +235,25 @@ export function createRunSession(
       eventLog = { runId, log: new RunEventLog(repoPath, undefined, undefined, { actor: actorFor(params.startedBy), subject: { repo: repoPath, runId } }) };
       // A queued run whose account has cooled since it was picked starts on the next one.
       if (credential !== undefined && rotation !== undefined) credential = await rotation.refresh(credential);
-      emit(runId, { type: 'run-accepted', repoPath, ...(credential !== undefined ? { credentialSource: credential.source } : {}), ...(credential?.accountName !== undefined ? { credentialName: credential.accountName } : {}) });
-      result = await deps.createRun(params, (e) => emit(runId, e), credential, rotation);
+      const accepted = (c: RunCredential | undefined): unknown => ({ type: 'run-accepted', repoPath, ...(c !== undefined ? { credentialSource: c.source } : {}), ...(c?.accountName !== undefined ? { credentialName: c.accountName } : {}) });
+      emit(runId, accepted(credential));
+      // After a rotation, the seeding event and the event log name the account actually funding the run.
+      const tracked: CredentialRotation | undefined = rotation === undefined ? undefined : {
+        provider: rotation.provider,
+        hasNext: () => rotation.hasNext(),
+        cool: (id, until) => rotation.cool(id, until),
+        refresh: (c) => rotation.refresh(c),
+        limited: async (id, until) => {
+          const next = await rotation.limited(id, until);
+          if (next !== undefined) {
+            const events = buffer.get(runId);
+            if (events?.[0] !== undefined && eventType(events[0]) === 'run-accepted') events[0] = { runId, event: accepted(next) };
+            emit(runId, accepted(next));
+          }
+          return next;
+        },
+      };
+      result = await deps.createRun(params, (e) => emit(runId, e), credential, tracked);
     } catch (error) {
       errMessage = error instanceof Error ? error.message : String(error);
     }

@@ -734,6 +734,22 @@ describe('multiple Claude accounts (store)', () => {
       expect(await svc.resolveForRun(undefined, 'claude')).toEqual({ source: 'instance', env: {} });
       expect(svc.rotationFor(undefined, 'claude', { source: 'instance', env: {} })).toBeUndefined();
     });
+
+    it('a migrated v1 store with an OAuth token and ANTHROPIC_AUTH_TOKEN never rotates onto the auth token (the run parks)', async () => {
+      const d = await dir();
+      const old = new ScopedCredentialStore(d);
+      await old.put('instance', 'CLAUDE_CODE_OAUTH_TOKEN', 'oauth');
+      await old.put('instance', 'ANTHROPIC_AUTH_TOKEN', 'gateway');
+      const svc = createCredentialService(d);
+      expect((await svc.store.accounts('instance')).map((a) => a.type)).toEqual(['subscription', 'auth-token']);
+      const first = await svc.resolveForRun(undefined, 'claude');
+      expect(first).toMatchObject({ env: { CLAUDE_CODE_OAUTH_TOKEN: 'oauth' } });
+      const rotation = svc.rotationFor(undefined, 'claude', first)!;
+      expect(await rotation.hasNext()).toBe(false);
+      expect(await rotation.limited(first.accountId!, new Date(Date.now() + 3600_000))).toBeUndefined();
+      // a new run is refused while the OAuth account cools, never picked onto the auth token
+      await expect(svc.resolveForRun(undefined, 'claude')).rejects.toThrow(/all 1 Claude credentials are cooling down/);
+    });
   });
 });
 
