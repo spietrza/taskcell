@@ -52,6 +52,9 @@ jobs:
         shell: bash
         env:
           INPUT_VERSION: ${{ inputs.version }}
+          # linuxdeploy (AppImage): its strip cannot handle the bundled node binary, and runners may lack FUSE.
+          NO_STRIP: 'true'
+          APPIMAGE_EXTRACT_AND_RUN: '1'
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
           APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
@@ -70,7 +73,7 @@ jobs:
           updater=false
           [ -n "${TAURI_SIGNING_PRIVATE_KEY:-}" ] && updater=true
           cd apps/desktop
-          pnpm bundle --config "{\"version\":\"$version\",\"bundle\":{\"createUpdaterArtifacts\":$updater}}" -- --locked
+          pnpm bundle --verbose --config "{\"version\":\"$version\",\"bundle\":{\"createUpdaterArtifacts\":$updater}}" -- --locked
       # The bundled hub must load from inside the app (a dropped node_modules once shipped an app whose hub never started).
       - name: Smoke-test the bundled hub
         if: runner.os == 'macOS'
