@@ -504,6 +504,8 @@ export class ScopedCredentialStore {
       if (prior === undefined && (input.value === undefined || input.value === '')) throw new CredentialStoreError('value is required for a new credential');
       const provider = input.provider ?? prior?.provider ?? 'claude';
       if (!(ACCOUNT_PROVIDERS as readonly string[]).includes(provider)) throw new CredentialStoreError(`provider must be one of: ${ACCOUNT_PROVIDERS.join(', ')}`);
+      // An account's provider is fixed: a changed one would leave a value of the wrong shape under the other provider's variable.
+      if (prior !== undefined && provider !== prior.provider) throw new CredentialStoreError(`this credential is a ${prior.provider} credential; its provider cannot be changed`);
       const next: StoredAccount = {
         id: prior?.id ?? randomUUID(),
         provider: provider as AccountProvider,

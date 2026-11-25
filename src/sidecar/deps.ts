@@ -415,8 +415,11 @@ async function createRunAttempt(rawParams: CreateRunParams, onEvent: (e: RunEven
             ? {
                 credentialRotation: { provider: rotation.provider, hasNext: () => rotation.hasNext() },
                 onCredentialCooled: (until: Date) => rotation.cool(credential.accountId!, until),
-                // Bound to this attempt's account: a refresh after the run moved to another account can only write to that one.
-                onCredentialRotated: (original: string, authJson: string) => rotation.saveRotated(credential.accountId!, original, authJson),
+                // Codex accounts only, bound to this attempt's account: a refresh after the run moved to another account can only write to that one.
+                // A Claude-account run keeps reporting a host Codex token rotation against process.env, as before.
+                ...(rotation.provider === 'codex'
+                  ? { onCredentialRotated: (original: string, authJson: string) => rotation.saveRotated(credential.accountId!, original, authJson) }
+                  : {}),
               }
             : {}),
           sandboxContext: ctx,

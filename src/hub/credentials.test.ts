@@ -942,6 +942,16 @@ describe('multiple Codex accounts', () => {
     expect(termsWarningFor(await store.accounts('instance'))).toBeUndefined();
   });
 
+  it('putAccount: an update cannot change an existing account\'s provider', async () => {
+    const store = new ScopedCredentialStore(await dir());
+    const k = await store.putAccount('instance', { provider: 'claude', name: 'K', type: 'subscription', value: 'oat-K' });
+    const c = await store.putAccount('instance', acct('C'));
+    await expect(store.putAccount('instance', { id: k, provider: 'codex', name: 'K' })).rejects.toThrow(/provider cannot be changed/);
+    await expect(store.putAccount('instance', { id: c, provider: 'claude', name: 'C', type: 'subscription' })).rejects.toThrow(/provider cannot be changed/);
+    expect((await store.accounts('instance')).map((a) => [a.id, a.provider, a.value])).toEqual([[k, 'claude', 'oat-K'], [c, 'codex', authJson('C')]]);
+    await store.putAccount('instance', { id: c, provider: 'codex', name: 'C2', enabled: false }); // same provider still updates
+  });
+
   it('reorderAccounts(provider) moves only that provider and keeps other slots', async () => {
     const store = new ScopedCredentialStore(await dir());
     const c1 = await store.putAccount('instance', acct('X1'));
