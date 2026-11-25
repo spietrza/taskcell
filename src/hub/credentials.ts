@@ -10,6 +10,7 @@ import { join } from 'node:path';
 import { BadRequestError } from '../sidecar/sidecar.js';
 import { readCooldownFile, recordCooldownFile } from '../core/cooldowns.js';
 import type { AccountType, CredentialAccountView, CredentialRotation, RunCredential } from '../wire.js';
+import { fallbackSlot } from '../wire.js';
 import { parseSignupAllowlist, type HubUser } from './auth.js';
 
 const LEGACY_MAGIC = 'VHC1';
@@ -567,7 +568,7 @@ export interface CredentialService {
   /** The credential a run started by `user` uses, per the admin switch. Throws a bad-request —
    * BEFORE the run claims the slot — when `user only` is on and the user has none for `provider`
    * (default claude). Resolved per provider: only that provider's variables are returned. */
-  resolveForRun(user: HubUser | undefined, provider?: string, extra?: readonly string[]): Promise<RunCredential>;
+  resolveForRun(user: HubUser | undefined, provider?: string, extra?: readonly string[], customKeys?: Readonly<Record<string, readonly string[]>>): Promise<RunCredential>;
 }
 
 export function createCredentialService(configDir: string, adminLogins: readonly string[] = [], secret?: string, hubAdmins: readonly string[] = []): CredentialService {
@@ -732,13 +733,21 @@ export function createCredentialService(configDir: string, adminLogins: readonly
       const names = provider === undefined ? CREDENTIAL_NAMES : PROVIDER_NAMES[provider] ?? [];
       return { ...process.env, ...pick(instanceValues, names) };
     },
-    async resolveForRun(user, provider = 'claude', extra = []) {
+    async resolveForRun(user, provider = 'claude', extra = [], customKeys = {}) {
       const policy = await service.policy();
       const names = PROVIDER_NAMES[provider];
       // The fallback chain's providers add their names to the env, but the source is decided by the primary alone.
-      const allNames = names === undefined ? undefined : [...new Set([...names, ...extra.flatMap((p) => PROVIDER_NAMES[p] ?? [])])];
-      // A stored Claude account funds the run alone; the chain providers' keys from the same scope join it (still one Anthropic variable).
+      // A non-Claude Engine takes Claude from the chain as ONE variable of the account list (`withClaudeVar`), never all three names.
       const anthropic = new Set(Object.values(ACCOUNT_ENV));
+      // A chain entry's key names: a built-in's, else a repo custom's `keyEnv` as the caller resolved it (`customKeys`).
+      const namesOf = (p: string): readonly string[] => PROVIDER_NAMES[p] ?? customKeys[p] ?? [];
+      const allNames = names === undefined ? undefined : [...new Set([...names, ...extra.flatMap((p) => (provider !== 'claude' && p === 'claude' ? [] : namesOf(p)))])];
+      const withClaudeVar = async (credential: RunCredential, scope: Scope): Promise<RunCredential> => {
+        if (provider === 'claude' || !extra.includes('claude') || names === undefined) return credential;
+        const picked = await pickAccount(scope, credential.source).catch(() => undefined);
+        return picked?.credential === undefined ? credential : { ...credential, env: { ...picked.credential.env, ...credential.env } };
+      };
+      // A stored Claude account funds the run alone; the chain providers' keys from the same scope join it (still one Anthropic variable).
       const chainNames = (allNames ?? []).filter((n) => !anthropic.has(n));
       const withChain = async (credential: RunCredential, scope: Scope): Promise<RunCredential> => {
         if (chainNames.length === 0) return credential;
@@ -746,15 +755,13 @@ export function createCredentialService(configDir: string, adminLogins: readonly
         return { ...credential, env: { ...pick(values, chainNames), ...credential.env } };
       };
       // Every account cooling is no refusal while a chain entry can take the run: it starts and the engine moves to the chain
-      // (as without stored accounts). A custom provider's keys are not known here, so it counts; deps drops it if unfunded.
+      // (as without stored accounts). Mirrors deps' `fundedParams`: a built-in or a repo custom with a key counts (meridian
+      // cannot run on a stored key), and a lone entry on the Engine's own transport (claude → zai or a custom) is dropped there.
       const chainFunded = async (scope: Scope): Promise<boolean> => {
         const values: Record<string, string> = await store.values(scope).catch(() => ({}));
         const hostFunds = scope === 'instance';
-        return extra.some((p) => {
-          if (p === 'claude') return false;
-          const keys = PROVIDER_NAMES[p];
-          return keys === undefined || keys.some((n) => (values[n] ?? '') !== '' || (hostFunds && (process.env[n] ?? '') !== ''));
-        });
+        const funded = extra.filter((p) => p !== 'claude' && namesOf(p).some((n) => (values[n] ?? '') !== '' || (hostFunds && (process.env[n] ?? '') !== '')));
+        return funded.length > 1 || (funded.length === 1 && fallbackSlot(funded[0]!) !== fallbackSlot('claude'));
       };
       const instance = async (): Promise<RunCredential> => {
         if (provider === 'claude') {
@@ -778,7 +785,7 @@ export function createCredentialService(configDir: string, adminLogins: readonly
           const fundable = names ?? (provider === 'meridian' ? ['MERIDIAN_API_KEY'] : []);
           if (!fundable.some((n) => (process.env[n] ?? '') !== '')) throw new BadRequestError(shownReason(error, STORE_UNREADABLE));
         }
-        return { source: 'instance', env: allNames === undefined ? env : pick(env, allNames) };
+        return withClaudeVar({ source: 'instance', env: allNames === undefined ? env : pick(env, allNames) }, 'instance');
       };
       if (policy === 'off') return instance();
       if (user === undefined) {
@@ -805,7 +812,7 @@ export function createCredentialService(configDir: string, adminLogins: readonly
       }
       // Meridian / custom providers (no `names`): any saved credential makes it a user run (credentialEnv refuses it if unusable).
       const mine = names === undefined ? own : pick(own, names);
-      if (Object.keys(mine).length > 0) return { source: 'user', env: allNames === undefined ? mine : pick(own, allNames) };
+      if (Object.keys(mine).length > 0) return withClaudeVar({ source: 'user', env: allNames === undefined ? mine : pick(own, allNames) }, USER_SCOPE(user));
       if (policy === 'user-only') {
         throw new BadRequestError(names === undefined ? USER_CREDENTIAL_REQUIRED : userCredentialRequiredFor(provider, names));
       }

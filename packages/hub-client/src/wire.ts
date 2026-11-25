@@ -1078,7 +1078,7 @@ export const FALLBACK_CHAIN_MAX = 8;
 const FALLBACK_PROVIDER_RE = /^[a-z0-9][a-z0-9._-]*$/;
 const FALLBACK_MODEL_RE = /^[A-Za-z0-9][A-Za-z0-9._:/-]{0,79}$/;
 /** A provider's transport slot (agents/registry.ts `transport`): codex and cursor own theirs; every other built-in and repo custom drives the claude CLI. */
-const fallbackSlot = (provider: string): string => (provider === 'codex' || provider === 'cursor' ? provider : 'claude-cli');
+export const fallbackSlot = (provider: string): string => (provider === 'codex' || provider === 'cursor' ? provider : 'claude-cli');
 
 /**
  * Why a fallback chain cannot be saved: one message per row (`undefined` = fine) and one for the list as a whole.

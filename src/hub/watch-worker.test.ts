@@ -203,6 +203,15 @@ describe('watch worker fallback chain', () => {
     expect(snippet).toContain('CODEX_AUTH_JSON: ${CODEX_AUTH_JSON}');
     expect(workerCredentials(gh, chain)).toEqual(['CLAUDE_CODE_OAUTH_TOKEN', 'GH_TOKEN', 'CODEX_AUTH_JSON', 'CURSOR_API_KEY']);
   });
+  test('the checklist leaves out a lone entry on the worker own transport (claude → zai) and keeps a pair', async () => {
+    const repo = await tmpGitRepo('https://github.com/acme/widgets.git');
+    await mkdir(join(repo, '.taskcell'), { recursive: true });
+    const write = (fallbackChain: unknown): Promise<void> => writeFile(join(repo, '.taskcell', 'app.json'), JSON.stringify({ fallbackChain }));
+    await write([{ provider: 'zai' }]);
+    expect((await watchWorkerChecklist(repo, undefined, Date.now(), async () => '')).command).not.toContain('--fallback-provider');
+    await write([{ provider: 'zai' }, { provider: 'codex' }]);
+    expect((await watchWorkerChecklist(repo, undefined, Date.now(), async () => '')).command).toContain('--fallback-provider=zai,codex');
+  });
   test('no chain gives output identical to today', () => {
     expect(watchArgs(gh, '.', [])).toEqual(watchArgs(gh, '.'));
     expect(composeSnippet(gh, [])).toBe(composeSnippet(gh));
