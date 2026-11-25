@@ -94,6 +94,10 @@ jobs:
           apps=(apps/desktop/src-tauri/target/release/bundle/macos/*.app)
           app="${apps[0]}"
           "$app/Contents/MacOS/node" "$app/Contents/Resources/taskcell/dist/cli/index.js" --help > /dev/null
+          # Under the hardened runtime V8 dies at start without JIT; a runner can still run the binary, so check the entitlement.
+          if codesign -dv "$app/Contents/MacOS/node" 2>&1 | grep -q '(runtime)'; then
+            codesign -d --entitlements - "$app/Contents/MacOS/node" 2>&1 | grep -q 'com.apple.security.cs.allow-jit'
+          fi
       - name: Collect installers
         shell: bash
         env:
