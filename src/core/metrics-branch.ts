@@ -62,9 +62,10 @@ function trackGroup(pid: number): void {
   exitHooked = true;
   process.once('exit', killAll);
   // A signal death skips 'exit': kill the groups, then die as the default would unless the app handles the signal itself.
+  // Prepended, so it runs before an app handler that removes itself first (the hub's shutdown) and still counts it.
   if (process.platform === 'win32') return;
   for (const sig of ['SIGINT', 'SIGTERM', 'SIGHUP'] as const) {
-    process.once(sig, () => {
+    process.prependOnceListener(sig, () => {
       killAll();
       if (process.listenerCount(sig) === 0) process.kill(process.pid, sig);
     });

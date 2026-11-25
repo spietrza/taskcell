@@ -305,7 +305,10 @@ describe('aborted tip fetch', () => {
     // A fresh module registers its hooks again (they register once per module); capture them instead of arming them.
     vi.resetModules();
     const hooks = new Map<string, () => void>();
-    const once = vi.spyOn(process, 'once').mockImplementation(((ev: string, fn: () => void) => (hooks.set(ev, fn), process)) as never);
+    const capture = ((ev: string, fn: () => void) => (hooks.set(ev, fn), process)) as never;
+    const once = vi.spyOn(process, 'once').mockImplementation(capture);
+    const prepended: string[] = [];
+    const prepend = vi.spyOn(process, 'prependOnceListener').mockImplementation(((ev: string, fn: () => void) => (prepended.push(ev), hooks.set(ev, fn), process)) as never);
     const fresh = await import('./metrics-branch.js');
     const controller = new AbortController();
     const read = fresh.readBranchFile(repo, { file: 'decisions.jsonl', signal: controller.signal });
@@ -315,7 +318,21 @@ describe('aborted tip fetch', () => {
       await new Promise((r) => setTimeout(r, 20));
     }
     once.mockRestore();
+    prepend.mockRestore();
     expect([...hooks.keys()].sort()).toEqual(['SIGHUP', 'SIGINT', 'SIGTERM', 'exit']);
+    // The signal hooks run before the app's own handlers, so a handler that removes itself first (the hub's graceful
+    // shutdown) is still counted and the hook does not re-raise the signal under it.
+    expect(prepended.sort()).toEqual(['SIGHUP', 'SIGINT', 'SIGTERM']);
+    const appHandler = (): void => {};
+    process.on('SIGTERM', appHandler);
+    const kill = vi.spyOn(process, 'kill').mockImplementation((() => true) as never);
+    try {
+      hooks.get('SIGTERM')?.();
+      expect(kill.mock.calls.filter(([p]) => p === process.pid)).toEqual([]);
+    } finally {
+      kill.mockRestore();
+      process.off('SIGTERM', appHandler);
+    }
     const pid = Number((await readFile(pidFile, 'utf8')).trim());
     expect(() => process.kill(pid, 0)).not.toThrow();
     hooks.get('exit')?.();
