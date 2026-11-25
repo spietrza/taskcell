@@ -26,6 +26,18 @@ export function subscriptionTokens(value: string | undefined): string[] {
   return [...new Set((value ?? '').split(/\r?\n/).map((t) => t.trim()).filter((t) => t !== ''))];
 }
 
+/**
+ * A copy of `env` whose `CLAUDE_CODE_OAUTH_TOKEN` holds only its first token, for host-side children that hand
+ * the variable straight to Claude (the `claude` CLI, the agent SDK); a multi-line value there fails every call.
+ */
+export function singleTokenEnv(env: NodeJS.ProcessEnv = process.env): Record<string, string> {
+  const out: Record<string, string> = {};
+  for (const [k, v] of Object.entries(env)) if (v !== undefined) out[k] = v;
+  const [first] = subscriptionTokens(env['CLAUDE_CODE_OAUTH_TOKEN']);
+  if (first !== undefined) out['CLAUDE_CODE_OAUTH_TOKEN'] = first;
+  return out;
+}
+
 /** Map an AgentAuth to the shape startLlmProxy wants (subscription token / api key; `more` = the further tokens to rotate onto). */
 export function llmProxyAuth(auth: AgentAuth): { mode: 'subscription' | 'api'; secret: string; more?: string[] } {
   if (auth.mode === 'api') return { mode: 'api', secret: auth.apiKey };

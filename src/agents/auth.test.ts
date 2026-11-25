@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { injectedSecretValues } from '../core/secret-scan.js';
 import { tokenRotationFor } from './token-rotation.js';
-import { subscriptionTokens, llmProxyAuth, authSecrets, authFromEnv, agentAuthFromEnv, refuseLlmProxyWithoutPrimarySidecar, SUBSCRIPTION_ENV, API_ENV } from './auth.js';
+import { subscriptionTokens, singleTokenEnv, llmProxyAuth, authSecrets, authFromEnv, agentAuthFromEnv, refuseLlmProxyWithoutPrimarySidecar, SUBSCRIPTION_ENV, API_ENV } from './auth.js';
 import { CliUsageError } from '../core/errors.js';
 
 describe('authSecrets', () => {
@@ -129,5 +129,14 @@ describe('several subscription tokens (one per line)', () => {
     const t2 = 'sk-ant-oat01-ZyXwVu9876543210abcDEFGHI2';
     const values = injectedSecretValues({ CLAUDE_CODE_OAUTH_TOKEN: `${t1}\n${t2}` });
     expect(values).toEqual(expect.arrayContaining([t1, t2]));
+  });
+});
+
+describe('singleTokenEnv', () => {
+  it('hands host-side Claude children only the first of several tokens and keeps the rest of the env', () => {
+    const env = singleTokenEnv({ CLAUDE_CODE_OAUTH_TOKEN: ' tok-1\r\ntok-2\n', PATH: '/bin', UNSET: undefined });
+    expect(env).toEqual({ CLAUDE_CODE_OAUTH_TOKEN: 'tok-1', PATH: '/bin' });
+    expect(singleTokenEnv({ CLAUDE_CODE_OAUTH_TOKEN: 'only' })).toEqual({ CLAUDE_CODE_OAUTH_TOKEN: 'only' });
+    expect(singleTokenEnv({ ANTHROPIC_API_KEY: 'k' })).toEqual({ ANTHROPIC_API_KEY: 'k' });
   });
 });
