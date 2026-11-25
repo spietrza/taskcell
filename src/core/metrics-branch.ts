@@ -41,20 +41,36 @@ export interface PushMetricsResult {
   total: number;
 }
 
-/** Kill a detached child's whole process group (its transport helpers too); the child alone where groups do not exist. */
+/** Signal a detached child's whole process group (its transport helpers too); the child alone where groups do not exist. */
+function signalGroup(pid: number, sig: NodeJS.Signals): void {
+  try {
+    process.kill(process.platform === 'win32' ? pid : -pid, sig);
+  } catch {
+    // already gone
+  }
+}
+
+const KILL_GRACE_MS = 2000;
+/** Detached children still running, and killed ones inside their grace: a process exit sends them SIGKILL (an `unref`'d timer would never fire then). */
+const liveGroups = new Set<number>();
+const killing = new Set<number>();
+let exitHooked = false;
+function trackGroup(pid: number): void {
+  liveGroups.add(pid);
+  if (exitHooked) return;
+  exitHooked = true;
+  process.once('exit', () => [...liveGroups, ...killing].forEach((p) => signalGroup(p, 'SIGKILL')));
+}
+
+/** SIGTERM first so git can remove its lockfiles; SIGKILL after a grace period for what ignores it. */
 function killGroup(pid: number | undefined): void {
   if (pid === undefined) return;
-  const target = process.platform === 'win32' ? pid : -pid;
-  const send = (sig: NodeJS.Signals): void => {
-    try {
-      process.kill(target, sig);
-    } catch {
-      // already gone
-    }
-  };
-  // SIGTERM first so git can remove its lockfiles; SIGKILL after a grace period for what ignores it.
-  send('SIGTERM');
-  setTimeout(() => send('SIGKILL'), 2000).unref();
+  signalGroup(pid, 'SIGTERM');
+  killing.add(pid);
+  setTimeout(() => {
+    killing.delete(pid);
+    signalGroup(pid, 'SIGKILL');
+  }, KILL_GRACE_MS).unref();
 }
 
 /**
@@ -71,13 +87,18 @@ function git(cwd: string, args: string[], signal?: AbortSignal): Promise<string>
     // Never wait on a credential prompt nobody can answer.
     env: { GIT_TERMINAL_PROMPT: '0' },
   });
+  const pid = child.pid;
+  if (pid !== undefined) trackGroup(pid);
   return new Promise<string>((resolve, reject) => {
     const onAbort = (): void => {
       killGroup(child.pid);
       reject(signal.reason);
     };
     signal.addEventListener('abort', onAbort, { once: true });
-    child.then((r) => resolve(r.stdout), reject).finally(() => signal.removeEventListener('abort', onAbort));
+    child.then((r) => resolve(r.stdout), reject).finally(() => {
+      signal.removeEventListener('abort', onAbort);
+      if (pid !== undefined) liveGroups.delete(pid);
+    });
   });
 }
 

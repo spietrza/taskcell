@@ -703,7 +703,7 @@ export function Inspector({
         </div>
       ) : liveRun && screen !== 'runs' ? (
         <div className="flex min-h-0 flex-1 flex-col">
-          <LiveRun active={liveRun} refreshKey={tick} budgetUsd={cfg.budgetUsd} />
+          <LiveRun active={liveRun} repo={liveRun.repoPath ?? project} refreshKey={tick} budgetUsd={cfg.budgetUsd} />
         </div>
       ) : taskDetailId ? (
         // taskDetailId only fires from the board (full-bleed frame) — re-cap width so this reading

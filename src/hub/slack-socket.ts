@@ -42,7 +42,7 @@ const stripPaths = (s: string): string =>
     .replace(/\\\\[^\s'"`]+/g, '[path]')
     .replace(/\b[A-Za-z]:[\\/][^\s'"`]*/g, '[path]')
     // A POSIX path, one segment or more; a space belongs to it only when a `/` follows the next word (`/Users/John Smith/repo`).
-    .replace(/(?<![\w/:.])\/[^\s'"`/]+(?:\/[^\s'"`/]+| [^\s'"`/]+(?=\/))*\/?[^\s'"`]*/g, '[path]');
+    .replace(/(?<![\w/:])\/[^\s'"`/]+(?:\/[^\s'"`/]+| [^\s'"`/]+(?=\/))*\/?[^\s'"`]*/g, '[path]');
 
 export function parseSlackUsers(raw: string | undefined): Map<string, string> {
   const map = new Map<string, string>();

@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import { mkdtemp, rm, mkdir, writeFile, symlink } from 'node:fs/promises';
+import { mkdtemp, rm, mkdir, writeFile, symlink, readFile, chmod } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { createServer, type Socket } from 'node:net';
 import { join } from 'node:path';
@@ -265,4 +265,31 @@ describe('aborted tip fetch', () => {
       await new Promise((r) => server.close(r));
     }
   });
+
+  it('sends SIGKILL to a fetch group that ignores SIGTERM, after the grace period', async () => {
+    await appendBranchLines(repo, ['{"id":0}'], { file: 'decisions.jsonl' });
+    const { stdout: realGit } = await execa('which', ['git']);
+    // A `git` that ignores SIGTERM (as do its children) when it is asked to fetch, the real one otherwise.
+    const bin = join(root, 'bin');
+    await mkdir(bin);
+    const pidFile = join(root, 'fake-git.pid');
+    await writeFile(join(bin, 'git'), `#!/bin/sh\nif [ "$3" != fetch ] && [ "$1" != fetch ]; then exec ${realGit} "$@"; fi\ntrap '' TERM\necho $$ > ${pidFile}\nwhile :; do sleep 1; done\n`);
+    await chmod(join(bin, 'git'), 0o755);
+    vi.stubEnv('PATH', `${bin}:${process.env.PATH ?? ''}`);
+    const controller = new AbortController();
+    const read = readBranchFile(repo, { file: 'decisions.jsonl', signal: controller.signal });
+    for (let i = 0; ; i++) {
+      if (await readFile(pidFile, 'utf8').then((t) => t.trim() !== '', () => false)) break;
+      if (i > 250) throw new Error('the fake git never started');
+      await new Promise((r) => setTimeout(r, 20));
+    }
+    const pid = Number((await readFile(pidFile, 'utf8')).trim());
+    controller.abort(new Error('timed out'));
+    await expect(read).rejects.toThrow('timed out');
+    // SIGTERM is ignored: the group is still there inside the grace period, gone after it.
+    await new Promise((r) => setTimeout(r, 500));
+    expect(() => process.kill(pid, 0)).not.toThrow();
+    await new Promise((r) => setTimeout(r, 2200));
+    expect(() => process.kill(pid, 0)).toThrow();
+  }, 15_000);
 });

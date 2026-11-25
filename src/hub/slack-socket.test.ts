@@ -266,6 +266,29 @@ describe('slack answers: isolation and redaction', () => {
     h.close();
   });
 
+  test('a reply that timed out while its caller was looked up is not dispatched afterwards', async () => {
+    let release: () => void = () => undefined;
+    const slow = new Promise<void>((r) => { release = r; });
+    const h = start({ replyTimeoutMs: 20, ofRegistration: async () => { await slow; return { user, owner: false }; } });
+    await tick();
+    FakeWS.all[0]!.push(ev());
+    await tick(60);
+    release();
+    await tick();
+    expect(dispatch).not.toHaveBeenCalled();
+    h.close();
+  });
+
+  test('stripPaths covers paths after a dot: ../, ./ and a name ending in a dot', async () => {
+    dispatch.mockRejectedValue(new BadRequestError('a ../../srv/hub/repos/x b foo./etc/passwd c 1./srv/a d ./srv/hub/x'));
+    const h = start();
+    await tick();
+    FakeWS.all[0]!.push(ev());
+    await tick();
+    expect(notes().join(' ')).not.toMatch(/srv|etc/);
+    h.close();
+  });
+
   test('replies in one thread run in order', async () => {
     const order: string[] = [];
     dispatch.mockImplementation(async (_c: unknown, _m: string, a: { body: string }) => {

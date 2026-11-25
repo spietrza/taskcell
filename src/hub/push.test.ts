@@ -1,6 +1,6 @@
 import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
-import { describe, expect, test } from 'vitest';
+import { describe, expect, test, vi } from 'vitest';
 import { AuditLog } from './audit.js';
 import { loadPushTokens, notifyNewItems, type NotifierDeps, type WaitingItem } from './push.js';
 import { savePaths } from './projects.js';
@@ -109,5 +109,32 @@ describe('notifyNewItems', () => {
     expect(await notifyNewItems(deps())).toBe(1);
     expect(sent).toEqual([T1]);
     expect(await loadPushTokens(ctx.configDir)).toEqual([]);
+  });
+});
+
+describe('a failing push pass', () => {
+  test('is logged and does not skip the Slack post for the same items', async () => {
+    const { ctx, repo } = await setup();
+    await dispatchRpc(ctx, 'register_push_token', { token: T1, platform: 'ios' }, ann);
+    const slackPosts: Record<string, unknown>[] = [];
+    const slack = {
+      token: 't',
+      channel: 'C1',
+      fetchImpl: (async (_u: string, init: RequestInit) => {
+        slackPosts.push(JSON.parse(String(init.body)) as Record<string, unknown>);
+        return new Response(JSON.stringify({ ok: true, ts: '1.2', channel: 'C1' }), { status: 200 });
+      }) as unknown as typeof fetch,
+    };
+    const callerOf = vi.fn(async (): Promise<Caller | undefined> => { throw new Error('users store unreadable'); });
+    const deps = (items: WaitingItem[]): NotifierDeps => ({ configDir: ctx.configDir, listWaiting: async () => items, callerOf, slack });
+    // The first pass only records what waits; the second one has a new item and fails while resolving who sees it.
+    await notifyNewItems(deps([]));
+    const error = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    const asking = item(repo, 9, { kind: 'card', reason: 'asking', ask: 'question', lastComment: { author: 'a', body: 'which file?' } });
+    await expect(notifyNewItems(deps([asking]))).resolves.toBe(0);
+    expect(callerOf).toHaveBeenCalled();
+    expect(error).toHaveBeenCalledWith(expect.stringContaining('push: pass failed'));
+    expect(slackPosts).toHaveLength(1);
+    error.mockRestore();
   });
 });

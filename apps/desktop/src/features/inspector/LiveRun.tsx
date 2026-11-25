@@ -6,14 +6,16 @@ import { FlowLine } from './RunDetail';
 import { foldRunEvents } from './runStages';
 import { readRunEvents } from '../../ipc';
 import type { ActiveRun, SessionRead } from '../../taskcell-output';
-import type { RepoStamp } from '../../wire';
 
 export function LiveRun({
   active,
+  repo,
   refreshKey,
   budgetUsd,
 }: {
-  active: ActiveRun & Partial<RepoStamp>;
+  active: ActiveRun;
+  /** The run's repository: its event log is read from there. */
+  repo: string;
   refreshKey: number;
   /** Budget cap from the project's .taskcell/app.json; when set, the strip shows spend vs cap.
    *  Nullable like the config field — Rust's serde writes `null` for an absent `Option`. */
@@ -26,13 +28,13 @@ export function LiveRun({
   useEffect(() => {
     let alive = true;
     setFlowFailed(false);
-    readRunEvents(active.repoPath ?? '', active.taskId)
+    readRunEvents(repo, active.taskId)
       .then((r) => alive && setFlow(foldRunEvents(r.events).flow))
       .catch(() => alive && setFlowFailed(true));
     return () => {
       alive = false;
     };
-  }, [active.repoPath, active.taskId, refreshKey]);
+  }, [repo, active.taskId, refreshKey]);
   const bottomRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
