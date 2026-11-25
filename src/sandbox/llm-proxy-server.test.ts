@@ -1004,6 +1004,29 @@ describe('llm-proxy-server chatgpt auth kind (in-process factory, fake IdP/upstr
     expect(await res.text()).not.toContain('UPSTREAM-BODY');
   });
 
+  it('rotating subscription tokens: every terminal credential note names the credential it is on', async () => {
+    const err = vi.spyOn(console, 'error').mockImplementation(() => {});
+    try {
+      const refused = await startRotating((req, res) => {
+        req.resume();
+        res.writeHead(401);
+        res.end('{}');
+      });
+      await refused.call();
+      const limited = await startRotating((req, res) => {
+        req.resume();
+        res.writeHead(429, { 'anthropic-ratelimit-unified-status': 'rejected', 'retry-after': '120' });
+        res.end('{}');
+      });
+      await limited.call();
+      const notes = err.mock.calls.map((c) => String(c[0])).filter((l) => l.startsWith('llm-proxy: credential'));
+      expect(notes.find((l) => l.includes('no credential is left'))).toMatch(/; on credential 2$/);
+      expect(notes.find((l) => l.includes('every credential is out'))).toMatch(/; on credential [12]$/);
+    } finally {
+      err.mockRestore();
+    }
+  });
+
   it('refuses a control character in a SECRET_n credential', () => {
     expect(() => createLlmProxyServer(`${ROTATING}SECRET_3=tok\u0001three\n`)).toThrow(/control characters/);
   });

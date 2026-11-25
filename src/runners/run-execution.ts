@@ -285,7 +285,7 @@ export async function executeIssueRun(run: IssueRunExecution): Promise<RunIssueR
     // Lessons are only all known once the gate repairs have run, so read them at write time.
     const stageMeta = async (): Promise<typeof runMeta & { lessonIds: string[]; skills: RunSkills; maxRepairIterations: number; modelPicks?: Record<string, StagePick>; llmCredential?: ProxyCredential }> => ({
       ...runMeta,
-      ...await proxyCredential().then((c) => (c !== undefined ? { llmCredential: c } : {})),
+      ...await proxyCredential(deps.sandboxContext?.llmProxy?.host).then((c) => (c !== undefined ? { llmCredential: c } : {})),
       lessonIds: [...lessonIds],
       skills: skillsRecord,
       maxRepairIterations: deps.maxRepairIterations ?? MAX_REPAIR_ITERATIONS,

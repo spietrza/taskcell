@@ -4,7 +4,7 @@ import { describe, expect, it, vi, beforeEach } from 'vitest';
 import { mkdir, mkdtemp, writeFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { startProviderProxies } from '../sandbox/llm-proxy.js';
+import { proxyCredential, startProviderProxies } from '../sandbox/llm-proxy.js';
 import { ProviderLimitError } from '../core/errors.js';
 import { isRateLimitHold } from '../core/rate-limit-marker.js';
 import { resolveVerifyCommand, runVerification } from '../pipeline/verify.js';
@@ -887,6 +887,15 @@ describe('runSourcedIssue', () => {
     expect(publishForReview).not.toHaveBeenCalled();
     expect(order).toEqual([]);
     expect(resolveAndRunVisualProof).toHaveBeenCalled();
+  });
+
+  it('records the credential of this run\'s own llm-proxy sidecar', async () => {
+    commitStage.mockResolvedValueOnce({ committed: false, branch: 'b' });
+    vi.mocked(proxyCredential).mockResolvedValueOnce({ index: 2, of: 2, note: 'switched' });
+    const sandboxContext = { proxyMode: true, network: 'vg-egr-x', llmProxy: { url: 'http://vg-llm-run1:8080', nonce: 'n', host: 'vg-llm-run1' } };
+    await runSourcedIssue('group/project#1', { repoPath: '/repo', sandboxContext }, fakeAdapter([], STAGES));
+    expect(vi.mocked(proxyCredential)).toHaveBeenLastCalledWith('vg-llm-run1');
+    expect((writeStages.mock.calls.at(-1) as unknown[] | undefined)?.[1]).toEqual(expect.objectContaining({ llmCredential: { index: 2, of: 2, note: 'switched' } }));
   });
 
   it('injects --spec-file content as a virtual comment without mutating the fetched task', async () => {

@@ -685,7 +685,8 @@ export function createLlmProxyServer(secretText, options = {}) {
               }, wait);
               return;
             }
-            if (planLimit) console.error(`${CREDENTIAL_NOTE_PREFIX}${idx + 1} of ${tokens.length} hit a plan limit and every credential is out`);
+            // Every note names the credential the sidecar is on, so the host reads it from the last note alone.
+            if (planLimit) console.error(`${CREDENTIAL_NOTE_PREFIX}${idx + 1} of ${tokens.length} hit a plan limit and every credential is out; on credential ${pickToken() + 1}`);
             const outHeaders = {};
             for (const [key, value] of Object.entries(upRes.headers)) {
               if (HOP_BY_HOP.has(key.toLowerCase()) || key.toLowerCase() === 'content-length') continue;
@@ -709,7 +710,7 @@ export function createLlmProxyServer(secretText, options = {}) {
             forward(req, res, body, started, setUpstream, cleanup, isDone, next, replays + 1);
             return;
           }
-          console.error(`${CREDENTIAL_NOTE_PREFIX}${idx + 1} of ${tokens.length} was refused (expired or revoked, dead for this run) and no credential is left`);
+          console.error(`${CREDENTIAL_NOTE_PREFIX}${idx + 1} of ${tokens.length} was refused (expired or revoked, dead for this run) and no credential is left; on credential ${(dead[next] ? idx : next) + 1}`);
           sendAuthRefused(req, res, upRes.statusCode, started, cleanup);
           return;
         }
