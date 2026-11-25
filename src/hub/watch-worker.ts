@@ -7,6 +7,8 @@ import { shellQuote } from '../agents/shell.js';
 import { NO_REMOTE_MESSAGE, type WatchWorkerChecklist } from '../wire.js';
 import { BadRequestError } from '../sidecar/sidecar.js';
 import { readAppConfig } from './app-config.js';
+import { fallbackFlags, loneEntryRefused, resolveFallbackChain, type FallbackEntry } from './fallback-chain.js';
+import { PROVIDER_NAMES } from './credentials.js';
 import { defaultExec, GITHUB_REPO_SLUG, type FactoryExec } from './enable-factory.js';
 import { GITLAB_HOSTNAME, GITLAB_PROJECT_PATH, hostOfOrigin, readOrigin } from './enable-factory-gitlab.js';
 import { resolveTaskSource } from './projects.js';
@@ -27,29 +29,37 @@ export interface WatchTarget {
 }
 
 /** Credential names the worker needs (names only): the agent, the forge its runs publish to, and Linear when it reads tasks there. */
-export function workerCredentials(t: Pick<WatchTarget, 'source' | 'forge'>): string[] {
+export function workerCredentials(t: Pick<WatchTarget, 'source' | 'forge'>, chain: readonly FallbackEntry[] = []): string[] {
   const tracker = t.source === 'linear' ? ['LINEAR_API_KEY'] : [];
-  return ['CLAUDE_CODE_OAUTH_TOKEN', t.forge === 'gitlab' ? 'GITLAB_TOKEN' : 'GH_TOKEN', ...tracker];
+  // A fallback chain's providers need their own keys on the worker; the first name of each (the primary token, as for Claude).
+  const fallbacks = chain.map((e) => PROVIDER_NAMES[e.provider]?.[0]).filter((n): n is string => n !== undefined);
+  return [...new Set(['CLAUDE_CODE_OAUTH_TOKEN', t.forge === 'gitlab' ? 'GITLAB_TOKEN' : 'GH_TOKEN', ...tracker, ...fallbacks])];
+}
+
+/** `--fallback-provider` / `--fallback-model` for the project's fallback chain; none without one. */
+function fallbackArgs(chain: readonly FallbackEntry[]): string[] {
+  const { fallbackProvider, fallbackModel } = fallbackFlags(chain);
+  return [...(fallbackProvider !== undefined ? [`--fallback-provider=${fallbackProvider}`] : []), ...(fallbackModel !== undefined ? [`--fallback-model=${fallbackModel}`] : [])];
 }
 
 /** The `taskcell watch` arguments for this repo; `repoDir` is where the worker has the clone. */
-export function watchArgs(t: WatchTarget, repoDir: string): string[] {
+export function watchArgs(t: WatchTarget, repoDir: string, chain: readonly FallbackEntry[] = []): string[] {
   const target = t.source === 'github' ? [`--github-repo=${t.slug}`] : t.source === 'gitlab' ? [`--gitlab-project=${t.slug}`] : [];
   // Linear and GitLab loops need an ownership label; GitHub routes on its ready-for-* labels.
   const label = t.source === 'github' ? [] : ['--label=vanguard'];
-  return ['watch', '--loop-v1', `--source=${t.source}`, ...target, ...label, `--repo=${repoDir}`, '--interval=120', '--llm-proxy'];
+  return ['watch', '--loop-v1', `--source=${t.source}`, ...target, ...label, `--repo=${repoDir}`, '--interval=120', '--llm-proxy', ...fallbackArgs(chain)];
 }
 
 /** The same worker as one shell line; every argument is quoted unless it is plainly safe. */
-export function watchCommandLine(t: WatchTarget): string {
+export function watchCommandLine(t: WatchTarget, chain: readonly FallbackEntry[] = []): string {
   const env = t.gitlabHost !== undefined ? [`GITLAB_HOST=${shellQuote(t.gitlabHost)}`] : [];
-  return [...env, 'taskcell', ...watchArgs(t, '.').map((a) => (/^[A-Za-z0-9_./=:-]+$/.test(a) ? a : shellQuote(a)))].join(' ');
+  return [...env, 'taskcell', ...watchArgs(t, '.', chain).map((a) => (/^[A-Za-z0-9_./=:-]+$/.test(a) ? a : shellQuote(a)))].join(' ');
 }
 
 /** Compose service for one repo, shaped like docker/compose.yaml's `vanguard-watch` (credentials by name, values from `.env`; same host guards). */
-export function composeSnippet(t: WatchTarget): string {
-  const env = workerCredentials(t).map((n) => `      ${n}: \${${n}}`);
-  const command = watchArgs(t, '/work/repo').map((a) => `      - ${a}`);
+export function composeSnippet(t: WatchTarget, chain: readonly FallbackEntry[] = []): string {
+  const env = workerCredentials(t, chain).map((n) => `      ${n}: \${${n}}`);
+  const command = watchArgs(t, '/work/repo', chain).map((a) => `      - ${a}`);
   return [
     'services:',
     '  taskcell-watch:',
@@ -173,17 +183,22 @@ async function remoteWatchTimestamps(repoPath: string, sinceMs: number, read: Re
   return out;
 }
 
-export async function watchWorkerChecklist(repoPath: string, exec: FactoryExec = defaultExec, now: number = Date.now(), readRemote: RemoteText = readBranchMetrics): Promise<WatchWorkerChecklist> {
-  const target = watchTarget(await readOrigin(exec, repoPath), resolveTaskSource(await readAppConfig(repoPath)));
+export async function watchWorkerChecklist(repoPath: string, exec: FactoryExec = defaultExec, now: number = Date.now(), readRemote: RemoteText = readBranchMetrics, configDir?: string): Promise<WatchWorkerChecklist> {
+  const config = await readAppConfig(repoPath);
+  const target = watchTarget(await readOrigin(exec, repoPath), resolveTaskSource(config));
+  // `taskcell watch` takes built-in providers in its fallback list; a repo custom stays out of the generated command.
+  // The command sets no --provider (the worker runs claude): a lone entry it cannot pair with would make `taskcell watch` refuse to start.
+  const builtins = (await resolveFallbackChain(configDir, repoPath, config)).chain.filter((e) => e.provider in PROVIDER_NAMES);
+  const chain = (await loneEntryRefused(builtins, repoPath, undefined)) ? [] : builtins;
   // Records inside the window are read; past it only a capped newest-first scan for the last watch run (so "stale" keeps its date).
   const since = now - WORKER_RECENT_MS;
   const [local, remote] = await Promise.all([recentWatchTimestamps(defaultRunsRoot(repoPath), since), remoteWatchTimestamps(repoPath, since, readRemote)]);
   return {
     repoSlug: target.slug,
     source: target.source,
-    compose: composeSnippet(target),
-    command: watchCommandLine(target),
-    credentials: workerCredentials(target),
+    compose: composeSnippet(target, chain),
+    command: watchCommandLine(target, chain),
+    credentials: workerCredentials(target, chain),
     ...workerSeen([...local, ...remote], now),
   };
 }

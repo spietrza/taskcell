@@ -6,7 +6,7 @@ import type { SettingsSection } from './sections';
 import { NavGuardContext, createNavGuardRegistry } from '../../navGuard';
 
 vi.mock('./Settings', () => ({ Settings: () => <div>general content</div> }));
-vi.mock('./CredentialsPanel', () => ({ CredentialsPanel: () => <div>credentials content</div> }));
+vi.mock('./CredentialsPanel', async (importOriginal) => ({ ...(await importOriginal<typeof import('./CredentialsPanel')>()), CredentialsPanel: () => <div>credentials content</div> }));
 vi.mock('../line/LineEditor', () => ({ LineEditor: () => <div>line content</div> }));
 afterEach(() => vi.restoreAllMocks());
 

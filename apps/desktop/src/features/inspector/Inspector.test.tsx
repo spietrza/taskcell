@@ -21,6 +21,7 @@ vi.mock('../../ipc', () => ({
 }));
 // The children under test elsewhere: RunDetail shows the flow it is handed.
 vi.mock('./RunDetail', () => ({ RunDetail: ({ flow }: { flow?: string }) => <div data-testid="run-detail">{flow ?? 'no flow'}</div> }));
+vi.mock('./LiveRun', () => ({ LiveRun: ({ repo }: { repo: string }) => <div data-testid="live-run">{repo}</div> }));
 vi.mock('../needs-you/CardAnswer', () => ({ CardAnswer: () => null }));
 vi.mock('../board/TaskBoard', () => ({ TaskBoard: () => null }));
 import { readRunEvents } from '../../ipc';
@@ -63,4 +64,19 @@ test("a run opened as the plain detail shows the flow its event log's run-start 
   );
   await waitFor(() => expect(screen.getByTestId('run-detail')).toHaveTextContent('plan'));
   expect(readRunEvents).toHaveBeenCalledWith('/repo', 'hub-1', detail.timestamp);
+});
+
+test("a live run is read from its own repository, else the open project's", async () => {
+  const props = {
+    project: '/repo', projects: [], allRepos: false, filter: DEFAULT_FILTER, onFilter: () => {}, screen: 'board' as const, settingsSection: 'general' as const,
+    onSettingsSection: () => {}, clearNonce: 0, newTaskNonce: 0, onCrumb: () => {}, onTaskCrumb: () => {}, onNewTask: () => {}, onOpenBoard: () => {},
+  };
+  const live = { taskId: 'hub-1', sessionFile: '/s', lastActivityMs: 0 };
+  const { rerender, unmount } = render(<Inspector {...props} focusRunning={null} focusRun={null as never} />);
+  rerender(<Inspector {...props} focusRunning={{ ...live, repoPath: '/other' } as never} focusRun={null as never} />);
+  await waitFor(() => expect(screen.getByTestId('live-run')).toHaveTextContent('/other'));
+  unmount();
+  const second = render(<Inspector {...props} focusRunning={null} focusRun={null as never} />);
+  second.rerender(<Inspector {...props} focusRunning={live as never} focusRun={null as never} />);
+  await waitFor(() => expect(screen.getByTestId('live-run')).toHaveTextContent('/repo'));
 });

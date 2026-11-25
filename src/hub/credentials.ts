@@ -566,7 +566,7 @@ export interface CredentialService {
   /** The credential a run started by `user` uses, per the admin switch. Throws a bad-request —
    * BEFORE the run claims the slot — when `user only` is on and the user has none for `provider`
    * (default claude). Resolved per provider: only that provider's variables are returned. */
-  resolveForRun(user: HubUser | undefined, provider?: string): Promise<RunCredential>;
+  resolveForRun(user: HubUser | undefined, provider?: string, extra?: readonly string[]): Promise<RunCredential>;
 }
 
 export function createCredentialService(configDir: string, adminLogins: readonly string[] = [], secret?: string, hubAdmins: readonly string[] = []): CredentialService {
@@ -661,6 +661,10 @@ export function createCredentialService(configDir: string, adminLogins: readonly
       const scope: Scope = first.source === 'user' && user !== undefined ? USER_SCOPE(user) : 'instance';
       const exhausted = new Set<string>();
       let current = first.accountId;
+      // The fallback chain's keys ride along on every account the run moves to; only the Anthropic variable changes.
+      const anthropic = new Set(Object.values(ACCOUNT_ENV));
+      const chainEnv = Object.fromEntries(Object.entries(first.env).filter(([name]) => !anthropic.has(name)));
+      const withChain = (c: RunCredential | undefined): RunCredential | undefined => (c === undefined ? undefined : { ...c, env: { ...chainEnv, ...c.env } });
       return {
         provider: 'claude',
         async hasNext() {
@@ -676,7 +680,7 @@ export function createCredentialService(configDir: string, adminLogins: readonly
           try {
             const next = (await pickAccount(scope, first.source, exhausted)).credential;
             if (next?.accountId !== undefined) current = next.accountId;
-            return next;
+            return withChain(next);
           } catch {
             return undefined;
           }
@@ -688,7 +692,7 @@ export function createCredentialService(configDir: string, adminLogins: readonly
           if (cur.accountId === undefined || !(await readCooling()).has(coolKey(scope, cur.accountId))) return cur;
           const next = (await pickAccount(scope, first.source, exhausted)).credential;
           if (next?.accountId !== undefined) current = next.accountId;
-          return next ?? cur;
+          return withChain(next) ?? cur;
         },
       };
     },
@@ -723,14 +727,24 @@ export function createCredentialService(configDir: string, adminLogins: readonly
       const names = provider === undefined ? CREDENTIAL_NAMES : PROVIDER_NAMES[provider] ?? [];
       return { ...process.env, ...pick(instanceValues, names) };
     },
-    async resolveForRun(user, provider = 'claude') {
+    async resolveForRun(user, provider = 'claude', extra = []) {
       const policy = await service.policy();
       const names = PROVIDER_NAMES[provider];
+      // The fallback chain's providers add their names to the env, but the source is decided by the primary alone.
+      const allNames = names === undefined ? undefined : [...new Set([...names, ...extra.flatMap((p) => PROVIDER_NAMES[p] ?? [])])];
+      // A stored Claude account funds the run alone; the chain providers' keys from the same scope join it (still one Anthropic variable).
+      const anthropic = new Set(Object.values(ACCOUNT_ENV));
+      const chainNames = (allNames ?? []).filter((n) => !anthropic.has(n));
+      const withChain = async (credential: RunCredential, scope: Scope): Promise<RunCredential> => {
+        if (chainNames.length === 0) return credential;
+        const values = await store.values(scope).catch(() => ({}));
+        return { ...credential, env: { ...pick(values, chainNames), ...credential.env } };
+      };
       const instance = async (): Promise<RunCredential> => {
         if (provider === 'claude') {
           try {
             const { credential, enabled, resets } = await pickAccount('instance', 'instance');
-            if (credential !== undefined) return credential;
+            if (credential !== undefined) return await withChain(credential, 'instance');
             if (enabled > 0) throw allCooling(enabled, resets);
           } catch (error) {
             if (error instanceof BadRequestError && !(error instanceof CredentialStoreError)) throw error;
@@ -747,7 +761,7 @@ export function createCredentialService(configDir: string, adminLogins: readonly
           const fundable = names ?? (provider === 'meridian' ? ['MERIDIAN_API_KEY'] : []);
           if (!fundable.some((n) => (process.env[n] ?? '') !== '')) throw new BadRequestError(shownReason(error, STORE_UNREADABLE));
         }
-        return { source: 'instance', env: names === undefined ? env : pick(env, names) };
+        return { source: 'instance', env: allNames === undefined ? env : pick(env, allNames) };
       };
       if (policy === 'off') return instance();
       if (user === undefined) {
@@ -758,7 +772,7 @@ export function createCredentialService(configDir: string, adminLogins: readonly
         // The user's own accounts: never silently moved onto the instance's when they are all cooling (that spends the hub's money).
         try {
           const { credential, enabled, resets } = await pickAccount(USER_SCOPE(user), 'user');
-          if (credential !== undefined) return credential;
+          if (credential !== undefined) return await withChain(credential, USER_SCOPE(user));
           if (enabled > 0) throw allCooling(enabled, resets);
         } catch (error) {
           if (error instanceof BadRequestError && !(error instanceof CredentialStoreError)) throw error;
@@ -773,7 +787,7 @@ export function createCredentialService(configDir: string, adminLogins: readonly
       }
       // Meridian / custom providers (no `names`): any saved credential makes it a user run (credentialEnv refuses it if unusable).
       const mine = names === undefined ? own : pick(own, names);
-      if (Object.keys(mine).length > 0) return { source: 'user', env: mine };
+      if (Object.keys(mine).length > 0) return { source: 'user', env: allNames === undefined ? mine : pick(own, allNames) };
       if (policy === 'user-only') {
         throw new BadRequestError(names === undefined ? USER_CREDENTIAL_REQUIRED : userCredentialRequiredFor(provider, names));
       }

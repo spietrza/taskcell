@@ -1,6 +1,7 @@
 // Hub-side project/config logic (ported from the removed desktop Rust module).
 import { writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
+import type { FallbackEntry } from '../wire.js';
 import { assertStatePath, readStateFileNoSymlink, ensureStateDir, stateDir } from '../core/state-path.js';
 
 /** The app's per-project config (`.taskcell/app.json`, spec §6). All optional; the CLI reads only `baseBranch`/`baseBranches`
@@ -36,6 +37,8 @@ export interface AppConfig {
   baseBranch?: string;
   /** Branches a card's `taskcell:base=` label may select besides `baseBranch` (core/base-branch.ts readAllowedBases). Unset = none. */
   baseBranches?: string[];
+  /** Ordered providers/models a run moves to on a provider limit, after `provider` (the Engine). Absent = the team default; `[]` = none (src/hub/fallback-chain.ts). */
+  fallbackChain?: FallbackEntry[];
   /** Opaque pass-through — deliberately `unknown`, NOT a typed array/shape. A typed field would
    * silently strip unknown entry keys on every settings save. Round-trip byte-for-byte. */
   customProviders?: unknown;

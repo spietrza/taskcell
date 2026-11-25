@@ -798,3 +798,42 @@ describe('v1 → v2 store upgrade survives re-key and the marker', () => {
     expect(Object.keys(file).sort()).toEqual(ids.map((id) => `credential:instance:${id}`).sort());
   });
 });
+
+describe('resolveForRun with fallback-chain providers (extra)', () => {
+  const u = { id: 'u1', email: 'u@example.com', name: 'U' };
+  // The stored-account id/name ride along on a Claude credential; these checks are about source and env.
+  const plain = (c: { source: string; env: Record<string, string> }): { source: string; env: Record<string, string> } => ({ source: c.source, env: c.env });
+  it('merges the chain providers\' names; the source is decided by the primary; no instance top-up on a user run', async () => {
+    const d = await dir();
+    const store = new ScopedCredentialStore(d);
+    await store.put('instance', 'CLAUDE_CODE_OAUTH_TOKEN', 'inst-claude');
+    await store.put('instance', 'CODEX_API_KEY', 'inst-codex');
+    await store.put('instance', 'CURSOR_API_KEY', 'inst-cursor');
+    const svc = createCredentialService(d);
+    // extra absent: today's behaviour, only the primary's names.
+    expect(plain(await svc.resolveForRun(undefined, 'claude'))).toEqual({ source: 'instance', env: { CLAUDE_CODE_OAUTH_TOKEN: 'inst-claude' } });
+    expect(plain(await svc.resolveForRun(undefined, 'claude', ['codex']))).toEqual({ source: 'instance', env: { CLAUDE_CODE_OAUTH_TOKEN: 'inst-claude', CODEX_API_KEY: 'inst-codex' } });
+
+    await svc.setPolicy('user-first');
+    await store.put('user:u1', 'CLAUDE_CODE_OAUTH_TOKEN', 'mine');
+    // The user has no codex key: the chain entry is not funded from the instance.
+    expect(plain(await svc.resolveForRun(u, 'claude', ['codex']))).toEqual({ source: 'user', env: { CLAUDE_CODE_OAUTH_TOKEN: 'mine' } });
+    await store.put('user:u1', 'CODEX_API_KEY', 'my-codex');
+    expect(plain(await svc.resolveForRun(u, 'claude', ['codex']))).toEqual({ source: 'user', env: { CLAUDE_CODE_OAUTH_TOKEN: 'mine', CODEX_API_KEY: 'my-codex' } });
+    // A user key for a fallback provider alone does not make it a user run: the primary decides.
+    expect(plain(await svc.resolveForRun(u, 'cursor', ['codex']))).toEqual({ source: 'instance', env: { CURSOR_API_KEY: 'inst-cursor', CODEX_API_KEY: 'inst-codex' } });
+  });
+
+  it('a stored Claude account carries the chain providers\' keys, also onto the next account after a limit', async () => {
+    const d = await dir();
+    const svc = createCredentialService(d);
+    await svc.store.put('instance', 'CODEX_API_KEY', 'inst-codex');
+    const a = await svc.store.putAccount('instance', { name: 'A', type: 'api-key', value: 'sk-A' });
+    await svc.store.putAccount('instance', { name: 'B', type: 'subscription', value: 'oat-B' });
+    const first = await svc.resolveForRun(undefined, 'claude', ['codex']);
+    expect(first).toMatchObject({ accountName: 'A', env: { ANTHROPIC_API_KEY: 'sk-A', CODEX_API_KEY: 'inst-codex' } });
+    expect(Object.keys(first.env).sort()).toEqual(['ANTHROPIC_API_KEY', 'CODEX_API_KEY']);
+    const next = await svc.rotationFor(undefined, 'claude', first)!.limited(a, new Date(Date.now() + 3600_000));
+    expect(next?.env).toEqual({ CLAUDE_CODE_OAUTH_TOKEN: 'oat-B', CODEX_API_KEY: 'inst-codex' });
+  });
+});

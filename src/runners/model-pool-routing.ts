@@ -18,6 +18,8 @@ export interface StagePick {
   provider: string;
   model?: string;
   pick: ModelPick;
+  /** Entries this run passed over because they were out of quota (`entry` = `provider/model`, `until` = when it resets, when known). */
+  skipped?: Array<{ entry: string; until?: string }>;
 }
 
 export interface PoolRouting<T extends PoolRoutedOptions> {

@@ -123,3 +123,14 @@ test('says the flow is unavailable when its events could not be read, and shows 
   expect(screen.queryByText(/Flow unavailable/)).not.toBeInTheDocument();
   expect(screen.getByText('plan')).toBeInTheDocument();
 });
+
+test('names the entry a stage ran on after a provider limit moved it; nothing on a plain pick', () => {
+  const moved: StageDetail = { record: { ...stage().record, stage: 'implementer', modelPick: { provider: 'cursor', model: 'm1', pick: 'skip-limit', skipped: [{ entry: 'claude/', until: '2026-07-06T20:00:00.000Z' }, { entry: 'codex/' }] } } };
+  const { unmount } = render(<RunDetail detail={{ taskId: 'task-1', timestamp: moved.record.timestamp, stages: [moved] }} project="/repo" />);
+  const lines = screen.getAllByText(/^Ran on cursor\/m1 — fallback: claude\/ hit its limit \(resets .+\); codex\/ hit its limit$/);
+  expect(lines.length).toBeGreaterThan(0);
+  unmount();
+  const plain: StageDetail = { record: { ...stage().record, stage: 'implementer', modelPick: { provider: 'claude', pick: 'config' } } };
+  render(<RunDetail detail={{ taskId: 'task-1', timestamp: plain.record.timestamp, stages: [plain] }} project="/repo" />);
+  expect(screen.queryByText(/^Ran on/)).toBeNull();
+});

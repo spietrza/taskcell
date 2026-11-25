@@ -258,7 +258,7 @@ describe('audit log', () => {
   });
 
   test('SETTINGS_VALUE_KEYS is the reviewed allowlist: no command, URL or provider key', () => {
-    expect([...SETTINGS_VALUE_KEYS].sort()).toEqual(['baseBranch', 'baseBranches', 'budgetUsd', 'chatModel', 'color', 'concurrency', 'flow', 'label', 'provider', 'reviewProvider', 'runLocation', 'source', 'taskSource', 'team', 'usageCapPct']);
+    expect([...SETTINGS_VALUE_KEYS].sort()).toEqual(['baseBranch', 'baseBranches', 'budgetUsd', 'chatModel', 'color', 'concurrency', 'fallbackChain', 'flow', 'label', 'provider', 'reviewProvider', 'runLocation', 'source', 'taskSource', 'team', 'usageCapPct']);
   });
 
   test('creates a missing config dir and writes the file owner-only', async () => {

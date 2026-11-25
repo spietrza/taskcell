@@ -173,6 +173,7 @@ export const COMMAND_NAMES = [
   'set_approver_mode',
   'set_credential_policy',
   'set_task_skills',
+  'set_team_fallback_chain',
   'setup_status',
   'spawn_run',
   'start_task',

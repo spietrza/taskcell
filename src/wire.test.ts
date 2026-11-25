@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, expectTypeOf, it } from 'vitest';
-import { WIRE_PROVIDER_NAMES } from './wire.js';
+import { WIRE_PROVIDER_NAMES, fallbackChainErrors, FALLBACK_CHAIN_MAX } from './wire.js';
 import { HUB_POLICY, type Commands } from './hub/commands/index.js';
 import { commandIndexSource, desktopCommandsSource, readCommandModules } from './hub/command-codegen.js';
 import type { AppConfig, BoardChip, BoardTask, CompleteCallArgs, Finding, Project, ReviewVerdict, RunRecord } from './wire.js';
@@ -122,5 +122,33 @@ describe('credential account commands', () => {
     expectTypeOf<Commands['save_instance_account']['result']>().toEqualTypeOf<{ id: string }>();
     expectTypeOf<import('./wire.js').CredentialAccountView>().not.toHaveProperty('value');
     expect(readSource('wire.ts')).not.toMatch(/interface CredentialAccountView \{[^}]*\bvalue\b/);
+  });
+});
+
+describe('fallbackChainErrors (shared by write_app_config and the Settings form)', () => {
+  const opts = { primary: 'claude', providers: ['claude', 'codex', 'cursor', 'meridian'] };
+  it('a valid chain passes; absent means none', () => {
+    expect(fallbackChainErrors([{ provider: 'codex', model: 'gpt-6-sol' }, { provider: 'claude', model: 'sonnet' }], opts)).toEqual({ rows: [undefined, undefined] });
+    expect(fallbackChainErrors(undefined, opts)).toEqual({ rows: [] });
+  });
+  it('flags an unknown provider, a bad model, a duplicate, the Engine itself and meridian per row', () => {
+    const { rows } = fallbackChainErrors([{ provider: 'nope' }, { provider: 'codex', model: 'a,b' }, { provider: 'cursor' }, { provider: 'cursor' }, { provider: 'claude' }, { provider: 'meridian' }], opts);
+    expect(rows[0]).toMatch(/Unknown provider/);
+    expect(rows[1]).toMatch(/Invalid model/);
+    expect(rows[2]).toBeUndefined();
+    expect(rows[3]).toMatch(/Already/);
+    expect(rows[4]).toMatch(/Engine itself/);
+    expect(rows[5]).toMatch(/meridian/);
+  });
+  it('refuses a single entry on the Engine\'s provider and a chain over the cap', () => {
+    expect(fallbackChainErrors([{ provider: 'claude', model: 'sonnet' }], opts).list).toMatch(/add a second entry/);
+    // A lone entry on the Engine's transport slot (claude → zai / openrouter) is refused too; with a second entry it is fine.
+    expect(fallbackChainErrors([{ provider: 'zai' }], { ...opts, providers: [...opts.providers, 'zai'] }).list).toMatch(/provider or transport/);
+    expect(fallbackChainErrors([{ provider: 'zai' }, { provider: 'codex' }], { ...opts, providers: [...opts.providers, 'zai'] }).list).toBeUndefined();
+    expect(fallbackChainErrors([{ provider: 'codex' }], opts).list).toBeUndefined();
+    // A team default has no Engine yet: a lone zai is the project's call.
+    expect(fallbackChainErrors([{ provider: 'zai' }], { primary: '' }).list).toBeUndefined();
+    const long = Array.from({ length: FALLBACK_CHAIN_MAX + 1 }, (_, i) => ({ provider: 'codex', model: `m${i}` }));
+    expect(fallbackChainErrors(long, opts).list).toMatch(/at most 8/);
   });
 });

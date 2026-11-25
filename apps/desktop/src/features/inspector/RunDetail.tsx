@@ -10,6 +10,7 @@ import { ExternalLink, hostName } from '../../components/ExternalLink';
 import type { RunDetail as RunDetailT } from '../../taskcell-output';
 import { cn } from '@/ui';
 import { estLabel, estTitle } from '../../cost';
+import { fallbackLine } from './stage-meta';
 import { fmtDuration, stageLabel, stagesFromRecords, withGateSteps, type PaneStage, type StagePhase } from './runStages';
 
 const PHASE_ICON: Record<StagePhase, string> = { done: '✓', failed: '✕', running: '•', pending: '○' };
@@ -24,15 +25,17 @@ function Activity({ detail, steps = withGateSteps(stagesFromRecords(detail.stage
           (record.attempts ?? 1) > 1 ? `${record.attempts} attempts` : undefined,
           record.costUsd != null ? `$${record.costUsd.toFixed(2)}` : estLabel(record.estCostUsd),
         ].filter((m): m is string => m !== undefined);
+        const moved = record === undefined ? undefined : fallbackLine(record);
         const time = s.note ?? (s.ms !== undefined ? fmtDuration(s.ms) : undefined);
         return (
-          <li key={i} data-testid={`step-${i}`} data-phase={s.phase} className="flex items-baseline gap-2 text-sm">
+          <li key={i} data-testid={`step-${i}`} data-phase={s.phase} className="flex flex-wrap items-baseline gap-x-2 text-sm">
             <span aria-hidden className={cn('w-4 shrink-0 text-center', s.phase === 'failed' ? 'text-destructive-text' : 'text-success-text')}>{PHASE_ICON[s.phase]}</span>
             <span className={cn('font-medium', s.phase === 'failed' && 'text-destructive-text')}>{s.label ?? stageLabel(s.name)}</span>
             {record?.model !== undefined && <span className="font-mono text-xs text-muted-foreground">{record.model}</span>}
             {record?.verdict !== undefined && <span className="text-xs text-muted-foreground">{record.verdict === 'pass' ? 'passed' : record.verdict === 'changes' ? 'changes requested' : record.verdict}</span>}
             {meta.length > 0 && <span className="text-xs text-muted-foreground" {...estTitle(meta.join(' · '))}>{meta.join(' · ')}</span>}
             {time !== undefined && <span className="ml-auto shrink-0 text-xs tabular-nums text-muted-foreground">{time}</span>}
+            {moved !== undefined && <span className="basis-full pl-6 text-xs text-muted-foreground">{moved}</span>}
           </li>
         );
       })}

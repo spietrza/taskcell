@@ -84,7 +84,7 @@ function requirePlan(args: Record<string, unknown>, key: string): FactoryPlan {
 
 export const commands = defineCommands<EnableFactoryCommands>({
   enable_factory_host: async ({ args, allow }) => ({ host: await factoryHostOf(await allow(requireString(args, 'repoPath'))) }),
-  enable_factory_watch: async ({ args, allow }) => watchWorkerChecklist(await allow(requireString(args, 'repoPath'))),
+  enable_factory_watch: async ({ ctx, args, allow }) => watchWorkerChecklist(await allow(requireString(args, 'repoPath')), undefined, undefined, undefined, ctx.configDir),
   enable_factory_plan: async ({ args, allow }) => {
     const real = await allow(requireString(args, 'repoPath'));
     const id = requireProvider(args, 'provider');

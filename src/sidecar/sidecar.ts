@@ -182,6 +182,10 @@ function validateCreateRun(params: unknown): void {
   if (p.provider !== undefined && (typeof p.provider !== 'string' || p.provider.trim() === '')) {
     throw new BadRequestError(`provider must be a non-blank string, got ${String(p.provider)}`);
   }
+  // The fallback chain is set by the hub from Settings; a client cannot supply it (like `startedBy` and `hubTask`).
+  if (p.fallbackProvider !== undefined || p.fallbackModel !== undefined) {
+    throw new BadRequestError('fallbackProvider and fallbackModel are set by the hub from Settings, not by the caller');
+  }
   if (p.transport !== undefined && !(TRANSPORTS as readonly unknown[]).includes(p.transport)) {
     throw new BadRequestError(`unknown transport "${String(p.transport)}" — choose one of: ${TRANSPORTS.join(', ')}`);
   }

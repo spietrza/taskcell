@@ -99,6 +99,7 @@ const commandHandlers = {
   add_team_member: () => mockTeam,
   remove_team_member: () => mockTeam,
   add_team_repository: () => mockTeam,
+  set_team_fallback_chain: () => mockTeam,
   remove_team_repository: () => mockTeam,
   add_project: (args: { path?: string } | undefined) => {
     const { path = '/dev/null' } = args ?? {};
