@@ -71,10 +71,10 @@ describe('watchMrsCommand', () => {
       egress: true,
     };
     try {
-      await watchMrsCommand(cmd, { watchMergeRequests: async () => ({ reviewed: [], failed: ['g/p!7'], skipped: [] }), log: () => undefined });
+      await watchMrsCommand(cmd, { watchMergeRequests: async () => ({ reviewed: [], failed: ['g/p!7'], skipped: [], paused: [] }), log: () => undefined });
       expect(process.exitCode).toBe(1);
       process.exitCode = undefined;
-      await watchMrsCommand(cmd, { watchMergeRequests: async () => ({ reviewed: [], failed: [], skipped: [] }), log: () => undefined });
+      await watchMrsCommand(cmd, { watchMergeRequests: async () => ({ reviewed: [], failed: [], skipped: [], paused: [] }), log: () => undefined });
       expect(process.exitCode).toBeUndefined();
     } finally {
       process.exitCode = saved;

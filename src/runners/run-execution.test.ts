@@ -317,6 +317,8 @@ describe('executeIssueRun: repair loop', () => {
     // The verdict is the re-review's, never the stale blocking one.
     const verdict = vi.mocked(f.host.publishVerdict).mock.calls[0]![0];
     expect(verdict.reviewerOutcome?.result.finalText).toBe('No blocking issues.');
+    // The body carries the re-review's verdict line, once.
+    expect(bodyOf(f).match(/^Review: PASS \(0 findings\)$/gm)).toHaveLength(1);
   });
 
   it('a re-review that fails publishes a masked, incomplete verdict on a draft', async () => {
@@ -339,7 +341,7 @@ describe('executeIssueRun: repair loop', () => {
     expect(text).toContain('[REDACTED-GH]');
     expect(text).not.toContain(token);
     const body = bodyOf(f);
-    expect(body).toMatch(/^Review: INCOMPLETE \(0 findings\)$/m);
+    expect(body.match(/^Review: INCOMPLETE \(0 findings\)$/gm)).toHaveLength(1);
     expect(body).not.toContain(token);
     expect(f.prCreates.flat().join('\n')).not.toContain(token);
   });

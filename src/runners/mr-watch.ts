@@ -116,6 +116,7 @@ async function hasExistingReviewForHead(
     return await hasMergeRequestReviewForHead(item, item.sha, glab);
   } catch (err) {
     // Undecidable: skip it (reported as a list failure) rather than review an MR that may already have a verdict.
+    // The GitHub adapter (pr-watch) instead treats a failed dedup lookup as not-reviewed: a deliberate difference.
     log?.(`watch-mrs ${mrId(item)}: dedup check failed (${String(err)}), skipping`);
     onFailure?.();
     return true;
