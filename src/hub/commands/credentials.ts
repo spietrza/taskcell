@@ -1,7 +1,7 @@
 // Hub commands: instance and per-user provider credentials, and the credential policy. One module per feature — contract, validation and handler live here;
 // `pnpm gen:wire` derives Commands, COMMAND_NAMES and dispatch from it (see CONTRIBUTING.md).
 import { BadRequestError } from '../../sidecar/sidecar.js';
-import { USER_SCOPE, CREDENTIAL_NAMES, CREDENTIAL_POLICIES, ACCOUNT_PROVIDERS, ACCOUNT_TYPES, parseCredentialInput, parseCredentialName, type AccountInput, type CredentialService, type HubUser } from '../credentials.js';
+import { USER_SCOPE, CREDENTIAL_NAMES, termsWarningFor, CREDENTIAL_POLICIES, ACCOUNT_PROVIDERS, ACCOUNT_TYPES, parseCredentialInput, parseCredentialName, type AccountInput, type CredentialService, type HubUser } from '../credentials.js';
 import type { AccountType, CredentialAccountView, CredentialPolicy } from '../../wire.js';
 import type { RpcContext } from '../rpc.js';
 import { defineCommands, type AuditSpec } from '../command-kit.js';
@@ -19,9 +19,9 @@ export interface CredentialsCommands {
   save_instance_credential: { args: { name: string; value: string }; result: void };
   delete_instance_credential: { args: { name: string }; result: void };
   /** HUB_ONLY: the signed-in user's OWN credentials (no RPC takes a user id). Write-only. */
-  user_credentials_status: { args: undefined; result: { enabled: boolean; admin: boolean; names: string[]; accounts: CredentialAccountView[] } };
-  /** HUB_ONLY: the signed-in user's OWN Claude accounts. A second enabled subscription token is refused (one person, one plan). */
-  save_user_account: { args: { id?: string; provider: 'claude'; name: string; type: AccountType; value?: string; enabled?: boolean }; result: { id: string } };
+  user_credentials_status: { args: undefined; result: { enabled: boolean; admin: boolean; names: string[]; accounts: CredentialAccountView[]; termsWarning?: string } };
+  /** HUB_ONLY: the signed-in user's OWN Claude accounts. A second enabled subscription token needs `acknowledgeTerms`, as on the instance (see docs/hub.md). */
+  save_user_account: { args: { id?: string; provider: 'claude'; name: string; type: AccountType; value?: string; enabled?: boolean; acknowledgeTerms?: boolean }; result: { id: string } };
   delete_user_account: { args: { id: string }; result: void };
   reorder_user_accounts: { args: { ids: string[] }; result: void };
   save_user_credential: { args: { name: string; value: string }; result: void };
@@ -158,13 +158,12 @@ export const commands = defineCommands<CredentialsCommands>({
     const enabled = (await svc.policy()) !== 'off';
     const names = ctx.user !== undefined && enabled ? await svc.store.names(USER_SCOPE(ctx.user)) : [];
     const accounts = ctx.user !== undefined && enabled ? await svc.accountViews(USER_SCOPE(ctx.user)) : [];
-    return { enabled, admin: (caller.owner || svc.isAdmin(ctx.user)), names, accounts };
+    const termsWarning = ctx.user !== undefined && enabled ? termsWarningFor(await svc.store.accounts(USER_SCOPE(ctx.user))) : undefined;
+    return { enabled, admin: (caller.owner || svc.isAdmin(ctx.user)), names, accounts, ...(termsWarning !== undefined ? { termsWarning } : {}) };
   },
   save_user_account: async ({ ctx, args }) => {
     const { svc, scope } = await userScope(ctx);
-    // A user scope is one person: no terms acknowledgement is taken (a second subscription token is refused).
-    const { acknowledgeTerms: _ignored, ...input } = parseAccountInput(args);
-    return { id: await svc.store.putAccount(scope, input) };
+    return { id: await svc.store.putAccount(scope, parseAccountInput(args)) };
   },
   delete_user_account: async ({ ctx, args }) => {
     const { svc, scope } = await userScope(ctx);

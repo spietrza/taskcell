@@ -861,7 +861,7 @@ Settings → Credentials has an **Anthropic accounts** section (instance account
 - **Where the name shows.** The run detail ("billed to the hub's account "Team key 2"") and `taskcell stats` (**BY CREDENTIAL**). Names are written to run records and `metrics.jsonl`, which may be uploaded as CI artefacts: do not put secrets or personal e-mail addresses in names.
 - **Only Claude** has several accounts for now; other providers keep one value per variable.
 
-**Terms caveat.** Anthropic's Claude Code terms say plan limits "assume ordinary, individual usage". Rotating several *subscription* accounts to get past limits may breach the Consumer Terms (see #1047); API keys are clearly allowed. So: a user scope allows at most one enabled subscription token, and the instance scope allows more only after you acknowledge this caveat when saving (Settings asks; the status then shows a warning while more than one is enabled). This is a recommendation, not legal advice. Hosted plans are API-key only; this change has no hosted-plan concept to enforce that.
+**Terms caveat.** Anthropic's Claude Code terms say plan limits "assume ordinary, individual usage". Rotating several *subscription* accounts to get past limits may breach the Consumer Terms (see #1047); API keys are clearly allowed. So, in the instance scope and in each user scope alike, a second or later enabled subscription token is saved only after you acknowledge this caveat (`acknowledgeTerms`; Settings asks), and that scope's status then shows a warning (`termsWarning`) while more than one is enabled. This is a recommendation, not legal advice. Hosted plans are API-key only; this change has no hosted-plan concept to enforce that.
 
 ## CLI flags
 

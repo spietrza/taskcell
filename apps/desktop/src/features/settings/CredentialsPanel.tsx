@@ -36,7 +36,6 @@ const TERMS_CAVEAT =
 function AccountsSection({
   title,
   accounts,
-  instance,
   termsWarning,
   onSave,
   onDelete,
@@ -44,7 +43,6 @@ function AccountsSection({
 }: {
   title: string;
   accounts: CredentialAccountView[];
-  instance: boolean;
   termsWarning?: string | undefined;
   onSave: (args: { id?: string; name: string; type: AccountType; value?: string; enabled?: boolean; acknowledgeTerms?: boolean }) => Promise<void>;
   onDelete: (id: string) => Promise<void>;
@@ -66,7 +64,7 @@ function AccountsSection({
     }
   };
   const atCap = accounts.length >= MAX_ACCOUNTS;
-  const secondSubscription = instance && type === 'subscription' && accounts.some((a) => a.type === 'subscription' && a.enabled);
+  const secondSubscription = type === 'subscription' && accounts.some((a) => a.type === 'subscription' && a.enabled);
   const move = (i: number, by: -1 | 1): string[] => {
     const ids = accounts.map((a) => a.id);
     const [id] = ids.splice(i, 1);
@@ -80,8 +78,8 @@ function AccountsSection({
       {termsWarning !== undefined && <p role="alert" className="text-xs text-warning-text">{termsWarning}</p>}
       {accounts.length === 0 && <p className="text-sm text-muted-foreground">None saved.</p>}
       {accounts.map((a, i) => {
-        // Re-enabling a second subscription token on the instance needs the same acknowledgement as adding one.
-        const needsAck = instance && a.type === 'subscription' && !a.enabled && accounts.some((o) => o.id !== a.id && o.type === 'subscription' && o.enabled);
+        // Re-enabling a second subscription token needs the same acknowledgement as adding one (instance and user scope alike).
+        const needsAck = a.type === 'subscription' && !a.enabled && accounts.some((o) => o.id !== a.id && o.type === 'subscription' && o.enabled);
         const rowAck = acks[a.id] === true;
         return (
           <div key={a.id} className="flex flex-wrap items-center gap-2 text-sm">
@@ -245,7 +243,7 @@ function CredentialEditor({
 /** Hub-only. The one credentials panel. A user sees their own credentials once the hub owner or an admin turns
  * per-user credentials on; the switch and the instance credentials render only for the owner or an admin (the hub 403s anyone else). */
 export function CredentialsPanel() {
-  const [status, setStatus] = useState<{ enabled: boolean; admin: boolean; names: string[]; accounts?: CredentialAccountView[] } | undefined>();
+  const [status, setStatus] = useState<{ enabled: boolean; admin: boolean; names: string[]; accounts?: CredentialAccountView[]; termsWarning?: string } | undefined>();
   const [policy, setPolicy] = useState<CredentialPolicy>('off');
   const [instanceNames, setInstanceNames] = useState<string[]>([]);
   const [instanceAccounts, setInstanceAccounts] = useState<CredentialAccountView[]>([]);
@@ -306,7 +304,6 @@ export function CredentialsPanel() {
           </label>
           <AccountsSection
             title="Instance Anthropic accounts"
-            instance
             accounts={instanceAccounts}
             termsWarning={termsWarning}
             onSave={async (a) => {
@@ -340,9 +337,9 @@ export function CredentialsPanel() {
       {status.enabled && (
         <AccountsSection
           title="Your Anthropic accounts"
-          instance={false}
           accounts={status.accounts ?? []}
-          onSave={async ({ acknowledgeTerms: _ack, ...a }) => {
+          termsWarning={status.termsWarning}
+          onSave={async (a) => {
             await hub().call('save_user_account', { provider: 'claude', ...a });
             await refresh();
           }}

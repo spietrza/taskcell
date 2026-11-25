@@ -101,6 +101,16 @@ describe('hub command modules', () => {
       await expect(dispatchRpc(ctx, 'save_user_account', { provider: 'claude', name: 'A', type: 'api-key', value: 'v' }, member)).rejects.toThrow(/turned off/);
     });
 
+    test('a user\'s second subscription token needs acknowledgeTerms; their status then carries termsWarning', async () => {
+      const ctx = await setup();
+      await dispatchRpc(ctx, 'set_credential_policy', { policy: 'user-first' });
+      const sub = { provider: 'claude', type: 'subscription', value: 'tok' };
+      await dispatchRpc(ctx, 'save_user_account', { ...sub, name: 'One' }, member);
+      await expect(dispatchRpc(ctx, 'save_user_account', { ...sub, name: 'Two' }, member)).rejects.toThrow(/acknowledgeTerms/);
+      await dispatchRpc(ctx, 'save_user_account', { ...sub, name: 'Two', acknowledgeTerms: true }, member);
+      expect(await dispatchRpc(ctx, 'user_credentials_status', undefined, member)).toMatchObject({ termsWarning: expect.stringMatching(/ordinary, individual usage/) });
+    });
+
     test('audit targets name an id or "new", never the name or the value; validation rejects bad input', async () => {
       expect(HUB_AUDITED.save_instance_account!.target({ name: 'Secret name', value: SENTINEL })).toBe('credential-account:new');
       expect(HUB_AUDITED.save_instance_account!.target({ id: 'abc-1', name: 'Secret name' })).toBe('credential-account:abc-1');

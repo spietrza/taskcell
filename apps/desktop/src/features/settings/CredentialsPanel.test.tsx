@@ -10,7 +10,7 @@ vi.mock('../../ipc.js', () => ({
   callerCapabilities: vi.fn(),
 }));
 
-type Status = { enabled: boolean; admin: boolean; names: string[]; accounts?: CredentialAccountView[] };
+type Status = { enabled: boolean; admin: boolean; names: string[]; accounts?: CredentialAccountView[]; termsWarning?: string };
 let status: Status = { enabled: true, admin: false, names: [] };
 let instanceAccounts: CredentialAccountView[] = [];
 let spy: ReturnType<typeof stubHubCalls>;
@@ -142,6 +142,33 @@ test('accounts: a second subscription token shows the terms caveat and needs the
   expect(add).toBeEnabled();
   fireEvent.click(add);
   await waitFor(() => expect(spy).toHaveBeenCalledWith('save_instance_account', expect.objectContaining({ acknowledgeTerms: true })));
+});
+
+test('accounts: a user scope follows the same terms rule — warning, acknowledgement on add and on re-enable', async () => {
+  asUser({
+    enabled: true,
+    admin: false,
+    names: [],
+    accounts: [accountOf(1, { type: 'subscription' }), accountOf(2, { type: 'subscription', enabled: false })],
+    termsWarning: 'More than one subscription token is enabled.',
+  });
+  render(<CredentialsPanel />);
+  await screen.findByLabelText('Name of Key 1');
+  expect(screen.getByRole('alert')).toHaveTextContent('More than one subscription token is enabled.');
+  fireEvent.change(screen.getByLabelText('Your Anthropic accounts type'), { target: { value: 'subscription' } });
+  expect(screen.getByText(/ordinary, individual usage/)).toBeInTheDocument();
+  fireEvent.change(screen.getByLabelText('Your Anthropic accounts name'), { target: { value: 'Mine 2' } });
+  fireEvent.change(screen.getByLabelText('Your Anthropic accounts secret'), { target: { value: 'tok' } });
+  const add = screen.getByRole('button', { name: 'Add account' });
+  expect(add).toBeDisabled();
+  fireEvent.click(screen.getByLabelText(/I understand the terms caveat for a second/));
+  fireEvent.click(add);
+  await waitFor(() => expect(spy).toHaveBeenCalledWith('save_user_account', { provider: 'claude', name: 'Mine 2', type: 'subscription', value: 'tok', acknowledgeTerms: true }));
+  const toggle = screen.getByLabelText('Key 2 on');
+  expect(toggle).toBeDisabled();
+  fireEvent.click(screen.getByLabelText('Acknowledge terms for Key 2'));
+  fireEvent.click(toggle);
+  await waitFor(() => expect(spy).toHaveBeenCalledWith('save_user_account', { provider: 'claude', id: 'a2', name: 'Key 2', type: 'subscription', enabled: true, acknowledgeTerms: true }));
 });
 
 test('accounts: rename and replace-secret are explicit actions; the existing secret is never shown', async () => {

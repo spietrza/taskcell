@@ -191,8 +191,6 @@ function normalise(raw: unknown): Secrets {
 
 const emptySecrets = (): Secrets => ({ v: 2, env: {}, accounts: {} });
 
-const TERMS_REFUSED =
-  "a second subscription token cannot be enabled in a personal scope: Anthropic's Claude Code terms say plan limits \"assume ordinary, individual usage\", so rotating several subscription accounts may breach them. Use API keys for more accounts";
 const TERMS_ACK_REQUIRED =
   "enabling a second subscription token needs acknowledgeTerms: Anthropic's Claude Code terms say plan limits \"assume ordinary, individual usage\", so rotating several subscription accounts may breach them (API keys are fine)";
 export const TERMS_WARNING =
@@ -213,8 +211,12 @@ const upsert = (list: readonly StoredAccount[], next: StoredAccount, exists: boo
 
 const isEnabledSubscription = (a: StoredAccount | undefined): boolean => a !== undefined && a.enabled && a.type === 'subscription';
 
-/** One validation for every account write: cap, unique name, and the subscription-token terms rule. `next` is the account as it will be stored. */
-function assertAccountAllowed(scope: Scope, list: readonly StoredAccount[], prior: StoredAccount | undefined, next: StoredAccount, acknowledgeTerms: boolean): void {
+/** The value-free status warning for a scope (instance or user) while more than one subscription token is enabled in it. */
+export const termsWarningFor = (accounts: readonly StoredAccount[]): string | undefined =>
+  accounts.filter(isEnabledSubscription).length > 1 ? TERMS_WARNING : undefined;
+
+/** One validation for every account write: cap, unique name, and the subscription-token terms rule (the same in every scope). `next` is the account as it will be stored. */
+function assertAccountAllowed(list: readonly StoredAccount[], prior: StoredAccount | undefined, next: StoredAccount, acknowledgeTerms: boolean): void {
   const name = next.name;
   if (name.length < 1 || name.length > 64 || [...name].some((c) => c.charCodeAt(0) < 32 || c.charCodeAt(0) === 127)) {
     throw new CredentialStoreError('name must be 1-64 characters with no control characters');
@@ -224,9 +226,8 @@ function assertAccountAllowed(scope: Scope, list: readonly StoredAccount[], prio
   if (prior === undefined && others.length >= MAX_ACCOUNTS_PER_PROVIDER) {
     throw new CredentialStoreError(`at most ${MAX_ACCOUNTS_PER_PROVIDER} ${next.provider} credentials can be stored`);
   }
-  if (isEnabledSubscription(next) && !isEnabledSubscription(prior) && others.some(isEnabledSubscription)) {
-    if (scope !== 'instance') throw new CredentialStoreError(TERMS_REFUSED);
-    if (!acknowledgeTerms) throw new CredentialStoreError(TERMS_ACK_REQUIRED);
+  if (isEnabledSubscription(next) && !isEnabledSubscription(prior) && others.some(isEnabledSubscription) && !acknowledgeTerms) {
+    throw new CredentialStoreError(TERMS_ACK_REQUIRED);
   }
 }
 
@@ -468,7 +469,7 @@ export class ScopedCredentialStore {
         enabled: input.enabled ?? prior?.enabled ?? true,
         value: input.value ?? prior?.value ?? '',
       };
-      assertAccountAllowed(scope, list, prior, next, input.acknowledgeTerms === true);
+      assertAccountAllowed(list, prior, next, input.acknowledgeTerms === true);
       all.accounts[scope] = upsert(list, next, prior !== undefined);
       await this.save(all);
       return next.id;
@@ -507,7 +508,7 @@ export class ScopedCredentialStore {
         const list = all.accounts[scope] ?? [];
         const prior = list.find((a) => a.type === type && a.name === name);
         const next: StoredAccount = { id: prior?.id ?? randomUUID(), provider: 'claude', name, type, enabled: prior?.enabled ?? true, value };
-        assertAccountAllowed(scope, list, prior, next, false);
+        assertAccountAllowed(list, prior, next, false);
         all.accounts[scope] = upsert(list, next, prior !== undefined);
         await this.save(all);
       });
@@ -639,12 +640,12 @@ export function createCredentialService(configDir: string, adminLogins: readonly
         instanceValues = await store.values('instance');
         const reason = [migrationIssue ?? store.secretIssue, await store.legacyIssue(), await store.markerIssue()].filter((r) => r !== undefined).join('; ') || undefined;
         const accounts = await service.accountViews('instance');
-        const subscriptions = (await store.accounts('instance')).filter(isEnabledSubscription).length;
+        const termsWarning = termsWarningFor(await store.accounts('instance'));
         return {
           names: Object.keys(instanceValues).sort(),
           ...(reason !== undefined ? { reason } : {}),
           accounts,
-          ...(subscriptions > 1 ? { termsWarning: TERMS_WARNING } : {}),
+          ...(termsWarning !== undefined ? { termsWarning } : {}),
         };
       } catch (error) {
         // `instanceValues` keeps the last good read, so doc chat and Fleet do not silently drop to the start-up environment.

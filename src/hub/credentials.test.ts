@@ -5,7 +5,7 @@ import { join } from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { AddressInfo } from 'node:net';
 import { BadRequestError, type SidecarDeps } from '../sidecar/sidecar.js';
-import { CREDENTIAL_NAMES, createCredentialService, migrateLegacyCredentials, parseCredentialInput, ScopedCredentialStore } from './credentials.js';
+import { CREDENTIAL_NAMES, createCredentialService, termsWarningFor, migrateLegacyCredentials, parseCredentialInput, ScopedCredentialStore } from './credentials.js';
 import { createHubServer } from './server.js';
 import { localOnlyIdentity } from './auth.js';
 
@@ -657,17 +657,19 @@ describe('multiple Claude accounts (store)', () => {
     expect((await store.values('instance')).ANTHROPIC_API_KEY).toBe('sk-first');
   });
 
-  it('terms: a second enabled subscription token is refused in a user scope and needs acknowledgeTerms on the instance; a disabled one does not count', async () => {
+  it.each(['instance', 'user:u1'] as const)('terms (%s): a second enabled subscription token needs acknowledgeTerms; a disabled one does not count', async (scope) => {
     const store = new ScopedCredentialStore(await dir());
     const sub = (name: string, over: Record<string, unknown> = {}) => acct(name, { type: 'subscription', ...over });
-    await store.putAccount('user:u1', sub('one'));
-    await expect(store.putAccount('user:u1', sub('two'))).rejects.toThrow(/individual usage/);
-    await store.putAccount('user:u1', sub('off', { enabled: false }));
-    await store.putAccount('instance', sub('one'));
-    await expect(store.putAccount('instance', sub('two'))).rejects.toThrow(/acknowledgeTerms/);
-    await store.putAccount('instance', sub('two', { acknowledgeTerms: true }));
+    await store.putAccount(scope, sub('one'));
+    await store.putAccount(scope, sub('off', { enabled: false }));
+    await expect(store.putAccount(scope, sub('two'))).rejects.toThrow(/acknowledgeTerms.*individual usage/);
+    await store.putAccount(scope, sub('two', { acknowledgeTerms: true }));
+    expect((await store.accounts(scope)).filter((a) => a.type === 'subscription' && a.enabled)).toHaveLength(2);
+    expect(termsWarningFor(await store.accounts(scope))).toMatch(/ordinary, individual usage/);
+    expect(termsWarningFor((await store.accounts(scope)).slice(0, 2))).toBeUndefined();
     const svc = createCredentialService(await dir());
     await svc.store.putAccount('instance', sub('a'));
+    expect((await svc.instanceStatus()).termsWarning).toBeUndefined();
     await svc.store.putAccount('instance', sub('b', { acknowledgeTerms: true }));
     expect((await svc.instanceStatus()).termsWarning).toMatch(/ordinary, individual usage/);
   });
