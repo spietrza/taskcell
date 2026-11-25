@@ -27,3 +27,12 @@ test('after a successful pick the button is enabled again and the Flows list is 
   expect(screen.getByRole('button', { name: 'Run with flow…' })).toBeEnabled();
   expect(screen.queryByRole('list', { name: 'Flows' })).toBeNull();
 });
+
+test('after a start the picker is gone: a second start is not offered', async () => {
+  const onDone = vi.fn();
+  render(<RunWithFlow repoPath="/repo" taskId="hub-2" mode="start" onDone={onDone} />);
+  fireEvent.click(await screen.findByRole('button', { name: 'Run with flow…' }));
+  fireEvent.click(await within(await screen.findByRole('list', { name: 'Flows' })).findByRole('button', { name: 'Plan' }));
+  await waitFor(() => expect(onDone).toHaveBeenCalled());
+  await waitFor(() => expect(screen.queryByRole('button', { name: 'Run with flow…' })).toBeNull());
+});

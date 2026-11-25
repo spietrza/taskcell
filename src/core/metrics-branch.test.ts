@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { mkdtemp, rm, mkdir, writeFile, symlink } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { createServer, type Socket } from 'node:net';
@@ -42,6 +42,7 @@ beforeEach(async () => {
 });
 
 afterEach(async () => {
+  vi.unstubAllEnvs();
   await rm(root, { recursive: true, force: true });
 });
 
@@ -232,6 +233,8 @@ describe('tip fetch', () => {
 describe('aborted tip fetch', () => {
   it('settles at once, kills the transport helper and frees the tip lock, against a remote that never answers', async () => {
     await appendBranchLines(repo, ['{"id":0}'], { file: 'decisions.jsonl' });
+    vi.stubEnv('no_proxy', '127.0.0.1');
+    vi.stubEnv('NO_PROXY', '127.0.0.1');
     // Accepts the connection and never answers: `git fetch` hangs in its `git remote-http` helper.
     const sockets: Socket[] = [];
     const server = createServer((s) => sockets.push(s.resume()));
@@ -241,7 +244,10 @@ describe('aborted tip fetch', () => {
       await execa('git', ['-C', repo, 'remote', 'set-url', 'origin', `http://127.0.0.1:${port}/r.git`]);
       const controller = new AbortController();
       const read = readBranchFile(repo, { file: 'decisions.jsonl', signal: controller.signal });
-      while (sockets.length === 0) await new Promise((r) => setTimeout(r, 20));
+      for (let i = 0; sockets.length === 0; i++) {
+        if (i > 250) throw new Error('git never connected to the test server');
+        await new Promise((r) => setTimeout(r, 20));
+      }
       const closed = new Promise((r) => sockets[0]?.once('close', r));
       const t = Date.now();
       controller.abort(new Error('timed out'));

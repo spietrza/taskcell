@@ -47,7 +47,7 @@ export const commands = defineCommands<NeedsYouCommands>({
     const id = requireString(args, 'id');
     itemNumber(repoSlug, id);
     // Only an item that waits: the comment of any other issue or PR is not the hub's to hand out.
-    if (!(await cachedNeedsYou(ctx.configDir, real, ctx.gh)).items.some((i) => i.id === id && i.kind === kind)) throw new BadRequestError(`${id} is not waiting for you`);
+    if (!(await cachedNeedsYou(ctx.configDir, real, ctx.gh, undefined, false)).items.some((i) => i.id === id && i.kind === kind)) throw new BadRequestError(`${id} is not waiting for you`);
     return needsYouComment(repoSlug, id, kind, ctx.gh);
   },
   list_needs_you_all: async ({ ctx, allow, scope }) => {

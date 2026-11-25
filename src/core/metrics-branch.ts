@@ -44,11 +44,17 @@ export interface PushMetricsResult {
 /** Kill a detached child's whole process group (its transport helpers too); the child alone where groups do not exist. */
 function killGroup(pid: number | undefined): void {
   if (pid === undefined) return;
-  try {
-    process.kill(process.platform === 'win32' ? pid : -pid, 'SIGKILL');
-  } catch {
-    // already gone
-  }
+  const target = process.platform === 'win32' ? pid : -pid;
+  const send = (sig: NodeJS.Signals): void => {
+    try {
+      process.kill(target, sig);
+    } catch {
+      // already gone
+    }
+  };
+  // SIGTERM first so git can remove its lockfiles; SIGKILL after a grace period for what ignores it.
+  send('SIGTERM');
+  setTimeout(() => send('SIGKILL'), 2000).unref();
 }
 
 /**
