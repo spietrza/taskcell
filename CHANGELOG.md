@@ -1,5 +1,30 @@
 # Changelog
 
+## [1.17.3](https://github.com/spietrza/taskcell/compare/v1.17.2...v1.17.3) (2026-11-25)
+
+
+### Features
+
+* Card flow: flow line for live runs, busy reset, 400 for a bad flow, docs and tests (spietrza/taskcell[#1382](https://github.com/spietrza/taskcell/issues/1382)) ([#1395](https://github.com/spietrza/taskcell/issues/1395)) ([63ed6cf](https://github.com/spietrza/taskcell/commit/63ed6cf99715eba2c0d20212c51d6be0e3eb3b61))
+* CLI: restore lazy loading of approve, lessons, skills, audit and history (spietrza/taskcell[#1380](https://github.com/spietrza/taskcell/issues/1380)) ([#1389](https://github.com/spietrza/taskcell/issues/1389)) ([6b45665](https://github.com/spietrza/taskcell/commit/6b456655c63df2d23b0518d464881e5ab4d41246))
+* Comment ledger: strip markers with no space before --&gt;, move the last sentinels into the ledger (spietrza/taskcell[#1379](https://github.com/spietrza/taskcell/issues/1379)) ([#1384](https://github.com/spietrza/taskcell/issues/1384)) ([4f9e5a0](https://github.com/spietrza/taskcell/commit/4f9e5a01247a1738698fad86a29b88c027dc28fa))
+* Follow-ups: Hub cache, metrics fetch, Slack and card flow review findings (round 2) (spietrza/taskcell[#1401](https://github.com/spietrza/taskcell/issues/1401)) ([#1404](https://github.com/spietrza/taskcell/issues/1404)) ([7a5cdf5](https://github.com/spietrza/taskcell/commit/7a5cdf53e36f23dfb06424b3be34ea9a2805ca91))
+* Follow-ups: Hub session and Hub follow-up review findings (round 3) (spietrza/taskcell[#1406](https://github.com/spietrza/taskcell/issues/1406)) ([#1407](https://github.com/spietrza/taskcell/issues/1407)) ([13052e8](https://github.com/spietrza/taskcell/commit/13052e87d547336ce02c316abeed00f34cb58469))
+* Follow-ups: runners, CLI and lessons review findings (round 2) (spietrza/taskcell[#1400](https://github.com/spietrza/taskcell/issues/1400)) ([#1403](https://github.com/spietrza/taskcell/issues/1403)) ([65ecdfa](https://github.com/spietrza/taskcell/commit/65ecdfa010c092dac82a0f41e3cb9b345b1bcb8f))
+* Hub session: clear the connection banner on recovery, rate-limit reconnect reads (spietrza/taskcell[#1375](https://github.com/spietrza/taskcell/issues/1375)) ([#1399](https://github.com/spietrza/taskcell/issues/1399)) ([5385f71](https://github.com/spietrza/taskcell/commit/5385f711ab138e9247e1eaca8b875d932b3bc0ac))
+* **hub:** Hub: fallback chain on a provider limit instead of waiting for the reset (spietrza/taskcell[#1391](https://github.com/spietrza/taskcell/issues/1391)) ([#1397](https://github.com/spietrza/taskcell/issues/1397)) ([c63e086](https://github.com/spietrza/taskcell/commit/c63e0860bb81e37b94858b546c7a70cbdda6b97e))
+* Landing: live-mode checkout copy and a contact address on the hosting page (spietrza/taskcell[#1383](https://github.com/spietrza/taskcell/issues/1383)) ([#1396](https://github.com/spietrza/taskcell/issues/1396)) ([1839553](https://github.com/spietrza/taskcell/commit/1839553679064ff1e095e69a555a896c9a4de373))
+* Needs-you cache: refresh after a drop, kill a timed-out metrics fetch, keep comments through an outage (spietrza/taskcell[#1374](https://github.com/spietrza/taskcell/issues/1374)) ([#1387](https://github.com/spietrza/taskcell/issues/1387)) ([ce40c80](https://github.com/spietrza/taskcell/commit/ce40c808a8ddc418c751a3e6333d5b22b370d271))
+* Re-review and CI watch: error text, case-insensitive skip labels, log tail fence, cancelled-only checks (spietrza/taskcell[#1377](https://github.com/spietrza/taskcell/issues/1377)) ([#1386](https://github.com/spietrza/taskcell/issues/1386)) ([58f6071](https://github.com/spietrza/taskcell/commit/58f6071ebcc37d4368fe280983cdbd26f90727c2))
+* Review watch: a usage-cap pause must not fail --once; report GitLab list failures (spietrza/taskcell[#1378](https://github.com/spietrza/taskcell/issues/1378)) ([#1385](https://github.com/spietrza/taskcell/issues/1385)) ([ea62408](https://github.com/spietrza/taskcell/commit/ea62408bb01de60491cc147db53be7df64b980b8))
+* Run plan tests: move repair loop, pool retry and verdict tests off module mocks (spietrza/taskcell[#1381](https://github.com/spietrza/taskcell/issues/1381)) ([#1394](https://github.com/spietrza/taskcell/issues/1394)) ([d669b68](https://github.com/spietrza/taskcell/commit/d669b68ae16dd52f144a057f8e11863b4ea7d757))
+* Slack: a hung reply must not block other threads; no repo paths or unredacted titles in the channel (spietrza/taskcell[#1376](https://github.com/spietrza/taskcell/issues/1376)) ([#1390](https://github.com/spietrza/taskcell/issues/1390)) ([af7338e](https://github.com/spietrza/taskcell/commit/af7338ec6b3bcb4db150cf6830d8a7b8a73e8e56))
+
+
+### Miscellaneous
+
+* release 1.17.3 ([#1409](https://github.com/spietrza/taskcell/issues/1409)) ([e7df25c](https://github.com/spietrza/taskcell/commit/e7df25caebbdcd183c8f47177bc0b375599e0d71))
+
 ## [1.17.2](https://github.com/spietrza/taskcell/compare/v1.17.1...v1.17.2) (2026-11-24)
 
 
