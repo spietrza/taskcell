@@ -350,6 +350,10 @@ describe('runRevisePullRequest secret gate', () => {
     const recordFiles = await readdir(join(repo, '.taskcell', 'runs'), { recursive: true });
     expect(recordFiles.some((f) => f.endsWith('.json'))).toBe(true);
     expect(recordFiles.some((f) => f.endsWith('.diff') || f.endsWith('.bundle'))).toBe(false);
+    for (const f of recordFiles.filter((f) => f.endsWith('.json') && !f.endsWith('metrics.jsonl'))) {
+      const rec = JSON.parse(await readFile(join(repo, '.taskcell', 'runs', f), 'utf8')) as { diffOmitted?: string };
+      if (rec.diffOmitted !== undefined) expect(rec.diffOmitted).toBe('secret-blocked');
+    }
     // Ordering pin: no branch anywhere in the repo moved past the initial commit — the gate ran before commitStage.
     const mainSha = (await execa('git', ['rev-parse', 'main'], { cwd: repo })).stdout;
     const refs = (await execa('git', ['for-each-ref', '--format=%(objectname)', 'refs/heads'], { cwd: repo })).stdout.split('\n');
@@ -2820,20 +2824,20 @@ describe('runRevisePullRequest blocking-item checklist', () => {
   };
 
   // laterStagesOnly: only the stages after the implementer (no checklist in their prompt) write `text`.
-  function agentWithText(text: string, received: AgentRunInput[] = [], laterStagesOnly = false, capped = false): AgentProvider {
+  function agentWithText(text: string, received: AgentRunInput[] = [], laterStagesOnly = false, stop?: string): AgentProvider {
     return {
       name: 'claude-code',
       async *run(input: AgentRunInput): AsyncGenerator<AgentTurn, AgentRunOutput, void> {
         received.push(input);
         yield { text: 'applying fix' };
         const answer = laterStagesOnly && input.prompt.includes('<blocking_checklist>') ? '' : text;
-        if (capped) return { finalText: '', turns: 1, sessionId: 'sess-1', stopReason: 'error_max_turns' };
+        if (stop !== undefined) return { finalText: '', turns: 1, sessionId: 'sess-1', stopReason: stop };
         return { finalText: `${answer}\n<promise>COMPLETE</promise>`, turns: 1, sessionId: 'sess-1' };
       },
     };
   }
 
-  async function run(text: string, opts: { noChange?: boolean; laterStagesOnly?: boolean; maxTurns?: boolean; prLabels?: string[]; failLabelEdit?: boolean; repoLabels?: string[] } = {}): Promise<{ ghCalls: string[][]; ghEnvs: Array<Record<string, string> | undefined>; pushes: string[][]; prompt: string; logs: string[]; result: Promise<unknown> }> {
+  async function run(text: string, opts: { noChange?: boolean; laterStagesOnly?: boolean; stop?: string; noChecklist?: boolean; prLabels?: string[]; failLabelEdit?: boolean; repoLabels?: string[] } = {}): Promise<{ ghCalls: string[][]; ghEnvs: Array<Record<string, string> | undefined>; pushes: string[][]; prompt: string; logs: string[]; result: Promise<unknown> }> {
     const logs: string[] = [];
     const ghEnvs: Array<Record<string, string> | undefined> = [];
     const ghCalls: string[][] = [];
@@ -2848,7 +2852,7 @@ describe('runRevisePullRequest blocking-item checklist', () => {
       if (args[0] === 'pr' && args[1] === 'diff') return 'diff --git a/fix.txt';
       if (args[0] === 'api' && args[1] === 'graphql') {
         const query = args.find((a) => a.startsWith('query=')) ?? '';
-        if (query.includes('reviewThreads')) return makeFeedbackJson({ comments: { nodes: [findingsComment] } });
+        if (query.includes('reviewThreads')) return makeFeedbackJson({ comments: { nodes: opts.noChecklist === true ? [{ ...findingsComment, body: 'Please rename the helper.' }] : [findingsComment] } });
         return JSON.stringify({ data: {} });
       }
       return '';
@@ -2856,7 +2860,7 @@ describe('runRevisePullRequest blocking-item checklist', () => {
     const sandbox = makeSandbox();
     if (opts.noChange === true) sandbox.copyFileOut = async (p: string, host: string): Promise<void> => { if (p === '/workspace') await mkdir(host, { recursive: true }); };
     const result = runRevisePullRequest('7', {
-      repoPath: repo, repoSlug: 'o/r', gh, _sandbox: sandbox, _agent: agentWithText(text, inputs, opts.laterStagesOnly, opts.maxTurns),
+      repoPath: repo, repoSlug: 'o/r', gh, _sandbox: sandbox, _agent: agentWithText(text, inputs, opts.laterStagesOnly, opts.stop),
       _worktrees: new WorktreeManager(repo), _baseBranch: 'feature-branch', provider: 'claude', log: (line) => logs.push(line),
       _pushRunner: async (file, args) => { if (file === 'git') pushes.push(args); return ''; },
     });
@@ -2864,6 +2868,10 @@ describe('runRevisePullRequest blocking-item checklist', () => {
     return { ghCalls, ghEnvs, pushes, prompt: inputs[0]?.prompt ?? '', logs, result };
   }
 
+  const runRecords = async (): Promise<Array<Record<string, unknown>>> => {
+    const files = (await readdir(join(repo, '.taskcell', 'runs'), { recursive: true })).filter((f) => f.endsWith('.json'));
+    return Promise.all(files.map(async (f) => JSON.parse(await readFile(join(repo, '.taskcell', 'runs', f), 'utf8')) as Record<string, unknown>));
+  };
   // The repo's labels cannot be listed here (`label list` returns ''): the trigger goes out under the legacy name every gate reads.
   const reReview = (calls: string[][], name = 'ready for vanguard review'): boolean =>
     calls.some((a) => a[0] === 'pr' && a[1] === 'edit' && a.includes('--add-label') && a.includes(name));
@@ -2943,10 +2951,34 @@ describe('runRevisePullRequest blocking-item checklist', () => {
   });
 
   it('names the turn cap when the implementer stops on max turns', async () => {
-    const { ghCalls, pushes, result } = await run('', { maxTurns: true });
+    const { ghCalls, pushes, result } = await run('', { stop: 'error_max_turns' });
     await expect(result).rejects.toThrow(/turn cap/);
     expect(pushes.some((a) => a[0] === 'push')).toBe(false);
     expect(JSON.stringify(ghCalls)).toContain('hit the turn cap');
+    expect(JSON.stringify(ghCalls)).toContain('fix some of them by hand');
+    expect(JSON.stringify(ghCalls)).not.toContain('Split the findings');
+    // The not-scanned record: the round stopped before the secret gate ran.
+    expect(await runRecords()).toEqual(expect.arrayContaining([expect.objectContaining({ diffOmitted: 'not-scanned' })]));
+  });
+
+  it('names the stage cap number in the turn-cap notice when the stage sets one', async () => {
+    const { ghCalls } = await run('', { stop: 'error_max_turns' });
+    expect(JSON.stringify(ghCalls)).toMatch(/hit the turn cap \(\d+\)/);
+  });
+
+  it('names the budget cap, not the generic unanswered notice, when the implementer stops on budget', async () => {
+    const { ghCalls, result } = await run('', { stop: 'error_max_budget_usd' });
+    await expect(result).rejects.toThrow(/budget cap/);
+    const body = JSON.stringify(ghCalls);
+    expect(body).toContain('hit its budget cap');
+    expect(body).not.toContain('have no answer');
+  });
+
+  it('logs the turn cap when a capped round has no checklist and goes on to push', async () => {
+    const { logs, pushes, result } = await run('', { stop: 'error_max_turns', noChecklist: true });
+    await result.catch(() => undefined);
+    expect(logs.some((l) => l.includes('hit the turn cap'))).toBe(true);
+    expect(pushes.some((a) => a[0] === 'push')).toBe(true);
   });
 
   it('takes the answers from the implementer only, not from a later stage', async () => {

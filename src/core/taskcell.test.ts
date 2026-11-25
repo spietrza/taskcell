@@ -177,6 +177,17 @@ describe('vanguard.run', () => {
     }
   });
 
+  it('classifies maxTurns from the turn count when the provider reports no stop reason (codex, cursor)', async () => {
+    const wm = new WorktreeManager(repo);
+    const { sandbox } = makeSandbox();
+    const agent = fakeAgent([{ text: 'x' }], { finalText: '', turns: 30 });
+    const res = await run({ taskId: 't-turns-fallback', localRepoPath: repo, promptTemplate: 'x', sandbox, agent, maxTurns: 30 }, { worktrees: wm });
+    expect(res.exitReason).toBe('maxTurns');
+    const { sandbox: s2 } = makeSandbox();
+    const under = await run({ taskId: 't-turns-under', localRepoPath: repo, promptTemplate: 'x', sandbox: s2, agent: fakeAgent([{ text: 'x' }], { finalText: '', turns: 29 }), maxTurns: 30 }, { worktrees: wm });
+    expect(under.exitReason).toBe('incomplete');
+  });
+
   it('removes a clean worktree and reports not-completed', async () => {
     const wm = new WorktreeManager(repo);
     const { sandbox, wasDestroyed } = makeSandbox();

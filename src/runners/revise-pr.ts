@@ -650,15 +650,21 @@ export async function runRevisePullRequest(prRef: string, deps: ReviseGithubPrDe
         }
         throw new TaskcellError(`revise-pr ${target.repoSlug}#${target.number}: ${notice}`);
       };
+      const implementerStop = outcomes.find((o) => o.name === STAGE.IMPLEMENTER && (o.result.exitReason === 'maxTurns' || o.result.exitReason === 'budget_exceeded'))?.result.exitReason;
+      const turnCap = pipeline.find((s) => s.name === STAGE.IMPLEMENTER)?.maxTurns;
+      const capLabel = turnCap !== undefined ? ` (${turnCap})` : '';
       if (unanswered.length > 0) {
         await writeStagesWithoutDiff();
         const list = unanswered.map((t) => `- ${t}`).join('\n');
-        if (outcomes.some((o) => o.name === STAGE.IMPLEMENTER && o.result.exitReason === 'maxTurns')) {
-          const cap = pipeline.find((s) => s.name === STAGE.IMPLEMENTER)?.maxTurns;
-          return await failOpenItems(`Revision failed: the implementer hit the turn cap${cap !== undefined ? ` (${cap})` : ''} before answering ${unanswered.length} blocking item(s); nothing was pushed. Split the findings into smaller rounds, then re-apply \`needs revision\`; unanswered:\n${list}`, true);
+        // Every blocking item of the latest review is taken each round, so the advice is a hand fix, not a split.
+        const handFix = 'Every blocking item of the latest review is taken each round: fix some of them by hand first, then re-apply `needs revision`';
+        if (implementerStop !== undefined) {
+          const cap = implementerStop === 'maxTurns' ? `the turn cap${capLabel}` : 'its budget cap';
+          return await failOpenItems(`Revision failed: the implementer hit ${cap} before answering ${unanswered.length} blocking item(s); nothing was pushed. ${handFix}; unanswered:\n${list}`, true);
         }
         return await failOpenItems(`Revision failed: ${unanswered.length} blocking item(s) have no answer (fixed / not fixed / disputed), nothing was pushed. This PR needs a hand fix; unanswered:\n${list}\n\nAfter fixing it by hand, re-apply \`needs revision\` to start a normal revision round.`, true);
       }
+      if (implementerStop === 'maxTurns') log(`revise-pr ${target.repoSlug}#${target.number}: the implementer hit the turn cap${capLabel}; the revision may be partial`);
       const checklistAnswers = checklist.map((text, i) => ({ text, answer: answers[i]! }));
 
       // Run the resolved verification command after applying changes and before pushing, with one

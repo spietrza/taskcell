@@ -851,6 +851,65 @@ describe('resolveForRun with fallback-chain providers (extra)', () => {
     expect(await svc.resolveForRun(u, 'claude', ['codex'])).toMatchObject({ source: 'user', env: { ANTHROPIC_API_KEY: 'sk-mine', CODEX_API_KEY: 'my-codex' } });
   });
 
+  it("a lone same-transport entry [zai], a custom or meridian does not fund a run whose accounts all cool; a second funded entry does", async () => {
+    for (const name of ['CODEX_AUTH_JSON', 'CODEX_API_KEY', 'OPENAI_API_KEY', 'ZAI_API_KEY']) vi.stubEnv(name, '');
+    const svc = createCredentialService(await dir());
+    const a = await svc.store.putAccount('instance', { name: 'A', type: 'api-key', value: 'sk-A' });
+    await svc.rotationFor(undefined, 'claude', await svc.resolveForRun(undefined, 'claude'))!.cool(a, new Date(Date.now() + 3600_000));
+    await svc.store.put('instance', 'ZAI_API_KEY', 'zk');
+    for (const extra of [['zai'], ['my-custom'], ['meridian'], ['zai', 'my-custom']]) await expect(svc.resolveForRun(undefined, 'claude', extra)).rejects.toThrow(/cooling down/);
+    await svc.store.put('instance', 'CODEX_API_KEY', 'ck');
+    await expect(svc.resolveForRun(undefined, 'claude', ['zai', 'codex'])).resolves.toMatchObject({ accountId: a });
+  });
+
+  it('a funded repo custom counts as a chain entry that can take the run; an unfunded one does not', async () => {
+    for (const name of ['CODEX_AUTH_JSON', 'CODEX_API_KEY', 'OPENAI_API_KEY', 'ZAI_API_KEY', 'ACME_KEY']) vi.stubEnv(name, '');
+    const svc = createCredentialService(await dir());
+    const a = await svc.store.putAccount('instance', { name: 'A', type: 'api-key', value: 'sk-A' });
+    await svc.rotationFor(undefined, 'claude', await svc.resolveForRun(undefined, 'claude'))!.cool(a, new Date(Date.now() + 3600_000));
+    await svc.store.put('instance', 'ZAI_API_KEY', 'zk');
+    const keys = { acme: ['ACME_KEY'] };
+    await expect(svc.resolveForRun(undefined, 'claude', ['zai', 'acme'], keys)).rejects.toThrow(/cooling down/);
+    vi.stubEnv('ACME_KEY', 'host-acme');
+    // A lone custom shares the Engine's transport and is dropped by the run; next to zai it takes over.
+    await expect(svc.resolveForRun(undefined, 'claude', ['acme'], keys)).rejects.toThrow(/cooling down/);
+    await expect(svc.resolveForRun(undefined, 'claude', ['zai', 'acme'], keys)).resolves.toMatchObject({ accountId: a });
+  });
+
+  it('a user-scope decision ignores the host env', async () => {
+    vi.stubEnv('CODEX_API_KEY', 'host-codex');
+    const svc = createCredentialService(await dir());
+    await svc.setPolicy('user-first');
+    const mine = await svc.store.putAccount('user:u1', { name: 'Mine', type: 'api-key', value: 'sk-mine' });
+    await svc.rotationFor(u, 'claude', await svc.resolveForRun(u, 'claude'))!.cool(mine, new Date(Date.now() + 3600_000));
+    await expect(svc.resolveForRun(u, 'claude', ['codex'])).rejects.toThrow(/cooling down/);
+    await svc.store.put('user:u1', 'CODEX_API_KEY', 'my-codex');
+    await expect(svc.resolveForRun(u, 'claude', ['codex'])).resolves.toMatchObject({ source: 'user', accountId: mine });
+  });
+
+  it('with several cooling accounts the run starts on the soonest-resetting one', async () => {
+    for (const name of ['CODEX_AUTH_JSON', 'CODEX_API_KEY', 'OPENAI_API_KEY']) vi.stubEnv(name, '');
+    const svc = createCredentialService(await dir());
+    const a = await svc.store.putAccount('instance', { name: 'A', type: 'api-key', value: 'sk-A' });
+    const b = await svc.store.putAccount('instance', { name: 'B', type: 'api-key', value: 'sk-B' });
+    const c = await svc.store.putAccount('instance', { name: 'C', type: 'api-key', value: 'sk-C' });
+    const rotation = svc.rotationFor(undefined, 'claude', await svc.resolveForRun(undefined, 'claude'))!;
+    await rotation.cool(a, new Date(Date.now() + 3 * 3600_000));
+    await rotation.cool(b, new Date(Date.now() + 1 * 3600_000));
+    await rotation.cool(c, new Date(Date.now() + 2 * 3600_000));
+    await svc.store.put('instance', 'CODEX_API_KEY', 'ck');
+    await expect(svc.resolveForRun(undefined, 'claude', ['codex'])).resolves.toMatchObject({ accountId: b, env: { ANTHROPIC_API_KEY: 'sk-B' } });
+  });
+
+  it('a non-Claude Engine with claude in the chain gets one Anthropic variable from the account list', async () => {
+    const svc = createCredentialService(await dir());
+    await svc.store.put('instance', 'CODEX_API_KEY', 'ck');
+    await svc.store.putAccount('instance', { name: 'A', type: 'api-key', value: 'sk-A' });
+    await svc.store.putAccount('instance', { name: 'B', type: 'subscription', value: 'oat-B' });
+    const cred = await svc.resolveForRun(undefined, 'codex', ['claude']);
+    expect(cred.env).toEqual({ CODEX_API_KEY: 'ck', ANTHROPIC_API_KEY: 'sk-A' });
+  });
+
   it('a stored Claude account carries the chain providers\' keys, also onto the next account after a limit', async () => {
     const d = await dir();
     const svc = createCredentialService(d);
