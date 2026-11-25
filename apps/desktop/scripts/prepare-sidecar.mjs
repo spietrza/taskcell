@@ -35,5 +35,7 @@ for (const entry of ['package.json', 'pnpm-lock.yaml', 'dist', 'templates', 'ski
 mkdirSync(join(stage, 'apps/desktop'), { recursive: true });
 cpSync(join(desktop, 'dist'), join(stage, 'apps/desktop/dist'), { recursive: true });
 // --ignore-workspace: apps/desktop has a pnpm-workspace.yaml, so without it pnpm installs there (pruning the dev tools) and leaves the stage empty.
-run('pnpm', ['install', '--prod', '--frozen-lockfile', '--ignore-scripts', '--ignore-workspace'], stage);
+// node-linker=hoisted: real directories, no symlinks. Tauri drops symlinks when it copies resources, so pnpm's default
+// symlinked layout reached the app as an empty node_modules and the hub died on its first import.
+run('pnpm', ['install', '--prod', '--frozen-lockfile', '--ignore-scripts', '--ignore-workspace', '--config.node-linker=hoisted'], stage);
 console.log(`staged ${stage} and ${nodeDest}`);

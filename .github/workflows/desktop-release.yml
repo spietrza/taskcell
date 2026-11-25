@@ -71,6 +71,13 @@ jobs:
           [ -n "${TAURI_SIGNING_PRIVATE_KEY:-}" ] && updater=true
           cd apps/desktop
           pnpm bundle --config "{\"version\":\"$version\",\"bundle\":{\"createUpdaterArtifacts\":$updater}}" -- --locked
+      # The bundled hub must load from inside the app (a dropped node_modules once shipped an app whose hub never started).
+      - name: Smoke-test the bundled hub
+        if: runner.os == 'macOS'
+        shell: bash
+        run: |
+          app=$(ls -d apps/desktop/src-tauri/target/release/bundle/macos/*.app | head -1)
+          "$app/Contents/MacOS/node" "$app/Contents/Resources/taskcell/dist/cli/index.js" --help > /dev/null
       - name: Collect installers
         shell: bash
         env:
