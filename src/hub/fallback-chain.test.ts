@@ -46,8 +46,8 @@ describe('fundableChain', () => {
   test('keeps entries with a key in the credential and drops the rest; a user run never borrows host keys', async () => {
     const repo = await tmpRepo();
     const chain = [{ provider: 'codex' }, { provider: 'cursor', model: 'm1' }];
-    expect(await fundableChain(chain, repo, { source: 'user', env: { CODEX_API_KEY: 'k' } }, { CURSOR_API_KEY: 'host' })).toEqual({ kept: [{ provider: 'codex' }], dropped: ['cursor/m1'] });
-    expect(await fundableChain(chain, repo, { source: 'instance', env: { CODEX_API_KEY: 'k' } }, { CURSOR_API_KEY: 'host' })).toEqual({ kept: chain, dropped: [] });
+    expect(await fundableChain(chain, repo, { source: 'user', env: { CODEX_API_KEY: 'k' } }, { CURSOR_API_KEY: 'host' })).toEqual({ kept: [{ provider: 'codex' }], dropped: ['cursor/m1'], unreachable: [] });
+    expect(await fundableChain(chain, repo, { source: 'instance', env: { CODEX_API_KEY: 'k' } }, { CURSOR_API_KEY: 'host' })).toEqual({ kept: chain, dropped: [], unreachable: [] });
   });
 
   test('a repo custom is funded by its keyEnv', async () => {
@@ -55,8 +55,15 @@ describe('fundableChain', () => {
     await mkdir(join(repo, '.taskcell'), { recursive: true });
     await writeFile(join(repo, '.taskcell', 'app.json'), JSON.stringify({ customProviders: [{ name: 'acme', baseUrl: 'https://llm.acme.test', keyEnv: 'ACME_KEY' }] }));
     const chain = [{ provider: 'acme' }];
-    expect(await fundableChain(chain, repo, { source: 'user', env: { ACME_KEY: 'k' } }, {})).toEqual({ kept: chain, dropped: [] });
-    expect(await fundableChain(chain, repo, { source: 'user', env: {} }, { ACME_KEY: 'host' })).toEqual({ kept: [], dropped: ['acme'] });
+    expect(await fundableChain(chain, repo, { source: 'user', env: { ACME_KEY: 'k' } }, {})).toEqual({ kept: chain, dropped: [], unreachable: [] });
+    expect(await fundableChain(chain, repo, { source: 'user', env: {} }, { ACME_KEY: 'host' })).toEqual({ kept: [], dropped: ['acme'], unreachable: [] });
+  });
+
+  test('a funded plain-http custom is unreachable through the egress proxy and is not kept', async () => {
+    const repo = await tmpRepo();
+    await mkdir(join(repo, '.taskcell'), { recursive: true });
+    await writeFile(join(repo, '.taskcell', 'app.json'), JSON.stringify({ customProviders: [{ name: 'lan', baseUrl: 'http://10.0.0.5:8080', keyEnv: 'LAN_KEY' }] }));
+    expect(await fundableChain([{ provider: 'lan' }], repo, { source: 'user', env: { LAN_KEY: 'k' } }, {})).toEqual({ kept: [], dropped: [], unreachable: ['lan'] });
   });
 });
 

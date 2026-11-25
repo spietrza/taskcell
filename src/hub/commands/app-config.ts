@@ -3,7 +3,7 @@
 import { BadRequestError } from '../../sidecar/sidecar.js';
 import { assertSafeBaseBranch } from '../../core/base-branch.js';
 import { readAppConfig, readAppConfigStrict, writeAppConfig, type AppConfig as HubAppConfig } from '../app-config.js';
-import { appConfigRangeErrors, type AppConfig, type ChatModelList } from '../../wire.js';
+import { appConfigRangeErrors, firstFallbackChainError, type AppConfig, type ChatModelList } from '../../wire.js';
 import { listChatModels } from '../chat-models.js';
 import { type Args, defineCommands, requireString, changedKeys, repoTarget } from '../command-kit.js';
 import { settingsValueChanges } from '../audit.js';
@@ -73,6 +73,9 @@ export const commands = defineCommands<AppConfigCommands>({
     }
     const rangeErrors = Object.values(appConfigRangeErrors(config as AppConfig));
     if (rangeErrors.length > 0) throw new BadRequestError(rangeErrors.join(' '));
+    const { fallbackChain, provider } = config as HubAppConfig;
+    const chainError = firstFallbackChainError(fallbackChain, { primary: typeof provider === 'string' ? provider.trim() : '' });
+    if (chainError !== undefined) throw new BadRequestError(chainError);
     await writeAppConfig(real, config as HubAppConfig);
     return null;
   },

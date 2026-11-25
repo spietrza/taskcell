@@ -1,7 +1,7 @@
 // The Hub's fallback chain (Settings → Line → Cell): the ordered providers/models a run moves to when the Engine hits a
 // provider limit. Resolved server-side at every Hub start point and handed to the engine as `--fallback-provider` /
 // `--fallback-model` values — the engine's own routing, cooldowns and park logic do the rest (no second mechanism).
-import { PROVIDER_NAMES as REGISTRY_PROVIDERS, claudeCliKeyEnv, validateProviderChoice } from '../agents/registry.js';
+import { PROVIDER_NAMES as REGISTRY_PROVIDERS, assertEgressCompatible, claudeCliKeyEnv, validateProviderChoice } from '../agents/registry.js';
 import { loadCustomProviders } from '../agents/custom.js';
 import { FALLBACK_CHAIN_MAX, fallbackChainErrors, type FallbackEntry, type RunCredential } from '../wire.js';
 import type { AppConfig } from './app-config.js';
@@ -58,7 +58,7 @@ export function fallbackFlags(chain: readonly FallbackEntry[]): { fallbackProvid
 }
 
 /** A repo custom's key env names; none for an unknown name or a keyless custom. */
-function keyEnvOf(name: string, customs: Parameters<typeof claudeCliKeyEnv>[1]): readonly string[] {
+export function keyEnvOf(name: string, customs: Parameters<typeof claudeCliKeyEnv>[1]): readonly string[] {
   try {
     return claudeCliKeyEnv(name, customs) ?? [];
   } catch {
@@ -66,23 +66,37 @@ function keyEnvOf(name: string, customs: Parameters<typeof claudeCliKeyEnv>[1]):
   }
 }
 
+/** False for a plain-http custom: a Hub run is always-egress, and its CONNECT-only proxy cannot reach one. */
+function egressOk(name: string, customs: Parameters<typeof claudeCliKeyEnv>[1]): boolean {
+  try {
+    assertEgressCompatible({ provider: name, ...(customs !== undefined && customs.length > 0 ? { customProviders: customs } : {}) });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 /**
  * Keep the entries a run can fund: a provider with a key in the run's credential (or, for an instance credential or none,
- * in the hub's own environment). A `user` run never borrows the instance's keys. Dropped entries are named for a warning.
+ * in the hub's own environment) and an endpoint the egress proxy can reach (`unreachable`: plain-http customs). A `user` run
+ * never borrows the instance's keys. Dropped entries are named for a warning.
  */
-export async function fundableChain(chain: readonly FallbackEntry[], repoPath: string, credential: RunCredential | undefined, hostEnv: NodeJS.ProcessEnv = process.env): Promise<{ kept: FallbackEntry[]; dropped: string[] }> {
-  if (chain.length === 0) return { kept: [], dropped: [] };
+export async function fundableChain(chain: readonly FallbackEntry[], repoPath: string, credential: RunCredential | undefined, hostEnv: NodeJS.ProcessEnv = process.env): Promise<{ kept: FallbackEntry[]; dropped: string[]; unreachable: string[] }> {
+  if (chain.length === 0) return { kept: [], dropped: [], unreachable: [] };
   const customs = chain.some((e) => !(e.provider in PROVIDER_NAMES)) ? await loadCustomProviders(repoPath).catch(() => []) : [];
   const hostFunds = credential === undefined || credential.source === 'instance';
   const has = (name: string): boolean => (credential?.env[name] ?? '') !== '' || (hostFunds && (hostEnv[name] ?? '') !== '');
   const kept: FallbackEntry[] = [];
   const dropped: string[] = [];
+  const unreachable: string[] = [];
   for (const e of chain) {
+    const label = e.model !== undefined ? `${e.provider}/${e.model}` : e.provider;
     const names = PROVIDER_NAMES[e.provider] ?? keyEnvOf(e.provider, customs);
-    if (names.some(has)) kept.push(e);
-    else dropped.push(e.model !== undefined ? `${e.provider}/${e.model}` : e.provider);
+    if (!names.some(has)) dropped.push(label);
+    else if (!egressOk(e.provider, customs)) unreachable.push(label);
+    else kept.push(e);
   }
-  return { kept, dropped };
+  return { kept, dropped, unreachable };
 }
 
 /**
@@ -91,7 +105,9 @@ export async function fundableChain(chain: readonly FallbackEntry[], repoPath: s
  * the credential cannot fund, with a warning, so a chain entry never refuses a run.
  */
 export async function chainForRun(opts: { configDir: string; repoPath: string; cfg: AppConfig; user: HubUser | undefined; provider: string | undefined; credentials: CredentialService | undefined }): Promise<{ credential: RunCredential | undefined; flags: { fallbackProvider?: string; fallbackModel?: string } }> {
-  const { chain } = await resolveFallbackChain(opts.configDir, opts.repoPath, opts.cfg);
+  // The Engine is the provider this run starts with: a client may pick one other than the saved default.
+  const cfg = opts.provider !== undefined ? { ...opts.cfg, provider: opts.provider } : opts.cfg;
+  const { chain } = await resolveFallbackChain(opts.configDir, opts.repoPath, cfg);
   const credential = opts.credentials !== undefined ? await opts.credentials.resolveForRun(opts.user, opts.provider, chain.map((e) => e.provider)) : undefined;
   return { credential, flags: fallbackFlags(chain) };
 }
