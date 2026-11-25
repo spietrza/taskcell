@@ -27,3 +27,17 @@ test('says the flow is unavailable when the run\'s events cannot be read', async
   render(<LiveRun active={active} repo="/repo" refreshKey={0} />);
   await waitFor(() => expect(screen.getByText(/Flow unavailable/)).toBeInTheDocument());
 });
+
+test('re-reads the event log on a tick only until the flow is known', async () => {
+  stubHubCalls({ read_session: async () => session as never });
+  vi.mocked(readRunEvents).mockResolvedValueOnce({ events: [], nextAfter: 0, hasMore: false, truncated: false });
+  vi.mocked(readRunEvents).mockResolvedValue({ events: [runStart], nextAfter: 1, hasMore: false, truncated: false });
+  const { rerender } = render(<LiveRun active={active} repo="/repo" refreshKey={0} />);
+  await waitFor(() => expect(readRunEvents).toHaveBeenCalledTimes(1));
+  rerender(<LiveRun active={active} repo="/repo" refreshKey={1} />); // no flow yet: read again
+  expect(await screen.findByText('plan')).toBeInTheDocument();
+  expect(readRunEvents).toHaveBeenCalledTimes(2);
+  rerender(<LiveRun active={active} repo="/repo" refreshKey={2} />);
+  rerender(<LiveRun active={active} repo="/repo" refreshKey={3} />);
+  expect(readRunEvents).toHaveBeenCalledTimes(2); // known: ticks leave the log alone
+});

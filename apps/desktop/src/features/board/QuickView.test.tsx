@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
+import type { ReactElement } from 'react';
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { QuickView, waitingWhy, type QuickTask } from './QuickView';
 import type { NeedsYouItem, RunDetail, RunSummary } from '../../wire';
@@ -319,5 +320,18 @@ describe('QuickView last-good and refetch', () => {
     rerender(<QuickView task={fresh} project="/repo" onClose={() => {}} onFullPage={() => {}} />);
     expect(await screen.findByText('Fresh?')).toBeInTheDocument();
     expect(screen.queryByText('First?')).toBeNull();
+  });
+});
+
+describe('QuickView comment refetch', () => {
+  test('a failed refetch for a changed item drops the old comment instead of leaving it up', async () => {
+    vi.mocked(needsYouComment).mockResolvedValueOnce({ lastComment: { author: 'bot', body: 'Old question' } });
+    const view = (updatedAt: string): QuickTask => ({ ...task, view: { place: { at: 5, failed: false }, waiting: item({ updatedAt }) } });
+    const ui = (t: QuickTask): ReactElement => <QuickView task={t} project="/repo" onClose={() => {}} onFullPage={() => {}} />;
+    const { rerender } = render(ui(view('1')));
+    expect(await screen.findByText('Old question')).toBeInTheDocument();
+    vi.mocked(needsYouComment).mockRejectedValueOnce(new Error('down'));
+    rerender(ui(view('2')));
+    await waitFor(() => expect(screen.queryByText('Old question')).toBeNull());
   });
 });

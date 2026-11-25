@@ -1321,6 +1321,9 @@ export interface Events {
   'vanguard:changed': string;
   /** Hub-only clone progress. */
   'vanguard:clone-progress': { line: string };
+  /** A spawned child's output line / exit (`code` is null when killed by a signal). */
+  'spawn:output': { pid: number; line: string };
+  'spawn:exit': { pid: number; code: number | null };
 }
 
 /**

@@ -678,3 +678,12 @@ test('a fixture error reaches the caller as the bare message, as a hub error doe
   await expect(invoke('list_active')).rejects.toBe('boom');
   vi.restoreAllMocks();
 });
+
+test('a fixture fault is a 500 `internal`, a thrown string a 400 `bad-request` (the hub shape)', async () => {
+  window.__TASKCELL_MOCK__ = true;
+  const backend = await import('./dev/mockBackend');
+  vi.spyOn(backend, 'handle').mockRejectedValueOnce(new Error('boom')).mockRejectedValueOnce('nope');
+  expect(await hub().request('list_active', undefined)).toEqual({ status: 500, body: { error: { message: 'boom', kind: 'internal' } } });
+  expect(await hub().request('list_active', undefined)).toEqual({ status: 400, body: { error: { message: 'nope', kind: 'bad-request' } } });
+  vi.restoreAllMocks();
+});

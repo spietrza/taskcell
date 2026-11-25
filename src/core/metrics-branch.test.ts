@@ -292,4 +292,37 @@ describe('aborted tip fetch', () => {
     await new Promise((r) => setTimeout(r, 2200));
     expect(() => process.kill(pid, 0)).toThrow();
   }, 15_000);
+
+  it('SIGKILLs a live fetch group from the process exit and signal hooks, which a signal death would otherwise skip', async () => {
+    await appendBranchLines(repo, ['{"id":0}'], { file: 'decisions.jsonl' });
+    const { stdout: realGit } = await execa('which', ['git']);
+    const bin = join(root, 'bin');
+    await mkdir(bin);
+    const pidFile = join(root, 'fake-git.pid');
+    await writeFile(join(bin, 'git'), `#!/bin/sh\nif [ "$3" != fetch ] && [ "$1" != fetch ]; then exec ${realGit} "$@"; fi\ntrap '' TERM\necho $$ > ${pidFile}\nwhile :; do sleep 1; done\n`);
+    await chmod(join(bin, 'git'), 0o755);
+    vi.stubEnv('PATH', `${bin}:${process.env.PATH ?? ''}`);
+    // A fresh module registers its hooks again (they register once per module); capture them instead of arming them.
+    vi.resetModules();
+    const hooks = new Map<string, () => void>();
+    const once = vi.spyOn(process, 'once').mockImplementation(((ev: string, fn: () => void) => (hooks.set(ev, fn), process)) as never);
+    const fresh = await import('./metrics-branch.js');
+    const controller = new AbortController();
+    const read = fresh.readBranchFile(repo, { file: 'decisions.jsonl', signal: controller.signal });
+    for (let i = 0; ; i++) {
+      if (await readFile(pidFile, 'utf8').then((t) => t.trim() !== '', () => false)) break;
+      if (i > 250) throw new Error('the fake git never started');
+      await new Promise((r) => setTimeout(r, 20));
+    }
+    once.mockRestore();
+    expect([...hooks.keys()].sort()).toEqual(['SIGHUP', 'SIGINT', 'SIGTERM', 'exit']);
+    const pid = Number((await readFile(pidFile, 'utf8')).trim());
+    expect(() => process.kill(pid, 0)).not.toThrow();
+    hooks.get('exit')?.();
+    await new Promise((r) => setTimeout(r, 300));
+    expect(() => process.kill(pid, 0)).toThrow();
+    controller.abort(new Error('done')); // a failed fetch is retried; end the retry
+    await expect(read).rejects.toThrow();
+    await new Promise((r) => setTimeout(r, 200));
+  }, 15_000);
 });
