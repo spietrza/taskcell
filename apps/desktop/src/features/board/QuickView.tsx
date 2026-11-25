@@ -208,7 +208,7 @@ export function QuickView({
     // The item changing on the tracker (a new factory comment) refetches it, not only a new id.
   }, [repoPath, waiting?.id, waiting?.kind, waiting?.updatedAt]);
   // The last fetched comment stays up while the refetch for a new `updatedAt` is on its way (no blank in between).
-  const item = waiting !== null && fetched?.id === waiting.id ? { ...waiting, ...fetched } : waiting;
+  const item = waiting !== null && waiting.lastComment === undefined && fetched?.id === waiting.id ? { ...waiting, ...fetched } : waiting;
   const [cfg, , cfgStatus] = useAppConfig(repoPath);
 
   // The run list is cheap; the latest record (stages, diffs) is read for the receipt and the station notes.
