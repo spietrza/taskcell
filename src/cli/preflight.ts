@@ -1,5 +1,5 @@
 import { execa } from 'execa';
-import { authFromEnv } from '../agents/auth.js';
+import { authFromEnv, subscriptionTokens } from '../agents/auth.js';
 import { assertProvidersResolvable, claudeCliKeyEnv, fallbackProviderNames, llmProxyNeedsNoPrimarySidecar, needsAnthropicAuth, providerSecrets, requiresApiKey, validateProviderChoice } from '../agents/registry.js';
 import { loadCustomProviders } from '../agents/custom.js';
 import { SANDBOX_CLAUDE_VERSION, isOlderVersion, resolveSandboxImage, sandboxImage } from '../sandbox/docker.js';
@@ -293,11 +293,12 @@ export async function runPreflight(cmd: PreflightCommand, opts: PreflightOptions
   }
   checks.push(llmAuthPresent ? check('llm auth', true) : check('llm auth', false, 'missing'));
   // CLAUDE_CODE_OAUTH_TOKEN may hold several tokens, one per line: check each (by number, never the value).
-  const rawTokens = (env.CLAUDE_CODE_OAUTH_TOKEN ?? '').split(/\r?\n/).map((t) => t.trim()).filter((t) => t !== '');
-  if (rawTokens.length > 1) {
-    const bad = rawTokens.flatMap((t, i) => (/\s/.test(t) ? [`token ${i + 1} contains whitespace (one token per line)`] : rawTokens.indexOf(t) !== i ? [`token ${i + 1} repeats token ${rawTokens.indexOf(t) + 1}`] : []));
-    checks.push(bad.length === 0 ? check(`llm auth tokens (${rawTokens.length})`, true) : check('llm auth tokens', false, bad.join('; ')));
-  }
+  // A repeated token is fine (auth dedupes it), but whitespace inside a line is a malformed separator (`A B`, a lone
+  // \r, U+2028) that would join two tokens into one, so it is flagged even in a single-line value.
+  const rawTokens = (env.CLAUDE_CODE_OAUTH_TOKEN ?? '').split(/\n/).map((t) => t.trim()).filter((t) => t !== '');
+  const bad = rawTokens.flatMap((t, i) => (/\s/.test(t) ? [`token ${i + 1} contains whitespace (one token per line)`] : []));
+  if (bad.length > 0) checks.push(check('llm auth tokens', false, bad.join('; ')));
+  else if (rawTokens.length > 1) checks.push(check(`llm auth tokens (${subscriptionTokens(env.CLAUDE_CODE_OAUTH_TOKEN).length})`, true));
 
   let usedProviders: string[];
   try {

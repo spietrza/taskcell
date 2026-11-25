@@ -115,6 +115,7 @@ const { writeStages, beginRun, runStages, commitStage, publishForReview, reviewF
 
 vi.mock('../sandbox/llm-proxy.js', () => ({
   startProviderProxies: vi.fn(async () => ({ openai: undefined, destroy: vi.fn(async () => {}) })),
+  proxyCredential: vi.fn(async () => undefined),
 }));
 const { sandboxImage, capturedSandboxOpts } = vi.hoisted(() => ({
   sandboxImage: vi.fn(() => 'vanguard-sandbox:latest'),

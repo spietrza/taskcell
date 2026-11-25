@@ -517,6 +517,8 @@ export interface RunRecord {
   modelPick?: { provider: string; model?: string; pick: string; skipped?: Array<{ entry: string; until?: string }> };
   /** Why the primary provider's auth was refused and the stage ran on the fallback instead. */
   primaryAuthRefused?: string;
+  /** Under the LLM proxy with several subscription tokens: the credential (1-based) the run ended on and the sidecar's last switch line; never a value. */
+  llmCredential?: { index: number; of: number; note?: string };
   /** Which kind of credential funded the run (hub per-user credentials); never the value. Absent on CLI/CI runs. */
   credentialSource?: 'instance' | 'user';
   /** The user-given name of the stored credential that funded the run; never the value. Absent when none was used. */

@@ -104,3 +104,7 @@ export declare function placeholderRefreshResponse(
 ): { access_token: string; refresh_token: string; id_token: string };
 export declare const CREDENTIAL_NOTE_PREFIX: string;
 export declare function limitResetAt(headers: Record<string, string | string[] | undefined>, now?: number): number;
+export declare const MAX_REPLAYS: number;
+export declare const MAX_LIMIT_BODY_BYTES: number;
+export declare function isPlanLimit(headers: Record<string, string | string[] | undefined>, body?: string): boolean;
+export declare function retryDelayMs(headers: Record<string, string | string[] | undefined>): number;

@@ -574,3 +574,20 @@ describe('codex chatgpt credential, host env to cell (proxy mode)', () => {
     await proxies.destroy();
   });
 });
+
+describe('proxyCredential', () => {
+  it('reads the live credential index and last switch note from a rotating sidecar, and drops it at teardown', async () => {
+    const { proxyCredential } = await import('./llm-proxy.js');
+    let logs = '';
+    const run = (async (args: string[]) => {
+      if (args[0] === 'logs') return { exitCode: 0, stdout: logs, stderr: '' };
+      return { exitCode: 0, stdout: 'id', stderr: '' };
+    }) as never;
+    const proxy = await startLlmProxy({ network: 'vg-egr-x', auth: { mode: 'subscription', secret: 'OAT-ONE', more: ['OAT-TWO'] }, docker: run });
+    expect(await proxyCredential()).toEqual({ index: 1, of: 2 });
+    logs = 'llm-proxy: credential 1 of 2 was refused (expired or revoked, dead for this run); continuing on credential 2\n';
+    expect(await proxyCredential()).toMatchObject({ index: 2, of: 2, note: expect.stringContaining('refused') });
+    await proxy.destroy();
+    expect(await proxyCredential()).toBeUndefined();
+  });
+});

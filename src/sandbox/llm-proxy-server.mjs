@@ -26,6 +26,10 @@ import {
   UPSTREAMS,
   CONTROL_CHARS,
   CREDENTIAL_NOTE_PREFIX,
+  isPlanLimit,
+  retryDelayMs,
+  MAX_REPLAYS,
+  MAX_LIMIT_BODY_BYTES,
   limitResetAt,
   HOP_BY_HOP,
   upstreamAuthHeaders,
@@ -193,15 +197,19 @@ export function createLlmProxyServer(secretText, options = {}) {
   const refreshBackoffMaxMs = options.refreshBackoffMaxMs ?? DEFAULT_REFRESH_BACKOFF_MAX_MS;
   const maxRefreshesPerRun = options.maxRefreshesPerRun ?? DEFAULT_MAX_REFRESHES_PER_RUN;
 
-  // Several subscription tokens (SECRET, SECRET_2, ...): requests use the first one not cooling; a 429 cools the
-  // token until its reset and the same request is retried on the next. Only the 1-based index is ever logged.
+  // Several subscription tokens (SECRET, SECRET_2, ...): requests use the first one not cooling; a plan-limit 429 cools the
+  // token until its reset and the same request is retried on the next; a 401/403 kills it for the run. Only the 1-based index is ever logged.
   const tokens = [config.SECRET, ...Object.keys(config).filter((k) => /^SECRET_\d+$/.test(k)).sort((a, b) => Number(a.slice(7)) - Number(b.slice(7))).map((k) => config[k])];
   const rotates = spec.auth === 'anthropic' && config.MODE === 'subscription' && tokens.length > 1;
   const coolingUntil = tokens.map(() => 0);
+  // A token the upstream refused (401/403) is dead for the rest of the run.
+  const dead = tokens.map(() => false);
   const pickToken = () => {
     const now = Date.now();
-    const free = coolingUntil.findIndex((t) => t <= now);
-    return free >= 0 ? free : coolingUntil.indexOf(Math.min(...coolingUntil));
+    const free = coolingUntil.findIndex((t, i) => t <= now && !dead[i]);
+    if (free >= 0) return free;
+    const alive = coolingUntil.map((t, i) => (dead[i] ? Infinity : t));
+    return alive.indexOf(Math.min(...alive));
   };
   const expectedAuthorization = `Bearer ${config.NONCE}`;
   const UPSTREAM_HOST = spec.host;
@@ -604,7 +612,21 @@ export function createLlmProxyServer(secretText, options = {}) {
     });
   });
 
-  function forward(req, res, body, started, setUpstream, cleanup, isDone, idx) {
+  function sendAuthRefused(req, res, status, started, cleanup) {
+    const json = JSON.stringify({
+      type: 'error',
+      error: {
+        type: 'authentication_error',
+        message: 'the Claude credential was refused (expired or revoked). Refresh CLAUDE_CODE_OAUTH_TOKEN (or ANTHROPIC_API_KEY) and re-run.',
+      },
+    });
+    res.writeHead(401, { 'content-type': 'application/json' });
+    res.end(json);
+    log(req, status, Buffer.byteLength(json), started);
+    cleanup();
+  }
+
+  function forward(req, res, body, started, setUpstream, cleanup, isDone, idx, replays = 0) {
     const applied = AUTH_HEADERS_BY_STYLE[spec.auth](req, idx);
     const headers = buildForwardHeaders(req.headers, applied);
     headers['content-length'] = String(body.length);
@@ -622,34 +644,80 @@ export function createLlmProxyServer(secretText, options = {}) {
       { host: target.host, port: target.port, method: 'POST', path, headers },
       (upRes) => {
         responded = true;
-        // A plan/usage limit on a rotating subscription token: cool it and replay this request on the next free one.
-        // With every token out the 429 passes through unchanged, as it does for a single token.
+        // A 429 on a rotating subscription token. A plan/usage limit cools the token until its reset and replays
+        // the request on the next free one; a transient rate limit retries the same token after `retry-after`.
+        // Replays are capped per request, and a client that already hung up is not replayed upstream. Past the cap,
+        // or with every token out, the 429 passes through unchanged, as it does for a single token.
         if (rotates && upRes.statusCode === 429) {
-          coolingUntil[idx] = limitResetAt(upRes.headers);
+          const bodyChunks = [];
+          let bodySize = 0;
+          upRes.on('data', (c) => {
+            if (bodySize < MAX_LIMIT_BODY_BYTES) bodyChunks.push(c);
+            bodySize += c.length;
+          });
+          upRes.on('error', cleanup);
+          upRes.on('end', () => {
+            const out = Buffer.concat(bodyChunks);
+            const planLimit = isPlanLimit(upRes.headers, out.toString('utf8'));
+            if (isDone() || res.destroyed) {
+              cleanup();
+              return;
+            }
+            let next = idx;
+            let wait = 0;
+            if (planLimit) {
+              coolingUntil[idx] = limitResetAt(upRes.headers);
+              next = pickToken();
+              if (coolingUntil[next] > Date.now() || dead[next]) next = -1;
+            } else {
+              wait = retryDelayMs(upRes.headers);
+            }
+            if (next >= 0 && replays < MAX_REPLAYS) {
+              if (planLimit) {
+                console.error(`${CREDENTIAL_NOTE_PREFIX}${idx + 1} of ${tokens.length} hit a plan limit (cooling until ${new Date(coolingUntil[idx]).toISOString()}); continuing on credential ${next + 1}`);
+              }
+              setTimeout(() => {
+                if (isDone() || res.destroyed) {
+                  cleanup();
+                  return;
+                }
+                forward(req, res, body, started, setUpstream, cleanup, isDone, next, replays + 1);
+              }, wait);
+              return;
+            }
+            if (planLimit) console.error(`${CREDENTIAL_NOTE_PREFIX}${idx + 1} of ${tokens.length} hit a plan limit and every credential is out`);
+            const outHeaders = {};
+            for (const [key, value] of Object.entries(upRes.headers)) {
+              if (HOP_BY_HOP.has(key.toLowerCase()) || key.toLowerCase() === 'content-length') continue;
+              if (value !== undefined) outHeaders[key] = value;
+            }
+            outHeaders['content-length'] = String(out.length);
+            res.writeHead(429, outHeaders);
+            res.end(out);
+            log(req, 429, out.length, started);
+            cleanup();
+          });
+          return;
+        }
+        // A 401/403 on a rotating token: this token is dead for the run; continue on the next live one.
+        if (rotates && (upRes.statusCode === 401 || upRes.statusCode === 403)) {
+          upRes.resume();
+          dead[idx] = true;
           const next = pickToken();
-          if (coolingUntil[next] <= Date.now()) {
-            upRes.resume();
-            console.error(`${CREDENTIAL_NOTE_PREFIX}${idx + 1} of ${tokens.length} hit a plan limit (cooling until ${new Date(coolingUntil[idx]).toISOString()}); continuing on credential ${next + 1}`);
-            forward(req, res, body, started, setUpstream, cleanup, isDone, next);
+          if (!dead[next] && coolingUntil[next] <= Date.now() && replays < MAX_REPLAYS && !isDone() && !res.destroyed) {
+            console.error(`${CREDENTIAL_NOTE_PREFIX}${idx + 1} of ${tokens.length} was refused (expired or revoked, dead for this run); continuing on credential ${next + 1}`);
+            forward(req, res, body, started, setUpstream, cleanup, isDone, next, replays + 1);
             return;
           }
-          console.error(`${CREDENTIAL_NOTE_PREFIX}${idx + 1} of ${tokens.length} hit a plan limit and every credential is out`);
+          console.error(`${CREDENTIAL_NOTE_PREFIX}${idx + 1} of ${tokens.length} was refused (expired or revoked, dead for this run) and no credential is left`);
+          sendAuthRefused(req, res, upRes.statusCode, started, cleanup);
+          return;
         }
         // An Anthropic upstream 401/403 means the real credential is dead: answer a fixed, classified
         // error the CLI prints instead of the upstream body. Log only method, path and status.
         if (spec.auth === 'anthropic' && (upRes.statusCode === 401 || upRes.statusCode === 403)) {
           upRes.resume();
-          const json = JSON.stringify({
-            type: 'error',
-            error: {
-              type: 'authentication_error',
-              message: 'the Claude credential was refused (expired or revoked). Refresh CLAUDE_CODE_OAUTH_TOKEN (or ANTHROPIC_API_KEY) and re-run.',
-            },
-          });
-          res.writeHead(401, { 'content-type': 'application/json' });
-          res.end(json);
-          log(req, upRes.statusCode, Buffer.byteLength(json), started);
-          cleanup();
+          sendAuthRefused(req, res, upRes.statusCode, started, cleanup);
           return;
         }
         const outHeaders = {};

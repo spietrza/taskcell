@@ -314,3 +314,23 @@ test('the SDK gets only the first of several subscription tokens', async () => {
     else process.env['CLAUDE_CODE_OAUTH_TOKEN'] = saved;
   }
 });
+
+describe('baseUrl env keeps a single token', () => {
+  test('withBaseUrl passes only the first subscription token and the base URL', async () => {
+    const saved = process.env['CLAUDE_CODE_OAUTH_TOKEN'];
+    process.env['CLAUDE_CODE_OAUTH_TOKEN'] = 'tok-1\ntok-2';
+    let env: Record<string, string> | undefined;
+    const query: CompleteDeps['query'] = (params) => {
+      env = params.options?.['env'] as Record<string, string> | undefined;
+      return fakeQuery({ type: 'result', subtype: 'success', result: 'ok' })();
+    };
+    try {
+      await runComplete({ messages: msg, baseUrl: 'https://api.anthropic.com' }, { query });
+    } finally {
+      if (saved === undefined) delete process.env['CLAUDE_CODE_OAUTH_TOKEN'];
+      else process.env['CLAUDE_CODE_OAUTH_TOKEN'] = saved;
+    }
+    expect(env?.['CLAUDE_CODE_OAUTH_TOKEN']).toBe('tok-1');
+    expect(env?.['ANTHROPIC_BASE_URL']).toBe('https://api.anthropic.com');
+  });
+});

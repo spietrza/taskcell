@@ -961,3 +961,16 @@ describe('listRuns — ranOn (fallback chain)', () => {
     expect(byId.get('TES-PL')).not.toHaveProperty('ranOn');
   });
 });
+
+describe('beginRun — proxy credential', () => {
+  it('records the credential index and switch note, and omits them when absent', async () => {
+    await beginRun(repo, 'TES-LC', TS).writeStages([{ name: 'implementer', result: { ...result, taskId: 'TES-LC' } }], {
+      llmCredential: { index: 2, of: 3, note: '1 of 3 hit a plan limit; continuing on credential 2' },
+    });
+    const record = JSON.parse(await readFile(join(runsRoot(repo), 'TES-LC', `${PREFIX}-implementer.json`), 'utf8'));
+    expect(record.llmCredential).toEqual({ index: 2, of: 3, note: '1 of 3 hit a plan limit; continuing on credential 2' });
+    await beginRun(repo, 'TES-LN', TS).writeStages([{ name: 'implementer', result: { ...result, taskId: 'TES-LN' } }]);
+    const plain = JSON.parse(await readFile(join(runsRoot(repo), 'TES-LN', `${PREFIX}-implementer.json`), 'utf8'));
+    expect(plain.llmCredential).toBeUndefined();
+  });
+});

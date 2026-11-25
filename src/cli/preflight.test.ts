@@ -71,7 +71,12 @@ describe('runPreflight', () => {
         .map((c) => `${c.name}|${c.ok}|${c.reason ?? ''}`);
     expect(await checks('tok-a\ntok-b')).toEqual(['llm auth tokens (2)|true|']);
     expect(await checks('tok-a\ntok b')).toEqual(['llm auth tokens|false|token 2 contains whitespace (one token per line)']);
-    expect(await checks('tok-a\ntok-a')).toEqual(['llm auth tokens|false|token 2 repeats token 1']);
+    // A repeat is deduped by auth, so preflight agrees: one distinct token.
+    expect(await checks('tok-a\ntok-a')).toEqual(['llm auth tokens (1)|true|']);
+    // Malformed separators inside one line, single-line values included.
+    expect(await checks('tok-a tok-b')).toEqual(['llm auth tokens|false|token 1 contains whitespace (one token per line)']);
+    expect(await checks('tok-a\rtok-b')).toEqual(['llm auth tokens|false|token 1 contains whitespace (one token per line)']);
+    expect(await checks('tok-a\u2028tok-b')).toEqual(['llm auth tokens|false|token 1 contains whitespace (one token per line)']);
     expect(await checks('tok-a')).toEqual([]);
   });
 

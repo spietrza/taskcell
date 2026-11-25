@@ -349,3 +349,28 @@ export function limitResetAt(headers, now = Date.now()) {
   if (Number.isFinite(after) && after > 0) return now + after * 1000;
   return now + DEFAULT_COOLDOWN_MS;
 }
+
+/** Replays one request may take (transient retries and token switches together) before a 429 passes through. */
+export const MAX_REPLAYS = 3;
+/** Bytes of a 429 body read to classify it. */
+export const MAX_LIMIT_BODY_BYTES = 16 * 1024;
+const MAX_RETRY_DELAY_MS = 30_000;
+
+/**
+ * True when a 429 is a plan/usage limit (hours until reset) rather than a transient rate limit: the unified
+ * status header says `rejected`, or (no such header) the body names a usage/plan limit.
+ */
+export function isPlanLimit(headers, body = '') {
+  const first = (v) => (Array.isArray(v) ? v[0] : v);
+  const status = first(headers['anthropic-ratelimit-unified-status']);
+  if (status !== undefined) return String(status).toLowerCase() === 'rejected';
+  return /usage limit|plan limit|limit reached|reached your .*limit/i.test(body);
+}
+
+/** Wait before retrying the same token after a transient 429: `retry-after` seconds, capped; 1s without one. */
+export function retryDelayMs(headers) {
+  const v = headers['retry-after'];
+  const after = Number(Array.isArray(v) ? v[0] : v);
+  if (!Number.isFinite(after) || after < 0) return 1000;
+  return Math.min(after * 1000, MAX_RETRY_DELAY_MS);
+}
