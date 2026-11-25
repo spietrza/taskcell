@@ -574,3 +574,43 @@ describe('codex chatgpt credential, host env to cell (proxy mode)', () => {
     await proxies.destroy();
   });
 });
+
+describe('proxyCredential', () => {
+  const note = (from: number, to: number): string => `llm-proxy: credential ${from} of 2 was refused (expired or revoked, dead for this run); continuing on credential ${to}\n`;
+  const fakeDocker = (logs: Map<string, string>): never => (async (args: string[]) => {
+    if (args[0] === 'logs') return { exitCode: 0, stdout: '', stderr: logs.get(args[args.length - 1]!) ?? '' };
+    return { exitCode: 0, stdout: 'id', stderr: '' };
+  }) as never;
+
+  it('reads each run its own sidecar credential and switch note, and drops it at teardown', async () => {
+    const { proxyCredential } = await import('./llm-proxy.js');
+    const logs = new Map<string, string>();
+    const docker = fakeDocker(logs);
+    const auth = { mode: 'subscription' as const, secret: 'OAT-ONE', more: ['OAT-TWO'] };
+    const a = await startLlmProxy({ network: 'vg-egr-x', auth, docker });
+    const b = await startLlmProxy({ network: 'vg-egr-y', auth, docker });
+    expect(await proxyCredential(a.host)).toEqual({ index: 1, of: 2 });
+    logs.set(a.host, note(1, 2));
+    expect(await proxyCredential(a.host)).toMatchObject({ index: 2, of: 2, note: expect.stringContaining('refused') });
+    // The other run's sidecar never switched: its record is not taken from the first one's log.
+    expect(await proxyCredential(b.host)).toEqual({ index: 1, of: 2 });
+    expect(await proxyCredential(undefined)).toBeUndefined();
+    await a.destroy();
+    expect(await proxyCredential(a.host)).toBeUndefined();
+    expect(await proxyCredential(b.host)).toEqual({ index: 1, of: 2 });
+    await b.destroy();
+  });
+
+  it('takes the index from the last note even when the switch line scrolled out, and guesses nothing from a full tail', async () => {
+    const { proxyCredential } = await import('./llm-proxy.js');
+    const logs = new Map<string, string>();
+    const proxy = await startLlmProxy({ network: 'vg-egr-x', auth: { mode: 'subscription', secret: 'OAT-ONE', more: ['OAT-TWO'] }, docker: fakeDocker(logs) });
+    const out = 'llm-proxy: credential 2 of 2 hit a plan limit and every credential is out; on credential 2\n';
+    // `docker logs --tail 200` holds only the "out" lines once the switch to 2 is 200 lines back.
+    logs.set(proxy.host, out.repeat(200));
+    expect(await proxyCredential(proxy.host)).toMatchObject({ index: 2, of: 2 });
+    logs.set(proxy.host, 'llm-proxy: something else\n'.repeat(200));
+    expect(await proxyCredential(proxy.host)).toBeUndefined();
+    await proxy.destroy();
+  });
+});

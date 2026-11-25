@@ -17,6 +17,8 @@ import { runStages, sandboxComplete, reviewFinalDiff, STAGE } from '../pipeline/
 import { buildReviewerAttribution, hasBlockingFinding } from '../pipeline/review-publish.js';
 import { stripReviewMarkers } from './review-prompt.js';
 import { beginRun, persistDecisionProbe } from '../core/run-store.js';
+import { proxyCredential } from '../sandbox/llm-proxy.js';
+import type { ProxyCredential } from '../sandbox/llm-proxy.js';
 import type { RunSkills } from '../core/run-store.js';
 import type { SecretBlock } from '../core/secret-scan.js';
 import { redactForPublish } from '../core/secret-scan.js';
@@ -281,8 +283,9 @@ export async function executeIssueRun(run: IssueRunExecution): Promise<RunIssueR
       ...(deps.credentialName !== undefined ? { credentialName: deps.credentialName } : {}),
     };
     // Lessons are only all known once the gate repairs have run, so read them at write time.
-    const stageMeta = (): typeof runMeta & { lessonIds: string[]; skills: RunSkills; maxRepairIterations: number; modelPicks?: Record<string, StagePick> } => ({
+    const stageMeta = async (): Promise<typeof runMeta & { lessonIds: string[]; skills: RunSkills; maxRepairIterations: number; modelPicks?: Record<string, StagePick>; llmCredential?: ProxyCredential }> => ({
       ...runMeta,
+      ...await proxyCredential(deps.sandboxContext?.llmProxy?.host).then((c) => (c !== undefined ? { llmCredential: c } : {})),
       lessonIds: [...lessonIds],
       skills: skillsRecord,
       maxRepairIterations: deps.maxRepairIterations ?? MAX_REPAIR_ITERATIONS,
@@ -328,7 +331,7 @@ export async function executeIssueRun(run: IssueRunExecution): Promise<RunIssueR
       const recorded = outcomes.some((outcome) => outcome.name === activeStage && !outcome.result.completed)
         ? outcomes
         : [...outcomes, stopped];
-      await writer.writeStages(recorded.length > 0 ? recorded : [stopped], stageMeta());
+      await writer.writeStages(recorded.length > 0 ? recorded : [stopped], await stageMeta());
     };
     onEvent({
       type: 'run-start',
@@ -477,7 +480,7 @@ export async function executeIssueRun(run: IssueRunExecution): Promise<RunIssueR
     };
     const endSecretBlocked = async (block: SecretBlock): Promise<RunIssueResult> => {
       // The blocked diff holds the secret the scan caught: keep it (and the bundle) off disk.
-      await writer.writeStages(outcomes, { ...stageMeta(), omitDiff: true });
+      await writer.writeStages(outcomes, { ...await stageMeta(), omitDiff: true });
       await stepSummary('secret-blocked');
       // White-label runs keep the automation invisible in the client repo: no secret-blocked label,
       // no branded comment. The operator still gets the masked findings on stderr + run record.
@@ -678,7 +681,7 @@ export async function executeIssueRun(run: IssueRunExecution): Promise<RunIssueR
     });
     if (delivery.kind === 'secret-blocked') return await endSecretBlocked(delivery.block);
     if (delivery.kind === 'no-changes') {
-      await writer.writeStages(outcomes, { ...stageMeta(), noChanges: true });
+      await writer.writeStages(outcomes, { ...await stageMeta(), noChanges: true });
       await stepSummary('no-changes');
       onEvent({ type: 'run-end' });
       return { task, ...(!implementerDone ? { implementerIncomplete: true } : {}) };
@@ -688,7 +691,7 @@ export async function executeIssueRun(run: IssueRunExecution): Promise<RunIssueR
       ? delivery.facts.configPaths
       : [];
     if (delivery.kind === 'delivered-local') {
-      await writer.writeStages(outcomes, { ...stageMeta(), ...(configPaths.length > 0 ? { configPaths } : {}) });
+      await writer.writeStages(outcomes, { ...await stageMeta(), ...(configPaths.length > 0 ? { configPaths } : {}) });
       await stepSummary(verificationFailed ? 'verify-failed' : 'completed');
       onEvent({ type: 'run-end' });
       return { task, branch: delivery.branch, ...(verificationFailed ? { verificationFailed: true } : {}), ...(!implementerDone ? { implementerIncomplete: true } : {}) };
@@ -715,7 +718,7 @@ export async function executeIssueRun(run: IssueRunExecution): Promise<RunIssueR
         ...(deps.reviewGate === true ? { gate: true } : {}),
       });
     }
-    await writer.writeStages(outcomes, { ...stageMeta(), prUrl: pr.prUrl, ...(configPaths.length > 0 ? { configPaths } : {}) });
+    await writer.writeStages(outcomes, { ...await stageMeta(), prUrl: pr.prUrl, ...(configPaths.length > 0 ? { configPaths } : {}) });
     await stepSummary(verificationFailed ? 'verify-failed' : 'completed', { prUrl: pr.prUrl });
     if (verification !== undefined && !verification.passed) await host.addFailureLabel(pr.prUrl, 'verify');
     if (visualProofFailed) await host.addFailureLabel(pr.prUrl, 'visual-proof');

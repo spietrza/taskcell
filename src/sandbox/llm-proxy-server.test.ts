@@ -12,7 +12,7 @@ import { join, dirname, basename } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { randomUUID } from 'node:crypto';
 import { createLlmProxyServer } from './llm-proxy-server.mjs';
-import { CODEX_CLIENT_ID } from './llm-proxy-rewrite.mjs';
+import { CODEX_CLIENT_ID, MAX_REPLAYS } from './llm-proxy-rewrite.mjs';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const serverPath = join(here, 'llm-proxy-server.mjs');
@@ -825,7 +825,7 @@ describe('llm-proxy-server chatgpt auth kind (in-process factory, fake IdP/upstr
       seen.push(String(req.headers['authorization']));
       req.resume();
       if (req.headers['authorization'] === 'Bearer tok-one' || seen.length > 3) {
-        res.writeHead(429, { 'content-type': 'application/json' });
+        res.writeHead(429, { 'content-type': 'application/json', 'anthropic-ratelimit-unified-status': 'rejected' });
         res.end('{"type":"error"}');
         return;
       }
@@ -853,7 +853,7 @@ describe('llm-proxy-server chatgpt auth kind (in-process factory, fake IdP/upstr
     const fakeUpstream = createServer((req, res) => {
       seen.push(String(req.headers['authorization']));
       req.resume();
-      res.writeHead(429, { 'content-type': 'application/json', 'retry-after': '120' });
+      res.writeHead(429, { 'content-type': 'application/json', 'retry-after': '120', 'anthropic-ratelimit-unified-status': 'rejected' });
       res.end('{"type":"error","error":{"type":"rate_limit_error"}}');
     });
     const upstreamPort = await listenOn(fakeUpstream);
@@ -870,6 +870,165 @@ describe('llm-proxy-server chatgpt auth kind (in-process factory, fake IdP/upstr
     // Both are cooling now: a later request still gets the upstream's 429 straight through.
     expect((await fetch(`http://127.0.0.1:${port}/v1/messages`, { method: 'POST', headers: { authorization: 'Bearer real-nonce' }, body: '{}' })).status).toBe(429);
     expect(seen).toHaveLength(3);
+  });
+
+  const ROTATING = 'UPSTREAM=anthropic\nMODE=subscription\nSECRET=tok-one\nNONCE=real-nonce\nSECRET_2=tok-two\n';
+  const startRotating = async (handler: Parameters<typeof createServer>[1]): Promise<{ port: number; call: () => Promise<Response> }> => {
+    const fakeUpstream = createServer(handler);
+    const upstreamPort = await listenOn(fakeUpstream);
+    cleanups.push(async () => { await closeServer(fakeUpstream); });
+    const server = createLlmProxyServer(ROTATING, { forwardTo: { host: '127.0.0.1', port: upstreamPort, protocol: 'http' } });
+    const port = await listenOn(server);
+    cleanups.push(async () => { await closeServer(server); });
+    return { port, call: () => fetch(`http://127.0.0.1:${port}/v1/messages`, { method: 'POST', headers: { authorization: 'Bearer real-nonce' }, body: '{}' }) };
+  };
+
+  it('rotating subscription tokens: a transient 429 retries the same token after retry-after and does not cool it', async () => {
+    const seen: string[] = [];
+    const { call } = await startRotating((req, res) => {
+      seen.push(String(req.headers['authorization']));
+      req.resume();
+      if (seen.length === 1) {
+        res.writeHead(429, { 'retry-after': '0', 'anthropic-ratelimit-unified-status': 'allowed' });
+        res.end('{"type":"error"}');
+        return;
+      }
+      res.writeHead(200);
+      res.end('{"ok":true}');
+    });
+    expect((await call()).status).toBe(200);
+    expect((await call()).status).toBe(200);
+    expect(seen).toEqual(['Bearer tok-one', 'Bearer tok-one', 'Bearer tok-one']);
+  });
+
+  it('rotating subscription tokens: a plan-limit body without the status header also rotates', async () => {
+    const seen: string[] = [];
+    const { call } = await startRotating((req, res) => {
+      seen.push(String(req.headers['authorization']));
+      req.resume();
+      if (seen.length === 1) {
+        res.writeHead(429);
+        res.end('{"error":{"message":"Claude usage limit reached"}}');
+        return;
+      }
+      res.writeHead(200);
+      res.end('{}');
+    });
+    expect((await call()).status).toBe(200);
+    expect(seen).toEqual(['Bearer tok-one', 'Bearer tok-two']);
+  });
+
+  it('rotating subscription tokens: replays are capped per request, then the 429 passes through', async () => {
+    let calls = 0;
+    const { call } = await startRotating((req, res) => {
+      calls += 1;
+      req.resume();
+      res.writeHead(429, { 'retry-after': '0' });
+      res.end('{"type":"error","error":{"type":"rate_limit_error"}}');
+    });
+    const res = await call();
+    expect(res.status).toBe(429);
+    expect(await res.text()).toContain('rate_limit_error');
+    expect(calls).toBe(1 + MAX_REPLAYS);
+  });
+
+  it('rotating subscription tokens: a client that hung up during the 429 is not replayed upstream', async () => {
+    let calls = 0;
+    const { port } = await startRotating((req, res) => {
+      calls += 1;
+      req.resume();
+      setTimeout(() => {
+        res.writeHead(429, { 'anthropic-ratelimit-unified-status': 'rejected' });
+        res.end('{}');
+      }, 150);
+    });
+    const req = request({ host: '127.0.0.1', port, method: 'POST', path: '/v1/messages', headers: { authorization: 'Bearer real-nonce' } });
+    req.on('error', () => undefined);
+    req.end('{}');
+    await new Promise((r) => setTimeout(r, 50));
+    req.destroy();
+    await new Promise((r) => setTimeout(r, 400));
+    expect(calls).toBe(1);
+  });
+
+  it('rotating subscription tokens: a client that hangs up during the retry wait is not replayed', async () => {
+    let calls = 0;
+    const { port } = await startRotating((req, res) => {
+      calls += 1;
+      req.resume();
+      res.writeHead(429, { 'retry-after': '1' });
+      res.end('{}');
+    });
+    const req = request({ host: '127.0.0.1', port, method: 'POST', path: '/v1/messages', headers: { authorization: 'Bearer real-nonce' } });
+    req.on('error', () => undefined);
+    req.end('{}');
+    await new Promise((r) => setTimeout(r, 300));
+    req.destroy();
+    await new Promise((r) => setTimeout(r, 1200));
+    expect(calls).toBe(1);
+  });
+
+  it('rotating subscription tokens: a 5xx is not a rate limit and does not rotate', async () => {
+    const seen: string[] = [];
+    const { call } = await startRotating((req, res) => {
+      seen.push(String(req.headers['authorization']));
+      req.resume();
+      res.writeHead(529, { 'anthropic-ratelimit-unified-status': 'rejected' });
+      res.end('{}');
+    });
+    expect((await call()).status).toBe(529);
+    expect(seen).toEqual(['Bearer tok-one']);
+  });
+
+  it.each([401, 403])('rotating subscription tokens: a %i on token 1 continues on token 2 and token 1 stays dead', async (status) => {
+    const seen: string[] = [];
+    const { call } = await startRotating((req, res) => {
+      seen.push(String(req.headers['authorization']));
+      req.resume();
+      res.writeHead(req.headers['authorization'] === 'Bearer tok-one' ? status : 200);
+      res.end('{}');
+    });
+    expect((await call()).status).toBe(200);
+    expect((await call()).status).toBe(200);
+    expect(seen).toEqual(['Bearer tok-one', 'Bearer tok-two', 'Bearer tok-two']);
+  });
+
+  it('rotating subscription tokens: every token refused answers the fixed classified 401', async () => {
+    const { call } = await startRotating((req, res) => {
+      req.resume();
+      res.writeHead(401);
+      res.end('UPSTREAM-BODY');
+    });
+    const res = await call();
+    expect(res.status).toBe(401);
+    expect(await res.text()).not.toContain('UPSTREAM-BODY');
+  });
+
+  it('rotating subscription tokens: every terminal credential note names the credential it is on', async () => {
+    const err = vi.spyOn(console, 'error').mockImplementation(() => {});
+    try {
+      const refused = await startRotating((req, res) => {
+        req.resume();
+        res.writeHead(401);
+        res.end('{}');
+      });
+      await refused.call();
+      const limited = await startRotating((req, res) => {
+        req.resume();
+        res.writeHead(429, { 'anthropic-ratelimit-unified-status': 'rejected', 'retry-after': '120' });
+        res.end('{}');
+      });
+      await limited.call();
+      const notes = err.mock.calls.map((c) => String(c[0])).filter((l) => l.startsWith('llm-proxy: credential'));
+      expect(notes.find((l) => l.includes('no credential is left'))).toMatch(/; on credential 2$/);
+      expect(notes.find((l) => l.includes('every credential is out'))).toMatch(/; on credential [12]$/);
+    } finally {
+      err.mockRestore();
+    }
+  });
+
+  it('refuses a control character in a SECRET_n credential', () => {
+    expect(() => createLlmProxyServer(`${ROTATING}SECRET_3=tok\u0001three\n`)).toThrow(/control characters/);
   });
 
   it.each([401, 403])('an anthropic upstream %i is answered with a fixed classified error, never the upstream body', async (status) => {

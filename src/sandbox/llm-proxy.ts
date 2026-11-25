@@ -32,6 +32,42 @@ const HUB_ADVICE = 'On a hub run with a stored credential, save it again in Sett
 /** A fresh credential-shaped token (hyphen-free uuid): the sandbox-facing nonce, the refresh placeholder. */
 const randomToken = (): string => randomUUID().replace(/-/g, '');
 
+/** Which of the run's several subscription tokens a rotating sidecar is on, and why it last switched (record of the run). */
+export interface ProxyCredential {
+  /** 1-based index of the credential the sidecar is currently using. */
+  index: number;
+  of: number;
+  /** The sidecar's last switch line (a plan limit or a refused token); absent when it never switched. */
+  note?: string;
+}
+
+/** The sidecar's credential switch lines (prefix included) from its `docker logs` output, sanitized. */
+const logLines = (logs: { stdout?: string; stderr?: string } | undefined): string[] => `${logs?.stdout ?? ''}\n${logs?.stderr ?? ''}`.split('\n');
+const credentialNotes = (logs: { stdout?: string; stderr?: string } | undefined): string[] =>
+  logLines(logs).map((l) => stripControlChars(l).slice(0, MAX_RELAYED_LINE)).filter((l) => l.startsWith(CREDENTIAL_NOTE_PREFIX));
+
+const CREDENTIAL_LOG_TAIL = 200;
+const rotatingSidecars = new Map<string, { total: number; docker: DockerRunner }>();
+
+/**
+ * Reads the run's own rotating sidecar (by its container name, LlmProxyDep.host) for its current credential, for
+ * the run record; undefined without one. Every switch note ends naming the credential the sidecar is on, so the
+ * last note in the tail settles it; with no note in a full tail (it may have scrolled out) nothing is recorded.
+ */
+export async function proxyCredential(host: string | undefined): Promise<ProxyCredential | undefined> {
+  const entry = host === undefined ? undefined : rotatingSidecars.get(host);
+  if (host === undefined || entry === undefined) return undefined;
+  const { total, docker } = entry;
+  // Only the sidecar's stderr reaches its log (forwardLogs): for a rotating sidecar that is these notes.
+  const logs = await docker(['logs', '--tail', String(CREDENTIAL_LOG_TAIL), host]).catch(() => undefined);
+  if (logs === undefined || logs.exitCode !== 0) return undefined; // unreadable log: record nothing rather than a guess
+  const note = credentialNotes(logs).at(-1);
+  if (note === undefined) return logLines(logs).filter((l) => l !== '').length < CREDENTIAL_LOG_TAIL ? { index: 1, of: total } : undefined;
+  const index = Number(note.match(/on credential (\d+)$/)?.[1]);
+  if (!Number.isInteger(index) || index < 1 || index > total) return undefined;
+  return { index, of: total, note: note.slice(CREDENTIAL_NOTE_PREFIX.length) };
+}
+
 export interface LlmProxy {
   /** Proxy URL reachable from inside the internal network (by container name). */
   url: string;
@@ -205,11 +241,13 @@ export async function startLlmProxy(opts: {
     if (!('kind' in auth) && auth.more !== undefined) {
       const inner = destroy;
       let relayed = false;
+      rotatingSidecars.set(name, { total: auth.more.length + 1, docker });
       destroy = async (): Promise<void> => {
         if (!relayed) {
           relayed = true;
           const logs = await docker(['logs', '--tail', '200', name]).catch(() => undefined);
-          const notes = `${logs?.stdout ?? ''}\n${logs?.stderr ?? ''}`.split('\n').map((l) => stripControlChars(l).slice(0, MAX_RELAYED_LINE)).filter((l) => l.startsWith(CREDENTIAL_NOTE_PREFIX));
+          const notes = credentialNotes(logs);
+          rotatingSidecars.delete(name);
           for (const note of notes) console.log(note);
           const summary = (opts.env ?? process.env).GITHUB_STEP_SUMMARY;
           if (notes.length > 0 && summary !== undefined && summary !== '') await appendFile(summary, `${notes.map((n) => `- ${n}`).join('\n')}\n`).catch(() => undefined);

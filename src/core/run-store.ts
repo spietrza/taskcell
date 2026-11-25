@@ -565,6 +565,8 @@ export interface WriteStagesOptions {
   /** The sandbox image's content digest (IsolatedSandboxProvider.imageDigest), recorded on every
    *  stage of the run so a run record can be traced back to the exact image it executed against. */
   imageDigest?: string;
+  /** The LLM-proxy credential the run ended on (RunRecord.llmCredential). */
+  llmCredential?: { index: number; of: number; note?: string };
   /** `instance` or `user`: which kind of credential funded the run (never the value). */
   credentialSource?: 'instance' | 'user';
   /** The user-given name of the stored credential that funded the run (never the value). */
@@ -624,6 +626,7 @@ interface WriteRecordOptions {
   requestedModel?: string;
   omitDiff?: OmitDiff;
   imageDigest?: string;
+  llmCredential?: { index: number; of: number; note?: string };
   baseBranch?: string;
   configPaths?: readonly string[];
   noChanges?: true;
@@ -701,6 +704,7 @@ async function writeRecord(repoPath: string, taskId: string, timestamp: string, 
     ...(opts.prUrl !== undefined ? { prUrl: opts.prUrl } : {}),
     ...(ciUrl !== undefined ? { ciUrl } : {}),
     ...(opts.imageDigest !== undefined ? { imageDigest: opts.imageDigest } : {}),
+    ...(opts.llmCredential !== undefined ? { llmCredential: { ...opts.llmCredential, ...(opts.llmCredential.note !== undefined ? { note: redactForPublish(opts.llmCredential.note, opts.secretValues) } : {}) } } : {}),
     ...(opts.baseBranch !== undefined ? { baseBranch: opts.baseBranch } : {}),
     ...(opts.configPaths !== undefined && opts.configPaths.length > 0 ? { configPaths: [...opts.configPaths] } : {}),
     ...(opts.noChanges === true ? { noChanges: true } : {}),
@@ -808,6 +812,7 @@ export function beginRun(
           ...(outcome.model !== undefined ? { requestedModel: outcome.model } : {}),
           ...(opts.omitDiff ? { omitDiff: opts.omitDiff } : {}),
           ...(opts.imageDigest !== undefined ? { imageDigest: opts.imageDigest } : {}),
+          ...(opts.llmCredential !== undefined ? { llmCredential: opts.llmCredential } : {}),
           ...(opts.baseBranch !== undefined ? { baseBranch: opts.baseBranch } : {}),
           ...(opts.configPaths !== undefined ? { configPaths: opts.configPaths } : {}),
           ...(opts.noChanges === true ? { noChanges: true } : {}),
@@ -824,7 +829,7 @@ export function beginRun(
       }
       const first = outcomes[0];
       if (first === undefined) return;
-      const { omitDiff: _omitDiff, credentialName: _credentialName, baseBranch: _baseBranch, configPaths: _configPaths, noChanges: _noChanges, maxRepairIterations: _maxRepairIterations, lessonIds: _lessonIds, skills: _skills, skillIds: _skillIds, modelPicks: _modelPicks, ...trace } = opts;
+      const { omitDiff: _omitDiff, credentialName: _credentialName, llmCredential: _llmCredential, baseBranch: _baseBranch, configPaths: _configPaths, noChanges: _noChanges, maxRepairIterations: _maxRepairIterations, lessonIds: _lessonIds, skills: _skills, skillIds: _skillIds, modelPicks: _modelPicks, ...trace } = opts;
       await exportRunTrace({
         taskId,
         timestamp,
