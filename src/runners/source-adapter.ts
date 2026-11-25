@@ -12,7 +12,8 @@ import type { ProviderChoice } from '../agents/registry.js';
 import type { PipelineStage, StageOutcome } from '../pipeline/pipeline.js';
 import type { RunEvent } from '../pipeline/events.js';
 import { flowOf, planIssueRun, resolveBaseStages } from './run-plan.js';
-import { executeIssueRun, PoolEntryLimited } from './run-execution.js';
+import { tokenRotationFor } from '../agents/token-rotation.js';
+import { CredentialLimited, executeIssueRun, PoolEntryLimited } from './run-execution.js';
 
 // The decisions and the execution moved out; these names stay importable from here.
 export { MODEL_LABEL_PREFIX, modelFromLabels, resolveForkScorerConfig } from './run-plan.js';
@@ -264,13 +265,41 @@ export async function runSourcedIssue(
 ): Promise<RunIssueResult> {
   // Entries that hit a limit during this run: skipped by the next attempt even when the cool-down file cannot be written.
   const exhausted = new Set<string>();
+  return runWithTokenRotation(issueRef, configuredDeps, async (deps) => {
+    for (;;) {
+      try {
+        return await runSourcedIssueAttempt(issueRef, deps, tracker, host, exhausted);
+      } catch (error) {
+        // Anything else (a CredentialLimited too) goes to the caller: the hub's createRun cools the account and restarts.
+        if (!(error instanceof PoolEntryLimited)) throw error;
+        console.log(`taskcell: ${issueRef} ${error.message}; retrying on the next pool entry`);
+      }
+    }
+  });
+}
+
+/**
+ * Several subscription tokens outside the hub and outside an LLM proxy (which rotates them itself): a limit on
+ * one restarts the run on the next, and only when every token is out does the limit reach the fallback chain.
+ * With a single token (or any other auth) `attempt` runs once, exactly as before.
+ */
+export async function runWithTokenRotation<T>(issueRef: string, configuredDeps: RunIssueDeps, attempt: (deps: RunIssueDeps) => Promise<T>): Promise<T> {
+  const rotation = configuredDeps.credentialRotation === undefined && configuredDeps.sandboxContext?.llmProxy === undefined ? tokenRotationFor(configuredDeps.auth) : undefined;
+  if (rotation === undefined) return attempt(configuredDeps);
   for (;;) {
     try {
-      return await runSourcedIssueAttempt(issueRef, configuredDeps, tracker, host, exhausted);
+      return await attempt({
+        ...configuredDeps,
+        auth: rotation.auth(),
+        credentialName: rotation.name(),
+        credentialRotation: { provider: rotation.provider, hasNext: async () => rotation.hasNext() },
+        onCredentialCooled: async (until) => rotation.cool(until),
+      });
     } catch (error) {
-      // Anything else (a CredentialLimited too) goes to the caller: the hub's createRun cools the account and restarts.
-      if (!(error instanceof PoolEntryLimited)) throw error;
-      console.log(`taskcell: ${issueRef} ${error.message}; retrying on the next pool entry`);
+      if (!(error instanceof CredentialLimited)) throw error;
+      const from = rotation.name();
+      if (!rotation.limited(error.until)) throw error.limit;
+      console.log(`taskcell: ${issueRef} ${from} hit a plan limit; continuing on ${rotation.name()}`);
     }
   }
 }

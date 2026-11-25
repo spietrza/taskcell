@@ -75,3 +75,13 @@ describe('list_chat_models', () => {
     }
   });
 });
+
+describe('write_app_config fallback chain', () => {
+  test('refuses a chain the Settings form would refuse, and saves a valid one', async () => {
+    const repo = await repoWithSaved();
+    await expect(save(repo, OWNER, { ...SAVED, fallbackChain: [{ provider: 'meridian' }] })).rejects.toThrow(/meridian/);
+    await expect(save(repo, OWNER, { ...SAVED, provider: 'claude', fallbackChain: [{ provider: 'zai' }] })).rejects.toThrow(/single entry/i);
+    await expect(save(repo, OWNER, { ...SAVED, provider: 'claude', fallbackChain: [{ provider: 'codex' }, { provider: 'codex' }] })).rejects.toThrow(/Already in the chain/);
+    await expect(save(repo, OWNER, { ...SAVED, provider: 'claude', fallbackChain: [{ provider: 'codex' }] })).resolves.toBeNull();
+  });
+});

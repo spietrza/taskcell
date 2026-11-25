@@ -647,6 +647,19 @@ describe('createRun credential rotation', () => {
     expect(runGithubIssue).toHaveBeenCalledTimes(2);
   });
 
+  it('the last free account cooled by another run between hasNext() and limited(): the run retries with the chain taking over', async () => {
+    const repoPath = await plainRepo();
+    const withCodex = { ...credA, env: { ...credA.env, CODEX_API_KEY: 'ck' } };
+    runGithubIssue.mockImplementationOnce(async () => {
+      throw new CredentialLimited(new ProviderLimitError('limit'), new Date(Date.now() + 1000));
+    });
+    await productionDeps().createRun({ issueRef: 'o/r#1', repoPath, provider: 'claude', fallbackProvider: 'codex' }, () => {}, withCodex, mkRotation(undefined) as never);
+    expect(runGithubIssue).toHaveBeenCalledTimes(2);
+    const opts = runGithubIssue.mock.calls.at(-1)![1] as { fallbackProvider?: string; credentialRotation: { hasNext: () => Promise<boolean> } };
+    expect(opts.fallbackProvider).toBe('codex');
+    await expect(opts.credentialRotation.hasNext()).resolves.toBe(false);
+  });
+
   it('with every account out, the original limit error escapes (the run parks)', async () => {
     const repoPath = await plainRepo();
     const limit = new ProviderLimitError('limit');
@@ -680,6 +693,21 @@ describe('createRun with a hub fallback chain', () => {
     const [, opts] = runGithubIssue.mock.calls[0] ?? [];
     expect(opts).toMatchObject({ fallbackProvider: 'codex' });
     expect(events).toContainEqual({ type: 'warning', message: 'fallback entry cursor skipped: no stored credential for it' });
+  });
+
+  it('the run env carries only the keys of the chain entries it keeps', async () => {
+    const repoPath = await plainRepo();
+    const credential = { source: 'user' as const, env: { CLAUDE_CODE_OAUTH_TOKEN: 'sk-ant-oat01-x', CODEX_API_KEY: 'ck', ZAI_API_KEY: 'zk' } };
+    // [zai, codex]: zai shares the Engine's transport slot only alone; with codex both stay.
+    await productionDeps().createRun({ issueRef: 'o/r#1', repoPath, provider: 'claude', fallbackProvider: 'cursor,codex' }, () => {}, { ...credential, env: { ...credential.env, CURSOR_API_KEY: 'cu' } });
+    const kept = (githubDepsFromEnv.mock.calls.at(-1) as unknown[])[3] as NodeJS.ProcessEnv;
+    expect(kept.CURSOR_API_KEY).toBe('cu');
+    // A lone zai entry is dropped, and so is its stored key.
+    await productionDeps().createRun({ issueRef: 'o/r#1', repoPath, provider: 'claude', fallbackProvider: 'zai' }, () => {}, credential);
+    const env = (githubDepsFromEnv.mock.calls.at(-1) as unknown[])[3] as NodeJS.ProcessEnv;
+    expect(env.ZAI_API_KEY).toBeUndefined();
+    expect(env.CODEX_API_KEY).toBe('ck');
+    expect(env.CLAUDE_CODE_OAUTH_TOKEN).toBe('sk-ant-oat01-x');
   });
 
   it.each([

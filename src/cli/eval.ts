@@ -2,6 +2,7 @@ import { mkdtemp, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { execa } from 'execa';
+import { singleTokenEnv } from '../agents/auth.js';
 import { runEvals } from '../evals/run-evals.js';
 import { llmJudge } from '../evals/judges.js';
 import { decisionJudge } from '../evals/decision-judge.js';
@@ -54,7 +55,7 @@ export function makeCliComplete(model: string): (prompt: string) => Promise<stri
     // under test must never act on the host (a "clean up the repo" case once deleted local branches).
     const cwd = await mkdtemp(join(tmpdir(), 'taskcell-eval-'));
     try {
-      const call = () => execa('claude', [...EVAL_CLAUDE_ARGS, '--model', model], { input: prompt, cwd, reject: false, timeout: EVAL_CALL_TIMEOUT_MS });
+      const call = () => execa('claude', [...EVAL_CLAUDE_ARGS, '--model', model], { input: prompt, cwd, reject: false, timeout: EVAL_CALL_TIMEOUT_MS, env: singleTokenEnv(), extendEnv: false });
       let result = await call();
       for (let attempt = 2; result.timedOut && attempt <= EVAL_CALL_ATTEMPTS; attempt++) result = await call();
       if (result.timedOut) throw new Error(`claude --print --model ${model} timed out ${EVAL_CALL_ATTEMPTS}x after ${EVAL_CALL_TIMEOUT_MS / 1000}s on prompt ${JSON.stringify(prompt.slice(0, 80))}: ${((result.stderr || result.stdout) || '(no output)').trim().slice(0, 500)}`);

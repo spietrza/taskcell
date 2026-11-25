@@ -41,6 +41,16 @@ describe('startLlmProxy', () => {
     expect(d.calls.some((c) => c.args[0] === 'rm' && c.args.includes('-f'))).toBe(true);
   });
 
+  it('several subscription tokens: every token reaches the sidecar only via stdin, none via argv', async () => {
+    const d = fakeDocker();
+    const proxy = await startLlmProxy({ network: 'vg-egr-x', auth: { mode: 'subscription', secret: 'OAT-ONE', more: ['OAT-TWO'] }, docker: d.run });
+    const flat = d.calls.flatMap((c) => c.args).join(' ');
+    expect(flat).not.toContain('OAT-ONE');
+    expect(flat).not.toContain('OAT-TWO');
+    expect(d.calls.some((c) => c.input?.includes('SECRET=OAT-ONE') && c.input.includes('SECRET_2=OAT-TWO'))).toBe(true);
+    await proxy.destroy();
+  });
+
   it('labels the sidecar with vanguard.runId and starts the server', async () => {
     const d = fakeDocker();
     await startLlmProxy({

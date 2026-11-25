@@ -1,11 +1,11 @@
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, expectTypeOf, it } from 'vitest';
-import { WIRE_PROVIDER_NAMES, fallbackChainErrors, FALLBACK_CHAIN_MAX } from './wire.js';
+import { WIRE_PROVIDER_NAMES, fallbackChainErrors, fallbackSlot, FALLBACK_CHAIN_MAX } from './wire.js';
 import { HUB_POLICY, type Commands } from './hub/commands/index.js';
 import { commandIndexSource, desktopCommandsSource, readCommandModules } from './hub/command-codegen.js';
 import type { AppConfig, BoardChip, BoardTask, CompleteCallArgs, Finding, Project, ReviewVerdict, RunRecord } from './wire.js';
-import { PROVIDER_NAMES } from './agents/registry.js';
+import { PROVIDER_NAMES, validateProviderChoice } from './agents/registry.js';
 import { isCoreMethod, type SidecarDeps } from './sidecar/sidecar.js';
 
 /** Read a source file these contracts pin, by path relative to src/. */
@@ -150,5 +150,22 @@ describe('fallbackChainErrors (shared by write_app_config and the Settings form)
     expect(fallbackChainErrors([{ provider: 'zai' }], { primary: '' }).list).toBeUndefined();
     const long = Array.from({ length: FALLBACK_CHAIN_MAX + 1 }, (_, i) => ({ provider: 'codex', model: `m${i}` }));
     expect(fallbackChainErrors(long, opts).list).toMatch(/at most 8/);
+  });
+});
+
+describe('fallbackSlot', () => {
+  it('agrees with the registry: two built-ins share a slot exactly when the registry says their transports collide', () => {
+    for (const a of PROVIDER_NAMES) {
+      for (const b of PROVIDER_NAMES) {
+        if (a === b) continue;
+        let collide = false;
+        try {
+          validateProviderChoice({ provider: a, fallbackProvider: b });
+        } catch {
+          collide = true;
+        }
+        expect(fallbackSlot(a) === fallbackSlot(b), `${a} / ${b}`).toBe(collide);
+      }
+    }
   });
 });
