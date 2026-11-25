@@ -76,7 +76,8 @@ jobs:
         if: runner.os == 'macOS'
         shell: bash
         run: |
-          app=$(ls -d apps/desktop/src-tauri/target/release/bundle/macos/*.app | head -1)
+          apps=(apps/desktop/src-tauri/target/release/bundle/macos/*.app)
+          app="${apps[0]}"
           "$app/Contents/MacOS/node" "$app/Contents/Resources/taskcell/dist/cli/index.js" --help > /dev/null
       - name: Collect installers
         shell: bash
