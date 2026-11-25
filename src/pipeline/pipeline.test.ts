@@ -640,6 +640,20 @@ describe('planImplementReviewStages', () => {
   });
 });
 
+describe('in-run reviewer sees the task', () => {
+  it.each([
+    ['default', implementReviewSimplifyStages],
+    ['plan', planImplementReviewStages],
+  ])('%s pipeline reviewer gets the title, description and the per-criterion check', (_name, build) => {
+    const prompt = build().find((s) => s.name === STAGE.REVIEWER)?.promptTemplate ?? '';
+    expect(prompt).toContain('{{TITLE}}');
+    expect(prompt).toContain('{{DESCRIPTION}}');
+    expect(prompt).toContain('met / not met / cannot tell');
+    expect(prompt).toContain('regression');
+    expect(prompt.indexOf('{{DESCRIPTION}}')).toBeLessThan(prompt.indexOf('{{PREVIOUS_DIFF}}'));
+  });
+});
+
 describe('planImplementAdversaryStages', () => {
   it('runs plan/implement/adversary/repair with a red-team adversary on a different model', () => {
     const stages = planImplementAdversaryStages();
