@@ -25,11 +25,20 @@ export function LiveRun({
   // The live run's flow, from its event log (as the detail view reads it).
   const [flow, setFlow] = useState<string | undefined>();
   const [flowFailed, setFlowFailed] = useState(false);
+  // The flow never changes once the run started: a tick re-reads the log only until it is known.
+  const flowOf = useRef<string | undefined>(undefined);
   useEffect(() => {
+    const key = `${repo}\0${active.taskId}`;
+    if (flowOf.current === key) return;
     let alive = true;
     setFlowFailed(false);
     readRunEvents(repo, active.taskId)
-      .then((r) => alive && setFlow(foldRunEvents(r.events).flow))
+      .then((r) => {
+        const f = foldRunEvents(r.events).flow;
+        if (!alive) return;
+        flowOf.current = f === undefined ? undefined : key;
+        setFlow(f);
+      })
       .catch(() => alive && setFlowFailed(true));
     return () => {
       alive = false;

@@ -292,4 +292,86 @@ describe('aborted tip fetch', () => {
     await new Promise((r) => setTimeout(r, 2200));
     expect(() => process.kill(pid, 0)).toThrow();
   }, 15_000);
+
+  it('a fetch group that exits on SIGTERM gets no SIGKILL later (its pid may be reused)', async () => {
+    await appendBranchLines(repo, ['{"id":0}'], { file: 'decisions.jsonl' });
+    const { stdout: realGit } = await execa('which', ['git']);
+    const bin = join(root, 'bin');
+    await mkdir(bin);
+    const pidFile = join(root, 'fake-git.pid');
+    // A `git` that hangs on fetch but dies on SIGTERM, the real one otherwise.
+    await writeFile(join(bin, 'git'), `#!/bin/sh\nif [ "$3" != fetch ] && [ "$1" != fetch ]; then exec ${realGit} "$@"; fi\necho $$ > ${pidFile}\nexec sleep 30\n`);
+    await chmod(join(bin, 'git'), 0o755);
+    vi.stubEnv('PATH', `${bin}:${process.env.PATH ?? ''}`);
+    const real = process.kill.bind(process);
+    const kill = vi.spyOn(process, 'kill').mockImplementation(((p: number, sig?: NodeJS.Signals | number) => real(p, sig)) as never);
+    try {
+      const controller = new AbortController();
+      const read = readBranchFile(repo, { file: 'decisions.jsonl', signal: controller.signal });
+      for (let i = 0; ; i++) {
+        if (await readFile(pidFile, 'utf8').then((t) => t.trim() !== '', () => false)) break;
+        if (i > 250) throw new Error('the fake git never started');
+        await new Promise((r) => setTimeout(r, 20));
+      }
+      const pid = Number((await readFile(pidFile, 'utf8')).trim());
+      controller.abort(new Error('timed out'));
+      await expect(read).rejects.toThrow('timed out');
+      expect(kill.mock.calls).toContainEqual([-pid, 'SIGTERM']);
+      await new Promise((r) => setTimeout(r, 2500));
+      expect(kill.mock.calls).not.toContainEqual([-pid, 'SIGKILL']);
+    } finally {
+      kill.mockRestore();
+    }
+  }, 15_000);
+
+  it('SIGKILLs a live fetch group from the process exit and signal hooks, which a signal death would otherwise skip', async () => {
+    await appendBranchLines(repo, ['{"id":0}'], { file: 'decisions.jsonl' });
+    const { stdout: realGit } = await execa('which', ['git']);
+    const bin = join(root, 'bin');
+    await mkdir(bin);
+    const pidFile = join(root, 'fake-git.pid');
+    await writeFile(join(bin, 'git'), `#!/bin/sh\nif [ "$3" != fetch ] && [ "$1" != fetch ]; then exec ${realGit} "$@"; fi\ntrap '' TERM\necho $$ > ${pidFile}\nwhile :; do sleep 1; done\n`);
+    await chmod(join(bin, 'git'), 0o755);
+    vi.stubEnv('PATH', `${bin}:${process.env.PATH ?? ''}`);
+    // A fresh module registers its hooks again (they register once per module); capture them instead of arming them.
+    vi.resetModules();
+    const hooks = new Map<string, () => void>();
+    const capture = ((ev: string, fn: () => void) => (hooks.set(ev, fn), process)) as never;
+    const once = vi.spyOn(process, 'once').mockImplementation(capture);
+    const prepended: string[] = [];
+    const prepend = vi.spyOn(process, 'prependOnceListener').mockImplementation(((ev: string, fn: () => void) => (prepended.push(ev), hooks.set(ev, fn), process)) as never);
+    const fresh = await import('./metrics-branch.js');
+    const controller = new AbortController();
+    const read = fresh.readBranchFile(repo, { file: 'decisions.jsonl', signal: controller.signal });
+    for (let i = 0; ; i++) {
+      if (await readFile(pidFile, 'utf8').then((t) => t.trim() !== '', () => false)) break;
+      if (i > 250) throw new Error('the fake git never started');
+      await new Promise((r) => setTimeout(r, 20));
+    }
+    once.mockRestore();
+    prepend.mockRestore();
+    expect([...hooks.keys()].sort()).toEqual(['SIGHUP', 'SIGINT', 'SIGTERM', 'exit']);
+    // The signal hooks run before the app's own handlers, so a handler that removes itself first (the hub's graceful
+    // shutdown) is still counted and the hook does not re-raise the signal under it.
+    expect(prepended.sort()).toEqual(['SIGHUP', 'SIGINT', 'SIGTERM']);
+    const pid = Number((await readFile(pidFile, 'utf8')).trim());
+    const appHandler = (): void => {};
+    process.on('SIGTERM', appHandler);
+    const kill = vi.spyOn(process, 'kill').mockImplementation((() => true) as never);
+    try {
+      hooks.get('SIGTERM')?.();
+      expect(kill.mock.calls).toContainEqual([-pid, 'SIGKILL']);
+      expect(kill.mock.calls.filter(([p]) => p === process.pid)).toEqual([]);
+    } finally {
+      kill.mockRestore();
+      process.off('SIGTERM', appHandler);
+    }
+    expect(() => process.kill(pid, 0)).not.toThrow();
+    hooks.get('exit')?.();
+    await new Promise((r) => setTimeout(r, 300));
+    expect(() => process.kill(pid, 0)).toThrow();
+    controller.abort(new Error('done')); // a failed fetch is retried; end the retry
+    await expect(read).rejects.toThrow();
+    await new Promise((r) => setTimeout(r, 200));
+  }, 15_000);
 });

@@ -245,6 +245,8 @@ export function createHubSession(options: HubSessionOptions): HubSession {
         return running ?? Promise.resolve(); // the pull waits for the trailing read too
       }
       busy = true;
+      clearTimeout(deferred); // a read is starting: a deferred catch-up read would only repeat it
+      deferred = undefined;
       running = (async (): Promise<void> => {
         try {
           do {

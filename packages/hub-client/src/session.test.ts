@@ -327,6 +327,20 @@ describe('hub session live read', () => {
     opens[0]!.handlers.onEvent('vanguard:changed', 'r'); // a change is not rate-limited
     expect(read).toHaveBeenCalledTimes(3);
   });
+
+  it('drops the deferred catch-up read when another read has run in the meantime', async () => {
+    const { adapter, opens } = fakeStream();
+    const s = session(adapter);
+    const read = vi.fn(async () => 1);
+    s.liveRead(read, { onData: () => {}, reconnectMinMs: 10000 });
+    await vi.advanceTimersByTimeAsync(0);
+    opens[0]!.handlers.onReset?.(); // deferred to +10 s
+    await vi.advanceTimersByTimeAsync(5000);
+    opens[0]!.handlers.onEvent('vanguard:changed', 'r'); // reads now (2)
+    expect(read).toHaveBeenCalledTimes(2);
+    await vi.advanceTimersByTimeAsync(20000);
+    expect(read).toHaveBeenCalledTimes(2); // the deferred read did not repeat it
+  });
 });
 
 describe('hub session recovery', () => {
