@@ -15,7 +15,7 @@ import { acquireSandboxSlot, releaseSandboxSlot } from './concurrency.js';
 import { SandboxError, WorkflowGuardError, WorktreeError } from './errors.js';
 import { DEFAULT_BASE_BRANCH, assertSafeBaseBranch, redactGitError, resolveRemoteBaseRef } from './base-branch.js';
 import { exportWorkspace, isCiConfigPath } from '../sandbox/copy-back.js';
-import { overlaySandboxInstructions } from './sandbox-instructions.js';
+import { overlaySandboxInstructions, snapshotSandboxInstructions } from './sandbox-instructions.js';
 import type { RunOptions, RunResult, ExitReason, ReasoningEffort } from './types.js';
 import type { IsolatedSandboxProvider } from '../sandbox/provider.js';
 import type { AgentProvider, AgentUsage } from '../agents/provider.js';
@@ -76,6 +76,8 @@ export interface RunContext {
   droppedCiPaths?: Set<string>;
   /** Trusted ref (the default branch) whose instruction files every stage's agent sees instead of the worktree's. Unset: the worktree's own. */
   instructionRef?: string;
+  /** Instruction files in the sandbox right after provisioning (path -> hash): the only sandbox-only ones the overlay keeps. */
+  provisionedInstructions?: Map<string, string>;
 }
 
 export interface StageInput {
@@ -232,6 +234,8 @@ export async function prepareContext(opts: PrepareOptions, deps: RunDeps = {}): 
     await seedSandboxGit(opts.sandbox);
     const skills = typeof deps.skills === 'function' ? await deps.skills(wt.path) : (deps.skills ?? new SkillRegistry({}));
     await skills.injectAll(opts.sandbox, home, opts.agentName, opts.reviewAgentName, opts.fallbackAgentName);
+    // Unlistable: an empty snapshot, so the overlay drops every sandbox-only instruction file (fails closed).
+    const provisionedInstructions = await snapshotSandboxInstructions(opts.sandbox).catch(() => new Map<string, string>());
     const ctx: RunContext = {
       taskId: opts.taskId,
       sandbox: opts.sandbox,
@@ -243,6 +247,7 @@ export async function prepareContext(opts: PrepareOptions, deps: RunDeps = {}): 
       startRef,
       wm,
       log,
+      provisionedInstructions,
     };
     // The one place the start commit is announced: everything downstream reads ctx.startRef.
     ctx.log.info({ taskId: opts.taskId, baseBranch: opts.baseBranch, startRef }, 'run start');
