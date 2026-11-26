@@ -1,5 +1,30 @@
 # Changelog
 
+## [1.17.5](https://github.com/spietrza/taskcell/compare/v1.17.4...v1.17.5) (2026-11-26)
+
+
+### Features
+
+* Approver: policyHash in decision dedupe key, policy path docs, workflow actor gate (spietrza/taskcell[#1449](https://github.com/spietrza/taskcell/issues/1449)) ([#1454](https://github.com/spietrza/taskcell/issues/1454)) ([203e29d](https://github.com/spietrza/taskcell/commit/203e29da18722e1c220bc6a2c03f62c1f468f3ea))
+* CI watch: a factory PR that conflicts with its base gets needs revision (spietrza/taskcell[#1431](https://github.com/spietrza/taskcell/issues/1431)) ([#1438](https://github.com/spietrza/taskcell/issues/1438)) ([77191d7](https://github.com/spietrza/taskcell/commit/77191d78171d6638ca45b6d505f7e0b99e714235))
+* Follow-ups: CI watch conflict handling review findings (spietrza/taskcell[#1446](https://github.com/spietrza/taskcell/issues/1446)) ([#1447](https://github.com/spietrza/taskcell/issues/1447)) ([01eb8e6](https://github.com/spietrza/taskcell/commit/01eb8e6b299552d192bceb8071772f34e2373cad))
+* Post-PR loop: escalate at the CI watch cap and add an undo note to revision summaries (spietrza/taskcell[#1450](https://github.com/spietrza/taskcell/issues/1450)) ([#1457](https://github.com/spietrza/taskcell/issues/1457)) ([20df994](https://github.com/spietrza/taskcell/commit/20df994e0c675fe5fdb5b207174ab1a6cad27c8f))
+
+
+### Bug Fixes
+
+* desktop app icon uses the Doorway mark, like the phone app ([#1439](https://github.com/spietrza/taskcell/issues/1439)) ([cb0e98a](https://github.com/spietrza/taskcell/commit/cb0e98a01dd7bcefff31f9ab5240c27a53ef0af3))
+* desktop Linux release ships .deb only ([#1441](https://github.com/spietrza/taskcell/issues/1441)) ([42f9ffe](https://github.com/spietrza/taskcell/commit/42f9ffe37c8828f4b48887451cdf45e58c714384))
+* desktop release notarizes nested binaries and publishes latest.json ([#1445](https://github.com/spietrza/taskcell/issues/1445)) ([8a313a4](https://github.com/spietrza/taskcell/commit/8a313a47ec231f33fc7a9dd29e151c59950ebb83))
+* desktop updater key and notarization with an App Store Connect API key ([#1443](https://github.com/spietrza/taskcell/issues/1443)) ([5aaed36](https://github.com/spietrza/taskcell/commit/5aaed36d62af0bb5e05cf24d474e736293952d79))
+* nested desktop executables keep library validation off; latest.json version is checked ([#1459](https://github.com/spietrza/taskcell/issues/1459)) ([93905db](https://github.com/spietrza/taskcell/commit/93905db827242b5378c9d87401ded8d005872e3b))
+* signed desktop app starts its hub (JIT entitlements for bundled node) ([#1444](https://github.com/spietrza/taskcell/issues/1444)) ([e6819cf](https://github.com/spietrza/taskcell/commit/e6819cfe04de409e7a4e59811894c77712866b9d))
+
+
+### Miscellaneous
+
+* release 1.17.5 ([23e60c8](https://github.com/spietrza/taskcell/commit/23e60c8cf91e7ca321c0f52104aa6cba4dac5f65))
+
 ## [1.17.4](https://github.com/spietrza/taskcell/compare/v1.17.3...v1.17.4) (2026-11-25)
 
 
