@@ -285,7 +285,7 @@ exports[`--help output > resume-rate-limited help is unchanged 1`] = `
     --claimed-state <x>           As given to watch
     --review-state <x>            As given to watch
     --spec-claimed-label <l>      As given to watch
-    --no-ci-watch                 Do not revise factory PRs whose required checks failed (default: on; needs a user token)
+    --no-ci-watch                 Do not revise factory PRs whose required checks failed or that conflict with their base (default: on; needs a user token)
     --help                        Print help for this command"
 `;
 
@@ -990,7 +990,7 @@ taskcell resume-rate-limited [options]
     --claimed-state <x>           As given to watch
     --review-state <x>            As given to watch
     --spec-claimed-label <l>      As given to watch
-    --no-ci-watch                 Do not revise factory PRs whose required checks failed (default: on; needs a user token)
+    --no-ci-watch                 Do not revise factory PRs whose required checks failed or that conflict with their base (default: on; needs a user token)
     --help                        Print help for this command
 
 taskcell gc [options]

@@ -43,7 +43,7 @@ These are the GitHub names. GitLab (`watch --source gitlab`) uses the same `read
 | `needs research` | issue | trigger | external research → posts a findings comment → **rests** (no auto-advance; you set spec/agent next) |
 | `needs info` | issue | triage (resting) | parked — ticket too vague |
 | `ready for taskcell review` | **PR** | trigger | adversarial **read-only** review → posts a comment; never edits code |
-| `needs revision` | **PR** (opened by Taskcell) | trigger | reads your review comments → fixes on the PR branch → pushes → un-drafts if still a draft → back to `needs-human-review` |
+| `needs revision` | **PR** (opened by Taskcell) | trigger | reads your review comments → fixes on the PR branch → pushes → un-drafts if still a draft → back to `needs-human-review`. `resume-rate-limited`'s CI watch also adds it, with a comment, to a factory PR whose required checks failed (`## CI failed on <sha>`) or that conflicts with its base (`## Conflicts with <base> on <sha>`, resolved in a merge-only round); at most two of each per PR, then a human takes over |
 | `vanguard:speccing` · `:running` · `:researching` · `:revising` · `:reviewing` | issue/PR | transient state | Taskcell is working (seconds–minutes) |
 | `vanguard:needs-human-review` · `:reviewed` · `:verify-failed` · `:visual-proof-failed` | issue/PR | resting state | waiting on a human |
 

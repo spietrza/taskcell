@@ -273,6 +273,15 @@ declareMarker({
   parse: (g) => g[0],
 });
 declareMarker({
+  kind: 'base-conflict',
+  ...names('base-conflict'),
+  anchor: 'anywhere',
+  authors: 'trusted',
+  tail: `:\\s*(${SHA})`,
+  render: (sha: string) => `: ${sha}`,
+  parse: (g) => g[0],
+});
+declareMarker({
   kind: 'approver',
   ...names('approver'),
   anchor: 'anywhere',

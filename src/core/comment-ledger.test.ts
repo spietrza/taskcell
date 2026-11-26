@@ -31,6 +31,7 @@ const TABLE: { kind: string; payload: unknown; legacy: string | undefined; white
   { kind: 'revision', payload: { head: SHA, mergeOnly: false }, legacy: `<!-- vanguard-revision: ${SHA} -->`, whiteLabel: `<!-- revision: ${SHA} -->`, authors: 'trusted' },
   { kind: 'revision-cap', payload: true, legacy: '<!-- vanguard-revision-cap -->', authors: 'trusted' },
   { kind: 'ci-failed', payload: SHA, legacy: `<!-- vanguard-ci-failed: ${SHA} -->`, authors: 'trusted' },
+  { kind: 'base-conflict', payload: SHA, legacy: `<!-- vanguard-base-conflict: ${SHA} -->`, authors: 'trusted' },
   { kind: 'approver', payload: SHA, legacy: `<!-- vanguard-approver: ${SHA} -->`, authors: 'trusted' },
   { kind: 'approver-act', payload: `${SHA}:revise:conflict`, legacy: `<!-- vanguard-approver-act: ${SHA}:revise:conflict -->`, authors: 'trusted' },
   { kind: 'research', payload: 3, legacy: '<!-- vanguard-research: 3 -->', whiteLabel: '<!-- research-iter: 3 -->', authors: 'trusted' },

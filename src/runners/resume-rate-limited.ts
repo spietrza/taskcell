@@ -30,8 +30,10 @@ export interface ResumeRateLimitedOptions {
   dependencyRepos?: readonly string[];
   /** Report what would be re-triggered and edit nothing. */
   dryRun?: boolean;
-  /** Revise factory PRs whose required checks failed (needs a user token). Default: true. */
+  /** Revise factory PRs whose required checks failed or that conflict with their base (needs a user token). Default: true. */
   ciWatch?: boolean;
+  /** Test seam: the wait between re-reads of an UNKNOWN mergeStateStatus. */
+  sleep?: (ms: number) => Promise<void>;
   /** Clock for the `until` comparison (injected by tests). */
   now?: Date;
   gh?: GhRunner;
@@ -48,6 +50,8 @@ export interface ResumeRateLimitedReport {
   failed: string[];
   /** Factory PRs a CI-failure comment was posted on (or would be, under --dry-run), one line each. */
   ciFailed: string[];
+  /** Factory PRs a base-conflict comment was posted on (or would be, under --dry-run), one line each. */
+  conflicted: string[];
 }
 
 export interface GhCommentBody {
@@ -227,7 +231,7 @@ export async function resumeRateLimited(opts: ResumeRateLimitedOptions): Promise
   const log = opts.log ?? console.log;
   const now = opts.now ?? new Date();
   const allowed = new Set(opts.triggerLabels !== undefined && opts.triggerLabels.length > 0 ? opts.triggerLabels : DEFAULT_TRIGGER_LABELS);
-  const report: ResumeRateLimitedReport = { resumed: [], waiting: [], skipped: [], failed: [], ciFailed: [] };
+  const report: ResumeRateLimitedReport = { resumed: [], waiting: [], skipped: [], failed: [], ciFailed: [], conflicted: [] };
   for (const kind of ['issue', 'pr'] as const) {
     for (const number of await listParked(kind, opts.repoSlug, gh)) {
       const id = `${opts.repoSlug}#${number}`;
@@ -256,7 +260,7 @@ export async function resumeRateLimited(opts: ResumeRateLimitedOptions): Promise
   }
   await resumeWaiting({ opts, gh, log, now, allowed, report });
   if (opts.ciWatch !== false) {
-    await watchCiFailures({ repoSlug: opts.repoSlug, dryRun: opts.dryRun === true, gh, log, report }).catch((error: unknown) => {
+    await watchCiFailures({ repoSlug: opts.repoSlug, dryRun: opts.dryRun === true, gh, log, report, ...(opts.sleep !== undefined ? { sleep: opts.sleep } : {}) }).catch((error: unknown) => {
       log(`resume-rate-limited ci-watch: failed -> ${failureReason(error)}`);
       report.failed.push(`${opts.repoSlug} (ci-watch)`);
     });

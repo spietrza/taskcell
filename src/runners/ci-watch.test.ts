@@ -3,7 +3,7 @@ import { resumeRateLimited } from './resume-rate-limited.js';
 import { ciLogTail } from './ci-watch.js';
 import type { GhRunner } from '../tasks/github.js';
 
-interface Pr { number: number; headRefName?: string; headRefOid?: string; isDraft?: boolean; isCrossRepository?: boolean; labels?: string[]; checks?: { name: string; bucket: string; link?: string }[] | 'none'; comments?: string[] }
+interface Pr { number: number; headRefName?: string; headRefOid?: string; isDraft?: boolean; isCrossRepository?: boolean; labels?: string[]; checks?: { name: string; bucket: string; link?: string }[] | 'none'; comments?: string[]; merge?: string[] }
 
 const FAIL = [{ name: 'test', bucket: 'fail', link: 'https://github.com/o/r/actions/runs/42/job/7' }];
 
@@ -22,6 +22,10 @@ function fake(prs: Pr[], login = 'alice'): { gh: GhRunner; calls: string[][] } {
       if (pr?.checks === 'none') throw new Error('no required checks reported on the branch');
       return JSON.stringify(pr?.checks ?? FAIL);
     }
+    if (a === 'pr' && b === 'view' && !args.includes('comments')) {
+      const state = pr?.merge && pr.merge.length > 1 ? pr.merge.shift() : (pr?.merge?.[0] ?? 'CLEAN');
+      return JSON.stringify({ number: pr?.number, headRefOid: pr?.headRefOid ?? 'abcdef1234', baseRefName: 'main', mergeStateStatus: state });
+    }
     if (a === 'pr' && b === 'view') return JSON.stringify({ comments: (pr?.comments ?? []).map((body) => ({ body, author: { login: 'alice' }, authorAssociation: 'OWNER' })) });
     if (a === 'run') return 'step failed\n<!-- x -->\n```evil```';
     if (a === 'pr' && (b === 'comment' || b === 'edit')) return '';
@@ -35,8 +39,56 @@ const writes = (calls: string[][]): string[][] => calls.filter((c) => c[0] === '
 const run = (prs: Pr[], extra: { dryRun?: boolean; ciWatch?: boolean; login?: string } = {}) => {
   const { gh, calls } = fake(prs, extra.login);
   const logs: string[] = [];
-  return resumeRateLimited({ repoSlug: 'o/r', gh, log: (l) => logs.push(l), dryRun: extra.dryRun ?? false, ciWatch: extra.ciWatch ?? true }).then((report) => ({ report, calls, logs }));
+  return resumeRateLimited({ repoSlug: 'o/r', gh, log: (l) => logs.push(l), dryRun: extra.dryRun ?? false, sleep: async () => {}, ciWatch: extra.ciWatch ?? true }).then((report) => ({ report, calls, logs }));
 };
+
+describe('ci-watch conflicts', () => {
+  const bodyOf = (calls: string[][]): string => { const w = writes(calls)[0]; return w?.[w.indexOf('--body') + 1] ?? ''; };
+  it('DIRTY gets one conflict comment with a per-head marker and needs revision', async () => {
+    const { calls, report } = await run([{ number: 5, merge: ['DIRTY'], checks: [{ name: 'a', bucket: 'pass' }] }]);
+    const w = writes(calls);
+    expect(w).toHaveLength(2);
+    expect(bodyOf(calls)).toMatch(/^## Conflicts with main on abcdef1/);
+    expect(bodyOf(calls)).toContain('<!-- taskcell-base-conflict: abcdef1234 -->');
+    expect(w[1]).toEqual(['pr', 'edit', '5', '--repo', 'o/r', '--add-label', 'needs revision']);
+    expect(report.conflicted).toHaveLength(1);
+  });
+
+  it.each(['CLEAN', 'BEHIND'])('%s is left alone', async (m) => {
+    expect(writes((await run([{ number: 5, merge: [m], checks: [{ name: 'a', bucket: 'pass' }] }])).calls)).toEqual([]);
+  });
+
+  it('retries UNKNOWN, then acts; still UNKNOWN skips', async () => {
+    expect(writes((await run([{ number: 5, merge: ['UNKNOWN', 'UNKNOWN', 'DIRTY'] }])).calls)).toHaveLength(2);
+    const { calls, logs } = await run([{ number: 5, merge: ['UNKNOWN'] }]);
+    expect(writes(calls)).toEqual([]);
+    expect(logs.some((l) => l.includes('still UNKNOWN'))).toBe(true);
+  });
+
+  it('does not repeat on the same head and stops at two comments', async () => {
+    expect(writes((await run([{ number: 5, merge: ['DIRTY'], comments: ['<!-- taskcell-base-conflict: abcdef1234 -->'] }])).calls)).toEqual([]);
+    const two = ['<!-- taskcell-base-conflict: a -->', '<!-- taskcell-base-conflict: b -->'];
+    const { calls, logs } = await run([{ number: 5, merge: ['DIRTY'], comments: two }]);
+    expect(writes(calls)).toEqual([]);
+    expect(logs.some((l) => l.includes('left to a human'))).toBe(true);
+  });
+
+  it('conflicting and red gets one round: the conflict first', async () => {
+    const { calls, report } = await run([{ number: 5, merge: ['DIRTY'] }]);
+    expect(writes(calls)).toHaveLength(2);
+    expect(bodyOf(calls)).toMatch(/^## Conflicts with/);
+    expect(report.ciFailed).toEqual([]);
+  });
+
+  it('dry-run reports conflicted and writes nothing', async () => {
+    const dry = await run([{ number: 5, merge: ['DIRTY'] }], { dryRun: true });
+    expect(writes(dry.calls)).toEqual([]);
+    expect(dry.report.conflicted).toHaveLength(1);
+    const off = await run([{ number: 5, merge: ['DIRTY'] }], { ciWatch: false });
+    expect(writes(off.calls)).toEqual([]);
+    expect(off.report.conflicted).toEqual([]);
+  });
+});
 
 describe('ci-watch', () => {
   it('comments once and adds needs revision', async () => {

@@ -4,7 +4,8 @@ import { GITHUB_RATE_LIMITED_LABEL } from '../github-labels.js';
 import { commentOnce } from '../approver/publish.js';
 import { classifyAuthor, isBotLogin } from '../tasks/comment-trust.js';
 import { isFactoryBranch } from '../worktree/manager.js';
-import { ciFailedMarker, hasCiFailedMarker } from './pr-feedback.js';
+import { readSettledPr } from '../approver/approve.js';
+import { ciFailedMarker, conflictMarker, hasCiFailedMarker, hasConflictMarker } from './pr-feedback.js';
 import { requiredChecks } from '../tasks/github.js';
 import type { GhRunner } from '../tasks/github.js';
 
@@ -12,6 +13,8 @@ import type { GhRunner } from '../tasks/github.js';
 const SKIP_LABELS = [NEEDS_REVISION_LABEL, GITHUB_RATE_LIMITED_LABEL];
 /** CI-failure comments per PR; the next failing head is left to a human. */
 const MAX_CI_COMMENTS = 2;
+/** Base-conflict comments per PR; the next conflicting head is left to a human. */
+const MAX_CONFLICT_COMMENTS = 2;
 const MAX_LOG_LINES = 80;
 const MAX_LOG_CHARS = 8000;
 const LIST_LIMIT = '100';
@@ -30,8 +33,10 @@ export interface CiWatchContext {
   dryRun: boolean;
   gh: GhRunner;
   log: (line: string) => void;
-  /** Records a per-PR line (`ciFailed`) or a failure (`failed`). */
-  report: { ciFailed: string[]; failed: string[] };
+  /** Records a per-PR line (`ciFailed`, `conflicted`) or a failure (`failed`). */
+  report: { ciFailed: string[]; conflicted: string[]; failed: string[] };
+  /** Test seam: the wait between re-reads of an `UNKNOWN` mergeStateStatus. */
+  sleep?: (ms: number) => Promise<void>;
 }
 
 /** Log text is agent-influenced: neutralise HTML comments and fence breaks, then keep the tail. */
@@ -69,19 +74,46 @@ async function commentBody(repoSlug: string, sha: string, failed: { name: string
   return [...parts, ...(logs.length > 0 ? ['', ...logs] : []), '', ciFailedMarker(sha)].join('\n');
 }
 
-/** Trusted CI-failure comments already on the PR. */
-async function countCiComments(repoSlug: string, number: number, gh: GhRunner): Promise<number> {
+/** Trusted comments already on the PR whose body satisfies `has` (a marker check). */
+async function countComments(repoSlug: string, number: number, gh: GhRunner, has: (body: string) => boolean): Promise<number> {
   type C = { body?: string; author?: { login?: string } | null; authorAssociation?: string; viewerDidAuthor?: boolean };
   const view = JSON.parse(await gh(['pr', 'view', String(number), '--repo', repoSlug, '--json', 'comments'])) as { comments?: C[] };
-  return (view.comments ?? []).filter((c) => hasCiFailedMarker(c.body ?? '') && (c.viewerDidAuthor === true || classifyAuthor(c.author?.login ?? '', c.authorAssociation ?? '') !== 'untrusted')).length;
+  return (view.comments ?? []).filter((c) => has(c.body ?? '') && (c.viewerDidAuthor === true || classifyAuthor(c.author?.login ?? '', c.authorAssociation ?? '') !== 'untrusted')).length;
+}
+
+/** A DIRTY PR: one comment per conflicting head (it also covers red CI, which is looked at on the next head), then `needs revision`. */
+async function reviseConflict(ctx: CiWatchContext, pr: GhPr, base: string): Promise<void> {
+  const { repoSlug, dryRun, gh, log, report } = ctx;
+  const id = `${repoSlug}#${pr.number}`;
+  const say = (line: string): void => log(`resume-rate-limited ${id}: ci-watch ${line}`);
+  if ((await countComments(repoSlug, pr.number, gh, hasConflictMarker)) >= MAX_CONFLICT_COMMENTS) {
+    say(`skip -> already ${MAX_CONFLICT_COMMENTS} conflict comments, left to a human`);
+    return;
+  }
+  const short = pr.headRefOid.slice(0, 7);
+  const line = `${id}: conflicts with ${base} on ${short}`;
+  if (dryRun) {
+    log(`resume-rate-limited ${id}: would comment "${line}" and add ${NEEDS_REVISION_LABEL} (dry-run)`);
+    report.conflicted.push(`${line} (dry-run)`);
+    return;
+  }
+  const body = [`## Conflicts with ${base} on ${short}`, '', `This branch conflicts with \`${base}\`. Merge the base into it and resolve the conflicts.`, '', conflictMarker(pr.headRefOid)].join('\n');
+  if (!(await commentOnce(gh, repoSlug, pr.number, conflictMarker(pr.headRefOid), body))) {
+    say('skip -> already commented on this head');
+    return;
+  }
+  const [label = NEEDS_REVISION_LABEL] = await resolveAdds([NEEDS_REVISION_LABEL], repoSlug, gh);
+  await gh(['pr', 'edit', String(pr.number), '--repo', repoSlug, '--add-label', label]);
+  log(`resume-rate-limited ${id}: ci-watch commented and added ${label}`);
+  report.conflicted.push(line);
 }
 
 /**
- * Ask for a revision on open same-repo factory PRs whose required checks finished with a failure:
- * one comment per failing head, then `needs revision`. Needs a user token (the reviser ignores bots).
+ * Ask for a revision on open same-repo factory PRs that conflict with their base or whose required checks finished with a failure:
+ * one comment per failing/conflicting head, then `needs revision`. A conflict goes first (the revise round is merge-only); CI is looked at again on the next head. Needs a user token (the reviser ignores bots).
  */
 export async function watchCiFailures(ctx: CiWatchContext): Promise<void> {
-  const { repoSlug, dryRun, gh, log, report } = ctx;
+  const { repoSlug, dryRun, gh, log, report, sleep } = ctx;
   const login = await gh(['api', 'user', '--jq', '.login']).then((out) => out.trim(), () => undefined);
   if (login === undefined || login === '' || isBotLogin(login)) {
     log('resume-rate-limited ci-watch: skipped -> ci-watch needs a user token whose comments the reviser trusts');
@@ -97,6 +129,19 @@ export async function watchCiFailures(ctx: CiWatchContext): Promise<void> {
     const lower = labels.map((n) => n.toLowerCase());
     if (pr.isDraft || hasInFlightLabel(labels) || SKIP_LABELS.some((l) => hasLabel(lower, l))) continue;
     try {
+      const facts = await readSettledPr(gh, repoSlug, pr.number, sleep).catch((e: unknown) => {
+        say(`skip -> PR unreadable: ${failureReason(e)}`);
+        return undefined;
+      });
+      if (facts === undefined) continue;
+      if (facts.mergeStateStatus === 'UNKNOWN') {
+        say('skip -> mergeStateStatus still UNKNOWN');
+        continue;
+      }
+      if (facts.mergeStateStatus === 'DIRTY') {
+        await reviseConflict(ctx, pr, facts.baseRefName !== '' ? facts.baseRefName : 'the base');
+        continue;
+      }
       const checks = await requiredChecks(repoSlug, String(pr.number), gh).catch((e: unknown) => {
         say(`skip -> checks unreadable: ${failureReason(e)}`);
         return undefined;
@@ -106,7 +151,7 @@ export async function watchCiFailures(ctx: CiWatchContext): Promise<void> {
         say('skip -> no finished failing required checks');
         continue;
       }
-      if ((await countCiComments(repoSlug, pr.number, gh)) >= MAX_CI_COMMENTS) {
+      if ((await countComments(repoSlug, pr.number, gh, hasCiFailedMarker)) >= MAX_CI_COMMENTS) {
         say(`skip -> already ${MAX_CI_COMMENTS} CI-failure comments`);
         continue;
       }
