@@ -32,7 +32,7 @@ jobs:
       pull-requests: write   # the decision comment
       issues: write
     if: >-
-      (github.event_name == 'workflow_dispatch' && github.actor == 'spietrza') ||
+      (github.event_name == 'workflow_dispatch' && contains(fromJSON(vars.TASKCELL_APPROVER_DISPATCHERS || '[]'), github.actor)) ||
       (github.event_name == 'workflow_run' &&
       github.event.workflow_run.conclusion == 'success' &&
       github.event.workflow_run.head_repository.full_name == github.repository &&
@@ -99,5 +99,5 @@ jobs:
         env:
           PR: ${{ steps.pr.outputs.number }}
           # Emergency stop: set the repo variable to any value. The in-repo switch is `enabled` in the policy.
-          VANGUARD_APPROVER_STOP: ${{ vars.VANGUARD_APPROVER_STOP }}
+          TASKCELL_APPROVER_STOP: ${{ vars.TASKCELL_APPROVER_STOP || vars.VANGUARD_APPROVER_STOP }}
         run: node dist/cli/index.js approve --pr "$PR" --github-repo "$GITHUB_REPOSITORY" --mode shadow

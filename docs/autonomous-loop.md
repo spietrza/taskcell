@@ -342,7 +342,7 @@ Workflow change for a maintainer (CI config, applied by hand):
 
 **Turning it off:** set `"act": false` (or remove it) in `.taskcell/approver.json` on the base branch, or `"enabled": false`, or set `TASKCELL_APPROVER_STOP=1`; the next run is shadow or stopped. Switching the approver job to act is a workflow edit for a human to apply: in `.github/workflows/taskcell-approver.yml`, change the last step to `node dist/cli/index.js approve --pr "$PR" --github-repo "$GITHUB_REPOSITORY" --mode act`. Nothing else: there is no run id to pass (`--review-run-id` no longer exists), and the PR-review workflow needs no edit, since `review-pr` already stamps its reviews when `GITHUB_RUN_ID` is set.
 
-**Pending workflow edit (human).** `.github/workflows/taskcell-approver.yml` still reads only `VANGUARD_APPROVER_STOP` and gates `workflow_dispatch` on a hard-coded actor. By hand: set `TASKCELL_APPROVER_STOP: ${{ vars.TASKCELL_APPROVER_STOP || vars.VANGUARD_APPROVER_STOP }}` in the Decide step env, and replace `github.actor == 'spietrza'` in the job `if:` with `contains(fromJSON(vars.TASKCELL_APPROVER_DISPATCHERS || '[]'), github.actor)` (repo variable, e.g. `["spietrza"]`).
+**Stop switch and manual dispatch.** `.github/workflows/taskcell-approver.yml` reads the repo variable `TASKCELL_APPROVER_STOP` (the legacy `VANGUARD_APPROVER_STOP` still works). Manual `workflow_dispatch` is allowed for the logins in the repo variable `TASKCELL_APPROVER_DISPATCHERS`, which must be a JSON array such as `["octocat"]`: a plain string would turn the check into a substring match. Unset means nobody can dispatch by hand.
 
 #### Before you turn act mode on
 
