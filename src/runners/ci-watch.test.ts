@@ -70,7 +70,7 @@ describe('ci-watch conflicts', () => {
     expect(writes(same.calls)).toEqual([['pr', 'edit', '5', '--repo', 'o/r', '--add-label', 'needs revision']]);
     const two = ['<!-- taskcell-base-conflict: a -->', '<!-- taskcell-base-conflict: b -->'];
     const { calls, logs } = await run([{ number: 5, merge: ['DIRTY'], comments: two, checks: [{ name: 'a', bucket: 'pass' }] }]);
-    expect(writes(calls)).toEqual([]);
+    expect(writes(calls)).toHaveLength(2);
     expect(logs.some((l) => l.includes('left to a human'))).toBe(true);
   });
 
@@ -83,8 +83,8 @@ describe('ci-watch conflicts', () => {
     expect(writes((await run([{ number: 5, merge: ['DIRTY'], outsider: two, checks: [{ name: 'a', bucket: 'pass' }] }])).calls)).toHaveLength(2);
   });
 
-  it('after the conflict cap, a red PR gets the CI-failure comment', async () => {
-    const two = ['<!-- taskcell-base-conflict: a -->', '<!-- taskcell-base-conflict: b -->'];
+  it('after the conflict cap is escalated, a red PR gets the CI-failure comment', async () => {
+    const two = ['<!-- taskcell-base-conflict: a -->', '<!-- taskcell-base-conflict: b -->', '<!-- taskcell-ci-watch-cap: base -->'];
     const { calls, report } = await run([{ number: 5, merge: ['DIRTY'], comments: two }]);
     expect(bodyOf(calls)).toMatch(/^## CI failed on/);
     expect(report.ciFailed).toHaveLength(1);
@@ -130,6 +130,37 @@ describe('ci-watch conflicts', () => {
   });
 });
 
+describe('ci-watch cap escalation', () => {
+  const two = ['<!-- taskcell-ci-failed: a -->', '<!-- taskcell-ci-failed: b -->'];
+  const summary = '## Revision Summary\n\nRevision commit: abc1234def\n\n<!-- taskcell-revision: abcdef1234 -->';
+  it('posts one escalation comment and the review label, never needs revision', async () => {
+    const { calls, report } = await run([{ number: 5, comments: [...two, summary] }]);
+    const w = writes(calls);
+    expect(w).toHaveLength(2);
+    const body = w[0]?.[w[0].indexOf('--body') + 1] ?? '';
+    expect(body).toContain('- test: https://github.com/o/r/actions/runs/42/job/7');
+    expect(body).toContain('revision commit abc1234');
+    expect(body).toContain('<!-- taskcell-ci-watch-cap: ci -->');
+    expect(body.toLowerCase()).not.toContain('conflict');
+    expect(w[1]).toEqual(['pr', 'edit', '5', '--repo', 'o/r', '--add-label', 'taskcell:needs-human-review']);
+    expect(report.escalated).toHaveLength(1);
+  });
+  it('posts nothing on a second tick, and dry-run writes nothing', async () => {
+    expect(writes((await run([{ number: 5, comments: [...two, '<!-- taskcell-ci-watch-cap: ci -->'] }])).calls)).toEqual([]);
+    const dry = await run([{ number: 5, comments: two }], { dryRun: true });
+    expect(dry.report.ciFailed).toEqual([]);
+    expect(writes(dry.calls)).toEqual([]);
+    expect(dry.report.escalated).toHaveLength(1);
+  });
+  it('escalates a conflict cap once', async () => {
+    const c = ['<!-- taskcell-base-conflict: a -->', '<!-- taskcell-base-conflict: b -->'];
+    const { calls } = await run([{ number: 5, merge: ['DIRTY'], checks: [{ name: 'a', bucket: 'pass' }], comments: c }]);
+    const w = writes(calls);
+    expect(w).toHaveLength(2);
+    expect(w[0]?.[w[0].indexOf('--body') + 1]).toContain('<!-- taskcell-ci-watch-cap: base -->');
+  });
+});
+
 describe('ci-watch', () => {
   it('comments once and adds needs revision', async () => {
     const { calls, report } = await run([{ number: 5 }]);
@@ -155,7 +186,7 @@ describe('ci-watch', () => {
   it('does not repeat on the same head, and stops at two comments', async () => {
     expect(writes((await run([{ number: 5, comments: ['<!-- taskcell-ci-failed: abcdef1234 -->'] }])).calls)).toEqual([]);
     const two = ['<!-- taskcell-ci-failed: a -->', '<!-- taskcell-ci-failed: b -->'];
-    expect(writes((await run([{ number: 5, comments: two }])).calls)).toEqual([]);
+    expect(writes((await run([{ number: 5, comments: [...two, '<!-- taskcell-ci-watch-cap: ci -->'] }])).calls)).toEqual([]);
     expect(writes((await run([{ number: 5, comments: [two[0] ?? ''] }])).calls)).toHaveLength(2);
   });
 

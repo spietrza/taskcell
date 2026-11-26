@@ -52,6 +52,8 @@ export interface ResumeRateLimitedReport {
   ciFailed: string[];
   /** Factory PRs a base-conflict comment was posted on (or would be, under --dry-run), one line each. */
   conflicted: string[];
+  /** Factory PRs the CI watch gave up on at its cap (a comment and `taskcell:needs-human-review`, or would be under --dry-run), one line each. */
+  escalated: string[];
 }
 
 export interface GhCommentBody {
@@ -231,7 +233,7 @@ export async function resumeRateLimited(opts: ResumeRateLimitedOptions): Promise
   const log = opts.log ?? console.log;
   const now = opts.now ?? new Date();
   const allowed = new Set(opts.triggerLabels !== undefined && opts.triggerLabels.length > 0 ? opts.triggerLabels : DEFAULT_TRIGGER_LABELS);
-  const report: ResumeRateLimitedReport = { resumed: [], waiting: [], skipped: [], failed: [], ciFailed: [], conflicted: [] };
+  const report: ResumeRateLimitedReport = { resumed: [], waiting: [], skipped: [], failed: [], ciFailed: [], conflicted: [], escalated: [] };
   for (const kind of ['issue', 'pr'] as const) {
     for (const number of await listParked(kind, opts.repoSlug, gh)) {
       const id = `${opts.repoSlug}#${number}`;

@@ -61,7 +61,7 @@ export const RUNNERS: { readonly [K in RunnableKind]: (command: RunnableCommand[
   },
   'resume-rate-limited': async (c) => {
     const report = await resumeRateLimited({ repoSlug: c.repoSlug, dryRun: c.dryRun, ...(c.ciWatch === false ? { ciWatch: false } : {}), ...(c.triggerLabels !== undefined ? { triggerLabels: c.triggerLabels } : {}), ...(c.dependencyRepos !== undefined ? { dependencyRepos: c.dependencyRepos } : {}), ...(c.startedLabels !== undefined ? { startedLabels: c.startedLabels } : {}) });
-    console.log(`resume-rate-limited: ${report.resumed.length} resumed, ${report.waiting.length} waiting, ${report.skipped.length} skipped, ${report.failed.length} failed, ${report.ciFailed.length} ci-failed, ${report.conflicted.length} conflicted`);
+    console.log(`resume-rate-limited: ${report.resumed.length} resumed, ${report.waiting.length} waiting, ${report.skipped.length} skipped, ${report.failed.length} failed, ${report.ciFailed.length} ci-failed, ${report.conflicted.length} conflicted, ${report.escalated.length} escalated`);
     if (report.failed.length > 0) process.exitCode = 1;
   },
   'watch-prs': (c) => watchPrs.watchPrsCommand(c),

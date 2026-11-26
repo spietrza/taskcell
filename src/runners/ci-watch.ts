@@ -6,7 +6,7 @@ import { classifyAuthor, isBotLogin } from '../tasks/comment-trust.js';
 import { isFactoryBranch } from '../worktree/manager.js';
 import { escapeForComment } from '../approver/act.js';
 import { UNKNOWN_RETRIES, UNKNOWN_RETRY_MS, realSleep } from '../approver/approve.js';
-import { ciFailedMarker, conflictMarker, hasCiFailedMarker, hasConflictMarker } from './pr-feedback.js';
+import { ciFailedMarker, ciWatchCapMarker, conflictMarker, hasCiFailedMarker, hasConflictMarker, revisionCommits, triedLines } from './pr-feedback.js';
 import { requiredChecks } from '../tasks/github.js';
 import type { GhRunner } from '../tasks/github.js';
 
@@ -57,8 +57,8 @@ export interface CiWatchContext {
   dryRun: boolean;
   gh: GhRunner;
   log: (line: string) => void;
-  /** Records a per-PR line (`ciFailed`, `conflicted`) or a failure (`failed`). */
-  report: { ciFailed: string[]; conflicted: string[]; failed: string[] };
+  /** Records a per-PR line (`ciFailed`, `conflicted`, `escalated`) or a failure (`failed`). */
+  report: { ciFailed: string[]; conflicted: string[]; escalated: string[]; failed: string[] };
   /** Test seam: the wait between re-reads of an `UNKNOWN` mergeStateStatus. */
   sleep?: (ms: number) => Promise<void>;
 }
@@ -98,11 +98,50 @@ async function commentBody(repoSlug: string, sha: string, failed: { name: string
   return [...parts, ...(logs.length > 0 ? ['', ...logs] : []), '', ciFailedMarker(sha)].join('\n');
 }
 
-/** Trusted comments already on the PR whose body satisfies `has` (a marker check). */
-async function countComments(repoSlug: string, number: number, gh: GhRunner, has: (body: string) => boolean): Promise<number> {
+/** Bodies of the comments on the PR from authors the reviser trusts. */
+async function trustedBodies(repoSlug: string, number: number, gh: GhRunner): Promise<string[]> {
   type C = { body?: string; author?: { login?: string } | null; authorAssociation?: string; viewerDidAuthor?: boolean };
   const view = JSON.parse(await gh(['pr', 'view', String(number), '--repo', repoSlug, '--json', 'comments'])) as { comments?: C[] };
-  return (view.comments ?? []).filter((c) => has(c.body ?? '') && (c.viewerDidAuthor === true || classifyAuthor(c.author?.login ?? '', c.authorAssociation ?? '') !== 'untrusted')).length;
+  return (view.comments ?? []).filter((c) => c.viewerDidAuthor === true || classifyAuthor(c.author?.login ?? '', c.authorAssociation ?? '') !== 'untrusted').map((c) => c.body ?? '');
+}
+
+/**
+ * The CI watch's cap was reached: one comment per cap (`ci` or `base`) listing what was tried, then `taskcell:needs-human-review`
+ * (never `needs revision`). The comment is posted once; later ticks add nothing. The prose avoids the word the reviser reads as a merge-only ask.
+ */
+async function escalate(ctx: CiWatchContext, pr: GhPr, bodies: string[], which: 'ci' | 'base', head: string, found: string[]): Promise<boolean> {
+  const { repoSlug, dryRun, gh, log, report } = ctx;
+  const id = `${repoSlug}#${pr.number}`;
+  const line = `${id}: CI watch gave up on ${head.slice(0, 7)} (${which})`;
+  if (dryRun) {
+    log(`resume-rate-limited ${id}: would comment "${line}" and add ${GITHUB_REVIEW_LABEL} (dry-run)`);
+    report.escalated.push(`${line} (dry-run)`);
+    return true;
+  }
+  const [max, what, heading] = which === 'ci'
+    ? [MAX_CI_COMMENTS, 'CI-failure comments', 'Failing required checks:']
+    : [MAX_CONFLICT_COMMENTS, 'base-merge comments', 'Base:'];
+  const body = [
+    `## CI watch stopped on ${head.slice(0, 7)}`,
+    '',
+    `This PR already got ${max} ${what}, so the CI watch will not ask for another revision. A human needs to take over.`,
+    '',
+    heading,
+    '',
+    ...found.map((f) => `- ${f}`),
+    '',
+    'What was tried:',
+    '',
+    ...triedLines(revisionCommits(bodies)),
+    '',
+    ciWatchCapMarker(which),
+  ].join('\n');
+  if (!(await commentOnce(gh, repoSlug, pr.number, ciWatchCapMarker(which), body))) return false;
+  const [label = GITHUB_REVIEW_LABEL] = await resolveAdds([GITHUB_REVIEW_LABEL], repoSlug, gh);
+  await gh(['pr', 'edit', String(pr.number), '--repo', repoSlug, '--add-label', label]);
+  log(`resume-rate-limited ${id}: ci-watch commented and added ${label} (cap reached)`);
+  report.escalated.push(line);
+  return true;
 }
 
 /**
@@ -113,9 +152,11 @@ async function reviseConflict(ctx: CiWatchContext, pr: GhPr, head: string, base:
   const { repoSlug, dryRun, gh, log, report } = ctx;
   const id = `${repoSlug}#${pr.number}`;
   const say = (line: string): void => log(`resume-rate-limited ${id}: ci-watch ${line}`);
-  if ((await countComments(repoSlug, pr.number, gh, hasConflictMarker)) >= MAX_CONFLICT_COMMENTS) {
+  const bodies = await trustedBodies(repoSlug, pr.number, gh);
+  if (bodies.filter(hasConflictMarker).length >= MAX_CONFLICT_COMMENTS) {
     say(`skip -> already ${MAX_CONFLICT_COMMENTS} conflict comments, left to a human`);
-    return false;
+    // Escalated this tick: the PR is now handed to a human, so CI is not looked at (no `needs revision` after the hand-off).
+    return await escalate(ctx, pr, bodies, 'base', head, [escapeForComment(base)]);
   }
   const short = head.slice(0, 7);
   const safeBase = escapeForComment(base);
@@ -179,8 +220,10 @@ export async function watchCiFailures(ctx: CiWatchContext): Promise<void> {
         say('skip -> no finished failing required checks');
         continue;
       }
-      if ((await countComments(repoSlug, pr.number, gh, hasCiFailedMarker)) >= MAX_CI_COMMENTS) {
+      const bodies = await trustedBodies(repoSlug, pr.number, gh);
+      if (bodies.filter(hasCiFailedMarker).length >= MAX_CI_COMMENTS) {
         say(`skip -> already ${MAX_CI_COMMENTS} CI-failure comments`);
+        await escalate(ctx, pr, bodies, 'ci', head, checks.filter((c) => c.bucket === 'fail').map((c) => c.link ? `${escapeForComment(c.name)}: ${c.link}` : escapeForComment(c.name)));
         continue;
       }
       const line = `${id}: CI failed on ${head.slice(0, 7)}`;

@@ -219,6 +219,7 @@ export function partitionActionableFeedback(fb: PullRequestFeedback, opts: Actio
     if (hasPullRequestReviewMarker(item.body, opts.headRefOid)) return false;
     if (hasPullRequestReviewIncompleteMarker(item.body)) return false;
     if (hasRevisionMarker(item.body)) return false;
+    if (hasCiWatchCapMarker(item.body)) return false;
     if (item.isResolved === true) return false;
     if (watermark !== '' && item.createdAt !== '' && item.createdAt <= watermark) return false;
     if (classifyAuthor(item.author, item.authorAssociation, { allowedAuthors: opts.feedbackAuthors }) === 'untrusted') {
@@ -554,6 +555,22 @@ export const conflictMarker = (headSha: string): string => writeMarker('base-con
 /** True for a base-conflict comment, under either spelling. Such a comment never resets the revision budget. */
 export const hasConflictMarker = (body: string): boolean => hasMarker('base-conflict', body);
 
+/** Hidden marker on the CI watch's give-up comment; one per cap (`ci` or `base`) per PR. */
+export const ciWatchCapMarker = (which: 'ci' | 'base'): string => writeMarker('ci-watch-cap', which);
+
+/** True for a CI-watch give-up comment, under either spelling. It is neither feedback nor a budget reset. */
+export const hasCiWatchCapMarker = (body: string): boolean => hasMarker('ci-watch-cap', body);
+
+/** Head SHAs named by the `Revision commit:` line of revision summaries among `bodies` (callers pass trusted bodies only), oldest first. */
+export function revisionCommits(bodies: readonly string[]): string[] {
+  return bodies.filter(hasRevisionMarker).flatMap((body) => /^Revision commit: ([0-9a-f]{7,40})\s*$/im.exec(body)?.[1] ?? []);
+}
+
+/** The "what was tried" lines of a give-up notice: one per earlier revision commit. */
+export function triedLines(commits: readonly string[]): string[] {
+  return commits.length === 0 ? ['- No earlier revision rounds.'] : commits.map((sha, i) => `- Round ${i + 1}: revision commit ${sha.slice(0, 7)}`);
+}
+
 type FeedbackTrustOptions = Pick<ActionableOptions, 'feedbackAuthors' | 'botLogins'>;
 
 /** A feedback item as the ledger reads it: any author the feedback trust rules do not drop is trusted. */
@@ -578,6 +595,11 @@ export function countRevisionRoundsFromFeedback(
   return revisionRounds(fb.items.map((item) => ledgerItem(item, opts)), afterCreatedAt);
 }
 
+/** Earlier revision commits on the PR, from trusted summaries. */
+export function revisionCommitsFromFeedback(fb: PullRequestFeedback, opts: FeedbackTrustOptions = {}): string[] {
+  return revisionCommits(fb.items.filter((item) => ledgerItem(item, opts).author !== 'untrusted').map((item) => item.body));
+}
+
 /**
  * When the most recent round-cap notice was followed by a new comment from a trusted human (OWNER,
  * MEMBER, COLLABORATOR, or explicitly allowed — never a bot or an untrusted author), returns that
@@ -593,7 +615,7 @@ export function revisionBudgetResetAt(fb: PullRequestFeedback, opts: FeedbackTru
   for (const item of fb.items) {
     if (item.createdAt === '' || item.createdAt <= lastCapNoticeAt) continue;
     if (isBotLogin(item.author, opts.botLogins)) continue;
-    if (hasCiFailedMarker(item.body) || hasConflictMarker(item.body)) continue;
+    if (hasCiFailedMarker(item.body) || hasConflictMarker(item.body) || hasCiWatchCapMarker(item.body)) continue;
     const trust = classifyFeedbackAuthor(item, opts);
     if (trust !== 'association' && trust !== 'allowed') continue;
     if (resetAt === undefined || item.createdAt < resetAt) resetAt = item.createdAt;
@@ -720,6 +742,20 @@ export function buildRevisionSummary(input: RevisionSummaryInput): string {
   if (input.baseCheckSkipped !== undefined) {
     lines.push('', '### Merged base', '', `- Could not check this branch against \`${input.baseCheckSkipped.base}\` (${input.baseCheckSkipped.reason.replace(/[\r\n]+/g, ' ')}); confirm it merges cleanly.`);
   }
+
+  lines.push(
+    '',
+    '### Undo',
+    '',
+    `- Previous head: \`${input.headRefOid}\``,
+    `- Compare: https://github.com/${input.repoSlug}/compare/${input.headRefOid}...${input.commitSha}`,
+    '- To restore the branch to that state (works after a merge or rebase round, unlike `git revert`), run this from the repo root on the PR branch, then commit and push:',
+    '',
+    '```',
+    `git fetch origin ${input.headRefOid}`,
+    `git restore --source=${input.headRefOid} --staged --worktree :/`,
+    '```',
+  );
 
   lines.push(
     '',
