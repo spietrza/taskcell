@@ -28,8 +28,8 @@ import { agentAuthFromEnv } from '../agents/auth.js';
 import { assertSkillsInstalled } from '../context/named-skills.js';
 import { hubSkillsDir, skillRegistryForRun } from '../context/skill-registry.js';
 import { BadRequestError } from './sidecar.js';
-import { ACCOUNT_ENVS, CREDENTIAL_NAMES } from '../hub/credentials.js';
-import { fallbackFlags, fundableChain, loneEntryRefused } from '../hub/fallback-chain.js';
+import { ACCOUNT_ENV, ACCOUNT_ENVS, CREDENTIAL_NAMES, PROVIDER_NAMES } from '../hub/credentials.js';
+import { fallbackFlags, fundableChain, keyEnvOf, loneEntryRefused, type FallbackEntry } from '../hub/fallback-chain.js';
 import { parseFallbackList } from '../core/model-pool.js';
 import { codexAuthSecretValues, forgetInjectedSecretValue, registerInjectedSecretValue } from '../core/secret-scan.js';
 import { AgentError } from '../core/errors.js';
@@ -110,23 +110,36 @@ async function resolveRunChoice(params: CreateRunParams): Promise<ProviderChoice
  * keys). A chain entry must never refuse a run: an unfunded one is dropped with a warning, and so is a lone entry one
  * sandbox cannot host next to the Engine (the Engine itself, or its transport slot such as claude → zai; {@link loneEntryRefused}).
  */
-async function fundedParams(params: CreateRunParams, credential: RunCredential | undefined): Promise<{ params: CreateRunParams; warnings: string[] }> {
-  if (params.fallbackProvider === undefined) return { params, warnings: [] };
+async function fundedParams(params: CreateRunParams, credential: RunCredential | undefined): Promise<{ params: CreateRunParams; warnings: string[]; credential: RunCredential | undefined }> {
+  if (params.fallbackProvider === undefined) return { params, warnings: [], credential };
   let chain;
   try {
     chain = parseFallbackList(params.fallbackProvider, params.fallbackModel);
   } catch (error) {
     throw new BadRequestError(error instanceof Error ? error.message : String(error));
   }
-  const { kept, dropped } = await fundableChain(chain, params.repoPath, credential);
-  const warnings = dropped.map((name) => `fallback entry ${name} skipped: no stored credential for it`);
+  const { kept, dropped, unreachable } = await fundableChain(chain, params.repoPath, credential);
+  const warnings = [
+    ...dropped.map((name) => `fallback entry ${name} skipped: no stored credential for it`),
+    ...unreachable.map((name) => `fallback entry ${name} skipped: its http:// endpoint cannot traverse the egress proxy`),
+  ];
   const lone = kept[0];
   if (lone !== undefined && (await loneEntryRefused(kept, params.repoPath, params.provider))) {
     kept.length = 0;
     warnings.push(`fallback entry ${lone.model !== undefined ? `${lone.provider}/${lone.model}` : lone.provider} skipped: it cannot take over from the Engine alone (same provider or transport); add another entry`);
   }
   const { fallbackProvider: _p, fallbackModel: _m, ...rest } = params;
-  return { params: { ...rest, ...fallbackFlags(kept) }, warnings };
+  return { params: { ...rest, ...fallbackFlags(kept) }, warnings, credential: await withoutDroppedKeys(credential, chain, kept, params) };
+}
+
+/** The credential without the stored keys of chain entries the run drops (a key another used provider reads stays). */
+async function withoutDroppedKeys(credential: RunCredential | undefined, chain: readonly FallbackEntry[], kept: readonly FallbackEntry[], params: CreateRunParams): Promise<RunCredential | undefined> {
+  if (credential === undefined || kept.length === chain.length) return credential;
+  const customs = await loadCustomProviders(params.repoPath).catch(() => []);
+  const namesOf = (provider: string): readonly string[] => PROVIDER_NAMES[provider] ?? keyEnvOf(provider, customs);
+  const used = new Set([...Object.values(ACCOUNT_ENV), ...namesOf(params.provider ?? 'claude'), ...kept.flatMap((e) => namesOf(e.provider))]);
+  const drop = new Set(chain.filter((e) => !kept.includes(e)).flatMap((e) => namesOf(e.provider)).filter((n) => !used.has(n)));
+  return drop.size === 0 ? credential : { ...credential, env: Object.fromEntries(Object.entries(credential.env).filter(([n]) => !drop.has(n))) };
 }
 
 /**
@@ -266,10 +279,10 @@ export function productionDeps(): SidecarDeps {
     listRuns: ({ repoPath }) => listRunSummaries(runsRoot(repoPath)),
     readRun: ({ repoPath, taskId, timestamp }) => readRunDetail(runsRoot(repoPath), taskId, timestamp),
     checkRun: async (raw, credential) => {
-      const { params } = await fundedParams(raw, credential);
+      const { params, credential: funded } = await fundedParams(raw, credential);
       const choice = await resolveRunChoice(params);
       try {
-        agentAuthFromEnv(choice, credentialEnv(credential, choice));
+        agentAuthFromEnv(choice, credentialEnv(funded, choice));
       } catch (error) {
         throw error instanceof BadRequestError ? error : new BadRequestError(error instanceof Error ? error.message : String(error));
       }
@@ -279,6 +292,9 @@ export function productionDeps(): SidecarDeps {
       // next one in a fresh sandbox, so the sandbox and LLM proxy only ever hold ONE credential. Every credential used
       // stays registered for redaction until the run ends.
       let current = credential;
+      // Another run can cool the last free account between the engine's `hasNext()` and `limited()`: the engine then skipped its
+      // fallback chain. One retry with `hasNext` false lets the chain take over.
+      let chainOnly = false;
       const secrets = new Set<string>();
       try {
         for (;;) {
@@ -287,11 +303,16 @@ export function productionDeps(): SidecarDeps {
             registerInjectedSecretValue(v);
           }
           try {
-            return await createRunAttempt(params, onEvent, current, rotation, current === credential);
+            return await createRunAttempt(params, onEvent, current, chainOnly && rotation !== undefined ? { ...rotation, hasNext: async () => false } : rotation, current === credential);
           } catch (error) {
             if (!(error instanceof CredentialLimited) || rotation === undefined || current?.accountId === undefined) throw error;
             const next = await rotation.limited(current.accountId, error.until);
-            if (next === undefined) throw error.limit;
+            if (next === undefined) {
+              if (params.fallbackProvider === undefined || chainOnly) throw error.limit;
+              chainOnly = true;
+              onEvent({ type: 'warning', message: `credential "${current.accountName ?? 'unnamed'}" hit a provider limit and no other account is free; retrying on the fallback chain` });
+              continue;
+            }
             onEvent({
               type: 'warning',
               message: `credential "${current.accountName ?? 'unnamed'}" hit a provider limit (cooling until ${error.until.toISOString()}); continuing on "${next.accountName ?? 'unnamed'}"`,
@@ -306,14 +327,14 @@ export function productionDeps(): SidecarDeps {
   };
 }
 
-async function createRunAttempt(rawParams: CreateRunParams, onEvent: (e: RunEvent) => void, credential: RunCredential | undefined, rotation: CredentialRotation | undefined, firstAttempt: boolean): Promise<CreateRunResult> {
+async function createRunAttempt(rawParams: CreateRunParams, onEvent: (e: RunEvent) => void, fullCredential: RunCredential | undefined, rotation: CredentialRotation | undefined, firstAttempt: boolean): Promise<CreateRunResult> {
       // FIRST statements, before beginRun() and the sandbox: an unresolvable flow (typo, broken or
       // duplicate .hcl) or provider (unknown name, broken customs entry, http custom on this
       // always-egress path) must cost nothing and classify bad-request — and must not leave an
       // armed AbortController behind (endRun's finally only wraps the post-sandbox region). Pure
       // checks: no lowering, no ref import — repo TS must not execute on the untimed run pipe (S5 D6).
       if (rawParams.flow !== undefined) await assertFlowResolvable(rawParams.flow, rawParams.repoPath);
-      const { params, warnings: chainWarnings } = await fundedParams(rawParams, credential);
+      const { params, warnings: chainWarnings, credential } = await fundedParams(rawParams, fullCredential);
       const choice = await resolveRunChoice(params);
       // A hub run reads every provider key from its resolved credential env. A `user` run must never
       // fall back to the host's provider credentials, so those are dropped before its own overlay.
