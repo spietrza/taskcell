@@ -1,6 +1,6 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "Taskcell",
+  "productName": "Taskcell Desktop",
   "version": "1.16.0",
   "identifier": "dev.vanguard.desktop",
   "build": {
@@ -9,7 +9,7 @@
     "frontendDist": "../splash"
   },
   "app": {
-    "windows": [{ "title": "Taskcell", "width": 1100, "height": 800, "minWidth": 1000, "minHeight": 600, "titleBarStyle": "Overlay", "hiddenTitle": true }],
+    "windows": [{ "title": "Taskcell Desktop", "width": 1100, "height": 800, "minWidth": 1000, "minHeight": 600, "titleBarStyle": "Overlay", "hiddenTitle": true }],
     "security": {
       "csp": "default-src 'self'; style-src 'self' 'unsafe-inline'"
     }
@@ -21,7 +21,7 @@
   },
   "plugins": {
     "updater": {
-      "pubkey": "REPLACE_WITH_CONTENTS_OF_UPDATER_KEY.PUB",
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDBDRDlERTIwMTMzNTVEODEKUldTQlhUVVRJTjdaRERPN2g1SGppRkQxMVhLYW5xUnkrd2xaUFhqa1ZWTFpmbkk4U29PZVZoOEgK",
       "endpoints": ["https://github.com/spietrza/taskcell/releases/download/desktop-latest/latest.json"]
     }
   }
