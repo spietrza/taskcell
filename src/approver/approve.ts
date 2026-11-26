@@ -38,10 +38,10 @@ export interface RunApproverInput {
 const POLL_MS = 30_000;
 const POLL_ATTEMPTS = 60;
 /** GitHub reports `UNKNOWN` while it computes mergeability; look again a few times before leaving the PR for a human. */
-const UNKNOWN_RETRIES = 3;
-const UNKNOWN_RETRY_MS = 5_000;
+export const UNKNOWN_RETRIES = 3;
+export const UNKNOWN_RETRY_MS = 5_000;
 
-const realSleep = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms));
+export const realSleep = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms));
 
 /** Read a PR; GitHub computes mergeStateStatus lazily, so UNKNOWN is retried a few times before it counts. */
 export async function readSettledPr(
