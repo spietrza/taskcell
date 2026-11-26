@@ -12,6 +12,8 @@ import {
   countRevisionRoundsFromFeedback,
   revisionBudgetResetAt,
   revisionCapMarker,
+  revisionCommitsFromFeedback,
+  triedLines,
   revisionMarker,
   buildItemReply,
   isConflictItem,
@@ -437,7 +439,7 @@ export async function runRevisePullRequest(prRef: string, deps: ReviseGithubPrDe
   const atCap = rounds >= maxRounds;
   const refuseAtCap = async (): Promise<ReviseGithubPrResult> => {
     await handBackWithNotice(`cap -> ${rounds} rounds`,
-      `Revision cap reached (${rounds}/${maxRounds} rounds). No further automated revisions will be applied.\n\n${revisionCapMarker()}`);
+      `Revision cap reached (${rounds}/${maxRounds} rounds). No further automated revisions will be applied.\n\nWhat was tried:\n\n${triedLines(revisionCommitsFromFeedback(fb, deps)).join('\n')}\n\n${revisionCapMarker()}`);
     return { pr, ignoredFeedback, addressed: 0, committed: false, pushed: false, undrafted: false };
   };
   if (atCap && !mergeOnlyAsk) return await refuseAtCap();
