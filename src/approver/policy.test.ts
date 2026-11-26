@@ -6,7 +6,7 @@ import { execa } from 'execa';
 import { afterEach, describe, expect, it } from 'vitest';
 import { approverPolicySchema, loadPolicy, matchGlob } from './policy.js';
 
-const raw = await readFile(new URL('../../.vanguard/approver.json', import.meta.url), 'utf8');
+const raw = await readFile(new URL('../../.taskcell/approver.json', import.meta.url), 'utf8');
 const policy = JSON.parse(raw) as Record<string, unknown>;
 const roots: string[] = [];
 afterEach(async () => { await Promise.all(roots.splice(0).map((root) => rm(root, { recursive: true, force: true }))); });
