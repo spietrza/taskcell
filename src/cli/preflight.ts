@@ -428,7 +428,8 @@ export async function runPreflight(cmd: PreflightCommand, opts: PreflightOptions
         const specOnly = cmd.kind !== 'doctor-prs' && cmd.specOnly === true;
         const prCreate = specOnly ? undefined : await prCreateSettingOk(run, cmd.repoPath, repoSlug);
         if (prCreate !== undefined) checks.push(prCreate);
-        checks.push(...(await approverDoctorChecks(run, cmd.repoPath, repoSlug)));
+        // Approver readiness is advisory for the loop: only `doctor` runs it, so a policy problem never stops `watch`.
+        if (cmd.kind === 'doctor') checks.push(...(await approverDoctorChecks(run, cmd.repoPath, repoSlug)));
       }
     }
 
