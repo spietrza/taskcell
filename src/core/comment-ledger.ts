@@ -273,6 +273,16 @@ declareMarker({
   parse: (g) => g[0],
 });
 declareMarker({
+  kind: 'ci-watch-cap',
+  ...names('ci-watch-cap'),
+  anchor: 'anywhere',
+  authors: 'trusted',
+  tail: ':\\s*(ci|base)',
+  /** Which cap the CI watch hit: `ci` (CI-failure comments) or `base` (base-merge comments). */
+  render: (which: 'ci' | 'base') => `: ${which}`,
+  parse: (g) => (g[0] === 'ci' || g[0] === 'base' ? g[0] : undefined),
+});
+declareMarker({
   kind: 'base-conflict',
   ...names('base-conflict'),
   anchor: 'anywhere',

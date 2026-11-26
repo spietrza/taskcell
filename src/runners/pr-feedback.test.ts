@@ -8,6 +8,7 @@ import {
   countRevisionRoundsFromFeedback,
   revisionBudgetResetAt,
   ciFailedMarker,
+  ciWatchCapMarker,
   conflictMarker,
   revisionCapMarker,
   revisionMarker,
@@ -1286,6 +1287,40 @@ describe('CI-failure comments', () => {
       commentItem({ author: 'alice', authorAssociation: 'OWNER', body, createdAt: '2024-01-11T11:00:00Z' }),
     ] });
     expect(revisionBudgetResetAt(fb)).toBeUndefined();
+  });
+});
+
+describe('CI-watch cap comment', () => {
+  const body = `## CI watch stopped on abc1234\n\n${ciWatchCapMarker('ci')}`;
+  it('is not actionable feedback', () => {
+    const fb = makeFeedback({ headCommittedDate: '2024-01-01T00:00:00Z', items: [
+      commentItem({ author: 'alice', authorAssociation: 'OWNER', body, createdAt: '2024-01-02T00:00:00Z' }),
+    ] });
+    expect(partitionActionableFeedback(fb, { headRefOid: 'abc123' }).actionable).toHaveLength(0);
+  });
+  it('does not reset the revision budget', () => {
+    const fb = makeFeedback({ items: [
+      commentItem({ author: 'github-actions', body: revisionCapMarker(), createdAt: '2024-01-11T10:00:00Z' }),
+      commentItem({ author: 'alice', authorAssociation: 'OWNER', body, createdAt: '2024-01-11T11:00:00Z' }),
+    ] });
+    expect(revisionBudgetResetAt(fb)).toBeUndefined();
+  });
+});
+
+describe('revision summary undo section', () => {
+  const base = { repoSlug: 'o/r', number: 1, headRefOid: 'a1b2c3d', commitSha: 'e4f5a6b', addressed: [], deferred: [], verification: { typecheck: 'pass' as const, test: 'pass' as const } };
+  const cases: [string, Partial<Parameters<typeof buildRevisionSummary>[0]>][] = [
+    ['plain', {}],
+    ['merge', { mergeOnly: true, mergedBase: { base: 'main', files: [] } }],
+    ['rebase', { mergedBase: { base: 'main', files: ['a.ts'], rebased: true } }],
+  ];
+  it.each(cases)('has Undo for a %s round, no branding in white-label', (_n, extra) => {
+    const text = buildRevisionSummary({ ...base, ...extra, whiteLabel: true });
+    expect(text).toContain('### Undo');
+    expect(text).toContain('compare/a1b2c3d...e4f5a6b');
+    expect(text).toContain('git restore --source=a1b2c3d');
+    expect(text.toLowerCase()).not.toContain('vanguard');
+    expect(text.toLowerCase()).not.toContain('taskcell');
   });
 });
 
