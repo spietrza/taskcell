@@ -1,4 +1,6 @@
 import { describe, it, expect } from 'vitest';
+import { writeMarker } from '../core/comment-ledger.js';
+import { reasonKey } from './record.js';
 import { assertShadowSafeGhArgs, commentDecision, commentOnce, publishCheckRun } from './publish.js';
 import type { Decision, DecisionRecord } from './types.js';
 
@@ -99,7 +101,7 @@ describe('commentDecision', () => {
     headSha: SHA,
     signals: { files: 1, lines: 1, testFilesDeleted: 0, testCasesDelta: 0, exportsRemoved: 0, newDependency: false, paths: [] },
   } as unknown as DecisionRecord;
-  const marker = `<!-- taskcell-approver: ${SHA} -->`;
+  const marker = writeMarker('approver', `${SHA}:${reasonKey(record.policyHash)}`);
   const posted = async (comments: unknown[]): Promise<boolean> => {
     let comment = false;
     await commentDecision(async (args) => {

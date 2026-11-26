@@ -74,16 +74,18 @@ export function reasonKey(reason: unknown): string {
 const SHORT_CIRCUIT_RULES = new Set(['stopped', 'policy-unreadable']);
 
 /**
- * Dedupe key: (PR, head SHA, kind). A short-circuited placeholder (stop switch, unreadable policy) gets
- * its own kind, so once the stop is lifted the full decision for the same head is still recorded.
+ * Dedupe key: (PR, head SHA, kind, policy hash): the same head under a changed policy is a new decision.
+ * A short-circuited placeholder (stop switch, unreadable policy) gets its own kind, so once the stop is
+ * lifted the full decision for the same head is still recorded.
  */
 export function decisionKey(r: Record<string, unknown>): string {
-  if (r.actMerge === true) return `${String(r.prNumber)}:${String(r.headSha)}:act-merge`;
+  const policy = typeof r.policyHash === 'string' ? `:${reasonKey(r.policyHash)}` : '';
+  if (r.actMerge === true) return `${String(r.prNumber)}:${String(r.headSha)}:act-merge${policy}`;
   // The reason is part of the key: a different reason on the same head is a new fact and is reported.
   if (typeof r.action === 'string') return `${String(r.prNumber)}:${String(r.headSha)}:action:${r.action}:${reasonKey(r.reasonCode ?? r.reason)}`;
   const rules = Array.isArray(r.rulesFired) ? r.rulesFired : [];
   const kind = rules.some((id) => typeof id === 'string' && SHORT_CIRCUIT_RULES.has(id)) ? 'short' : 'full';
-  return `${String(r.prNumber)}:${String(r.headSha)}:${kind}`;
+  return `${String(r.prNumber)}:${String(r.headSha)}:${kind}${policy}`;
 }
 
 /**

@@ -149,6 +149,9 @@ describe('decisionKey', () => {
   it('act-merge is its own kind, and the reason is part of an action key', () => {
     expect(decisionKey({ prNumber: 1, headSha: 'h', actMerge: true, verdict: 'APPROVE' })).toBe('1:h:act-merge');
     expect(decisionKey({ prNumber: 1, headSha: 'h', verdict: 'APPROVE' })).toBe('1:h:full');
+    expect(decisionKey({ prNumber: 1, headSha: 'h', verdict: 'APPROVE', policyHash: 'sha256:a' })).toBe(decisionKey({ prNumber: 1, headSha: 'h', verdict: 'APPROVE', policyHash: 'sha256:a' }));
+    expect(decisionKey({ prNumber: 1, headSha: 'h', verdict: 'APPROVE', policyHash: 'sha256:a' })).not.toBe(decisionKey({ prNumber: 1, headSha: 'h', verdict: 'APPROVE', policyHash: 'sha256:b' }));
+    expect(decisionKey({ prNumber: 1, headSha: 'h', actMerge: true, policyHash: 'sha256:a' })).not.toBe(decisionKey({ prNumber: 1, headSha: 'h', actMerge: true, policyHash: 'sha256:b' }));
     const a = decisionKey({ prNumber: 1, headSha: 'h', action: 'left-for-human', reason: 'one' });
     expect(a).toBe(decisionKey({ prNumber: 1, headSha: 'h', action: 'left-for-human', reason: 'one' }));
     expect(a).not.toBe(decisionKey({ prNumber: 1, headSha: 'h', action: 'left-for-human', reason: 'two' }));
