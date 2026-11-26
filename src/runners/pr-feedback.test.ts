@@ -8,6 +8,7 @@ import {
   countRevisionRoundsFromFeedback,
   revisionBudgetResetAt,
   ciFailedMarker,
+  conflictMarker,
   revisionCapMarker,
   revisionMarker,
   hasRevisionMarker,
@@ -1271,6 +1272,13 @@ describe('CI-failure comments', () => {
       commentItem({ author: 'alice', authorAssociation: 'OWNER', body, createdAt: '2024-01-02T00:00:00Z' }),
     ] });
     expect(partitionActionableFeedback(fb, { headRefOid: 'abc123' }).actionable).toHaveLength(1);
+  });
+  it('does not reset the revision budget after a conflict comment', () => {
+    const fb = makeFeedback({ items: [
+      commentItem({ author: 'github-actions', body: revisionCapMarker(), createdAt: '2024-01-11T10:00:00Z' }),
+      commentItem({ author: 'alice', authorAssociation: 'OWNER', body: `## Conflicts\n\n${conflictMarker('abc123')}`, createdAt: '2024-01-11T11:00:00Z' }),
+    ] });
+    expect(revisionBudgetResetAt(fb)).toBeUndefined();
   });
   it('does not reset the revision budget after a cap notice', () => {
     const fb = makeFeedback({ items: [
