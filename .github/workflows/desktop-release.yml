@@ -78,6 +78,22 @@ jobs:
             unset APPLE_API_ISSUER APPLE_API_KEY
           fi
           unset APPLE_API_KEY_P8
+          # prepare-sidecar signs the Mach-O files in the hub resources before Tauri runs, so the certificate has to be
+          # in a keychain already; Tauri then signs from that keychain by APPLE_SIGNING_IDENTITY.
+          if [ "$RUNNER_OS" = macOS ] && [ -n "${APPLE_CERTIFICATE:-}" ]; then
+            kc="$RUNNER_TEMP/build.keychain-db"
+            kcpw=$(openssl rand -hex 16)
+            security create-keychain -p "$kcpw" "$kc"
+            security set-keychain-settings -lut 21600 "$kc"
+            security unlock-keychain -p "$kcpw" "$kc"
+            (umask 077; printf '%s' "$APPLE_CERTIFICATE" | base64 --decode > "$RUNNER_TEMP/cert.p12")
+            security import "$RUNNER_TEMP/cert.p12" -k "$kc" -P "${APPLE_CERTIFICATE_PASSWORD:-}" -T /usr/bin/codesign
+            rm -f "$RUNNER_TEMP/cert.p12"
+            security set-key-partition-list -S apple-tool:,apple: -s -k "$kcpw" "$kc" > /dev/null
+            # shellcheck disable=SC2046
+            security list-keychains -d user -s "$kc" $(security list-keychains -d user | tr -d '"')
+            unset APPLE_CERTIFICATE APPLE_CERTIFICATE_PASSWORD
+          fi
           updater=false
           [ -n "${TAURI_SIGNING_PRIVATE_KEY:-}" ] && updater=true
           # Linux ships .deb only: linuxdeploy (AppImage) runs ldd on every ELF in the bundled hub's node_modules
@@ -111,6 +127,8 @@ jobs:
           done
           # Both macOS runners name the updater archive the same; tag it with the architecture.
           for f in out/*.app.tar.gz*; do [ -f "$f" ] && mv "$f" "${f/.app.tar.gz/_${TARGET}.app.tar.gz}"; done
+          # Asset names without spaces (GitHub would turn them into dots anyway), so latest.json can name the URLs.
+          for f in out/*\ *; do [ -f "$f" ] && mv "$f" "${f// /.}"; done
           ls -la out
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
@@ -135,6 +153,23 @@ jobs:
           SHA: ${{ github.sha }}
         run: |
           ls -la out
+          # latest.json for the in-app updater (endpoint in tauri.conf.json), only when the build made signed archives.
+          base="https://github.com/$REPO/releases/download/desktop-latest"
+          dmg=$(find out -name '*_aarch64.dmg' | head -1)
+          version=$(basename "$dmg" | sed -E 's/.*_([0-9]+\.[0-9]+\.[0-9]+)_aarch64\.dmg/\1/')
+          platforms='{}'
+          add() { # <platform> <file>
+            [ -f "out/$2" ] && [ -f "out/$2.sig" ] || return 0
+            platforms=$(jq -c --arg p "$1" --arg u "$base/$2" --rawfile s "out/$2.sig" '. + {($p): {url: $u, signature: ($s | rtrimstr("\n"))}}' <<< "$platforms")
+          }
+          add darwin-aarch64 "$(basename "$(find out -name '*_macos-arm64.app.tar.gz' | head -1)")"
+          add darwin-x86_64 "$(basename "$(find out -name '*_macos-x64.app.tar.gz' | head -1)")"
+          add windows-x86_64 "$(basename "$(find out -name '*-setup.exe' | head -1)")"
+          if [ "$platforms" != '{}' ]; then
+            jq -n --arg v "$version" --arg d "$(date -u +%Y-%m-%dT%H:%M:%SZ)" --argjson p "$platforms" \
+              '{version: $v, notes: "", pub_date: $d, platforms: $p}' > out/latest.json
+            cat out/latest.json
+          fi
           gh release delete desktop-latest --repo "$REPO" --cleanup-tag --yes || true
           gh release create desktop-latest out/* --repo "$REPO" --target "$SHA" \
             --title "Taskcell Desktop (latest)" --latest=false \
