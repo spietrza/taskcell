@@ -4,6 +4,7 @@ import { defaultGhRunner } from '../tasks/github.js';
 import type { GhRunner } from '../tasks/github.js';
 import { TaskcellError } from '../core/errors.js';
 import { classifyAuthor } from '../tasks/comment-trust.js';
+import { reasonKey } from './record.js';
 import type { Decision, DecisionRecord } from './types.js';
 
 // gh api flags that take a value; the endpoint is the one positional argument left after them.
@@ -123,6 +124,10 @@ export async function publishCheckRun(
 
 const COMMENT_HEADING = '## Taskcell Approver (shadow mode)';
 
+function approverMarker(record: DecisionRecord): string {
+  return writeMarker('approver', `${record.headSha ?? 'none'}:${reasonKey(record.policyHash)}`);
+}
+
 function commentBody(decision: Decision, record: DecisionRecord): string {
   return [
     COMMENT_HEADING,
@@ -135,7 +140,7 @@ function commentBody(decision: Decision, record: DecisionRecord): string {
     '',
     '_Shadow mode — nothing was merged, approved or labelled._',
     '',
-    writeMarker('approver', record.headSha ?? 'none'),
+    approverMarker(record),
   ].join('\n');
 }
 
@@ -166,7 +171,7 @@ export async function commentOnce(gh: GhRunner, repoSlug: string, prNumber: numb
   return true;
 }
 
-/** A human-readable copy of the decision, deduped per head SHA by a hidden marker. Nothing ever parses this comment. */
+/** A human-readable copy of the decision, deduped per head SHA and policy by a hidden marker. Nothing ever parses this comment. */
 export async function commentDecision(
   gh: GhRunner,
   repoSlug: string,
@@ -174,7 +179,7 @@ export async function commentDecision(
   decision: Decision,
   record: DecisionRecord,
 ): Promise<void> {
-  await commentOnce(shadowSafeGhRunner(gh), repoSlug, prNumber, writeMarker('approver', record.headSha ?? 'none'), commentBody(decision, record));
+  await commentOnce(shadowSafeGhRunner(gh), repoSlug, prNumber, approverMarker(record), commentBody(decision, record));
 }
 
 export { defaultGhRunner };

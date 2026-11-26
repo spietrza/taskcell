@@ -90,12 +90,13 @@ describe('stateDir', () => {
     expect(String(warn.mock.calls[0]?.[0])).toContain('deprecated');
   });
 
-  it('prefers .taskcell when both exist, without warning', async () => {
+  it('prefers .taskcell when both exist, warning once that .vanguard is no longer read', async () => {
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
     await mkdir(join(repo, '.vanguard'));
     await mkdir(join(repo, '.taskcell'));
     expect(stateDir(repo)).toBe(join(repo, '.taskcell'));
-    expect(warn).not.toHaveBeenCalled();
+    expect(warn).toHaveBeenCalledTimes(1);
+    expect(String(warn.mock.calls[0]?.[0])).toContain('no longer reading .vanguard/');
   });
 
   it('ensureStateDir writes a fresh repo\'s state under .taskcell', async () => {
