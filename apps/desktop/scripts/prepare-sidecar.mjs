@@ -53,12 +53,15 @@ if (process.platform === 'darwin' && identity) {
       closeSync(fd);
     }
   };
-  const entitlements = join(tauri, 'Entitlements.plist');
+  // Executables get JIT only; libraries (.node/.dylib) take no entitlements (they are ignored on libraries).
+  const entitlements = join(tauri, 'Entitlements.nested.plist');
   const signed = [];
   for (const entry of readdirSync(stage, { recursive: true, withFileTypes: true })) {
     const file = join(entry.parentPath, entry.name);
     if (!entry.isFile() || file.endsWith('.class') || !isMachO(file)) continue;
-    execFileSync('codesign', ['--force', '--options', 'runtime', '--timestamp', '--entitlements', entitlements, '--sign', identity, file], { stdio: 'inherit' });
+    const library = file.endsWith('.node') || file.endsWith('.dylib');
+    const ent = library ? [] : ['--entitlements', entitlements];
+    execFileSync('codesign', ['--force', '--options', 'runtime', '--timestamp', ...ent, '--sign', identity, file], { stdio: 'inherit' });
     signed.push(file);
   }
   console.log(`signed ${signed.length} Mach-O file(s) in ${stage}`);
