@@ -3,7 +3,7 @@ import { resumeRateLimited } from './resume-rate-limited.js';
 import { ciLogTail } from './ci-watch.js';
 import type { GhRunner } from '../tasks/github.js';
 
-interface Pr { number: number; headRefName?: string; headRefOid?: string; isDraft?: boolean; isCrossRepository?: boolean; labels?: string[]; checks?: { name: string; bucket: string; link?: string }[] | 'none'; comments?: string[]; merge?: string[] }
+interface Pr { number: number; headRefName?: string; headRefOid?: string; isDraft?: boolean; isCrossRepository?: boolean; labels?: string[]; checks?: { name: string; bucket: string; link?: string }[] | 'none'; comments?: string[]; outsider?: string[]; merge?: string[]; viewHead?: string; base?: string }
 
 const FAIL = [{ name: 'test', bucket: 'fail', link: 'https://github.com/o/r/actions/runs/42/job/7' }];
 
@@ -24,9 +24,9 @@ function fake(prs: Pr[], login = 'alice'): { gh: GhRunner; calls: string[][] } {
     }
     if (a === 'pr' && b === 'view' && !args.includes('comments')) {
       const state = pr?.merge && pr.merge.length > 1 ? pr.merge.shift() : (pr?.merge?.[0] ?? 'CLEAN');
-      return JSON.stringify({ number: pr?.number, headRefOid: pr?.headRefOid ?? 'abcdef1234', baseRefName: 'main', mergeStateStatus: state });
+      return JSON.stringify({ number: pr?.number, headRefOid: pr?.viewHead ?? pr?.headRefOid ?? 'abcdef1234', baseRefName: pr?.base ?? 'main', mergeStateStatus: state });
     }
-    if (a === 'pr' && b === 'view') return JSON.stringify({ comments: (pr?.comments ?? []).map((body) => ({ body, author: { login: 'alice' }, authorAssociation: 'OWNER' })) });
+    if (a === 'pr' && b === 'view') return JSON.stringify({ comments: (pr?.comments ?? []).map((body) => ({ body, author: { login: 'alice' }, authorAssociation: 'OWNER' })).concat((pr?.outsider ?? []).map((body) => ({ body, author: { login: 'eve' }, authorAssociation: 'NONE' }))) });
     if (a === 'run') return 'step failed\n<!-- x -->\n```evil```';
     if (a === 'pr' && (b === 'comment' || b === 'edit')) return '';
     if (a === 'label' || a === 'api') return '[]';
@@ -60,17 +60,57 @@ describe('ci-watch conflicts', () => {
 
   it('retries UNKNOWN, then acts; still UNKNOWN skips', async () => {
     expect(writes((await run([{ number: 5, merge: ['UNKNOWN', 'UNKNOWN', 'DIRTY'] }])).calls)).toHaveLength(2);
-    const { calls, logs } = await run([{ number: 5, merge: ['UNKNOWN'] }]);
+    const { calls, logs } = await run([{ number: 5, merge: ['UNKNOWN'], checks: [{ name: 'a', bucket: 'pass' }] }]);
     expect(writes(calls)).toEqual([]);
     expect(logs.some((l) => l.includes('still UNKNOWN'))).toBe(true);
   });
 
-  it('does not repeat on the same head and stops at two comments', async () => {
-    expect(writes((await run([{ number: 5, merge: ['DIRTY'], comments: ['<!-- taskcell-base-conflict: abcdef1234 -->'] }])).calls)).toEqual([]);
+  it('re-adds the label on the same head without a second comment, and stops at two comments', async () => {
+    const same = await run([{ number: 5, merge: ['DIRTY'], comments: ['<!-- taskcell-base-conflict: abcdef1234 -->'] }]);
+    expect(writes(same.calls)).toEqual([['pr', 'edit', '5', '--repo', 'o/r', '--add-label', 'needs revision']]);
     const two = ['<!-- taskcell-base-conflict: a -->', '<!-- taskcell-base-conflict: b -->'];
-    const { calls, logs } = await run([{ number: 5, merge: ['DIRTY'], comments: two }]);
+    const { calls, logs } = await run([{ number: 5, merge: ['DIRTY'], comments: two, checks: [{ name: 'a', bucket: 'pass' }] }]);
     expect(writes(calls)).toEqual([]);
     expect(logs.some((l) => l.includes('left to a human'))).toBe(true);
+  });
+
+  it('leaves a PR the reviser handed back to a human alone', async () => {
+    expect(writes((await run([{ number: 5, merge: ['DIRTY'], labels: ['taskcell:needs-human-review'], comments: ['<!-- taskcell-base-conflict: abcdef1234 -->'] }])).calls)).toEqual([]);
+  });
+
+  it('ignores conflict markers from outsiders when counting', async () => {
+    const two = ['<!-- taskcell-base-conflict: a -->', '<!-- taskcell-base-conflict: b -->'];
+    expect(writes((await run([{ number: 5, merge: ['DIRTY'], outsider: two, checks: [{ name: 'a', bucket: 'pass' }] }])).calls)).toHaveLength(2);
+  });
+
+  it('after the conflict cap, a red PR gets the CI-failure comment', async () => {
+    const two = ['<!-- taskcell-base-conflict: a -->', '<!-- taskcell-base-conflict: b -->'];
+    const { calls, report } = await run([{ number: 5, merge: ['DIRTY'], comments: two }]);
+    expect(bodyOf(calls)).toMatch(/^## CI failed on/);
+    expect(report.ciFailed).toHaveLength(1);
+  });
+
+  it('a PR still UNKNOWN gets the CI check', async () => {
+    const { calls } = await run([{ number: 5, merge: ['UNKNOWN'] }]);
+    expect(bodyOf(calls)).toMatch(/^## CI failed on/);
+  });
+
+  it('uses the settled head, and skips when it moved since the list', async () => {
+    const moved = await run([{ number: 5, merge: ['DIRTY'], viewHead: '9999999abc' }]);
+    expect(writes(moved.calls)).toEqual([]);
+  });
+
+  it('escapes the base branch name in the comment', async () => {
+    const { calls } = await run([{ number: 5, merge: ['DIRTY'], base: 'x<!-- evil -->`' }]);
+    expect(bodyOf(calls)).not.toContain('<!-- evil');
+    expect(bodyOf(calls)).not.toContain('x<');
+  });
+
+  it('bounds the UNKNOWN re-reads across the sweep', async () => {
+    const prs = [1, 2, 3, 4].map((number) => ({ number, merge: ['UNKNOWN'], checks: [{ name: 'a', bucket: 'pass' }] }));
+    const { calls } = await run(prs);
+    const reads = calls.filter((c) => c[0] === 'pr' && c[1] === 'view' && c.includes('headRefOid,baseRefName,mergeStateStatus'));
+    expect(reads).toHaveLength(4 + 6);
   });
 
   it('conflicting and red gets one round: the conflict first', async () => {
