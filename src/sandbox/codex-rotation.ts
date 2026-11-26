@@ -10,6 +10,8 @@ const hostCodexAuthFile = (env: NodeJS.ProcessEnv): string =>
 /** CI sources CODEX_AUTH_JSON from a stored secret; there is no host file to hand a rotation back to. */
 export const isCi = (env: NodeJS.ProcessEnv): boolean => [env.CI, env.GITHUB_ACTIONS].some((v) => v !== undefined && v !== '' && v !== '0' && v !== 'false');
 
+const STALE_STORED = 'The credential this run started with did not come from a local auth file, so nothing was written back. The stored copy it came from (hub Settings → Credentials, an exported CODEX_AUTH_JSON) holds the old token: save a current credential there again.';
+
 const MAX_TOKEN = 8192;
 const MAX_LAST_REFRESH = 64;
 const clean = (v: unknown): v is string => typeof v === 'string' && v.length <= MAX_TOKEN && /^[\x21-\x7e]+$/.test(v);
@@ -50,6 +52,9 @@ const merge = (current: AuthJson, rotated: AuthJson): AuthJson | undefined => {
  * anywhere else (another shell, the hub credential store) is not touched and is named as stale.
  * `storedCredential` (a hub run on a user's stored credential): no host file is written, even one that
  * happens to hold the same refresh token.
+ * `persist` (a hub stored account): the rotated tokens are merged into `env.CODEX_AUTH_JSON` (the account value the run
+ * started with) and handed to `persist`, which saves them to that account only; no host file is written. When it
+ * reports false (or throws) the stored copy is named as stale, as without it.
  * CI: the stored secret is now stale; the log and the job summary say so.
  * Never throws.
  */
@@ -57,13 +62,21 @@ export async function reportRotation(
   rotatedJson: string,
   originalRefreshToken: string,
   env: NodeJS.ProcessEnv = process.env,
-  opts: { storedCredential?: boolean } = {},
+  opts: { storedCredential?: boolean; persist?: (originalRefreshToken: string, mergedJson: string) => Promise<boolean> } = {},
 ): Promise<void> {
   const rotated = parse(rotatedJson);
   const refresh = rotated?.tokens?.refresh_token;
   if (rotated === undefined || typeof refresh !== 'string' || refresh === originalRefreshToken) return;
   const lines = ['taskcell: the Codex (ChatGPT) refresh token was rotated during this run.'];
   const held = parse(env.CODEX_AUTH_JSON ?? '');
+  if (opts.persist !== undefined) {
+    const merged = held?.tokens?.refresh_token === originalRefreshToken ? merge(held, rotated) : undefined;
+    const saved = merged === undefined ? false : await opts.persist(originalRefreshToken, JSON.stringify(merged)).catch(() => false);
+    console.warn(saved
+      ? 'taskcell: the Codex (ChatGPT) refresh token was rotated during this run; the new tokens were saved to the hub credential it came from.'
+      : `${lines[0]} ${STALE_STORED}`);
+    return;
+  }
   const inMemory = held?.tokens?.refresh_token === originalRefreshToken ? merge(held, rotated) : undefined;
   if (inMemory !== undefined) env.CODEX_AUTH_JSON = JSON.stringify(inMemory);
   if (isCi(env)) {
@@ -76,7 +89,7 @@ export async function reportRotation(
     const written = opts.storedCredential === true ? undefined : await handBack(hostCodexAuthFile(env), originalRefreshToken, rotated);
     // No local file held this credential (a hub run on a stored one, an export from elsewhere): name no
     // path on this machine and no local sign-in — the copy it came from is what must be replaced.
-    lines.push(written ?? `${later}The credential this run started with did not come from a local auth file, so nothing was written back. The stored copy it came from (hub Settings → Credentials, an exported CODEX_AUTH_JSON) holds the old token: save a current credential there again.`);
+    lines.push(written ?? `${later}${STALE_STORED}`);
     if (written !== undefined) lines.push(`${later}Any CODEX_AUTH_JSON exported or stored elsewhere (another shell, the hub credential store) holds the old token: set it again from the auth file.`);
   }
   for (const l of lines) console.warn(l);

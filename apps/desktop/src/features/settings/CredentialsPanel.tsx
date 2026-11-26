@@ -18,8 +18,8 @@ export const NAMES = [
   'MERIDIAN_API_KEY',
 ];
 
-/** The per-variable editor leaves the Claude variables to the accounts section. */
-const EDITOR_NAMES = NAMES.filter((n) => !['ANTHROPIC_API_KEY', 'ANTHROPIC_AUTH_TOKEN', 'CLAUDE_CODE_OAUTH_TOKEN'].includes(n));
+/** The per-variable editor leaves the Claude variables and CODEX_AUTH_JSON to the accounts sections. */
+const EDITOR_NAMES = NAMES.filter((n) => !['ANTHROPIC_API_KEY', 'ANTHROPIC_AUTH_TOKEN', 'CLAUDE_CODE_OAUTH_TOKEN', 'CODEX_AUTH_JSON'].includes(n));
 
 const POLICY_LABELS: Record<CredentialPolicy, string> = {
   off: 'Off — every run uses the instance credential',
@@ -28,28 +28,34 @@ const POLICY_LABELS: Record<CredentialPolicy, string> = {
 };
 
 export const MAX_ACCOUNTS = 20;
+type AccountProvider = 'claude' | 'codex';
 const TYPE_LABELS: Record<AccountType, string> = { subscription: 'Subscription token', 'api-key': 'API key', 'auth-token': 'Auth token (gateway)' };
+const CODEX_TYPE_LABEL = 'ChatGPT plan (auth.json)';
 const TERMS_CAVEAT =
   'Anthropic’s Claude Code terms say plan limits “assume ordinary, individual usage”. Rotating several subscription accounts to get past limits may breach the Consumer Terms; API keys are fine.';
 
-/** Several Anthropic accounts, tried in list order; a limited one cools until its reset. Secrets are write-only. */
+/** Several accounts of one provider (Anthropic or Codex), tried in list order; a limited one cools until its reset. Secrets are write-only. */
 function AccountsSection({
   title,
-  accounts,
+  provider,
+  accounts: all,
   termsWarning,
   onSave,
   onDelete,
   onReorder,
 }: {
   title: string;
+  provider: AccountProvider;
   accounts: CredentialAccountView[];
   termsWarning?: string | undefined;
   onSave: (args: { id?: string; name: string; type: AccountType; value?: string; enabled?: boolean; acknowledgeTerms?: boolean }) => Promise<void>;
   onDelete: (id: string) => Promise<void>;
   onReorder: (ids: string[]) => Promise<void>;
 }) {
+  const codex = provider === 'codex';
+  const accounts = all.filter((a) => a.provider === provider);
   const [name, setName] = useState('');
-  const [type, setType] = useState<AccountType>('api-key');
+  const [type, setType] = useState<AccountType>(codex ? 'subscription' : 'api-key');
   const [value, setValue] = useState('');
   const [ack, setAck] = useState(false);
   const [acks, setAcks] = useState<Record<string, boolean>>({});
@@ -64,7 +70,7 @@ function AccountsSection({
     }
   };
   const atCap = accounts.length >= MAX_ACCOUNTS;
-  const secondSubscription = type === 'subscription' && accounts.some((a) => a.type === 'subscription' && a.enabled);
+  const secondSubscription = !codex && type === 'subscription' && accounts.some((a) => a.type === 'subscription' && a.enabled);
   const move = (i: number, by: -1 | 1): string[] => {
     const ids = accounts.map((a) => a.id);
     const [id] = ids.splice(i, 1);
@@ -74,12 +80,12 @@ function AccountsSection({
   return (
     <div className="space-y-2">
       <div className="caption">{title}</div>
-      <p className="text-xs text-muted-foreground">A run uses the first switched-on account that has quota; one that hits a limit cools until its reset. {accounts.length} of {MAX_ACCOUNTS}.</p>
+      <p className="text-xs text-muted-foreground">A run uses the first switched-on account that has quota; one that hits a limit cools until its reset. {accounts.length} of {MAX_ACCOUNTS}.{codex && ' A ChatGPT refresh token is replaced on every use, so a run holds its account alone; others use the next one.'}</p>
       {termsWarning !== undefined && <p role="alert" className="text-xs text-warning-text">{termsWarning}</p>}
       {accounts.length === 0 && <p className="text-sm text-muted-foreground">None saved.</p>}
       {accounts.map((a, i) => {
         // Re-enabling a second subscription token needs the same acknowledgement as adding one (instance and user scope alike).
-        const needsAck = a.type === 'subscription' && !a.enabled && accounts.some((o) => o.id !== a.id && o.type === 'subscription' && o.enabled);
+        const needsAck = !codex && a.type === 'subscription' && !a.enabled && accounts.some((o) => o.id !== a.id && o.type === 'subscription' && o.enabled);
         const rowAck = acks[a.id] === true;
         return (
           <div key={a.id} className="flex flex-wrap items-center gap-2 text-sm">
@@ -123,7 +129,7 @@ function AccountsSection({
             >
               Replace
             </Button>
-            <span className="text-muted-foreground">{TYPE_LABELS[a.type]}</span>
+            <span className="text-muted-foreground">{codex ? CODEX_TYPE_LABEL : TYPE_LABELS[a.type]}</span>
             {needsAck && (
               <label className="flex items-center gap-1 text-xs">
                 <input type="checkbox" aria-label={`Acknowledge terms for ${a.name}`} checked={rowAck} onChange={(e) => setAcks({ ...acks, [a.id]: e.target.checked })} />
@@ -139,12 +145,20 @@ function AccountsSection({
       })}
       <div className="flex flex-wrap items-center gap-2">
         <Input aria-label={`${title} name`} placeholder="Name" value={name} onChange={(e) => setName(e.target.value)} />
-        <select aria-label={`${title} type`} value={type} onChange={(e) => setType(e.target.value as AccountType)}>
-          {(Object.keys(TYPE_LABELS) as AccountType[]).map((t) => (
-            <option key={t} value={t}>{TYPE_LABELS[t]}</option>
-          ))}
-        </select>
-        <Input type="password" autoComplete="off" aria-label={`${title} secret`} placeholder="write-only" value={value} onChange={(e) => setValue(e.target.value)} />
+        {codex ? (
+          <span className="text-muted-foreground">{CODEX_TYPE_LABEL}</span>
+        ) : (
+          <select aria-label={`${title} type`} value={type} onChange={(e) => setType(e.target.value as AccountType)}>
+            {(Object.keys(TYPE_LABELS) as AccountType[]).map((t) => (
+              <option key={t} value={t}>{TYPE_LABELS[t]}</option>
+            ))}
+          </select>
+        )}
+        {codex ? (
+          <textarea aria-label={`${title} secret`} placeholder="write-only: paste the output of cat ~/.codex/auth.json" rows={3} value={value} onChange={(e) => setValue(e.target.value)} />
+        ) : (
+          <Input type="password" autoComplete="off" aria-label={`${title} secret`} placeholder="write-only" value={value} onChange={(e) => setValue(e.target.value)} />
+        )}
         <Button
           disabled={atCap || name.trim() === '' || value.trim() === '' || (secondSubscription && !ack)}
           onClick={() =>
@@ -159,7 +173,7 @@ function AccountsSection({
           {atCap ? `${MAX_ACCOUNTS} of ${MAX_ACCOUNTS}` : 'Add account'}
         </Button>
       </div>
-      {type === 'subscription' && <p className="text-xs text-muted-foreground">{TERMS_CAVEAT}</p>}
+      {!codex && type === 'subscription' && <p className="text-xs text-muted-foreground">{TERMS_CAVEAT}</p>}
       {secondSubscription && (
         <label className="flex items-center gap-2 text-xs">
           <input type="checkbox" checked={ack} onChange={(e) => setAck(e.target.checked)} />
@@ -304,6 +318,7 @@ export function CredentialsPanel() {
           </label>
           <AccountsSection
             title="Instance Anthropic accounts"
+            provider="claude"
             accounts={instanceAccounts}
             termsWarning={termsWarning}
             onSave={async (a) => {
@@ -315,7 +330,24 @@ export function CredentialsPanel() {
               await refresh();
             }}
             onReorder={async (ids) => {
-              await hub().call('reorder_instance_accounts', { ids });
+              await hub().call('reorder_instance_accounts', { ids, provider: 'claude' });
+              await refresh();
+            }}
+          />
+          <AccountsSection
+            title="Instance Codex (ChatGPT plan) accounts"
+            provider="codex"
+            accounts={instanceAccounts}
+            onSave={async (a) => {
+              await hub().call('save_instance_account', { provider: 'codex', ...a });
+              await refresh();
+            }}
+            onDelete={async (id) => {
+              await hub().call('delete_instance_account', { id });
+              await refresh();
+            }}
+            onReorder={async (ids) => {
+              await hub().call('reorder_instance_accounts', { ids, provider: 'codex' });
               await refresh();
             }}
           />
@@ -335,8 +367,10 @@ export function CredentialsPanel() {
         </>
       )}
       {status.enabled && (
+        <>
         <AccountsSection
           title="Your Anthropic accounts"
+          provider="claude"
           accounts={status.accounts ?? []}
           termsWarning={status.termsWarning}
           onSave={async (a) => {
@@ -348,10 +382,28 @@ export function CredentialsPanel() {
             await refresh();
           }}
           onReorder={async (ids) => {
-            await hub().call('reorder_user_accounts', { ids });
+            await hub().call('reorder_user_accounts', { ids, provider: 'claude' });
             await refresh();
           }}
         />
+        <AccountsSection
+          title="Your Codex (ChatGPT plan) accounts"
+          provider="codex"
+          accounts={status.accounts ?? []}
+          onSave={async (a) => {
+            await hub().call('save_user_account', { provider: 'codex', ...a });
+            await refresh();
+          }}
+          onDelete={async (id) => {
+            await hub().call('delete_user_account', { id });
+            await refresh();
+          }}
+          onReorder={async (ids) => {
+            await hub().call('reorder_user_accounts', { ids, provider: 'codex' });
+            await refresh();
+          }}
+        />
+        </>
       )}
       {status.enabled ? (
         <CredentialEditor

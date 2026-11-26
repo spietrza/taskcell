@@ -50,6 +50,14 @@ describe('wire contract (S7)', () => {
     expect(readSource('hub/commands/index.ts')).toBe(commandIndexSource(commandModules()));
   });
 
+  it('CredentialRotation carries release/saveRotated and RunCredential.accountProvider in the regenerated hub-client copy (multi-account Codex)', () => {
+    const copy = readFileSync(join(__dirname, '../packages/hub-client/src/wire.ts'), 'utf8');
+    expect(copy).toContain('release(): void;');
+    expect(copy).toContain('saveRotated(accountId: string, originalRefreshToken: string, authJson: string): Promise<boolean>;');
+    expect(copy).toContain('accountProvider?: string;');
+    expect(copy).toContain("provider?: 'claude' | 'codex'");
+  });
+
   it('BoardTask.waiting is an optional boolean, present in both core and the regenerated hub-client copy (T11)', () => {
     expectTypeOf<BoardTask['waiting']>().toEqualTypeOf<boolean | undefined>();
     expectTypeOf<{ id: string; title: string; column: 'queued'; state: string }>().toExtend<BoardTask>();

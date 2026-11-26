@@ -427,6 +427,37 @@ describe('run-session persistent run ids', () => {
 });
 
 describe('credential rotation through the run session', () => {
+  const mkRot = (_cred: unknown) => ({
+    provider: 'codex',
+    hasNext: async () => false,
+    limited: async () => undefined,
+    cool: async () => {},
+    refresh: async (c: typeof cred) => c,
+    release: vi.fn(),
+    saveRotated: vi.fn(async () => true),
+  });
+  const cred = { source: 'instance' as const, env: { CODEX_AUTH_JSON: '{}' }, accountId: 'a', accountName: 'A' };
+
+  test('release() is called once after success, a run error, a cancel and an assertStart refusal; the wrapper forwards saveRotated', async () => {
+    const ok = mkRot(cred);
+    const okSession = createRunSession(fakeDeps(async (_p, _e, _c, rot) => (await rot!.saveRotated('a', 'old', 'new'), {})), () => {});
+    await okSession.createRun({ issueRef: '1', repoPath: '/repo' } as CreateRunParams, undefined, cred, ok);
+    expect(ok.release).toHaveBeenCalledTimes(1);
+    expect(ok.saveRotated).toHaveBeenCalledWith('a', 'old', 'new');
+    const bad = mkRot(cred);
+    const badSession = createRunSession(fakeDeps(async () => { throw new Error('boom'); }), () => {});
+    await expect(badSession.createRun({ issueRef: '1', repoPath: '/repo' } as CreateRunParams, undefined, cred, bad)).rejects.toThrow('boom');
+    expect(bad.release).toHaveBeenCalledTimes(1);
+    const refused = mkRot(cred);
+    const refusedSession = createRunSession(fakeDeps(async () => ({})), () => {}, async () => { throw new Error('no'); });
+    await expect(refusedSession.createRun({ issueRef: '1', repoPath: '/repo' } as CreateRunParams, undefined, cred, refused)).rejects.toThrow('no');
+    expect(refused.release).toHaveBeenCalledTimes(1);
+    const cancelled = mkRot(cred);
+    const cancelSession = createRunSession(fakeDeps(() => new Promise<never>((_, reject) => { cancelSession.cancel('run-0'); reject(new Error('run cancelled')); })), () => {});
+    await expect(cancelSession.createRun({ issueRef: '1', repoPath: '/repo' } as CreateRunParams, undefined, cred, cancelled)).rejects.toThrow();
+    expect(cancelled.release).toHaveBeenCalledTimes(1);
+  });
+
   test('the rotation travels with the run: refresh() re-picks at dequeue, createRun receives both, run-accepted names the account', async () => {
     const first = { source: 'instance' as const, env: { ANTHROPIC_API_KEY: 'sk-A' }, accountId: 'a', accountName: 'Key A' };
     const second = { source: 'instance' as const, env: { ANTHROPIC_API_KEY: 'sk-B' }, accountId: 'b', accountName: 'Key B' };
@@ -436,6 +467,8 @@ describe('credential rotation through the run session', () => {
       limited: async () => undefined,
       cool: async () => {},
       refresh: vi.fn(async () => second),
+      release: () => {},
+      saveRotated: async () => false,
     };
     const seen: unknown[][] = [];
     const published: { name: string; payload: unknown }[] = [];
@@ -454,7 +487,7 @@ describe('credential rotation through the run session', () => {
   test('after a rotation, run-accepted (published and the backlog seed) names the account actually used', async () => {
     const first = { source: 'instance' as const, env: { ANTHROPIC_API_KEY: 'sk-A' }, accountId: 'a', accountName: 'Key A' };
     const second = { source: 'instance' as const, env: { ANTHROPIC_API_KEY: 'sk-B' }, accountId: 'b', accountName: 'Key B' };
-    const rotation = { provider: 'claude', hasNext: async () => true, limited: vi.fn(async () => second), cool: async () => {}, refresh: async (c: typeof first) => c };
+    const rotation = { provider: 'claude', hasNext: async () => true, limited: vi.fn(async () => second), cool: async () => {}, refresh: async (c: typeof first) => c, release: () => {}, saveRotated: async () => false };
     const published: { name: string; payload: unknown }[] = [];
     const deps = fakeDeps(async (_p, _e, _credential, rot) => {
       await rot!.limited('a', new Date(Date.now() + 3600_000));

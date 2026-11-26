@@ -97,6 +97,8 @@ export async function startLlmProxy(opts: {
   env?: NodeJS.ProcessEnv;
   /** The credential came from a stored copy (a hub user's), not this host: never write a host auth file. */
   storedCredential?: boolean;
+  /** Saves a rotated chatgpt credential back to the stored account it came from (see `reportRotation`); true when saved. */
+  persistRotated?: (originalRefreshToken: string, authJson: string) => Promise<boolean>;
 }): Promise<LlmProxy> {
   const upstream: Upstream = opts.upstream ?? 'anthropic';
   const id = randomUUID().slice(0, 8);
@@ -165,7 +167,7 @@ export async function startLlmProxy(opts: {
           else console.warn(line);
         }
         const rotated = await docker(['exec', name, 'cat', CHATGPT_AUTH_FILE]).catch(() => undefined);
-        if (rotated?.exitCode === 0 && rotated.stdout !== '') await reportRotation(rotated.stdout, refreshToken, opts.env, { storedCredential: opts.storedCredential === true });
+        if (rotated?.exitCode === 0 && rotated.stdout !== '') await reportRotation(rotated.stdout, refreshToken, opts.env, { storedCredential: opts.storedCredential === true, ...(opts.persistRotated !== undefined ? { persist: opts.persistRotated } : {}) });
       };
       let reported: Promise<void> | undefined;
       const teardown = async (): Promise<void> => {
@@ -269,6 +271,8 @@ export async function startProviderProxies(opts: {
   env?: NodeJS.ProcessEnv;
   /** Passed to startLlmProxy: a hub user's stored credential is never handed back to a host auth file. */
   storedCredential?: boolean;
+  /** Passed to startLlmProxy: save a rotated chatgpt credential back to its hub account. */
+  persistRotated?: (originalRefreshToken: string, authJson: string) => Promise<boolean>;
 }): Promise<ProviderProxies> {
   const openaiKey = opts.proxySecrets.codex;
   const chatgptAuth = opts.proxySecrets.codexChatgpt;
@@ -283,6 +287,7 @@ export async function startProviderProxies(opts: {
     ...(opts.docker !== undefined ? { docker: opts.docker } : {}),
     ...(opts.env !== undefined ? { env: opts.env } : {}),
     ...(opts.storedCredential !== undefined ? { storedCredential: opts.storedCredential } : {}),
+    ...(opts.persistRotated !== undefined ? { persistRotated: opts.persistRotated } : {}),
   };
   const destroys: Array<() => Promise<void>> = [];
   let openai: LlmProxyDep | undefined;

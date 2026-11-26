@@ -542,6 +542,14 @@ describe('createRun with a `user` credential: no instance key fallback (user-onl
     // a credential that is not a stored account still overlays the host env, as before
     expect(credentialEnv({ source: 'instance', env: {} }, { provider: 'claude' }).CLAUDE_CODE_OAUTH_TOKEN).toBe('host-oauth-token-123456');
   });
+
+  it('a picked stored Codex account overrides the host CODEX_AUTH_JSON and leaves the host Anthropic keys', () => {
+    setEnv({ CLAUDE_CODE_OAUTH_TOKEN: 'host-oauth-token-123456', ANTHROPIC_API_KEY: 'sk-ant-host-123456', CODEX_AUTH_JSON: 'host-codex' });
+    const env = credentialEnv({ source: 'instance', env: { CODEX_AUTH_JSON: 'acct-codex' }, accountId: 'c', accountName: 'Plan', accountProvider: 'codex' }, { provider: 'codex' });
+    expect(env.CODEX_AUTH_JSON).toBe('acct-codex');
+    expect(env.CLAUDE_CODE_OAUTH_TOKEN).toBe('host-oauth-token-123456');
+    expect(env.ANTHROPIC_API_KEY).toBe('sk-ant-host-123456');
+  });
 });
 
 describe('createRun registers a stored CODEX_AUTH_JSON\'s inner tokens for the secret gate', () => {
@@ -565,12 +573,14 @@ describe('createRun registers a stored CODEX_AUTH_JSON\'s inner tokens for the s
 describe('createRun credential rotation', () => {
   const credA = { source: 'instance' as const, env: { ANTHROPIC_API_KEY: 'sk-ant-AAAA-secret' }, accountId: 'a', accountName: 'Key A' };
   const credB = { source: 'instance' as const, env: { ANTHROPIC_API_KEY: 'sk-ant-BBBB-secret' }, accountId: 'b', accountName: 'Key B' };
-  const mkRotation = (next: typeof credB | undefined): { provider: string; hasNext: () => Promise<boolean>; limited: ReturnType<typeof vi.fn>; cool: () => Promise<void>; refresh: (c: typeof credA) => Promise<typeof credA> } => ({
+  const mkRotation = (next: typeof credB | undefined): { provider: string; hasNext: () => Promise<boolean>; limited: ReturnType<typeof vi.fn>; cool: () => Promise<void>; refresh: (c: typeof credA) => Promise<typeof credA>; release: () => void; saveRotated: () => Promise<boolean> } => ({
     provider: 'claude',
     hasNext: async () => next !== undefined,
     limited: vi.fn(async () => next),
     cool: async () => {},
     refresh: async (c) => c,
+    release: () => {},
+    saveRotated: async () => false,
   });
   const destroy = vi.fn(async () => {});
 
@@ -658,6 +668,19 @@ describe('createRun credential rotation', () => {
     const opts = runGithubIssue.mock.calls.at(-1)![1] as { fallbackProvider?: string; credentialRotation: { hasNext: () => Promise<boolean> } };
     expect(opts.fallbackProvider).toBe('codex');
     await expect(opts.credentialRotation.hasNext()).resolves.toBe(false);
+  });
+
+  it('only a Codex-account run saves a rotated ChatGPT token back; a Claude-account run leaves it to process.env', async () => {
+    const repoPath = await plainRepo();
+    await productionDeps().createRun({ issueRef: 'o/r#1', repoPath }, () => {}, credA, mkRotation(undefined) as never);
+    expect(runGithubIssue.mock.calls.at(-1)![1]).not.toHaveProperty('onCredentialRotated');
+    const saveRotated = vi.fn(async () => true);
+    const codex = { ...mkRotation(undefined), provider: 'codex', saveRotated };
+    const codexCred = { source: 'instance' as const, env: { CODEX_AUTH_JSON: '{}' }, accountId: 'c', accountName: 'Plan', accountProvider: 'codex' };
+    await productionDeps().createRun({ issueRef: 'o/r#1', repoPath, provider: 'codex' }, () => {}, codexCred, codex as never);
+    const opts = runGithubIssue.mock.calls.at(-1)![1] as { onCredentialRotated?: (o: string, j: string) => Promise<boolean> };
+    await expect(opts.onCredentialRotated?.('old', 'new')).resolves.toBe(true);
+    expect(saveRotated).toHaveBeenCalledWith('c', 'old', 'new');
   });
 
   it('with every account out, the original limit error escapes (the run parks)', async () => {

@@ -28,7 +28,7 @@ import { agentAuthFromEnv } from '../agents/auth.js';
 import { assertSkillsInstalled } from '../context/named-skills.js';
 import { hubSkillsDir, skillRegistryForRun } from '../context/skill-registry.js';
 import { BadRequestError } from './sidecar.js';
-import { ACCOUNT_ENV, CREDENTIAL_NAMES, PROVIDER_NAMES } from '../hub/credentials.js';
+import { ACCOUNT_ENV, ACCOUNT_ENVS, CREDENTIAL_NAMES, PROVIDER_NAMES } from '../hub/credentials.js';
 import { fallbackFlags, fundableChain, keyEnvOf, loneEntryRefused, type FallbackEntry } from '../hub/fallback-chain.js';
 import { parseFallbackList } from '../core/model-pool.js';
 import { codexAuthSecretValues, forgetInjectedSecretValue, registerInjectedSecretValue } from '../core/secret-scan.js';
@@ -65,8 +65,12 @@ export function credentialEnv(credential: RunCredential | undefined, choice: Pro
       }
     }
   }
-  // A stored account is the run's one Anthropic credential: a host one must not outrank it (authFromEnv prefers the OAuth token).
-  if (credential.accountId !== undefined) for (const name of Object.values(ACCOUNT_ENV)) delete env[name];
+  // A stored account is the run's one credential of its provider: a host one must not outrank it (authFromEnv prefers the OAuth token).
+  // Only that provider's variables go: a Codex account leaves the host's Anthropic keys for the review stage or fallback chain.
+  if (credential.accountId !== undefined) {
+    const provider = credential.accountProvider === 'codex' ? 'codex' : 'claude';
+    for (const name of Object.values(ACCOUNT_ENVS[provider])) delete env[name];
+  }
   return Object.assign(env, credential.env);
 }
 
@@ -432,6 +436,11 @@ async function createRunAttempt(rawParams: CreateRunParams, onEvent: (e: RunEven
             ? {
                 credentialRotation: { provider: rotation.provider, hasNext: () => rotation.hasNext() },
                 onCredentialCooled: (until: Date) => rotation.cool(credential.accountId!, until),
+                // Codex accounts only, bound to this attempt's account: a refresh after the run moved to another account can only write to that one.
+                // A Claude-account run keeps reporting a host Codex token rotation against process.env, as before.
+                ...(rotation.provider === 'codex'
+                  ? { onCredentialRotated: (original: string, authJson: string) => rotation.saveRotated(credential.accountId!, original, authJson) }
+                  : {}),
               }
             : {}),
           sandboxContext: ctx,

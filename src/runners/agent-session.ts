@@ -39,6 +39,8 @@ export type CredentialDeps = ProviderChoice & {
   credentialRotation?: { provider: string; hasNext(): Promise<boolean> };
   /** Hub: this run's account hit a limit that a stage fallback rescued — cool it until `until`. */
   onCredentialCooled?: (until: Date) => Promise<void>;
+  /** Hub: a stored Codex account's refreshed auth.json (seen at the ChatGPT sidecar's teardown), to save back to that account only. Resolves true when saved. */
+  onCredentialRotated?: (originalRefreshToken: string, authJson: string) => Promise<boolean>;
   /** Env the provider keys are read from (default process.env): a hub run's resolved credential env. */
   providerEnv?: NodeJS.ProcessEnv;
 };
@@ -130,10 +132,11 @@ export async function openAgentSession(opts: AgentSessionOptions): Promise<Agent
   // Per-run provider sidecars (e.g. OpenAI for Codex) hold the real key out of the sandbox.
   const providerProxies = await startProviderProxies({
     proxySecrets: agents.proxySecrets,
-    // A hub user's stored credential: the rotation updates the run's own env and never a host auth
-    // file. Any other run (an instance credential, desktop) reports against process.env, so later runs
-    // of this process pick up the rotated token.
-    ...(credentials.source === 'user' ? { env: credentials.env, storedCredential: true } : {}),
+    // A hub user's stored credential, or a stored account of any source (it has a save-back): the rotation updates the
+    // run's own env and never a host auth file. Any other run (an instance credential, desktop) reports against
+    // process.env, so later runs of this process pick up the rotated token.
+    ...(credentials.source === 'user' || opts.choice.onCredentialRotated !== undefined ? { env: credentials.env, storedCredential: true } : {}),
+    ...(opts.choice.onCredentialRotated !== undefined ? { persistRotated: opts.choice.onCredentialRotated } : {}),
     ...(opts.sandboxContext?.network !== undefined ? { network: opts.sandboxContext.network } : {}),
   });
   let ctx: RunContext | undefined;

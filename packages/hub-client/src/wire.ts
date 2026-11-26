@@ -97,6 +97,8 @@ export interface RunCredential {
    * environment or a variable that is not a stored account. The name is shown in run records; never the value. */
   accountId?: string;
   accountName?: string;
+  /** Which provider the stored account is for (default claude); server-internal. */
+  accountProvider?: string;
 }
 
 /** Hub-only, in-process (never serialised): rotation across a provider's stored accounts for ONE run, in list order. */
@@ -110,6 +112,10 @@ export interface CredentialRotation {
   cool(accountId: string, until: Date): Promise<void>;
   /** Re-pick at dequeue: a queued run whose account has since cooled starts on the next one. */
   refresh(current: RunCredential): Promise<RunCredential>;
+  /** Drop every account lease this run holds (Codex: an account in use by a run is skipped by others). Idempotent. */
+  release(): void;
+  /** Save a refreshed `CODEX_AUTH_JSON` back to the stored account `accountId` only, if it still holds `originalRefreshToken`. False when nothing was written; never throws. */
+  saveRotated(accountId: string, originalRefreshToken: string, authJson: string): Promise<boolean>;
 }
 
 /** Result of the sidecar `createRun` method. */
@@ -1458,18 +1464,18 @@ export interface Commands {
   set_credential_policy: { args: { policy: CredentialPolicy }; result: void };
   /** HUB_ONLY, hub owner or admin only: instance provider credentials. Write-only — status lists names, never values. */
   instance_credentials_status: { args: undefined; result: { names: string[]; reason?: string; accounts: CredentialAccountView[]; termsWarning?: string } };
-  /** HUB_ONLY, hub owner or admin only: the instance's Claude accounts (up to 20, tried in list order; a limited one cools until its reset). `value` is required to create and optional to rename or switch one; it is never returned. A second enabled subscription token needs `acknowledgeTerms` (see docs/hub.md). */
-  save_instance_account: { args: { id?: string; provider: 'claude'; name: string; type: AccountType; value?: string; enabled?: boolean; acknowledgeTerms?: boolean }; result: { id: string } };
+  /** HUB_ONLY, hub owner or admin only: the instance's Claude and Codex (ChatGPT plan) accounts (up to 20 per provider, tried in list order; a limited one cools until its reset). `value` is required to create and optional to rename or switch one; it is never returned. A second enabled subscription token needs `acknowledgeTerms` (see docs/hub.md). */
+  save_instance_account: { args: { id?: string; provider: 'claude' | 'codex'; name: string; type: AccountType; value?: string; enabled?: boolean; acknowledgeTerms?: boolean }; result: { id: string } };
   delete_instance_account: { args: { id: string }; result: void };
-  reorder_instance_accounts: { args: { ids: string[] }; result: void };
+  reorder_instance_accounts: { args: { ids: string[]; provider?: 'claude' | 'codex' }; result: void };
   save_instance_credential: { args: { name: string; value: string }; result: void };
   delete_instance_credential: { args: { name: string }; result: void };
   /** HUB_ONLY: the signed-in user's OWN credentials (no RPC takes a user id). Write-only. */
   user_credentials_status: { args: undefined; result: { enabled: boolean; admin: boolean; names: string[]; accounts: CredentialAccountView[]; termsWarning?: string } };
-  /** HUB_ONLY: the signed-in user's OWN Claude accounts. A second enabled subscription token needs `acknowledgeTerms`, as on the instance (see docs/hub.md). */
-  save_user_account: { args: { id?: string; provider: 'claude'; name: string; type: AccountType; value?: string; enabled?: boolean; acknowledgeTerms?: boolean }; result: { id: string } };
+  /** HUB_ONLY: the signed-in user's OWN Claude and Codex accounts. A second enabled subscription token needs `acknowledgeTerms`, as on the instance (see docs/hub.md). */
+  save_user_account: { args: { id?: string; provider: 'claude' | 'codex'; name: string; type: AccountType; value?: string; enabled?: boolean; acknowledgeTerms?: boolean }; result: { id: string } };
   delete_user_account: { args: { id: string }; result: void };
-  reorder_user_accounts: { args: { ids: string[] }; result: void };
+  reorder_user_accounts: { args: { ids: string[]; provider?: 'claude' | 'codex' }; result: void };
   save_user_credential: { args: { name: string; value: string }; result: void };
   delete_user_credential: { args: { name: string }; result: void };
   list_drafts: { args: { repoPath: string }; result: string[] };

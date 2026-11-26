@@ -136,3 +136,12 @@ describe('hub command modules', () => {
     });
   });
 });
+
+describe('account input (codex)', () => {
+  test('parseAccountInput returns the provider; rejects unknown providers and codex api-key; reorder takes a provider', async () => {
+    const { parseAccountInput } = await import('./credentials.js');
+    expect(parseAccountInput({ provider: 'codex', name: ' Plan ', type: 'subscription', value: '{}' })).toMatchObject({ provider: 'codex', name: 'Plan', type: 'subscription' });
+    expect(() => parseAccountInput({ provider: 'gemini', name: 'x', type: 'subscription', value: 'v' })).toThrow(/provider must be one of/);
+    expect(() => parseAccountInput({ provider: 'codex', name: 'x', type: 'api-key', value: 'v' })).toThrow(/must be of type subscription/);
+  });
+});
