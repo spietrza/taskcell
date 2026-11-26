@@ -66,13 +66,12 @@ jobs:
     uses: ./.github/workflows/pr-review.yml
     with:
       allowed-actors: '["spietrza","pawelkrystkiewicz"]'
-      # Opus 5.5 reviews while Fable is out of quota (revert to Fable when it is back); Codex is the fallback.
-      # With the Codex fallback in the run, the proxy holds the Codex plan credential too.
+      # Codex (gpt-6-sol) reviews; Opus 5.5 is the fallback. The proxy holds both plan credentials.
       llm-proxy: true
-      provider: claude
-      review-model: claude-opus-5-5
-      fallback-provider: codex
-      fallback-model: gpt-6-sol
+      provider: codex
+      review-model: gpt-6-sol
+      fallback-provider: claude
+      fallback-model: claude-opus-5-5
       # One run reviews every labelled PR; four at a time instead of two.
       review-concurrency: '4'
       pinned-only: true
