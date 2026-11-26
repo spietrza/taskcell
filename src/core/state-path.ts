@@ -28,9 +28,9 @@ function exists(path: string): boolean {
 
 /**
  * The per-repo state directory every host-side run artifact and repo config (flows, app.json,
- * approver/gate policy) lives under: `.taskcell/` when it exists or when neither exists, else the
- * legacy `.vanguard/` with a one-time deprecation warning. One directory per repo for reads AND
- * writes, so a repo that still has `.vanguard/` keeps its run history in one place until it is
+ * approver/gate policy) lives under: `.taskcell/` when it exists (warning once if `.vanguard/` exists
+ * too) or when neither exists, else the legacy `.vanguard/` with a one-time deprecation warning. One
+ * directory per repo for reads AND writes, so a repo that still has `.vanguard/` keeps its run history in one place until it is
  * renamed (`mv .vanguard .taskcell`). lstat, not stat: a symlinked dir still counts as present and
  * assertStatePath then refuses it. Resolved once per process per repo root, so a `.taskcell/` that
  * appears mid-run (a pull, a rename) cannot move a long-running watch to a second directory.
@@ -45,15 +45,19 @@ export function stateDir(repoPath: string): string {
 }
 
 function resolveStateDirName(repoPath: string): string {
-  const current = join(repoPath, STATE_DIR_NAME);
-  if (exists(current)) return STATE_DIR_NAME;
   const legacy = join(repoPath, LEGACY_STATE_DIR_NAME);
   if (!exists(legacy)) return STATE_DIR_NAME;
+  const current = join(repoPath, STATE_DIR_NAME);
+  // A pull can create `.taskcell/` (a committed approver.json) beside a checkout's `.vanguard/` run
+  // state: say so once, so the switch never strands that state silently.
+  const useCurrent = exists(current);
   if (!legacyWarned) {
     legacyWarned = true;
-    console.warn(`taskcell: ${legacy} is deprecated — rename it to ${STATE_DIR_NAME}/ (it is still read and written for now)`);
+    console.warn(useCurrent
+      ? `taskcell: both ${current} and ${legacy} exist — using ${STATE_DIR_NAME}/ and no longer reading ${LEGACY_STATE_DIR_NAME}/; move its run history and config into ${STATE_DIR_NAME}/`
+      : `taskcell: ${legacy} is deprecated — rename it to ${STATE_DIR_NAME}/ (it is still read and written for now)`);
   }
-  return LEGACY_STATE_DIR_NAME;
+  return useCurrent ? STATE_DIR_NAME : LEGACY_STATE_DIR_NAME;
 }
 
 /**

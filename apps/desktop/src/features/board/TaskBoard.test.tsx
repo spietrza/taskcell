@@ -254,7 +254,9 @@ describe('TaskBoard', () => {
     try {
       mockListTasks.mockResolvedValue({ tasks: TASKS, capped: false });
       render(<TaskBoard project="/repo" repos={[]} onOpenTask={() => {}} onNewTask={() => {}} />);
-      expect(await screen.findByRole('complementary', { name: /Quick view: Running one/ })).toBeInTheDocument();
+      const panel = await screen.findByRole('complementary', { name: /Quick view: Running one/ });
+      // The effect that focuses the panel also installs the Escape listener: wait for it, not just the render.
+      await waitFor(() => expect(panel).toHaveFocus());
       fireEvent.keyDown(document, { key: 'Escape' });
       await waitFor(() => expect(window.location.search).toBe('?screen=board'));
       fireEvent.click(screen.getByText('Queued two').closest('button')!);
