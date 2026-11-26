@@ -65,7 +65,10 @@ It runs on every published Taskcell release and by hand (`workflow_dispatch`, op
 `package.json` version), only from `main` or a `v*` tag. Signing secrets are optional: without
 `TAURI_SIGNING_PRIVATE_KEY` it builds without updater artifacts, and without the `APPLE_*` secrets the macOS build is
 unsigned. Linux builds only the `.deb` (linuxdeploy, which makes the AppImage, aborts on ELF binaries in the bundled hub's
-`node_modules`). Not done yet: the AppImage, and publishing the updater's `latest.json` (the key is in place; the publish job does not write the manifest yet, so the in-app update check finds nothing).
+`node_modules`). The `publish` job writes `latest.json` (the updater endpoint) from the signed macOS archives and the Windows
+`-setup.exe` when `TAURI_SIGNING_PRIVATE_KEY` is set. With a Developer ID certificate, `prepare-sidecar.mjs` signs every
+Mach-O file in the hub resources (Claude Agent SDK binary, esbuild, native addons) with the hardened runtime and
+`Entitlements.plist`: Tauri signs only the app and the sidecar, and notarization rejects unsigned code. Not done yet: the AppImage.
 
 Separately, a CI job should run `pnpm --dir apps/desktop test:rust` on changes under `apps/desktop/src-tauri/**` (Rust ≥ 1.90 and, on Linux, the Tauri system libraries); no workflow builds the Rust today. That job compiles PR-controlled code (`build.rs`, proc macros, tests): use the `pull_request` trigger (never `pull_request_target`), `permissions: contents: read`, no secrets, and no build cache shared with the signing release job.
 
