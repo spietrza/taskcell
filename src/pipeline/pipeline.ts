@@ -33,6 +33,17 @@ export const STAGE = {
   TECH_SPEC: 'tech-spec',
 } as const;
 
+/**
+ * Stages that judge the implementer's change. Their agent reads instruction files from the base, never from
+ * the files the change under review may have edited (CLAUDE.md, AGENTS.md, .claude/, .cursor/).
+ */
+const REVIEW_TIER: ReadonlySet<string> = new Set([STAGE.REVIEWER, STAGE.ADVERSARY, STAGE.CONFORMANCE]);
+
+/** The trusted instruction ref for `stageName`: set for review-tier stages, else whatever the run context pins. */
+function instructionRefFor(ctx: RunContext, stageName: string): { instructionRef?: string } {
+  return REVIEW_TIER.has(stageName) ? { instructionRef: ctx.instructionRef ?? ctx.baseBranch } : {};
+}
+
 /** Stages whose flow-pinned model (opus) survives --provider-model: they plan/red-team, not implement. */
 const PLANNER_TIER: ReadonlySet<string> = new Set([STAGE.PLANNER, STAGE.ADVERSARY]);
 
@@ -422,6 +433,7 @@ export async function runBudgetedStages(
       ...(stage.systemPrompt !== undefined ? { systemPrompt: stage.systemPrompt } : {}),
       ...(opts.signal !== undefined ? { signal: opts.signal } : {}),
       ...(stage.copyBack !== undefined ? { copyBack: stage.copyBack } : {}),
+      ...instructionRefFor(ctx, stage.name),
       ...(isFiniteCap ? { maxBudgetUsd: effectiveCap, stageCapUsd: effectiveCap } : {}),
       ...(stage.timeoutMs !== undefined ? { timeoutMs: stage.timeoutMs } : {}),
       ...(isFiniteGlobal ? { remainingBudgetUsd: remainingGlobal } : {}),
@@ -773,6 +785,7 @@ export async function reviewFinalDiff(
     ...(stage.maxTurns !== undefined ? { maxTurns: stage.maxTurns } : {}),
     ...(stage.systemPrompt !== undefined ? { systemPrompt: stage.systemPrompt } : {}),
     ...(stage.copyBack !== undefined ? { copyBack: stage.copyBack } : {}),
+    ...instructionRefFor(ctx, stage.name),
     ...(stage.timeoutMs !== undefined ? { timeoutMs: stage.timeoutMs } : {}),
     ...(opts.signal !== undefined ? { signal: opts.signal } : {}),
   });

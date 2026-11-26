@@ -33,6 +33,9 @@ beforeAll(async () => {
   repo = await mkdtemp(join(tmpdir(), 'run-exec-repo-'));
   worktree = await mkdtemp(join(tmpdir(), 'run-exec-wt-'));
   execFileSync('git', ['init', '-q'], { cwd: worktree });
+  // The review stages read instruction files from the base branch, so it must resolve.
+  execFileSync('git', ['init', '-q', '-b', 'main'], { cwd: repo });
+  execFileSync('git', ['-c', 'user.email=t@t', '-c', 'user.name=t', 'commit', '-q', '--allow-empty', '-m', 'init'], { cwd: repo });
 });
 afterAll(async () => {
   await rm(repo, { recursive: true, force: true });

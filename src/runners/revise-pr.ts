@@ -57,7 +57,7 @@ import { dischargePrBodyItemsBlock, extractPrBodyItemsBlock, parseSpecManifest, 
 import type { VerificationResult } from '../pipeline/verify.js';
 import { runStages, STAGE } from '../pipeline/pipeline.js';
 import { droppedCiPathsNote, pushToExistingBranch } from '../pipeline/remote-branch.js';
-import { defaultGhRunner, GitHubTaskFetcher } from '../tasks/github.js';
+import { defaultGhRunner, githubDefaultBranch, GitHubTaskFetcher } from '../tasks/github.js';
 import { modelFromLabels } from './source-adapter.js';
 import { planRevision, planRevisionPipeline } from './run-plan.js';
 import { readCooldowns, recordCooldown } from '../core/model-pool.js';
@@ -137,6 +137,8 @@ export interface ReviseGithubPrDeps extends ProviderChoice {
    * of fetching the PR head. Use in tests, on a repo without an origin, to point at a local branch.
    */
   _baseBranch?: string;
+  /** Test seam for the trusted instruction ref (a `_baseBranch` run has no forge to ask for the default branch). */
+  _instructionRef?: string;
 }
 
 export interface ReviseGithubPrResult {
@@ -520,6 +522,9 @@ export async function runRevisePullRequest(prRef: string, deps: ReviseGithubPrDe
       if (deps._baseBranch === undefined && (pr.headRefName === '' || pr.headRefOid === '')) {
         throw new TaskcellError(`PR ${target.repoSlug}#${target.number} has no head ref to fetch`);
       }
+      // The PR head's own CLAUDE.md / AGENTS.md / .claude/ must not steer the agent that revises it: the agent
+      // sees the default branch's copies (sandbox only; the head's files stay in the branch and the push).
+      const instructionRef = deps._baseBranch === undefined ? await githubDefaultBranch(target.repoSlug, gh) : deps._instructionRef;
       const skills = await skillRegistryForRun(deps.skillsDir, deps.repoPath);
       revisionStageMeta.skillIds = skills.ids();
       ctx = await session.prepare(
@@ -537,6 +542,7 @@ export async function runRevisePullRequest(prRef: string, deps: ReviseGithubPrDe
         },
         { skills, ...(deps._worktrees !== undefined ? { worktrees: deps._worktrees } : {}) },
       );
+      if (instructionRef !== undefined) ctx.instructionRef = instructionRef;
     } catch (error) {
       await stepSummary('error', { error: String(error) });
       // --out is a dry run that touches neither the branch nor the PR.
