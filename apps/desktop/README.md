@@ -68,7 +68,7 @@ unsigned. Linux builds only the `.deb` (linuxdeploy, which makes the AppImage, a
 `node_modules`). The `publish` job writes `latest.json` (the updater endpoint) from the signed macOS archives and the Windows
 `-setup.exe` when `TAURI_SIGNING_PRIVATE_KEY` is set. With a Developer ID certificate, `prepare-sidecar.mjs` signs every
 Mach-O file in the hub resources (Claude Agent SDK binary, esbuild, native addons) with the hardened runtime
-(executables with the JIT-only `Entitlements.nested.plist`, libraries with none): Tauri signs only the app and the sidecar, and notarization rejects unsigned code. Not done yet: the AppImage.
+(executables with `Entitlements.plist`, the same JIT and library-validation entitlements as the sidecar; libraries with none): Tauri signs only the app and the sidecar, and notarization rejects unsigned code. Not done yet: the AppImage.
 
 Separately, a CI job should run `pnpm --dir apps/desktop test:rust` on changes under `apps/desktop/src-tauri/**` (Rust ≥ 1.90 and, on Linux, the Tauri system libraries); no workflow builds the Rust today. That job compiles PR-controlled code (`build.rs`, proc macros, tests): use the `pull_request` trigger (never `pull_request_target`), `permissions: contents: read`, no secrets, and no build cache shared with the signing release job.
 
