@@ -9,7 +9,7 @@ import { FACTORY_LABELS } from './enable-factory.js';
 // so the hub can copy them into a target repo without this repo's own CI config ever being at risk.
 const TEMPLATES_DIR = new URL('../../templates/github/', import.meta.url);
 
-const EXPECTED_FILES = ['implement.yml', 'doctor.yml', 'pr-review.yml', 'revise.yml', 'resume.yml'];
+const EXPECTED_FILES = ['implement.yml', 'doctor.yml', 'pr-review.yml', 'revise.yml', 'resume.yml', 'approver.yml'];
 
 const read = async (f: string): Promise<string> => readFile(new URL(f, TEMPLATES_DIR), 'utf8');
 
@@ -38,7 +38,7 @@ describe('templates/github/ caller templates', () => {
     expect(REVIEW_TRIGGER_LABEL).toBe('ready for taskcell review');
   });
 
-  it('contains exactly the five expected callers', async () => {
+  it('contains exactly the expected callers', async () => {
     const entries = (await readdir(TEMPLATES_DIR)).filter((f) => f.endsWith('.yml'));
     expect(entries.sort()).toEqual([...EXPECTED_FILES].sort());
   });

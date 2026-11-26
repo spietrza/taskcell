@@ -118,7 +118,7 @@ export interface Decision {
   reviewValid: boolean;
 }
 
-export type Mode = 'shadow' | 'act';
+export type Mode = 'shadow' | 'enforce' | 'act';
 
 /** What the human did with a factory PR, from PR state and revert history alone — see `scorecard.ts`. */
 export type HumanOutcome = 'merged-as-is' | 'merged-after-changes' | 'closed' | 'reverted' | null;

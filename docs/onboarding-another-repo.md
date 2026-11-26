@@ -205,6 +205,15 @@ jobs:
 
 Inputs: `allowed-actors` (required), `pinned-only`, `provider`, `review-model`, `fallback-provider`, `fallback-model`, `author` (`--author`), `llm-proxy`, `skills` (default `.vanguard-src/skills`, as for `implement.yml`: keep the default; a custom path that does not exist fails the review step), `vanguard-ref`. Leave the fallback inputs empty for no fallback. The fallback provider is preflighted too; if its *credential* is missing the job warns (step annotation + run summary) and reviews without a fallback rather than failing before the primary provider runs, so a Codex primary keeps working while the Claude secret is unset. Any other fallback preflight failure — an unknown provider name, a malformed `CODEX_AUTH_JSON` — fails the run, as for the primary. The fallback fires whenever the first attempt exits non-zero. It keeps the event hint, so the just-labeled PR is found even when the label search lags behind the label restore the failed attempt made; a head the first attempt already reviewed no longer carries the trigger label and is skipped. The one residual: a review that posted but whose label update then failed gets a second review. Do not combine `llm-proxy` with a Codex subscription (see the Full tier below).
 
+### `.github/workflows/taskcell-approver.yml` — the approver (optional)
+
+Copy `templates/github/approver.yml`: a thin caller of the reusable `spietrza/taskcell/.github/workflows/approver.yml@v1` (`workflow_call`; the body is in `docs/approver-reusable-workflow.md` until a maintainer adds it under `.github/workflows/` and moves `@v1`; before that tag exists the caller fails at startup), triggered when `Taskcell PR Review` finishes. Needs `.taskcell/approver.json` on the default branch (see `docs/approver-policy.md`). Roll out in this order:
+
+1. **Observe** — leave `mode: shadow` for 1–2 weeks; the `vanguard/approver` check is `neutral` and decisions go to the metrics branch. Compare with `taskcell stats --approver`.
+2. **Enforce** — set `mode: enforce`; the check is `success` on APPROVE and `failure` on ESCALATE. It never merges.
+3. **Re-judge open PRs** — `taskcell approve --github-repo OWNER/REPO --rerun-open --mode enforce`.
+4. **Require** the `vanguard/approver` check in branch protection. **Before requiring it:** a required status check applies to every PR into the branch, but the approver only runs for factory PRs (`chore/taskcell-*` / `chore/vanguard-*` heads), so a human's PR never gets the check and cannot merge. Require it only where every PR is a factory PR, or use a repository ruleset that lets maintainers bypass the check (or applies it to the factory branch patterns only). `taskcell doctor` verifies the policy and that `requiredChecks` app ids match branch protection.
+
 ### `taskcell-research.yml` and `taskcell-revise.yml` (optional)
 
 Same shape: a caller with its triggers, permissions, `concurrency` and `if:`, plus `uses: spietrza/taskcell/.github/workflows/research.yml@v1` or `.../revise.yml@v1`.

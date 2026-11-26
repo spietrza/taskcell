@@ -1,4 +1,5 @@
 import { runApprover } from '../approver/approve.js';
+import { rerunOpenPrs } from '../approver/rerun.js';
 import { repoNodeId } from '../approver/repo-id.js';
 import { redactForPublish } from '../core/secret-scan.js';
 import type { Command } from './args.js';
@@ -9,6 +10,24 @@ type ApproveCommand = Extract<Command, { kind: 'approve' }>;
 export async function approveCommand(cmd: ApproveCommand): Promise<void> {
   try {
     const repoId = cmd.dryRun ? undefined : await repoNodeId(cmd.repoSlug);
+    if (cmd.rerunOpen === true && cmd.mode !== 'act') {
+      const { judged, failed } = await rerunOpenPrs({
+        repoPath: cmd.repoPath,
+        repoSlug: cmd.repoSlug,
+        ...(repoId !== undefined ? { repoId } : {}),
+        mode: cmd.mode,
+        dryRun: cmd.dryRun,
+        ...(cmd.branch !== undefined ? { branch: cmd.branch } : {}),
+      });
+      if (cmd.json) console.log(JSON.stringify({ judged: judged.map((j) => j.result.record), failed }));
+      else {
+        for (const j of judged) console.log(`taskcell approve: #${j.prNumber} ${j.result.record.verdict}`);
+        for (const f of failed) console.error(`taskcell approve: #${f.prNumber} failed: ${f.error}`);
+        console.log(`taskcell approve: re-judged ${judged.length} open factory PR(s), ${failed.length} failed`);
+      }
+      if (failed.length > 0) process.exitCode = 1;
+      return;
+    }
     const result = await runApprover({
       repoPath: cmd.repoPath,
       repoSlug: cmd.repoSlug,

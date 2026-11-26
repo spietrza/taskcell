@@ -6,15 +6,16 @@ exports[`--help output > approve help is unchanged 1`] = `
   Compute a deterministic APPROVE/ESCALATE decision for a factory PR; shadow mode (default) never merges.
 
   Options:
-    --repo <path>         Repo checkout to work in (default: cwd)
-    --github-repo <o/r>   Repo slug — the approver never infers the repo it judges
-    --branch <name>       Metrics branch to read or write (default: taskcell-metrics)
-    --json                Machine-readable JSON output
-    --dry-run             Report what would happen without changing anything
-    --pr <n>              PR number (bare positional also accepted)
-    --mode <shadow|act>   shadow (default) only records and comments; act merges (see docs/autonomous-loop.md)
-    --review-run-id <id>  Removed: act mode reads the run stamp on the review itself; passing it is an error
-    --help                Print help for this command"
+    --repo <path>                Repo checkout to work in (default: cwd)
+    --github-repo <o/r>          Repo slug — the approver never infers the repo it judges
+    --branch <name>              Metrics branch to read or write (default: taskcell-metrics)
+    --json                       Machine-readable JSON output
+    --dry-run                    Report what would happen without changing anything
+    --pr <n>                     PR number (bare positional also accepted)
+    --mode <shadow|enforce|act>  shadow (default) only records and comments, check neutral; enforce: check success/failure, never merges; act merges (see docs/autonomous-loop.md)
+    --rerun-open                 Re-judge every open factory PR (instead of --pr); decisions are appended only where the policy hash changed
+    --review-run-id <id>         Removed: act mode reads the run stamp on the review itself; passing it is an error
+    --help                       Print help for this command"
 `;
 
 exports[`--help output > audit help is unchanged 1`] = `
@@ -868,15 +869,16 @@ taskcell approve [PR number] [options]
   Compute a deterministic APPROVE/ESCALATE decision for a factory PR; shadow mode (default) never merges.
 
   Options:
-    --repo <path>         Repo checkout to work in (default: cwd)
-    --github-repo <o/r>   Repo slug — the approver never infers the repo it judges
-    --branch <name>       Metrics branch to read or write (default: taskcell-metrics)
-    --json                Machine-readable JSON output
-    --dry-run             Report what would happen without changing anything
-    --pr <n>              PR number (bare positional also accepted)
-    --mode <shadow|act>   shadow (default) only records and comments; act merges (see docs/autonomous-loop.md)
-    --review-run-id <id>  Removed: act mode reads the run stamp on the review itself; passing it is an error
-    --help                Print help for this command
+    --repo <path>                Repo checkout to work in (default: cwd)
+    --github-repo <o/r>          Repo slug — the approver never infers the repo it judges
+    --branch <name>              Metrics branch to read or write (default: taskcell-metrics)
+    --json                       Machine-readable JSON output
+    --dry-run                    Report what would happen without changing anything
+    --pr <n>                     PR number (bare positional also accepted)
+    --mode <shadow|enforce|act>  shadow (default) only records and comments, check neutral; enforce: check success/failure, never merges; act merges (see docs/autonomous-loop.md)
+    --rerun-open                 Re-judge every open factory PR (instead of --pr); decisions are appended only where the policy hash changed
+    --review-run-id <id>         Removed: act mode reads the run stamp on the review itself; passing it is an error
+    --help                       Print help for this command
 
 taskcell lessons record|list|dismiss <id> [options]
 
