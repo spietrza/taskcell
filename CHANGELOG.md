@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.17.6](https://github.com/spietrza/taskcell/compare/v1.17.5...v1.17.6) (2026-11-27)
+
+
+### Performance Improvements
+
+* **pipeline:** append the conformance stage only when a trusted spec exists (spietrza/taskcell[#1466](https://github.com/spietrza/taskcell/issues/1466)) ([#1481](https://github.com/spietrza/taskcell/issues/1481)) ([52ace08](https://github.com/spietrza/taskcell/commit/52ace08d9de6d1b8d3c66c624ff323101b55e1a5))
+
 ## [1.17.5](https://github.com/spietrza/taskcell/compare/v1.17.4...v1.17.5) (2026-11-26)
 
 
