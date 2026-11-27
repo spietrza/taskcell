@@ -360,7 +360,12 @@ export async function executeIssueRun(run: IssueRunExecution): Promise<RunIssueR
     const skipBaseline = deps.reuse === true || hasLabel(task.labels, BASE_RED_OK_LABEL);
     const resolvedBase = skipBaseline ? undefined : await resolveVerifyCommand(ctx.worktreePath, verifyOpts);
     const baselineCmd = resolvedBase !== undefined && SELF_INSTALLING_VERIFY_RE.test(resolvedBase) ? resolvedBase : undefined;
-    if (baselineCmd !== undefined) {
+    // Green forge CI on the base SHA stands in for the baseline run (a fresh runner never hits the SHA cache).
+    const forgeGreen = baselineCmd !== undefined ? await tracker.baseCi?.greenOn(ctx.startRef) : undefined;
+    if (forgeGreen !== undefined) {
+      console.log(`taskcell: ${task.id} baseline taken from ${forgeGreen}; skipping the baseline verify`);
+      notes.push(`baseline: taken from ${forgeGreen}`);
+    } else if (baselineCmd !== undefined) {
       const verifyCmd = baselineCmd;
       const baselineVerify = await resolveBaselineVerify(deps.repoPath, ctx.startRef, ctx.sandbox, verifyCmd, deps.signal, credentials.secretValues());
       if (!baselineVerify.passed) {

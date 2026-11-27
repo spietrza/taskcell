@@ -1,3 +1,4 @@
+import { gitlabForgeCi } from '../pipeline/base-ci.js';
 import { REVIEW_HEADING, hasLabel } from '../core/labels.js';
 import { execa } from 'execa';
 import { agentAuthFromEnv } from '../agents/auth.js';
@@ -52,6 +53,7 @@ export function gitlabTracker(deps: RunGitlabIssueDeps, glab?: GlabRunner): Trac
     taskId: (task: Task) => `gl-${task.id.replace(/[^a-zA-Z0-9]/g, '-')}`,
     stages: implementReviewSimplifyStages,
     closeIssueOnMerge: true,
+    baseCi: gitlabForgeCi(deps.project, glab ?? defaultGlabRunner),
     async linkPr(issueRef: string, _task: Task, mrUrl: string) {
       await linkMergeRequest(deps.project, issueRef, mrUrl, glab);
     },

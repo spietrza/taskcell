@@ -201,6 +201,15 @@ describe('executeIssueRun', () => {
     expect(f.tracker.signalBaseRed).toHaveBeenCalledTimes(1);
   });
 
+  it('green forge CI on the base SHA skips the baseline verify', async () => {
+    const f = fakes();
+    f.state.execExit = 1;
+    f.tracker.baseCi = { greenOn: vi.fn(async (sha: string) => `GitHub checks on ${sha}`) };
+    const result = await run(f, { verifyCmd: 'pnpm install --frozen-lockfile && pnpm test' });
+    expect(result.baseRed).toBeUndefined();
+    expect(f.tracker.signalBaseRed).not.toHaveBeenCalled();
+  });
+
   it('a red base on a white-label run is not signalled on the issue', async () => {
     const f = fakes();
     f.state.execExit = 1;

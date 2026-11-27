@@ -15,6 +15,7 @@ import { GitHubProjectFetcher } from '../tasks/github-project.js';
 import { implementReviewSimplifyStages } from '../pipeline/pipeline.js';
 import { publishReviewVerdict } from '../pipeline/review-publish.js';
 import { agentAuthFromEnv } from '../agents/auth.js';
+import { githubForgeCi } from '../pipeline/base-ci.js';
 import { fanOut } from '../pipeline/fan-out.js';
 import { runSourcedIssue } from './source-adapter.js';
 import { renderSecretBlockComment } from '../core/secret-scan.js';
@@ -65,6 +66,7 @@ export function githubTracker(deps: RunGithubIssueDeps, gh: GhRunner = defaultGh
     taskId: (task) => `gh-${task.id.replace(/[^a-zA-Z0-9]/g, '-')}`,
     stages: implementReviewSimplifyStages,
     closeIssueOnMerge: true,
+    baseCi: githubForgeCi(deps.repoSlug, gh),
     async linkPr(issueRef: string, _task: Task, prUrl: string) {
       await linkPullRequest(deps.repoSlug, issueRef, prUrl);
     },

@@ -1,3 +1,4 @@
+import type { ForgeCi } from '../pipeline/base-ci.js';
 import { readFile } from 'node:fs/promises';
 import { openAgentSession } from './agent-session.js';
 import type { CredentialDeps } from './agent-session.js';
@@ -222,6 +223,8 @@ export interface Tracker {
    * is green. Best-effort: must never throw (mirrors signalSecretBlock).
    */
   signalBaseRed(issueRef: string, task: Task, body: string): Promise<void>;
+  /** Forge CI lookup for the base SHA: green there lets the run skip its own baseline verify. Absent for Linear/local. */
+  baseCi?: ForgeCi;
   /** Write the PR link back onto the source issue. */
   linkPr(issueRef: string, task: Task, prUrl: string): Promise<void>;
 }
