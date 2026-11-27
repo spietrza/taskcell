@@ -13,6 +13,7 @@ import { isStructuredProviderLimit } from '../core/rate-limit-marker.js';
 import { recordCooldown, entryKey, cooldownUntil } from '../core/model-pool.js';
 import type { StagePick } from './model-pool-routing.js';
 import { decisionDiffScorer } from '../evals/decision-judge.js';
+import { SPEC_TAG } from '../tasks/triage.js';
 import { runStages, sandboxComplete, reviewFinalDiff, STAGE } from '../pipeline/pipeline.js';
 import { buildReviewerAttribution, hasBlockingFinding } from '../pipeline/review-publish.js';
 import { stripReviewMarkers } from './review-prompt.js';
@@ -253,7 +254,7 @@ export async function executeIssueRun(run: IssueRunExecution): Promise<RunIssueR
     if (labelModel !== undefined) {
       console.log(`taskcell: ${task.id} pins the implementer model to ${labelModel} via label (overrides --provider-model)`);
     }
-    const pipeline = planIssuePipeline(plan, agents);
+    const plannedPipeline = planIssuePipeline(plan, agents);
     const probe = await probePromise;
     if (probe !== undefined && deps.signal?.aborted !== true) {
       await persistDecisionProbe(deps.repoPath, runTaskId, probe).catch(() => undefined);
@@ -266,10 +267,19 @@ export async function executeIssueRun(run: IssueRunExecution): Promise<RunIssueR
     // a reviewer-less one (flow-b: adversary+repairer) it would run, cost money, and publish nothing.
     // Fail at assembly rather than surface nothing the user explicitly asked for. Giving conformance
     // its own standalone comment would need its own body format + dedupe marker; this error is that TODO.
-    if (pipeline.some((s) => s.name === STAGE.CONFORMANCE) && !pipeline.some((s) => s.name === STAGE.REVIEWER)) {
+    const hasConformance = plannedPipeline.some((s) => s.name === STAGE.CONFORMANCE);
+    if (hasConformance && !plannedPipeline.some((s) => s.name === STAGE.REVIEWER)) {
       throw new Error(
         `--conformance needs a flow with a reviewer stage (its verdict rides on the review comment); flow "${flow ?? 'default'}" has none`,
       );
+    }
+    // The host decides "is there a spec?": a trusted comment carrying the tag. Without one the agent
+    // session would only write "skipped", so drop the stage and say so here instead.
+    const conformanceSkipped = hasConformance && !specText.includes(`<${SPEC_TAG}`);
+    const pipeline = conformanceSkipped ? plannedPipeline.filter((s) => s.name !== STAGE.CONFORMANCE) : plannedPipeline;
+    if (conformanceSkipped) {
+      notes.push('conformance skipped: no spec');
+      console.log(`taskcell: ${task.id} conformance skipped: no spec`);
     }
     const imageDigest = await ctx.sandbox.imageDigest?.();
     const runMeta = {

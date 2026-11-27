@@ -390,7 +390,7 @@ describe('runSourcedIssue', () => {
     );
   });
 
-  it('skips the reviewer on a red verify, then fires addFailureLabel → linkPr and reaches the conformance stage', async () => {
+  it('skips the reviewer on a red verify, then fires addFailureLabel → linkPr; conformance is dropped without a spec', async () => {
     // A failing verification triggers exactly one addFailureLabel('verify') before link.
     vi.mocked(resolveVerifyCommand).mockResolvedValue('npm test');
     vi.mocked(runVerification).mockResolvedValueOnce({ passed: false } as never);
@@ -405,9 +405,9 @@ describe('runSourcedIssue', () => {
     expect(order).toEqual(['addFailureLabel', 'linkPr']);
     expect(adapter.publishVerdict).not.toHaveBeenCalled();
     expect(adapter.addFailureLabel).toHaveBeenCalledWith(MR_URL, 'verify');
-    // assembleReviewPipeline appends the conformance stage when deps.conformance is true.
+    // No trusted spec: the host drops the conformance stage that deps.conformance appended.
     const assembled = runStages.mock.calls[0]?.[1] as PipelineStage[];
-    expect(assembled.some((s) => s.name === 'conformance')).toBe(true);
+    expect(assembled.some((s) => s.name === 'conformance')).toBe(false);
   });
 
   it('--fallback-provider puts a fallback on every stage that runs on the primary agent, with --fallback-model', async () => {

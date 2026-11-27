@@ -710,11 +710,7 @@ export function conformanceStage(): PipelineStage {
     promptTemplate: [
       'You are an independent conformance reviewer. Do not edit any files.',
       '',
-      'If the context below contains no <tech_spec> block, write exactly:',
-      'No spec, conformance skipped.',
-      'then <promise>COMPLETE</promise> and stop.',
-      '',
-      'Otherwise, compare the diff against the spec Acceptance Criteria. Flag exactly three classes of issues:',
+      'Compare the diff against the spec Acceptance Criteria. Flag exactly three classes of issues:',
       '1. Unmet or partially-met Acceptance Criteria',
       '2. Scope drift or scope creep (changes outside the spec)',
       '3. Silently dropped requirements',
