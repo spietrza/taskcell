@@ -53,8 +53,9 @@ if (process.platform === 'darwin' && identity) {
       closeSync(fd);
     }
   };
-  // Executables get JIT only; libraries (.node/.dylib) take no entitlements (they are ignored on libraries).
-  const entitlements = join(tauri, 'Entitlements.nested.plist');
+  // Executables get the sidecar's entitlements (JIT + disable-library-validation: re-signing replaces Anthropic's
+  // signature on the SDK's claude binary, which loads native addons not signed by our team); libraries take none.
+  const entitlements = join(tauri, 'Entitlements.plist');
   const signed = [];
   for (const entry of readdirSync(stage, { recursive: true, withFileTypes: true })) {
     const file = join(entry.parentPath, entry.name);
