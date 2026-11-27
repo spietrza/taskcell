@@ -132,6 +132,36 @@ describe('runStages', () => {
     }
   });
 
+  it('a caller maxCostUsd caps each stage and stops the pipeline once spent; unset means no cap', async () => {
+    const stages: PipelineStage[] = [
+      { name: 'implementer', promptTemplate: 'do', stageCostFraction: 0.5 },
+      { name: 'reviewer', promptTemplate: 'review' },
+      { name: 'simplifier', promptTemplate: 'simplify' },
+    ];
+    for (const maxCostUsd of [1, undefined]) {
+      const wm = new WorktreeManager(repo);
+      const received: AgentRunInput[] = [];
+      const agent: AgentProvider = {
+        name: 'cost',
+        async *run(input: AgentRunInput): AsyncGenerator<AgentTurn, AgentRunOutput, void> {
+          received.push(input);
+          return { finalText: 'x', turns: 1, costUsd: 0.6 };
+        },
+      };
+      const ctx = await prepareContext({ taskId: `rs-cap-${String(maxCostUsd)}`, localRepoPath: repo, baseBranch: 'main', start: 'base', sandbox: makeSandbox() }, { worktrees: wm });
+      const outcomes = await runStages(ctx, stages, { agent, ...(maxCostUsd !== undefined ? { maxCostUsd } : {}) });
+      await disposeContext(ctx);
+      if (maxCostUsd === undefined) {
+        expect(outcomes.map((o) => o.name)).toEqual(['implementer', 'reviewer', 'simplifier']);
+        expect(received.every((i) => i.maxBudgetUsd === undefined)).toBe(true);
+      } else {
+        // implementer: 0.5 × $1; reviewer: the $0.40 left; $1.20 spent → the simplifier never starts.
+        expect(outcomes.map((o) => o.name)).toEqual(['implementer', 'reviewer']);
+        expect(received.map((i) => i.maxBudgetUsd)).toEqual([0.5, 0.4]);
+      }
+    }
+  });
+
   it('neutralizes prompt tags in the previous diff before the next stage sees it', async () => {
     const wm = new WorktreeManager(repo);
     const received: AgentRunInput[] = [];

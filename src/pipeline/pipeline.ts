@@ -582,13 +582,14 @@ export async function runBudgetedStages(
   return { status: 'completed', outcomes };
 }
 
-/** Run stages with no budget ceiling, returning just the outcomes (unchanged behaviour). */
+/** Run stages, returning just the outcomes. No budget ceiling unless the caller sets `maxCostUsd`: then it caps
+ * each stage (fraction / floor / what is left) and a spent budget stops the pipeline before the next stage. */
 export async function runStages(
   ctx: RunContext,
   stages: PipelineStage[],
   opts: RunStagesOptions,
 ): Promise<StageOutcome[]> {
-  const result = await runBudgetedStages(ctx, stages, { ...opts, maxCostUsd: Number.POSITIVE_INFINITY });
+  const result = await runBudgetedStages(ctx, stages, { ...opts, maxCostUsd: opts.maxCostUsd ?? Number.POSITIVE_INFINITY });
   return result.outcomes;
 }
 

@@ -464,6 +464,8 @@ export async function executeIssueRun(run: IssueRunExecution): Promise<RunIssueR
         // NOTE: with an explicit --max-repair-iterations N, an incomplete implementer can be resumed up
         // to ~2N times total — N in-stage (resumeUntilComplete inside runStages) plus N here.
         maxIterations: Math.max(0, (deps.maxRepairIterations ?? MAX_REPAIR_ITERATIONS) - spentIterations),
+        // Repairs spend from the same run budget as the stages (app.json `budgetUsd` on hub runs).
+        ...(deps.maxCostUsd !== undefined ? { maxCostUsd: deps.maxCostUsd } : {}),
         // --escalate-model names a model of the implementer's provider; handed to the fallback CLI it is
         // an AgentError, so the fallback repairs on its own model only.
         ...(deps.escalateModel !== undefined && fallbackHolder === undefined ? { escalateModel: deps.escalateModel } : {}),
@@ -501,6 +503,7 @@ export async function executeIssueRun(run: IssueRunExecution): Promise<RunIssueR
       outcomes = await runStages(ctx, pipeline, {
         agent: agents.agent,
         variables,
+        ...(deps.maxCostUsd !== undefined ? { maxCostUsd: deps.maxCostUsd } : {}),
         ...(deps.forkN !== undefined
           ? { fork: { n: deps.forkN, complete: sandboxComplete(ctx, agents.agent), ...(forkScore !== undefined ? { score: forkScore } : {}) } }
           : {}),

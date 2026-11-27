@@ -110,4 +110,21 @@ describe('repairUntilGreen', () => {
     expect(input).not.toHaveProperty('maxTurns');
     expect(input).not.toHaveProperty('maxBudgetUsd');
   });
+
+  // Implementer outcome already cost $1; fraction 0.6, floor $1. Default run budget ($5) → $3 per call.
+  it.each([
+    [3, 1.8], // run budget below the default: the per-call cap follows it (0.6 × 3)
+    [1.5, 0.5], // floored cap ($1) exceeds what is left of the run budget ($0.50)
+  ])('run budget $%s caps each repair at $%s', async (maxCostUsd, cap) => {
+    const run = stubRun(() => result());
+    await repairUntilGreen(ctx, { label: 't', gate: gateRedThenGreen(1), agent, outcomes: outcomesWith('m'), pipeline, maxIterations: 1, maxCostUsd, run, log: () => {} });
+    expect(run.mock.calls[0]![1]).toEqual(expect.objectContaining({ maxBudgetUsd: cap }));
+  });
+
+  it('a spent run budget starts no repair', async () => {
+    const run = stubRun(() => result());
+    const out = await repairUntilGreen(ctx, { label: 't', gate: gateRedThenGreen(1), agent, outcomes: outcomesWith('m'), pipeline, maxIterations: 2, maxCostUsd: 1, run, log: () => {} });
+    expect(out).toEqual(expect.objectContaining({ passed: false, iterations: 0 }));
+    expect(run).not.toHaveBeenCalled();
+  });
 });

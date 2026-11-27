@@ -5,8 +5,8 @@ import type { FallbackEntry } from '../wire.js';
 import { assertStatePath, readStateFileNoSymlink, ensureStateDir, stateDir } from '../core/state-path.js';
 
 /** The app's per-project config (`.taskcell/app.json`, spec §6). All optional; the CLI reads only `baseBranch`/`baseBranches`
- * (core/base-branch.ts) — the app translates the rest into flags / a launch command. `.taskcell/*` is
- * git-ignored by default, so a run in CI sees `baseBranch` only if the repo commits `.taskcell/app.json`. */
+ * (core/base-branch.ts); a hub-launched run also reads `verifyCmd`, `reviewProvider` and `budgetUsd` (sidecar/deps.ts) — the app
+ * translates the rest into flags / a launch command. `.taskcell/*` is git-ignored by default, so a run in CI sees `baseBranch` only if the repo commits `.taskcell/app.json`. */
 export interface AppConfig {
   source?: string;
   /** Per-project task source: github | github-project | gitlab | linear | hub. Unset = github. */
@@ -47,6 +47,28 @@ export interface AppConfig {
 /** The project's chosen flow (`--flow` name), or undefined for the source default. A blank value counts as unset; an invalid name is passed on so the run fails with the flow error instead of falling back. */
 export function configuredFlow(cfg: AppConfig): string | undefined {
   return typeof cfg.flow === 'string' && cfg.flow.trim() !== '' ? cfg.flow : undefined;
+}
+
+/** The app.json settings a hub-launched run uses (sidecar/deps.ts); each absent when unset or unusable. */
+export interface RunAppSettings {
+  verifyCmd?: string;
+  reviewProvider?: string;
+  /** From `budgetUsd`. */
+  maxCostUsd?: number;
+}
+
+/** Normalise the run settings: `verifyCmd` / `reviewProvider` count when a non-blank string (trimmed); `budgetUsd` when finite and
+ * > 0 — 0 is the editor's placeholder, so it falls back to the pipeline's default cap. */
+export function runAppSettings(cfg: AppConfig): RunAppSettings {
+  const text = (v: unknown): string | undefined => (typeof v === 'string' && v.trim() !== '' ? v.trim() : undefined);
+  const verifyCmd = text(cfg.verifyCmd);
+  const reviewProvider = text(cfg.reviewProvider);
+  const budget = cfg.budgetUsd;
+  return {
+    ...(verifyCmd !== undefined ? { verifyCmd } : {}),
+    ...(reviewProvider !== undefined ? { reviewProvider } : {}),
+    ...(typeof budget === 'number' && Number.isFinite(budget) && budget > 0 ? { maxCostUsd: budget } : {}),
+  };
 }
 
 function configPath(repoPath: string): string {

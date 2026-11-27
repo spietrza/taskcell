@@ -134,6 +134,8 @@ export interface RunIssueDeps extends RunOptions, CredentialDeps {
   /** `namedSkills` is the whole hand-picked list (the hub form, which preselects the card's skills): the body's `Skills:` line is not merged in. */
   namedSkillsOnly?: boolean;
   auth?: AgentAuth;
+  /** Run budget in USD (pipeline default when unset). Hub runs: `budgetUsd` from app.json. */
+  maxCostUsd?: number;
   repoPath: string;
   /** Egress enclave + llm-proxy wiring from `startSandboxContext`; absent = direct mode. */
   sandboxContext?: SandboxWiring;

@@ -27,6 +27,7 @@ import { runHubTask } from '../runners/hub.js';
 import { agentAuthFromEnv } from '../agents/auth.js';
 import { assertSkillsInstalled } from '../context/named-skills.js';
 import { hubSkillsDir, skillRegistryForRun } from '../context/skill-registry.js';
+import { readAppConfig, runAppSettings, type RunAppSettings } from '../hub/app-config.js';
 import { BadRequestError } from './sidecar.js';
 import { ACCOUNT_ENV, CREDENTIAL_NAMES, PROVIDER_NAMES } from '../hub/credentials.js';
 import { fallbackFlags, fundableChain, keyEnvOf, loneEntryRefused, type FallbackEntry } from '../hub/fallback-chain.js';
@@ -83,10 +84,11 @@ export function credentialSecretValues(credential: RunCredential | undefined): s
  * customs — this path is always-egress. AgentError wraps into BadRequestError so a bad name/entry
  * classifies `bad-request` in the loop's catch, not `internal`.
  */
-async function resolveRunChoice(params: CreateRunParams): Promise<ProviderChoice> {
+async function resolveRunChoice(params: CreateRunParams, { reviewProvider }: RunAppSettings): Promise<ProviderChoice> {
   const customProviders = await loadCustomProviders(params.repoPath);
   const choice: ProviderChoice = {
     ...(params.provider !== undefined ? { provider: params.provider } : {}),
+    ...(reviewProvider !== undefined ? { reviewProvider } : {}),
     ...(params.fallbackProvider !== undefined ? { fallbackProvider: params.fallbackProvider } : {}),
     ...(customProviders.length > 0 ? { customProviders } : {}),
   };
@@ -95,7 +97,11 @@ async function resolveRunChoice(params: CreateRunParams): Promise<ProviderChoice
     validateProviderChoice(choice, {});
     assertEgressCompatible(choice); // createRun hardwires egress: true below
   } catch (error) {
-    if (error instanceof AgentError) throw new BadRequestError(error.message);
+    if (error instanceof AgentError) {
+      // The reviewer comes from the repo's config, not the request: say where to fix it.
+      const fromAppJson = reviewProvider !== undefined && error.message.includes(`"${reviewProvider}"`);
+      throw new BadRequestError(fromAppJson ? `${error.message} (reviewProvider "${reviewProvider}" is set in the project's .taskcell/app.json)` : error.message);
+    }
     throw error;
   }
   return choice;
@@ -276,7 +282,7 @@ export function productionDeps(): SidecarDeps {
     readRun: ({ repoPath, taskId, timestamp }) => readRunDetail(runsRoot(repoPath), taskId, timestamp),
     checkRun: async (raw, credential) => {
       const { params, credential: funded } = await fundedParams(raw, credential);
-      const choice = await resolveRunChoice(params);
+      const choice = await resolveRunChoice(params, runAppSettings(await readAppConfig(params.repoPath)));
       try {
         agentAuthFromEnv(choice, credentialEnv(funded, choice));
       } catch (error) {
@@ -331,7 +337,9 @@ async function createRunAttempt(rawParams: CreateRunParams, onEvent: (e: RunEven
       // checks: no lowering, no ref import — repo TS must not execute on the untimed run pipe (S5 D6).
       if (rawParams.flow !== undefined) await assertFlowResolvable(rawParams.flow, rawParams.repoPath);
       const { params, warnings: chainWarnings, credential } = await fundedParams(rawParams, fullCredential);
-      const choice = await resolveRunChoice(params);
+      // verifyCmd / reviewProvider / budgetUsd come from the repo's app.json (.taskcell/ or legacy .vanguard/), never the client.
+      const appSettings = runAppSettings(await readAppConfig(params.repoPath));
+      const choice = await resolveRunChoice(params, appSettings);
       // A hub run reads every provider key from its resolved credential env. A `user` run must never
       // fall back to the host's provider credentials, so those are dropped before its own overlay.
       const authEnv = credentialEnv(credential, choice);
@@ -409,6 +417,7 @@ async function createRunAttempt(rawParams: CreateRunParams, onEvent: (e: RunEven
       // outgoing-diff gate and every redaction pass treat them like any injected secret.
       try {
         // The RunOptions the sidecar exposes + the sandbox wiring + the event seam, shared across transports.
+        const { verifyCmd, maxCostUsd } = appSettings;
         const common = {
           onEvent: withSandboxStage(onEvent),
           signal,
@@ -417,6 +426,9 @@ async function createRunAttempt(rawParams: CreateRunParams, onEvent: (e: RunEven
           ...(params.fallbackModel !== undefined ? { fallbackModel: params.fallbackModel } : {}),
           ...(customProviders !== undefined ? { customProviders } : {}),
           ...(params.maxTurns !== undefined ? { maxTurns: params.maxTurns } : {}),
+          ...(verifyCmd !== undefined ? { verifyCmd } : {}),
+          ...(choice.reviewProvider !== undefined ? { reviewProvider: choice.reviewProvider } : {}),
+          ...(maxCostUsd !== undefined ? { maxCostUsd } : {}),
           ...(params.baseBranch !== undefined ? { baseBranch: params.baseBranch } : {}),
           // The hub's list is the run's whole hand-picked list; the same skills dir list_skills offered it from.
           ...(params.skills !== undefined ? { namedSkills: params.skills, namedSkillsOnly: true } : {}),
@@ -439,6 +451,7 @@ async function createRunAttempt(rawParams: CreateRunParams, onEvent: (e: RunEven
         const authChoice = {
           ...(provider !== undefined ? { provider } : {}),
           ...(params.fallbackProvider !== undefined ? { fallbackProvider: params.fallbackProvider } : {}),
+          ...(choice.reviewProvider !== undefined ? { reviewProvider: choice.reviewProvider } : {}),
           ...(customProviders !== undefined ? { customProviders } : {}),
         };
         if (transport === 'gitlab') {
