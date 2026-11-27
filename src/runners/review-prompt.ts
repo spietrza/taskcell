@@ -119,7 +119,7 @@ export function diffLineCount(diff: string): number {
 // and dominate the prompt when present: alpha-window #1652 was 9 403 diff lines, almost all one
 // drizzle snapshot.
 // ponytail: fixed list; make it configurable when a repo needs its own
-const GENERATED_FILE_PATTERNS: readonly RegExp[] = [
+export const GENERATED_FILE_PATTERNS: readonly RegExp[] = [
   /(^|\/)drizzle\/meta\/[^/]*_snapshot\.json$/,
   /(^|\/)pnpm-lock\.yaml$/,
   /(^|\/)package-lock\.json$/,

@@ -112,7 +112,7 @@
         </div>
         <div role="tabpanel" id="flow-p4" aria-labelledby="flow-t4">
           <h3>The host opens the pull request</h3>
-          <p>The host pushes the branch and opens the PR: ready for review when every gate passed, a draft when one did not. The run records its tokens and its cost.</p>
+          <p>The host pushes the branch and opens the PR: ready for review when every gate passed, a draft when one did not. The PR body carries a guided review: the change in chapters, most important first. The run records its tokens and its cost.</p>
         </div>
         <div role="tabpanel" id="flow-p5" aria-labelledby="flow-t5">
           <h3>A second model reviews it, you merge</h3>
@@ -121,7 +121,7 @@
         </div>
         <button class="pause" id="flow-pause" type="button" hidden>Pause</button>
       </div>
-      <div class="ticket" id="flow-ticket" role="img" aria-label="A sample run: issue 214 with the label ready for agent becomes pull request 215. The gates passed, the run cost 42 cents and the review verdict is no blocking findings.">
+      <div class="ticket" id="flow-ticket" role="img" aria-label="A sample run: issue 214 with the label ready for agent becomes pull request 215. The gates passed, the pull request opens with a guided review in three chapters, the run cost 42 cents and the review verdict is no blocking findings.">
         <div class="ticket-head"><b>taskcell/billing</b><span class="tag">Sample run</span></div>
         <div data-at="1">
           <p><span class="num">#214</span>CSV export skips credit notes</p>
@@ -146,7 +146,7 @@
         </dl>
         <div data-at="4">
           <p><span class="num">#215</span>Pull request: export with credit notes</p>
-          <p class="meta">ready for review · $0.42, 186k tokens</p>
+          <p class="meta">ready for review · guided review in 3 chapters · $0.42, 186k tokens</p>
         </div>
         <dl data-at="5">
           <dt>Review</dt><dd>second model, 0 blocking, 2 non-blocking</dd>

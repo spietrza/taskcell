@@ -429,6 +429,10 @@ taskcell run --linear TES-1 --verify "pnpm typecheck && pnpm test"
 TASKCELL_VERIFY_CMD="pnpm typecheck && pnpm test" taskcell watch --label vanguard
 ```
 
+## Guided review
+
+A factory PR's body ends with a **Guided review**: the final diff in short chapters by importance (the heart of the change, then its effects, then the glue: wiring, tests, docs). Each chapter has a 1–3 sentence overview and its files, linked to their place in the PR's "Files changed" view. It costs one extra model call from the implementer's provider, made after the secret scan, and is added to the body once the PR exists (the links need the PR's URL). The reply is validated against the real diff: every changed file must be in exactly one chapter, and a chapter cannot name a file that is not in the diff. Lockfiles and other generated files the reviewer omits are grouped in one "Generated files" chapter, not summarised. A failed or invalid generation (or a failed body edit) leaves the PR body without the section and never fails the run.
+
 ## Visual proof
 
 After the agent finishes, the host (not the agent) optionally runs a user-supplied visual proof command inside the sandbox — for UI changes that produce screenshots or visual artifacts (e.g. Playwright). It captures stdout and stderr, computes a SHA-256 over the combined output, lists the artifacts the command wrote under `/workspace/.vanguard/visual-proof`, hashes each one (a manifest of path + SHA-256 + byte size — artifacts are not copied out in this version), and stamps a Visual Proof block into the PR body and the run record.
