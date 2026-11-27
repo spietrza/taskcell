@@ -25,6 +25,9 @@ async function writeMetrics(path: string, lines: string[]): Promise<void> {
 
 const line = (taskId: string, ts: string): string => JSON.stringify({ evt: 'run_complete', ts, taskId, stage: 'implementer', costUsd: 0.1 });
 
+// Bounded so a stub that ignores SIGTERM cannot spin forever if cleanup is missed.
+const BOUNDED_SLEEP = 'i=0; while [ $i -lt 30 ]; do sleep 1; i=$((i+1)); done\n';
+
 beforeEach(async () => {
   root = await mkdtemp(join(tmpdir(), 'vg-metrics-'));
   origin = join(root, 'origin.git');
@@ -43,6 +46,17 @@ beforeEach(async () => {
 
 afterEach(async () => {
   vi.unstubAllEnvs();
+  // A fake git stub that ignores SIGTERM must not outlive its test, even when an assertion failed.
+  const stubPid = Number(await readFile(join(root, 'fake-git.pid'), 'utf8').then((t) => t.trim(), () => ''));
+  if (stubPid > 0) {
+    for (const target of [-stubPid, stubPid]) {
+      try {
+        process.kill(target, 'SIGKILL');
+      } catch {
+        // ESRCH: already gone
+      }
+    }
+  }
   await rm(root, { recursive: true, force: true });
 });
 
@@ -273,7 +287,7 @@ describe('aborted tip fetch', () => {
     const bin = join(root, 'bin');
     await mkdir(bin);
     const pidFile = join(root, 'fake-git.pid');
-    await writeFile(join(bin, 'git'), `#!/bin/sh\nif [ "$3" != fetch ] && [ "$1" != fetch ]; then exec ${realGit} "$@"; fi\ntrap '' TERM\necho $$ > ${pidFile}\nwhile :; do sleep 1; done\n`);
+    await writeFile(join(bin, 'git'), `#!/bin/sh\nif [ "$3" != fetch ] && [ "$1" != fetch ]; then exec ${realGit} "$@"; fi\ntrap '' TERM\necho $$ > ${pidFile}\n${BOUNDED_SLEEP}`);
     await chmod(join(bin, 'git'), 0o755);
     vi.stubEnv('PATH', `${bin}:${process.env.PATH ?? ''}`);
     const controller = new AbortController();
@@ -330,7 +344,7 @@ describe('aborted tip fetch', () => {
     const bin = join(root, 'bin');
     await mkdir(bin);
     const pidFile = join(root, 'fake-git.pid');
-    await writeFile(join(bin, 'git'), `#!/bin/sh\nif [ "$3" != fetch ] && [ "$1" != fetch ]; then exec ${realGit} "$@"; fi\ntrap '' TERM\necho $$ > ${pidFile}\nwhile :; do sleep 1; done\n`);
+    await writeFile(join(bin, 'git'), `#!/bin/sh\nif [ "$3" != fetch ] && [ "$1" != fetch ]; then exec ${realGit} "$@"; fi\ntrap '' TERM\necho $$ > ${pidFile}\n${BOUNDED_SLEEP}`);
     await chmod(join(bin, 'git'), 0o755);
     vi.stubEnv('PATH', `${bin}:${process.env.PATH ?? ''}`);
     // A fresh module registers its hooks again (they register once per module); capture them instead of arming them.
