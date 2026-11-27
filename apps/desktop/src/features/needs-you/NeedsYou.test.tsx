@@ -4,7 +4,7 @@ import { render, screen, fireEvent } from '@testing-library/react';
 import { needsYouItems } from '../../dev/fixtures';
 import { listNeedsYouAll } from '../../ipc';
 import type { NeedsYouItem, RepoReadFailure, RepoStamp } from '../../wire';
-import { NeedsYou } from './NeedsYou';
+import { NeedsYou, boardCardId } from './NeedsYou';
 
 /** What the app does: it owns the read and passes the list down; a reply or merge asks it to read again. */
 function Host({ project = '/repo', teamId, onOpenBoard }: { project?: string; teamId?: string; onOpenBoard?: () => void }) {
@@ -195,4 +195,22 @@ test('Review again shows on a PR only, calls the hub and says "Review requested"
   fireEvent.click(await screen.findByRole('button', { name: 'Review again' }));
   expect(await screen.findByText('Review requested')).toBeInTheDocument();
   expect(calls.find((c) => c.cmd === 'rereview_pr')?.body).toEqual({ repoPath: '/repo', id: pr.id });
+});
+
+test('boardCardId: a hub card is its id, a tracker issue its Board id, a PR none', () => {
+  expect(boardCardId({ kind: 'card', id: 'hub-4', number: 4, url: '' })).toBe('hub-4');
+  expect(boardCardId({ kind: 'issue', id: 'o/r#12', number: 12, url: 'https://github.com/o/r/issues/12' })).toBe('gh-12');
+  expect(boardCardId({ kind: 'issue', id: 'g/p#7', number: 7, url: 'https://gitlab.com/g/p/-/issues/7' })).toBe('gl-7');
+  expect(boardCardId({ kind: 'pr', id: 'o/r#5', number: 5, url: 'https://github.com/o/r/pull/5' })).toBeUndefined();
+});
+
+test('a question title opens its card on the Board; a PR title is the link to the PR', () => {
+  const issue: NeedsYouItem = { ...needsYouItems[0], kind: 'issue', number: 12, url: 'https://github.com/o/r/issues/12' };
+  const pr: NeedsYouItem = { ...needsYouItems[1], kind: 'pr', number: 5, url: 'https://github.com/o/r/pull/5' };
+  const onOpenCard = vi.fn();
+  render(<NeedsYou project="/repo" items={[issue, pr]} failures={[]} error={null} repoCount={1} onReload={() => {}} onOpenCard={onOpenCard} />);
+  fireEvent.click(screen.getByText(issue.title));
+  expect(onOpenCard).toHaveBeenCalledWith(expect.objectContaining({ id: 'gh-12' }));
+  expect(screen.getByText(pr.title).closest('a')?.getAttribute('href')).toBe(pr.url);
+  expect(screen.queryByText('Open in GitHub')).toBeNull();
 });

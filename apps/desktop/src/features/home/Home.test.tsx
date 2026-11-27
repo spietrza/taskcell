@@ -221,7 +221,7 @@ test('first paint is one skeleton until the cards and runs arrive: no half headl
   expect(screen.queryByRole('status', { name: 'Loading Home' })).toBeNull();
 });
 
-test('a card question links to its card and to the run that asked, without opening it', async () => {
+test('a card question\'s title opens its card; the run that asked is linked, without opening it', async () => {
   const asked = { kind: 'card' as const, id: 'hub-4', number: 4, repoSlug: '', title: 'Validate the config', url: '', repoPath: alpha.path, repoName: 'alpha', lastComment: { author: 'agent', body: 'Which file?' } };
   const old = { taskId: 'hub-4', timestamp: new Date(NOW - 9000).toISOString(), stages: [], totalCostUsd: 0.1, anyFailed: false, repoPath: alpha.path, repoName: 'alpha' };
   const newest = { ...old, timestamp: new Date(NOW - 1000).toISOString(), asked: 'Which file?' };
@@ -230,7 +230,7 @@ test('a card question links to its card and to the run that asked, without openi
   const onOpenRun = vi.fn();
   mount({ needs: { items: [asked as never], failures: [] }, onOpenCard, onOpenRun });
   // On the row itself, before Answer opens it.
-  fireEvent.click(await screen.findByRole('button', { name: 'Open the card' }));
+  fireEvent.click(await screen.findByText('Validate the config'));
   expect(onOpenCard).toHaveBeenCalledWith({ id: 'hub-4', title: 'Validate the config', repoPath: alpha.path });
   fireEvent.click(await screen.findByRole('button', { name: /Open the run/ }));
   expect(onOpenRun.mock.calls[0]![0].timestamp).toBe(newest.timestamp);

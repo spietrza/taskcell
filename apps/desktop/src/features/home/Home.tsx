@@ -186,17 +186,13 @@ export function Home({
           repoCount={repoPaths.length}
           onReload={onReloadNeeds}
           onOpenBoard={onOpenBoard}
+          onOpenCard={onOpenCard}
           context={(item) => {
             if (item.kind !== 'card') return null;
             // The card's newest run is the one that asked (homeModel reads asks the same way).
             const run = (runs ?? []).filter((r) => r.taskId === item.id && r.repoPath === item.repoPath).sort((a, b) => b.timestamp.localeCompare(a.timestamp))[0];
             return (
               <div className="flex flex-wrap gap-x-4 gap-y-1 text-sm">
-                {onOpenCard && (
-                  <button type="button" className={LINK_CLASS} onClick={() => onOpenCard({ id: item.id, title: item.title, ...(item.repoPath !== undefined ? { repoPath: item.repoPath } : {}) })}>
-                    Open the card
-                  </button>
-                )}
                 {onOpenRun && run !== undefined && (
                   <button type="button" className={LINK_CLASS} onClick={() => onOpenRun(run)}>
                     Open the run: what it changed and why it stopped
