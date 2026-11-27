@@ -618,9 +618,14 @@ export async function runRevisePullRequest(prRef: string, deps: ReviseGithubPrDe
         stage.name === STAGE.IMPLEMENTER ? { ...stage, promptTemplate } : stage,
       );
 
-      log(`revise-pr ${target.repoSlug}#${target.number}: agent -> implementing`);
-      if (lessons.ids.length > 0) revisionStageMeta.lessonIds = lessons.ids;
-      outcomes = await runStages(ctx, pipeline, { agent: agents.agent, variables });
+      // Merge-only ask that git merged cleanly: nothing for the agent to do, so no model call (verify and push still run).
+      if (mergeOnlyAsk && cleanMerged) {
+        log(`revise-pr ${target.repoSlug}#${target.number}: merge-only round merged cleanly -> agent skipped`);
+      } else {
+        log(`revise-pr ${target.repoSlug}#${target.number}: agent -> implementing`);
+        if (lessons.ids.length > 0) revisionStageMeta.lessonIds = lessons.ids;
+        outcomes = await runStages(ctx, pipeline, { agent: agents.agent, variables });
+      }
       const stillConflicted = await filesWithConflictMarkers(ctx.worktreePath, conflicted);
       if (baseMerge.status === 'conflicted') await recordBaseMerge(conflicted, stillConflicted.length > 0 ? 'human' : 'agent');
       if (stillConflicted.length > 0) {

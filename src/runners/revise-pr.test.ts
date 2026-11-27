@@ -2452,6 +2452,7 @@ describe('runRevisePullRequest base conflicts', () => {
     parents: string[];
     prompt: string;
     sandboxCalls: string[];
+    agentCalls: number;
     tree: string;
   }> {
     const ghCalls: string[][] = [];
@@ -2495,7 +2496,7 @@ describe('runRevisePullRequest base conflicts', () => {
         return '';
       },
     });
-    return { result, ghCalls, pushed, parents, prompt: inputs[0]?.prompt ?? '', sandboxCalls, tree };
+    return { result, ghCalls, pushed, parents, prompt: inputs[0]?.prompt ?? '', agentCalls: inputs.length, sandboxCalls, tree };
   }
 
   const comments = (calls: string[][]): string => calls.filter((a) => a[1] === 'comment' || a[1] === 'review').map((a) => a.join(' ')).join('\n');
@@ -2514,8 +2515,9 @@ describe('runRevisePullRequest base conflicts', () => {
 
   it('merge-only round past the cap still runs, says so, is not counted, and re-reviews incrementally after a resolved conflict', async () => {
     await diverge('shared.txt');
-    const { result, ghCalls, prompt } = await run({ 'shared.txt': 'both lines\n' }, { body: CONFLICT_ITEM, capped: true, only: true });
-    expect(prompt).toContain('mid-merge');
+    const { result, ghCalls, prompt, agentCalls } = await run({ 'shared.txt': 'both lines\n' }, { body: CONFLICT_ITEM, capped: true, only: true });
+    expect(prompt).toContain('mid-merge'); // conflicts: the agent still runs
+    expect(agentCalls).toBeGreaterThan(0);
     expect(result.pushed).toBe(true);
     expect(comments(ghCalls)).not.toContain('Revision cap reached');
     const text = comments(ghCalls);
@@ -2534,10 +2536,10 @@ describe('runRevisePullRequest base conflicts', () => {
     expect(comments(ghCalls)).toContain('Revision cap reached');
   });
 
-  it('merge-only round on a cleanly merging branch: the agent changes nothing, keeps the verdict (no re-review), records a clean merge', async () => {
+  it('merge-only round on a cleanly merging branch: no agent call, keeps the verdict (no re-review), records a clean merge', async () => {
     await cleanFeature();
-    const { result, ghCalls, parents, prompt } = await run({}, { body: CONFLICT_ITEM, capped: true, noop: true });
-    expect(prompt).toContain(CONFLICT_ITEM); // the agent still gets the feedback
+    const { result, ghCalls, parents, agentCalls } = await run({}, { body: CONFLICT_ITEM, capped: true, noop: true });
+    expect(agentCalls).toBe(0); // a clean merge-only round makes no model call
     expect(result.pushed).toBe(true);
     expect(comments(ghCalls)).toMatch(/<!-- merge-only: \{"from":"deadbeef","to":"[0-9a-f]{40}","files":\[\]\} -->/);
     expect(parents[0]).toBe('1'); // the base was merged
@@ -2548,10 +2550,10 @@ describe('runRevisePullRequest base conflicts', () => {
     expect(await baseMerges()).toEqual([expect.objectContaining({ outcome: 'clean', conflictedFiles: [], round: 'merge-only' })]);
   });
 
-  // Feedback that merely mentions a conflict and asks for a code change is an ordinary round.
-  const REAL_ASK = 'This flag conflicts with `--verbose`, rename it.';
+  // A code-change ask (no conflict wording) is an ordinary round: the agent works on it. A conflict-worded ask on a clean merge is merge-only and skips the agent.
+  const REAL_ASK = 'This flag is confusing next to `--verbose`, rename it.';
 
-  it('feedback that mentions a conflict but asks for a change is worked on, counted and re-reviewed', async () => {
+  it('feedback that asks for a code change is worked on, counted and re-reviewed', async () => {
     await cleanFeature();
     const { result, ghCalls, prompt, tree } = await run({}, { body: REAL_ASK });
     expect(prompt).toContain(REAL_ASK);
