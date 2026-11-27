@@ -491,6 +491,7 @@ export async function executeIssueRun(run: IssueRunExecution): Promise<RunIssueR
       outcomes = await runStages(ctx, pipeline, {
         agent: agents.agent,
         variables,
+        ...(deps.maxCostUsd !== undefined ? { maxCostUsd: deps.maxCostUsd } : {}),
         ...(deps.forkN !== undefined
           ? { fork: { n: deps.forkN, complete: sandboxComplete(ctx, agents.agent), ...(forkScore !== undefined ? { score: forkScore } : {}) } }
           : {}),

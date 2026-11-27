@@ -27,6 +27,7 @@ import { runHubTask } from '../runners/hub.js';
 import { agentAuthFromEnv } from '../agents/auth.js';
 import { assertSkillsInstalled } from '../context/named-skills.js';
 import { hubSkillsDir, skillRegistryForRun } from '../context/skill-registry.js';
+import { readAppConfig } from '../hub/app-config.js';
 import { BadRequestError } from './sidecar.js';
 import { ACCOUNT_ENV, CREDENTIAL_NAMES, PROVIDER_NAMES } from '../hub/credentials.js';
 import { fallbackFlags, fundableChain, keyEnvOf, loneEntryRefused, type FallbackEntry } from '../hub/fallback-chain.js';
@@ -85,8 +86,10 @@ export function credentialSecretValues(credential: RunCredential | undefined): s
  */
 async function resolveRunChoice(params: CreateRunParams): Promise<ProviderChoice> {
   const customProviders = await loadCustomProviders(params.repoPath);
+  const { reviewProvider } = await readAppConfig(params.repoPath);
   const choice: ProviderChoice = {
     ...(params.provider !== undefined ? { provider: params.provider } : {}),
+    ...(typeof reviewProvider === 'string' && reviewProvider !== '' ? { reviewProvider } : {}),
     ...(params.fallbackProvider !== undefined ? { fallbackProvider: params.fallbackProvider } : {}),
     ...(customProviders.length > 0 ? { customProviders } : {}),
   };
@@ -409,6 +412,8 @@ async function createRunAttempt(rawParams: CreateRunParams, onEvent: (e: RunEven
       // outgoing-diff gate and every redaction pass treat them like any injected secret.
       try {
         // The RunOptions the sidecar exposes + the sandbox wiring + the event seam, shared across transports.
+        // verifyCmd / budgetUsd come from the repo's app.json (.taskcell/ or legacy .vanguard/), never the client.
+        const { verifyCmd, budgetUsd } = await readAppConfig(repoPath);
         const common = {
           onEvent: withSandboxStage(onEvent),
           signal,
@@ -417,6 +422,9 @@ async function createRunAttempt(rawParams: CreateRunParams, onEvent: (e: RunEven
           ...(params.fallbackModel !== undefined ? { fallbackModel: params.fallbackModel } : {}),
           ...(customProviders !== undefined ? { customProviders } : {}),
           ...(params.maxTurns !== undefined ? { maxTurns: params.maxTurns } : {}),
+          ...(typeof verifyCmd === 'string' && verifyCmd.trim() !== '' ? { verifyCmd } : {}),
+          ...(choice.reviewProvider !== undefined ? { reviewProvider: choice.reviewProvider } : {}),
+          ...(typeof budgetUsd === 'number' && Number.isFinite(budgetUsd) && budgetUsd > 0 ? { maxCostUsd: budgetUsd } : {}),
           ...(params.baseBranch !== undefined ? { baseBranch: params.baseBranch } : {}),
           // The hub's list is the run's whole hand-picked list; the same skills dir list_skills offered it from.
           ...(params.skills !== undefined ? { namedSkills: params.skills, namedSkillsOnly: true } : {}),
@@ -439,6 +447,7 @@ async function createRunAttempt(rawParams: CreateRunParams, onEvent: (e: RunEven
         const authChoice = {
           ...(provider !== undefined ? { provider } : {}),
           ...(params.fallbackProvider !== undefined ? { fallbackProvider: params.fallbackProvider } : {}),
+          ...(choice.reviewProvider !== undefined ? { reviewProvider: choice.reviewProvider } : {}),
           ...(customProviders !== undefined ? { customProviders } : {}),
         };
         if (transport === 'gitlab') {

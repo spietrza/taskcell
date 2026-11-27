@@ -5,8 +5,8 @@ import type { FallbackEntry } from '../wire.js';
 import { assertStatePath, readStateFileNoSymlink, ensureStateDir, stateDir } from '../core/state-path.js';
 
 /** The app's per-project config (`.taskcell/app.json`, spec §6). All optional; the CLI reads only `baseBranch`/`baseBranches`
- * (core/base-branch.ts) — the app translates the rest into flags / a launch command. `.taskcell/*` is
- * git-ignored by default, so a run in CI sees `baseBranch` only if the repo commits `.taskcell/app.json`. */
+ * (core/base-branch.ts); a hub-launched run also reads `verifyCmd`, `reviewProvider` and `budgetUsd` (sidecar/deps.ts) — the app
+ * translates the rest into flags / a launch command. `.taskcell/*` is git-ignored by default, so a run in CI sees `baseBranch` only if the repo commits `.taskcell/app.json`. */
 export interface AppConfig {
   source?: string;
   /** Per-project task source: github | github-project | gitlab | linear | hub. Unset = github. */

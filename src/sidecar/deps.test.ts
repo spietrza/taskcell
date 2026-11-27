@@ -748,3 +748,45 @@ describe('createRun with a hub fallback chain', () => {
     expect(startSandboxContext).toHaveBeenCalledWith(expect.objectContaining({ egress: true }));
   });
 });
+
+describe('createRun reads verifyCmd / reviewProvider / budgetUsd from app.json', () => {
+  async function repoCfg(dir: '.taskcell' | '.vanguard', cfg: unknown): Promise<string> {
+    const repo = await mkdtemp(join(tmpdir(), 'vg-deps-'));
+    await mkdir(join(repo, dir), { recursive: true });
+    await writeFile(join(repo, dir, 'app.json'), JSON.stringify(cfg));
+    return repo;
+  }
+  const runOpts = async (repoPath: string): Promise<Record<string, unknown>> => {
+    setEnv({ CLAUDE_CODE_OAUTH_TOKEN: 'sk-ant-oat01-x', ANTHROPIC_API_KEY: undefined, OPENAI_API_KEY: 'sk-x', CODEX_AUTH_JSON: undefined });
+    await productionDeps().createRun({ issueRef: 'o/r#1', repoPath }, () => {});
+    return runGithubIssue.mock.calls[0]?.[1] ?? {};
+  };
+
+  for (const dir of ['.taskcell', '.vanguard'] as const) {
+    it(`${dir}: set values reach the run`, async () => {
+      const opts = await runOpts(await repoCfg(dir, { verifyCmd: 'make check', reviewProvider: 'codex', budgetUsd: 2.5 }));
+      expect(opts).toMatchObject({ verifyCmd: 'make check', reviewProvider: 'codex', maxCostUsd: 2.5 });
+    });
+  }
+
+  it('null or missing keeps the defaults', async () => {
+    for (const repo of [await repoCfg('.taskcell', { verifyCmd: null, reviewProvider: null, budgetUsd: null }), await plainRepo()]) {
+      runGithubIssue.mockClear();
+      const opts = await runOpts(repo);
+      expect(opts).not.toHaveProperty('verifyCmd');
+      expect(opts).not.toHaveProperty('reviewProvider');
+      expect(opts).not.toHaveProperty('maxCostUsd');
+    }
+  });
+});
+
+describe('createRun budgetUsd 0', () => {
+  it('means no cap (the editor placeholder), not a zero budget', async () => {
+    const repo = await mkdtemp(join(tmpdir(), 'vg-deps-'));
+    await mkdir(join(repo, '.taskcell'), { recursive: true });
+    await writeFile(join(repo, '.taskcell', 'app.json'), JSON.stringify({ budgetUsd: 0 }));
+    setEnv({ CLAUDE_CODE_OAUTH_TOKEN: 'sk-ant-oat01-x', ANTHROPIC_API_KEY: undefined });
+    await productionDeps().createRun({ issueRef: 'o/r#1', repoPath: repo }, () => {});
+    expect(runGithubIssue.mock.calls[0]?.[1] ?? {}).not.toHaveProperty('maxCostUsd');
+  });
+});

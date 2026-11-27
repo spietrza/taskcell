@@ -274,6 +274,13 @@ const STAGES: PipelineStage[] = [
 ];
 
 describe('runSourcedIssue', () => {
+  it.each([[5, true], [undefined, false]])('maxCostUsd %s reaches runStages as the run budget (%s)', async (maxCostUsd, passed) => {
+    await runSourcedIssue('group/project#1', { repoPath: '/repo', ...(maxCostUsd !== undefined ? { maxCostUsd } : {}) }, fakeAdapter([], STAGES));
+    const opts = runStages.mock.calls[0]?.[2] as Record<string, unknown>;
+    if (passed) expect(opts).toMatchObject({ maxCostUsd });
+    else expect(opts).not.toHaveProperty('maxCostUsd');
+  });
+
   it.each([false, true])('writes stage markers without an event subscriber and clears on exit (error=%s)', async (fail) => {
     runStages.mockImplementationOnce(async (_ctx: unknown, _stages: unknown, opts: { onEvent: (event: RunEvent) => void }) => {
       opts.onEvent({ type: 'stage-start', name: 'implementer', index: 0, of: 2 });
