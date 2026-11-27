@@ -15,6 +15,7 @@
     "build": "tsc && cp src/mcp/typecheck-server.mjs dist/mcp/typecheck-server.mjs && cp src/sandbox/egress-proxy-server.mjs dist/sandbox/egress-proxy-server.mjs && cp src/sandbox/egress-allow.mjs dist/sandbox/egress-allow.mjs && cp src/sandbox/llm-proxy-server.mjs dist/sandbox/llm-proxy-server.mjs && cp src/sandbox/llm-proxy-rewrite.mjs dist/sandbox/llm-proxy-rewrite.mjs",
     "typecheck": "tsc --noEmit && tsc --noEmit -p packages/hub-client/tsconfig.json",
     "verify": "pnpm typecheck && pnpm lint && pnpm test:coverage && pnpm verify:desktop && pnpm verify:mobile",
+    "verify:gate": "pnpm install --frozen-lockfile && pnpm typecheck && pnpm lint && pnpm test && tsx scripts/verify-gate.ts",
     "verify:desktop": "pnpm build:ui && pnpm test:desktop",
     "verify:mobile": "pnpm --dir apps/mobile install --frozen-lockfile && pnpm --dir apps/mobile typecheck && pnpm --dir apps/mobile test",
     "eval": "tsx src/cli/index.ts eval",
