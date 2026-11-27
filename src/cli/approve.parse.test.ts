@@ -31,4 +31,12 @@ describe('parseCli approve', () => {
     const unknownMode = parseCli(['approve', '--pr', '7', '--github-repo', 'o/r', '--mode', 'loud'], '/work');
     expect(unknownMode.kind === 'error' && unknownMode.message).toMatch(/unknown --mode "loud"/);
   });
+
+  it('accepts enforce, and --rerun-open without a PR (never with act or --pr)', () => {
+    expect(parseCli(['approve', '--pr', '7', '--github-repo', 'o/r', '--mode', 'enforce'], '/work')).toMatchObject({ mode: 'enforce' });
+    expect(parseCli(['approve', '--github-repo', 'o/r', '--rerun-open', '--mode', 'enforce'], '/work')).toMatchObject({ kind: 'approve', mode: 'enforce', rerunOpen: true });
+    expect(parseCli(['approve', '--github-repo', 'o/r', '--rerun-open'], '/work')).toMatchObject({ mode: 'shadow', rerunOpen: true });
+    expect(parseCli(['approve', '--github-repo', 'o/r', '--rerun-open', '--mode', 'act'], '/work').kind).toBe('error');
+    expect(parseCli(['approve', '--pr', '7', '--github-repo', 'o/r', '--rerun-open'], '/work').kind).toBe('error');
+  });
 });

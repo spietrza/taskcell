@@ -89,3 +89,14 @@ rule firing makes the verdict `ESCALATE`; `APPROVE` means the rule list came bac
 Edit `.taskcell/approver.json` and open a PR. That PR escalates by construction (`path:review-pipeline`),
 and the new values only take effect once it is merged into the base branch — the run deciding a PR
 reads the policy from `origin/<base>`, so nothing takes effect mid-flight.
+
+## Rolling out: observe, enforce, require
+
+The policy schema is unchanged (no new fields); the rollout is controlled by the caller's `mode` and by branch protection.
+
+1. **Observe (shadow, the default).** The `vanguard/approver` check is always `neutral` and the decision is appended to `decisions.jsonl`. Run this for 1–2 weeks and compare the verdicts with what humans did: `taskcell stats --approver`.
+2. **Enforce.** Set the caller's `mode: enforce` (CLI: `taskcell approve --mode enforce`). The check becomes `success` on APPROVE and `failure` on ESCALATE; it never merges (`act` stays a separate, later step). Fail-closed: an unreadable policy fails the check. The emergency stop (`enabled: false` or `TASKCELL_APPROVER_STOP`) leaves it `neutral`, so it cannot block merges.
+3. **Re-judge open PRs.** `taskcell approve --github-repo o/r --rerun-open [--mode enforce]` re-judges every open factory PR into the default branch and updates each check in place. A decision is appended only when (PR, head, policy hash) is new, so rerun after a policy change adds records and otherwise adds none.
+4. **Require the check.** Add `vanguard/approver` as a required status check in branch protection. **Before requiring it:** a required status check applies to every PR into the branch, but the approver only runs for factory PRs (`chore/taskcell-*` / `chore/vanguard-*` heads), so a human's PR never gets the check and cannot merge. Require it only where every PR is a factory PR, or use a repository ruleset that lets maintainers bypass the check (or applies it to the factory branch patterns only).
+
+`taskcell doctor` (GitHub source) checks, for a repo that uses the approver: the policy is readable on the base branch and valid, and every `requiredChecks` entry is also a required check in branch protection under the same `appId` (skipped when the token cannot read protection).

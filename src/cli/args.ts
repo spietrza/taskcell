@@ -324,7 +324,7 @@ type CommandKind =
       feedbackAuthors?: string[];
     }
   | { kind: 'metrics'; action: 'push'; repoPath: string; branch?: string }
-  | { kind: 'approve'; prNumber: number; repoSlug: string; repoPath: string; mode: 'shadow' | 'act'; json: boolean; dryRun: boolean; branch?: string }
+  | { kind: 'approve'; prNumber: number; repoSlug: string; repoPath: string; mode: 'shadow' | 'enforce' | 'act'; json: boolean; dryRun: boolean; branch?: string; rerunOpen?: boolean }
   | { kind: 'memory'; repoPath: string; limit?: number; json: boolean }
   | { kind: 'history'; repoPath: string; repoSlug: string; issue: number; json: boolean; configDir?: string; branch?: string; offline: boolean }
   | {

@@ -5,7 +5,7 @@ import type { GhRunner } from '../tasks/github.js';
 import { TaskcellError } from '../core/errors.js';
 import { classifyAuthor } from '../tasks/comment-trust.js';
 import { reasonKey } from './record.js';
-import type { Decision, DecisionRecord } from './types.js';
+import type { Decision, DecisionRecord, Mode } from './types.js';
 
 // gh api flags that take a value; the endpoint is the one positional argument left after them.
 const API_VALUE_FLAGS = new Set(['-X', '--method', '-f', '--raw-field', '-F', '--field', '-H', '--header', '--input', '-q', '--jq', '-t', '--template', '--cache', '--hostname', '-p', '--preview']);
@@ -85,8 +85,8 @@ interface GhCheckRunsLookup {
 }
 
 /**
- * `vanguard/approver` check run on the head SHA, conclusion `neutral` in both modes regardless of
- * verdict (the title says which mode). Idempotent per (PR, head SHA) via `external_id`: PATCHes an existing run, else POSTs.
+ * `vanguard/approver` check run on the head SHA. Conclusion `neutral` regardless of verdict in shadow and act mode (the title
+ * says which mode); in enforce mode `success` on APPROVE and `failure` on ESCALATE, so the check can be a required status. Idempotent per (PR, head SHA) via `external_id`: PATCHes an existing run, else POSTs.
  * A failure throws; runApprover still records the decision and then reports it.
  */
 export async function publishCheckRun(
@@ -96,11 +96,12 @@ export async function publishCheckRun(
   prNumber: number,
   decision: Decision,
   record: DecisionRecord,
-  acting = false,
+  mode: Mode = 'shadow',
 ): Promise<void> {
   const safeGh = shadowSafeGhRunner(gh);
   const externalId = `${prNumber}:${headSha}`;
-  const title = `${decision.verdict} (${acting ? 'act' : 'shadow'})`;
+  const title = `${decision.verdict} (${mode})`;
+  const conclusion = mode === 'enforce' ? (decision.verdict === 'APPROVE' ? 'success' : 'failure') : 'neutral';
   const summary = summaryBody(decision, record);
   const existing = await safeGh(['api', `repos/${repoSlug}/commits/${headSha}/check-runs?check_name=vanguard%2Fapprover`]);
   const parsed = JSON.parse(existing) as GhCheckRunsLookup;
@@ -109,7 +110,7 @@ export async function publishCheckRun(
     '-f', 'name=vanguard/approver',
     '-f', `head_sha=${headSha}`,
     '-f', 'status=completed',
-    '-f', 'conclusion=neutral',
+    '-f', `conclusion=${conclusion}`,
     '-f', `external_id=${externalId}`,
     '-f', `output[title]=${title}`,
     '-f', `output[summary]=${summary}`,
@@ -122,15 +123,14 @@ export async function publishCheckRun(
   }
 }
 
-const COMMENT_HEADING = '## Taskcell Approver (shadow mode)';
-
 function approverMarker(record: DecisionRecord): string {
   return writeMarker('approver', `${record.headSha ?? 'none'}:${reasonKey(record.policyHash)}`);
 }
 
 function commentBody(decision: Decision, record: DecisionRecord): string {
+  const enforcing = record.mode === 'enforce';
   return [
-    COMMENT_HEADING,
+    `## Taskcell Approver (${enforcing ? 'enforce' : 'shadow'} mode)`,
     '',
     `Verdict: **${decision.verdict}**`,
     '',
@@ -138,7 +138,7 @@ function commentBody(decision: Decision, record: DecisionRecord): string {
     '',
     `Signals: files=${record.signals.files}, lines=${record.signals.lines}, testFilesDeleted=${record.signals.testFilesDeleted}, testCasesDelta=${record.signals.testCasesDelta}, exportsRemoved=${record.signals.exportsRemoved}, newDependency=${record.signals.newDependency}`,
     '',
-    '_Shadow mode — nothing was merged, approved or labelled._',
+    enforcing ? '_Enforce mode — the `vanguard/approver` check carries this verdict; nothing was merged, approved or labelled._' : '_Shadow mode — nothing was merged, approved or labelled._',
     '',
     approverMarker(record),
   ].join('\n');

@@ -7,6 +7,7 @@ import { isKnownGitlabRemote, parseGitlabProjectFromRemote, redactRemote, remote
 import { GITHUB_CLAIMED_LABEL, GITHUB_REVIEW_LABEL, GITHUB_SPEC_CLAIMED_LABEL } from '../github-labels.js';
 import { labelForms } from '../core/labels.js';
 import type { CustomProviderEntry } from '../agents/registry.js';
+import { approverDoctorChecks } from '../approver/doctor.js';
 import { CliUsageError } from '../core/errors.js';
 import type { Command } from './args.js';
 
@@ -427,6 +428,8 @@ export async function runPreflight(cmd: PreflightCommand, opts: PreflightOptions
         const specOnly = cmd.kind !== 'doctor-prs' && cmd.specOnly === true;
         const prCreate = specOnly ? undefined : await prCreateSettingOk(run, cmd.repoPath, repoSlug);
         if (prCreate !== undefined) checks.push(prCreate);
+        // Approver readiness is advisory for the loop: only `doctor` runs it, so a policy problem never stops `watch`.
+        if (cmd.kind === 'doctor') checks.push(...(await approverDoctorChecks(run, cmd.repoPath, repoSlug)));
       }
     }
 

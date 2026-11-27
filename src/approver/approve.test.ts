@@ -111,6 +111,40 @@ describe('runApprover — end to end', () => {
     }
   });
 
+  it('enforce mode publishes success on APPROVE, fails closed on an unreadable policy, and the kill switch lifts it', async () => {
+    const conclusionOf = (calls: string[][]): string | undefined => calls.find((a) => a.includes('POST') && a[3] === 'repos/o/r/check-runs')?.find((a) => a.startsWith('conclusion='));
+    const calls: string[][] = [];
+    const { record } = await runApprover({ repoPath: repo, repoSlug: 'o/r', prNumber: 1, mode: 'enforce', gh: fakeGh(calls) });
+    expect(record.mode).toBe('enforce');
+    expect(conclusionOf(calls)).toBe('conclusion=success');
+
+    // An unreadable policy (the PR's base has no policy) fails the enforced check, but not a shadow one.
+    const noPolicyGh = (c: string[][]): GhRunner => async (args) => {
+      const out = await fakeGh(c)(args);
+      return args[0] === 'pr' && args[1] === 'view' && !args.includes('comments') ? out.replace('"baseRefName":"main"', '"baseRefName":"gone"') : out;
+    };
+    const unreadable: string[][] = [];
+    const failed = await runApprover({ repoPath: repo, repoSlug: 'o/r', prNumber: 1, mode: 'enforce', gh: noPolicyGh(unreadable) });
+    expect(failed.record.rulesFired).toEqual(['policy-unreadable']);
+    expect(conclusionOf(unreadable)).toBe('conclusion=failure');
+    const unreadableShadow: string[][] = [];
+    await runApprover({ repoPath: repo, repoSlug: 'o/r', prNumber: 1, mode: 'shadow', gh: noPolicyGh(unreadableShadow) });
+    expect(conclusionOf(unreadableShadow)).toBe('conclusion=neutral');
+
+    const shadowCalls: string[][] = [];
+    await runApprover({ repoPath: repo, repoSlug: 'o/r', prNumber: 1, mode: 'shadow', gh: fakeGh(shadowCalls) });
+    expect(conclusionOf(shadowCalls)).toBe('conclusion=neutral');
+
+    process.env.TASKCELL_APPROVER_STOP = '1';
+    try {
+      const stopCalls: string[][] = [];
+      await runApprover({ repoPath: repo, repoSlug: 'o/r', prNumber: 1, mode: 'enforce', gh: fakeGh(stopCalls) });
+      expect(conclusionOf(stopCalls)).toBe('conclusion=neutral');
+    } finally {
+      delete process.env.TASKCELL_APPROVER_STOP;
+    }
+  });
+
   it('idempotence: running twice at the same head leaves one record line', async () => {
     await runApprover({ repoPath: repo, repoSlug: 'o/r', prNumber: 1, mode: 'shadow', gh: fakeGh([]) });
     const repo2 = join(root, 'repo2');

@@ -62,6 +62,24 @@ describe('publishCheckRun', () => {
     expect(create).toContain(`external_id=7:${SHA}`);
   });
 
+  it('enforce mode: success on APPROVE, failure on ESCALATE; shadow and act stay neutral for both', async () => {
+    const approve: Decision = { ...decision, verdict: 'APPROVE', rulesFired: [] };
+    const conclusion = async (d: Decision, mode?: 'shadow' | 'enforce' | 'act'): Promise<string | undefined> => {
+      const calls: string[][] = [];
+      await publishCheckRun(async (args) => {
+        calls.push(args);
+        return args.includes('--method') ? '{}' : JSON.stringify({ check_runs: [] });
+      }, 'o/r', SHA, 7, d, record, mode);
+      return calls.find((a) => a.includes('POST'))?.find((a) => a.startsWith('conclusion='));
+    };
+    expect(await conclusion(approve, 'enforce')).toBe('conclusion=success');
+    expect(await conclusion(decision, 'enforce')).toBe('conclusion=failure');
+    for (const mode of [undefined, 'shadow', 'act'] as const) {
+      expect(await conclusion(approve, mode)).toBe('conclusion=neutral');
+      expect(await conclusion(decision, mode)).toBe('conclusion=neutral');
+    }
+  });
+
   it('PATCHes the existing run for the same (PR, head SHA)', async () => {
     const calls: string[][] = [];
     await publishCheckRun(async (args) => {

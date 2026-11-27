@@ -845,3 +845,16 @@ describe('runPreflight with S6 custom providers', () => {
     expect(report.checks.find((c) => c.name === 'provider combo')).toMatchObject({ ok: false });
   });
 });
+
+describe('runPreflight approver checks', () => {
+  it('only doctor runs them, so an unreadable approver policy never stops watch', async () => {
+    const repoPath = await mkdtemp(join(tmpdir(), 'vg-pf-approver-'));
+    await mkdir(join(repoPath, '.github', 'workflows'), { recursive: true });
+    await writeFile(join(repoPath, '.github', 'workflows', 'taskcell-approver.yml'), 'name: x\n');
+    const opts = { env: { GH_TOKEN: 'gh', CLAUDE_CODE_OAUTH_TOKEN: 'token' }, nodeVersion: '24.11.1', run: makeRunner() };
+    const doctor = await runPreflight(githubDoctor({ repoPath }), opts);
+    expect(doctor.checks.find((c) => c.name === 'approver policy')).toMatchObject({ ok: false });
+    const watch = await runPreflight(githubWatch({ repoPath }), opts);
+    expect(watch.checks.some((c) => c.name.startsWith('approver'))).toBe(false);
+  });
+});

@@ -1,0 +1,41 @@
+name: Taskcell Approver
+
+# Thin caller of the reusable workflow (approver.yml), which holds the steps: a deterministic APPROVE / ESCALATE for a
+# factory PR from typed facts, recorded on the taskcell-metrics branch and published as the `vanguard/approver` check.
+# Roll out in order (docs/onboarding-another-repo.md): `mode: shadow` (neutral check, the default) for 1-2 weeks, compare
+# with `taskcell stats --approver`, then `mode: enforce` (check success / failure), then make the check required.
+#
+# Trigger: the external review finishing (the reusable workflow waits for the required CI checks itself). It reads its
+# policy from the base branch and never checks out or runs PR code.
+#
+# Needs `.taskcell/approver.json` on the default branch (docs/approver-policy.md).
+
+on:
+  workflow_run:
+    workflows: ["Taskcell PR Review"]
+    types: [completed]
+  workflow_dispatch:
+    inputs:
+      pr: { description: "PR number", required: true }
+
+permissions: {} # each job declares what it needs (OpenSSF Scorecard Token-Permissions)
+
+jobs:
+  approve:
+    permissions:
+      contents: write        # append decisions.jsonl to the taskcell-metrics branch
+      checks: write          # the vanguard/approver check run
+      pull-requests: write   # the decision comment
+      issues: write
+    if: >-
+      (github.event_name == 'workflow_dispatch' && github.actor == 'YOUR_LOGIN') ||
+      (github.event_name == 'workflow_run' &&
+      github.event.workflow_run.conclusion == 'success' &&
+      github.event.workflow_run.head_repository.full_name == github.repository &&
+      (startsWith(github.event.workflow_run.head_branch, 'chore/vanguard-') || startsWith(github.event.workflow_run.head_branch, 'chore/taskcell-')))
+    uses: spietrza/taskcell/.github/workflows/approver.yml@v1
+    with:
+      mode: shadow # shadow (neutral check) -> enforce (success / failure); act (merge) is a separate, later step
+      pr: ${{ inputs.pr }}
+      run-pr: ${{ github.event.workflow_run.pull_requests[0].number }}
+      head-branch: ${{ github.event.workflow_run.head_branch }}

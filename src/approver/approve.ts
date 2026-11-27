@@ -14,7 +14,7 @@ import { dependencyHolds, rebaseDependents } from './dependency-order.js';
 import { actSafeGhRunner, actExclusions, reviewExact, escapeForComment, NO_DEDICATED_REVIEWER } from './act.js';
 import { redactForPublish } from '../core/secret-scan.js';
 import { TaskcellError } from '../core/errors.js';
-import type { ApproverFacts, Decision, DecisionRecord, PrFacts } from './types.js';
+import type { ApproverFacts, Decision, DecisionRecord, Mode, PrFacts } from './types.js';
 import { readEnv } from '../core/env.js';
 
 export interface RunApproverInput {
@@ -23,8 +23,8 @@ export interface RunApproverInput {
   /** The repository's node id, recorded with every decision so a rename does not orphan its history. */
   repoId?: string;
   prNumber: number;
-  /** `act` only takes effect when `.taskcell/approver.json` on the base branch also sets `act: true`; otherwise shadow. */
-  mode: 'shadow' | 'act';
+  /** `enforce` publishes the check run as success (APPROVE) / failure (ESCALATE) and never merges. `act` only takes effect when `.taskcell/approver.json` on the base branch also sets `act: true`; otherwise shadow. */
+  mode: 'shadow' | 'enforce' | 'act';
   gh?: GhRunner;
   branch?: string;
   now?: Date;
@@ -78,8 +78,11 @@ export async function runApprover(input: RunApproverInput, state: { updated: boo
   const branchOpts = input.branch !== undefined ? { branch: input.branch } : {};
 
   let acting = false;
+  // An enforced check fails closed from the start (an unreadable policy fails it); the kill switch lifts it.
+  let enforcing = input.mode === 'enforce';
+  const recordMode = (): Mode => (acting ? 'act' : enforcing ? 'enforce' : 'shadow');
   const finish = async (facts: ApproverFacts | undefined, decision: Decision, policyHash: string, publishHeadSha: string): Promise<RunApproverResult> => {
-    const record = buildDecisionRecord({ mode: acting ? 'act' : 'shadow', repo: input.repoSlug, ...(input.repoId !== undefined ? { repoId: input.repoId } : {}), prNumber: input.prNumber, headSha: publishHeadSha, facts, decision, policyHash, timestamp });
+    const record = buildDecisionRecord({ mode: recordMode(), repo: input.repoSlug, ...(input.repoId !== undefined ? { repoId: input.repoId } : {}), prNumber: input.prNumber, headSha: publishHeadSha, facts, decision, policyHash, timestamp });
     if (input.dryRun) return { record };
     // Publish first, record last, and run every step even when one fails: a failed record append must not
     // hide the check run, and no failure is swallowed — they are reported together once all three ran.
@@ -91,7 +94,7 @@ export async function runApprover(input: RunApproverInput, state: { updated: boo
         failures.push(`${step}: ${errorText(err)}`);
       }
     };
-    await attempt('check run', () => publishCheckRun(gh, input.repoSlug, publishHeadSha, input.prNumber, decision, record, acting));
+    await attempt('check run', () => publishCheckRun(gh, input.repoSlug, publishHeadSha, input.prNumber, decision, record, recordMode()));
     // In act mode the decision is in the check run and the log; a comment is posted only when a human has to act.
     if (!acting) await attempt('comment', () => commentDecision(gh, input.repoSlug, input.prNumber, decision, record));
     await attempt('decision record', () => appendDecision(input.repoPath, record, branchOpts));
@@ -120,6 +123,7 @@ export async function runApprover(input: RunApproverInput, state: { updated: boo
 
   const stopped = policy.enabled === false || (readEnv('TASKCELL_APPROVER_STOP') ?? '') !== '';
   if (stopped) {
+    enforcing = false; // the emergency stop must never leave a required check red
     // Kill switch short-circuits before any diff/ledger collection (no head fetch, no merge-tree).
     const { reviews: _reviews, ...prWithoutReviews } = prFacts;
     const stoppedFacts: ApproverFacts = {

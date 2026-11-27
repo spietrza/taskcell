@@ -188,7 +188,8 @@ export const COMMANDS = [
   }),
   command('metrics', 'metrics push: append this checkout\'s metrics.jsonl lines to the orphan metrics branch and push (idempotent).', ['repo', 'branch'], {}, {}, 'push'),
   command('approve', 'Compute a deterministic APPROVE/ESCALATE decision for a factory PR; shadow mode (default) never merges.', ['repo', 'github-repo', 'branch', 'json', 'dry-run', 'pr'], {
-    mode: str('<shadow|act>', 'shadow (default) only records and comments; act merges (see docs/autonomous-loop.md)'),
+    mode: str('<shadow|enforce|act>', 'shadow (default) only records and comments, check neutral; enforce: check success/failure, never merges; act merges (see docs/autonomous-loop.md)'),
+    'rerun-open': bool('Re-judge every open factory PR (instead of --pr); decisions are appended only where the policy hash changed'),
     'review-run-id': str('<id>', 'Removed: act mode reads the run stamp on the review itself; passing it is an error'),
   }, { pr: { help: 'PR number (bare positional also accepted)' }, 'github-repo': { help: 'Repo slug — the approver never infers the repo it judges' } }, '[PR number]'),
   command('lessons', 'record: distil 0-3 lessons from a closed factory PR or MR; list | dismiss <id>: show or dismiss live lessons.', ['repo', 'branch', 'json', 'github-repo', 'gitlab-project', 'pr', 'dry-run', 'provider-model', 'feedback-authors'], {
