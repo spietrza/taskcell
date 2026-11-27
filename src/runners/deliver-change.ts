@@ -1,4 +1,5 @@
 import { deliveredChangeFacts, type DeliveredChangeFacts } from '../context/gate-config.js';
+import { extractDiffFiles } from '../pipeline/conformance-gate.js';
 import { commitStage } from '../pipeline/pipeline.js';
 import { publishForReview, pushToExistingBranch } from '../pipeline/remote-branch.js';
 import {
@@ -39,7 +40,7 @@ export type DeliveryTarget =
       /** Optional Conventional-Commits scope, e.g. the spec's primary module (`runners`, `hub`). */
       scope?: string;
       /** Built after the commit so it can carry the closing-keyword leaks found in the new commits. */
-      body: (info: { commitLeaks: CommitClosingLeak[]; facts: DeliveredChangeFacts }) => string;
+      body: (info: { commitLeaks: CommitClosingLeak[]; facts: DeliveredChangeFacts; screensBlock?: string }) => string;
       draft?: boolean;
       cli?: PublishOptions['cli'];
       tokenProvider?: PublishOptions['tokenProvider'];
@@ -74,6 +75,11 @@ export interface DeliverChangeOptions {
   secretEnvVars?: readonly string[];
   /** Repo-configured gate-config globs (loadGateConfigExtraGlobs) the delivered change's facts are computed with. */
   gateConfigExtraGlobs?: readonly string[];
+  /**
+   * The PR body's "Screens" section for the changed files (undefined: no UI change). Runs after the
+   * secret scan and the commit, only for a new PR; a failure is reported in the section, never thrown.
+   */
+  screens?: (changedFiles: string[], push: { tokenProvider?: () => Promise<string | undefined> }) => Promise<string | undefined>;
 }
 
 export type DeliverChangeResult =
@@ -190,9 +196,12 @@ export async function deliverChange(ctx: RunContext, opts: DeliverChangeOptions)
   const { target } = opts;
   if (target.kind === 'local-branch') return { kind: 'delivered-local', sha, branch: ctx.branch, commitLeaks, facts };
   if (target.kind === 'new-pr') {
+    const screensBlock = opts.screens !== undefined
+      ? await opts.screens(extractDiffFiles(outgoingDiff), { ...(target.tokenProvider !== undefined ? { tokenProvider: target.tokenProvider } : {}) }).catch((err: unknown) => `## Screens\n\nScreenshots unavailable: ${err instanceof Error ? err.message : String(err)}`)
+      : undefined;
     const pr = await publishForReview(ctx, {
       title: redact(conventionalPrTitle(target.title, target), 'PR title'),
-      body: redact(target.body({ commitLeaks, facts }), 'PR body'),
+      body: redact(target.body({ commitLeaks, facts, ...(screensBlock !== undefined ? { screensBlock } : {}) }), 'PR body'),
       ...(target.draft !== undefined ? { draft: target.draft } : {}),
       ...(target.cli !== undefined ? { cli: target.cli } : {}),
       ...(target.tokenProvider !== undefined ? { tokenProvider: target.tokenProvider } : {}),

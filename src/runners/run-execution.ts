@@ -31,6 +31,7 @@ import { resolveBaselineVerify } from '../pipeline/baseline-verify.js';
 import { resolveAndRunVisualProof, visualProofBlock } from '../pipeline/visual-proof.js';
 import { reviewRequestBody } from './review-body.js';
 import { repairUntilGreen } from '../pipeline/repair-gate.js';
+import { SANDBOX_WORKDIR, gitHostScreens, sandboxBaseCheckout, sandboxCapture, screensSection } from './ui-screens.js';
 import { deliverChange, conventionalPrTitle, scanOutgoingForSecrets } from './deliver-change.js';
 import {
   parseSpecManifest,
@@ -662,6 +663,13 @@ export async function executeIssueRun(run: IssueRunExecution): Promise<RunIssueR
       // A custom provider's key env var is repo-configured: the secret gate cannot know its name.
       secretEnvVars: credentials.keyEnvNames,
       gateConfigExtraGlobs: extraGlobs,
+      // Before/after screenshots of changed UI screens (demo data only); best effort, no UI change = no cost.
+      screens: (files, push) => screensSection(files, {
+        headDir: SANDBOX_WORKDIR,
+        baseCheckout: sandboxBaseCheckout(ctx.sandbox, ctx.worktreePath, ctx.startRef, SANDBOX_WORKDIR),
+        capture: sandboxCapture(ctx.sandbox),
+        host: gitHostScreens({ repoDir: ctx.worktreePath, runId: runTaskId, ...(push.tokenProvider !== undefined ? { tokenProvider: push.tokenProvider } : {}) }),
+      }),
       target: host.newPrTarget({
         title: `${task.title} (${task.id})`,
         bugLabel,
@@ -669,16 +677,17 @@ export async function executeIssueRun(run: IssueRunExecution): Promise<RunIssueR
         // Ready for review only after verification, every configured proof and the review verdict
         // landed: an unavailable re-review ships as a draft too.
         draft: partial || verifyCmd === undefined || visualProofFailed || reviewUnavailable,
-        body: ({ commitLeaks, facts: { configBlock } }) => {
+        body: ({ commitLeaks, facts: { configBlock }, screensBlock }) => {
           // The PR-body gap block carries no branding, so white-label keeps it like the gate-config block.
           return whiteLabel
-            ? [baseBody, configBlock, prBodyGapBlock, authFallbackBlock].filter(Boolean).join('\n\n')
+            ? [baseBody, configBlock, prBodyGapBlock, authFallbackBlock, screensBlock].filter(Boolean).join('\n\n')
             : [
               configBlock,
               baseBody,
               commitLeaks.length > 0 ? commitLeakWarningBlock(commitLeaks) : undefined,
               prBodyGapBlock,
               authFallbackBlock,
+              screensBlock,
               verification !== undefined ? proofBlock(verification) : verifySkippedBlock(),
               visualProof !== undefined ? visualProofBlock(visualProof) : undefined,
               reviewerOutcome !== undefined ? reviewVerdictLine(reviewVerdictOf(reviewerOutcome.result.finalText)) : undefined,
