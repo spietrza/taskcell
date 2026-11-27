@@ -6,6 +6,7 @@ import type { Command } from './args.js';
 export function parseEvalCommand(ctx: ParseCtx): Command {
   const { values, repoPath } = ctx;
   const limit = parseLimit(values.limit);
+  const benchSample = parseLimit(values['bench-sample']);
   const maxDrop = parseMaxDrop(values['max-drop']);
   return {
     kind: 'eval',
@@ -13,6 +14,10 @@ export function parseEvalCommand(ctx: ParseCtx): Command {
     ...(typeof values['judge-model'] === 'string' ? { judgeModel: values['judge-model'] } : {}),
     ...(typeof values['produce-model'] === 'string' ? { produceModel: values['produce-model'] } : {}),
     suggest: values.suggest === true,
+    ...(values['reviewer-bench'] === true ? { reviewerBench: true } : {}),
+    ...(benchSample !== undefined ? { benchSample } : {}),
+    ...(typeof values['bench-models'] === 'string' ? { benchModels: values['bench-models'] } : {}),
+    ...(typeof values['bench-dataset'] === 'string' ? { benchDataset: values['bench-dataset'] } : {}),
     repoPath,
     ...(limit !== undefined ? { limit } : {}),
     ...(typeof values.out === 'string' ? { out: values.out } : {}),
