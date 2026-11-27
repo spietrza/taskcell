@@ -209,6 +209,10 @@ export const COMMANDS = [
   command('eval', 'Run the committed eval corpus and print a per-kind pass-rate report.', ['repo', 'json', 'limit', 'out', 'github-repo', 'since', 'branch'], {
     'judge-model': str('<m>', 'Model for the judge (default: a Haiku model, or a decision model)'),
     'produce-model': str('<m>', 'Model under test (default: claude-sonnet-5-5)'),
+    'reviewer-bench': bool('Run the PR-reviewer benchmark on AACR-Bench (precision/recall/F1, cost, time per model); never posts to GitHub'),
+    'bench-models': str('<p/m,...>', 'With --reviewer-bench: reviewers to compare, e.g. codex/gpt-6-sol,claude/claude-opus-5-5'),
+    'bench-sample': str('<n>', 'With --reviewer-bench: PRs to sample (default 25; the full set is 200)'),
+    'bench-dataset': str('<file|url>', 'With --reviewer-bench: dataset file or URL (default: the pinned data/v2 file)'),
     suggest: bool('Draft eval-corpus candidates from retrospective memory instead of running the corpus'),
     markdown: bool('With --suggest: force markdown output'),
     baseline: str('<file|main>', 'Gate against a saved baseline: a local file, or "main" for the latest on the metrics branch'),

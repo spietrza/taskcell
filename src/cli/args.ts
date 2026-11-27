@@ -352,6 +352,14 @@ type CommandKind =
       produceModel?: string;
       /** Draft eval-corpus candidates from retrospective memory instead of running the corpus (suggest-only). */
       suggest: boolean;
+      /** Run the reviewer benchmark (AACR-Bench) instead of the corpus. */
+      reviewerBench?: boolean;
+      /** With --reviewer-bench: PRs to sample (default 25). */
+      benchSample?: number;
+      /** With --reviewer-bench: comma list of provider/model reviewers to compare. */
+      benchModels?: string;
+      /** With --reviewer-bench: dataset file or URL (default: the pinned data/v2 file). */
+      benchDataset?: string;
       repoPath: string;
       limit?: number;
       /** Also write the drafted candidates to this scratch path (refused if under src/evals/corpus/). */

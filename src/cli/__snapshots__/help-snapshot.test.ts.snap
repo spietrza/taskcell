@@ -136,22 +136,26 @@ exports[`--help output > eval help is unchanged 1`] = `
   Run the committed eval corpus and print a per-kind pass-rate report.
 
   Options:
-    --repo <path>           Repo checkout to work in (default: cwd)
-    --json                  Machine-readable JSON output
-    --limit <n>             Maximum number of entries
-    --out <file>            Write the result to this local file instead of posting it
-    --github-repo <o/r>     GitHub repo slug (owner/repo)
-    --since <date>          Only entries at or after this date or window
-    --branch <name>         Metrics branch to read or write (default: taskcell-metrics)
-    --judge-model <m>       Model for the judge (default: a Haiku model, or a decision model)
-    --produce-model <m>     Model under test (default: claude-sonnet-5-5)
-    --suggest               Draft eval-corpus candidates from retrospective memory instead of running the corpus
-    --markdown              With --suggest: force markdown output
-    --baseline <file|main>  Gate against a saved baseline: a local file, or "main" for the latest on the metrics branch
-    --max-drop <points>     Max tolerated drop in overall pass rate, in points (default 5; with --baseline)
-    --allow-corpus-change   Compare against a baseline whose corpus hash differs, instead of refusing
-    --save-baseline         Publish this result as the new baseline
-    --help                  Print help for this command"
+    --repo <path>               Repo checkout to work in (default: cwd)
+    --json                      Machine-readable JSON output
+    --limit <n>                 Maximum number of entries
+    --out <file>                Write the result to this local file instead of posting it
+    --github-repo <o/r>         GitHub repo slug (owner/repo)
+    --since <date>              Only entries at or after this date or window
+    --branch <name>             Metrics branch to read or write (default: taskcell-metrics)
+    --judge-model <m>           Model for the judge (default: a Haiku model, or a decision model)
+    --produce-model <m>         Model under test (default: claude-sonnet-5-5)
+    --reviewer-bench            Run the PR-reviewer benchmark on AACR-Bench (precision/recall/F1, cost, time per model); never posts to GitHub
+    --bench-models <p/m,...>    With --reviewer-bench: reviewers to compare, e.g. codex/gpt-6-sol,claude/claude-opus-5-5
+    --bench-sample <n>          With --reviewer-bench: PRs to sample (default 25; the full set is 200)
+    --bench-dataset <file|url>  With --reviewer-bench: dataset file or URL (default: the pinned data/v2 file)
+    --suggest                   Draft eval-corpus candidates from retrospective memory instead of running the corpus
+    --markdown                  With --suggest: force markdown output
+    --baseline <file|main>      Gate against a saved baseline: a local file, or "main" for the latest on the metrics branch
+    --max-drop <points>         Max tolerated drop in overall pass rate, in points (default 5; with --baseline)
+    --allow-corpus-change       Compare against a baseline whose corpus hash differs, instead of refusing
+    --save-baseline             Publish this result as the new baseline
+    --help                      Print help for this command"
 `;
 
 exports[`--help output > gc help is unchanged 1`] = `
@@ -952,22 +956,26 @@ taskcell eval [options]
   Run the committed eval corpus and print a per-kind pass-rate report.
 
   Options:
-    --repo <path>           Repo checkout to work in (default: cwd)
-    --json                  Machine-readable JSON output
-    --limit <n>             Maximum number of entries
-    --out <file>            Write the result to this local file instead of posting it
-    --github-repo <o/r>     GitHub repo slug (owner/repo)
-    --since <date>          Only entries at or after this date or window
-    --branch <name>         Metrics branch to read or write (default: taskcell-metrics)
-    --judge-model <m>       Model for the judge (default: a Haiku model, or a decision model)
-    --produce-model <m>     Model under test (default: claude-sonnet-5-5)
-    --suggest               Draft eval-corpus candidates from retrospective memory instead of running the corpus
-    --markdown              With --suggest: force markdown output
-    --baseline <file|main>  Gate against a saved baseline: a local file, or "main" for the latest on the metrics branch
-    --max-drop <points>     Max tolerated drop in overall pass rate, in points (default 5; with --baseline)
-    --allow-corpus-change   Compare against a baseline whose corpus hash differs, instead of refusing
-    --save-baseline         Publish this result as the new baseline
-    --help                  Print help for this command
+    --repo <path>               Repo checkout to work in (default: cwd)
+    --json                      Machine-readable JSON output
+    --limit <n>                 Maximum number of entries
+    --out <file>                Write the result to this local file instead of posting it
+    --github-repo <o/r>         GitHub repo slug (owner/repo)
+    --since <date>              Only entries at or after this date or window
+    --branch <name>             Metrics branch to read or write (default: taskcell-metrics)
+    --judge-model <m>           Model for the judge (default: a Haiku model, or a decision model)
+    --produce-model <m>         Model under test (default: claude-sonnet-5-5)
+    --reviewer-bench            Run the PR-reviewer benchmark on AACR-Bench (precision/recall/F1, cost, time per model); never posts to GitHub
+    --bench-models <p/m,...>    With --reviewer-bench: reviewers to compare, e.g. codex/gpt-6-sol,claude/claude-opus-5-5
+    --bench-sample <n>          With --reviewer-bench: PRs to sample (default 25; the full set is 200)
+    --bench-dataset <file|url>  With --reviewer-bench: dataset file or URL (default: the pinned data/v2 file)
+    --suggest                   Draft eval-corpus candidates from retrospective memory instead of running the corpus
+    --markdown                  With --suggest: force markdown output
+    --baseline <file|main>      Gate against a saved baseline: a local file, or "main" for the latest on the metrics branch
+    --max-drop <points>         Max tolerated drop in overall pass rate, in points (default 5; with --baseline)
+    --allow-corpus-change       Compare against a baseline whose corpus hash differs, instead of refusing
+    --save-baseline             Publish this result as the new baseline
+    --help                      Print help for this command
 
 taskcell migrate-labels [options]
 

@@ -120,7 +120,7 @@ export async function reviewPrCommand(cmd: ReviewPrCommand, deps: ReviewPrComman
   }
 }
 
-async function runDefaultReviewer(
+export async function runDefaultReviewer(
   pr: PullRequestForReview,
   cmd: ReviewPrCommand,
   auth: AgentAuth | undefined,

@@ -38,3 +38,17 @@ Prompt injection cannot be fully prevented, so the weight is on limiting what th
 
 1. Grow the corpus from the weekly drafts to about 100 curated cases, balanced across control, edge and refusal.
 2. Calibrate the eval judge on 20-30 human-labelled verdicts.
+
+## Reviewer benchmark (AACR-Bench)
+
+`pnpm eval -- --reviewer-bench --bench-models codex/gpt-6-sol,claude/claude-opus-5-5 [--bench-sample 25] [--bench-dataset <file|url>]`
+runs the PR reviewer (the `review-pr` agent path, read-only, never posting) over a deterministic sample of
+AACR-Bench (`data/v2`) PRs and prints precision, recall, F1, blocking vs non-blocking matches, tokens, cost and
+wall time per model, with the dataset version and content hash. The reviewer runs in an empty scratch git repo,
+so it sees only the diff, not this checkout or its review rules. Findings match an annotated issue when they cite
+the same file within 5 lines; same-file near misses go to a judge (`--judge-model`).
+
+**Status: the first Codex gpt-6-sol vs Claude Opus 5.5 comparison has not been run.** It needs provider
+credentials, network access and subscription usage that the implementing sandbox did not have; a maintainer runs
+the command above on the default sample and attaches the report to the PR. The dataset file name and field
+names are unverified against the live dataset: check `parseAacrDataset` on the first real run.

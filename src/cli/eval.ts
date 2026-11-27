@@ -11,6 +11,7 @@ import { corpus, CORPUS_HASH, JUDGE_MODEL, DEFAULT_PRODUCE_MODEL } from '../eval
 import { formatEvalReport } from '../evals/eval-report.js';
 import { compareToBaseline, formatBaselineComparison } from '../evals/baseline.js';
 import { saveEvalBaseline, readLatestEvalBaseline } from '../evals/eval-baseline-branch.js';
+import { reviewerBenchCommand } from './eval-reviewer-bench.js';
 import { evalSuggestCommand } from './eval-suggest.js';
 import type { Judge, EvalCase, EvalRunReport } from '../evals/types.js';
 import type { BaselineComparison } from '../evals/baseline.js';
@@ -100,6 +101,11 @@ export async function evalCommand(
 ): Promise<void> {
   if (cmd.suggest) {
     await evalSuggestCommand(cmd);
+    return;
+  }
+
+  if (cmd.reviewerBench === true) {
+    await reviewerBenchCommand(cmd);
     return;
   }
 
