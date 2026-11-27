@@ -113,21 +113,21 @@ describe('runStages', () => {
   it('gateBeforeReview runs before the reviewer; a red gate stops the pipeline before it', async () => {
     const stages: PipelineStage[] = [
       { name: 'implementer', promptTemplate: 'do' },
-      { name: 'reviewer', promptTemplate: 'review' },
       { name: 'simplifier', promptTemplate: 'simplify' },
+      { name: 'reviewer', promptTemplate: 'review' },
     ];
     for (const pass of [true, false]) {
       const wm = new WorktreeManager(repo);
       const received: AgentRunInput[] = [];
       const ctx = await prepareContext({ taskId: `g${pass}`, localRepoPath: repo, baseBranch: 'main', start: 'base', sandbox: makeSandbox() }, { worktrees: wm });
       const gate = vi.fn(async (outs: unknown[]) => {
-        expect(received).toHaveLength(1);
-        expect(outs).toHaveLength(1);
+        expect(received).toHaveLength(2);
+        expect(outs).toHaveLength(2);
         return { pass };
       });
       const outcomes = await runStages(ctx, stages, { agent: recordingAgent(received), gateBeforeReview: gate });
       expect(gate).toHaveBeenCalledTimes(1);
-      expect(outcomes.map((o) => o.name)).toEqual(pass ? ['implementer', 'reviewer', 'simplifier'] : ['implementer']);
+      expect(outcomes.map((o) => o.name)).toEqual(pass ? ['implementer', 'simplifier', 'reviewer'] : ['implementer', 'simplifier']);
       await disposeContext(ctx);
     }
   });
@@ -569,7 +569,7 @@ describe('generateEvaluateRepairStages', () => {
 });
 
 describe('implementReviewSimplifyStages', () => {
-  it('keeps review report-only and passes the implementation diff to the fresh simplifier', async () => {
+  it('keeps review report-only and passes the implementation diff to the fresh simplifier and reviewer', async () => {
     const received: AgentRunInput[] = [];
     const sandbox = makeSandbox();
     const copyOut = vi.spyOn(sandbox, 'copyFileOut');
@@ -580,14 +580,14 @@ describe('implementReviewSimplifyStages', () => {
     try {
       const stages = implementReviewSimplifyStages();
       const outcomes = await runStages(ctx, stages, { agent: recordingAgent(received) });
-      expect(stages[1]?.copyBack).toBe(false);
-      expect(received[1]?.prompt).toContain('Do not edit any files.');
-      expect(received[1]?.prompt).not.toContain('Fix what you find in the repo.');
-      expect(outcomes[1]?.result.diff).toBeUndefined();
+      expect(stages[2]?.copyBack).toBe(false);
+      expect(received[2]?.prompt).toContain('Do not edit any files.');
+      expect(received[2]?.prompt).not.toContain('Fix what you find in the repo.');
+      expect(outcomes[2]?.result.diff).toBeUndefined();
       expect(copyOut.mock.calls.filter(([path]) => path === '/workspace')).toHaveLength(2);
-      expect(received[2]?.resumeSessionId).toBeUndefined();
-      expect(received[2]?.prompt).toContain(diffForPrompt(outcomes[0]?.result.diff ?? ''));
-      expect(received[2]?.prompt).toContain('feature.txt');
+      expect(received[1]?.resumeSessionId).toBeUndefined();
+      expect(received[1]?.prompt).toContain(diffForPrompt(outcomes[0]?.result.diff ?? ''));
+      expect(received[1]?.prompt).toContain('feature.txt');
     } finally {
       await disposeContext(ctx);
     }
@@ -602,7 +602,17 @@ describe('implementReviewSimplifyStages', () => {
 
   it('keeps conformance out of the default stage list', () => {
     const stages = implementReviewSimplifyStages();
-    expect(stages.map((s) => s.name)).toEqual(['implementer', 'reviewer', 'simplifier']);
+    expect(stages.map((s) => s.name)).toEqual(['implementer', 'simplifier', 'reviewer']);
+  });
+
+  it('a flow without a reviewer never calls gateBeforeReview', async () => {
+    const wm = new WorktreeManager(repo);
+    const ctx = await prepareContext({ taskId: 'norev', localRepoPath: repo, baseBranch: 'main', start: 'base', sandbox: makeSandbox() }, { worktrees: wm });
+    const gate = vi.fn(async () => ({ pass: true }));
+    const outcomes = await runStages(ctx, [{ name: 'implementer', promptTemplate: 'do' }, { name: 'simplifier', promptTemplate: 's' }], { agent: recordingAgent([]), gateBeforeReview: gate });
+    expect(outcomes.map((o) => o.name)).toEqual(['implementer', 'simplifier']);
+    expect(gate).not.toHaveBeenCalled();
+    await disposeContext(ctx);
   });
 });
 

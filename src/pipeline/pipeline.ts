@@ -645,7 +645,10 @@ export function fastStages(): PipelineStage[] {
   ];
 }
 
-/** Canonical Implementer -> Reviewer -> Simplifier stages (Merger is commitStage). */
+/**
+ * Canonical Implementer -> Simplifier -> Reviewer stages (Merger is commitStage). The simplifier runs
+ * first so the pre-review gate verifies the simplified tree and verify runs once when review changes nothing.
+ */
 export function implementReviewSimplifyStages(): PipelineStage[] {
   const systemPrompt = defaultSystemPrompt();
   const stages: PipelineStage[] = [
@@ -660,6 +663,17 @@ export function implementReviewSimplifyStages(): PipelineStage[] {
       stageCostFloorUsd: 0.25,
       timeoutMs: 25 * 60 * 1000,
       onStageBudgetExceeded: 'continue',
+    },
+    {
+      name: STAGE.SIMPLIFIER,
+      resumePrevious: false,
+      promptTemplate:
+        'Improve the changed code for clarity, reuse, and simplicity without changing behaviour. If a simplify skill is available, use it.\n\n{{PREVIOUS_DIFF}}\n\nWhen done, write <promise>COMPLETE</promise>.',
+      maxTurns: 20,
+      stageCostFraction: 0.15,
+      stageCostFloorUsd: 0.25,
+      timeoutMs: 15 * 60 * 1000,
+      onStageBudgetExceeded: 'skip',
     },
     {
       name: STAGE.REVIEWER,
@@ -680,17 +694,6 @@ export function implementReviewSimplifyStages(): PipelineStage[] {
       stageCostFloorUsd: 0.5,
       timeoutMs: 15 * 60 * 1000,
       onStageBudgetExceeded: 'continue',
-    },
-    {
-      name: STAGE.SIMPLIFIER,
-      resumePrevious: false,
-      promptTemplate:
-        'Improve the changed code for clarity, reuse, and simplicity without changing behaviour. If a simplify skill is available, use it.\n\n{{PREVIOUS_DIFF}}\n\nWhen done, write <promise>COMPLETE</promise>.',
-      maxTurns: 20,
-      stageCostFraction: 0.15,
-      stageCostFloorUsd: 0.25,
-      timeoutMs: 15 * 60 * 1000,
-      onStageBudgetExceeded: 'skip',
     },
   ];
   return stages.map((stage) => ({ systemPrompt, ...stage }));

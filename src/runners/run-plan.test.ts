@@ -135,7 +135,7 @@ describe('planIssueRun: flow choice', () => {
   it("no flow keeps the tracker's own stages", async () => {
     const p = await plan();
     expect(p.flow).toBeUndefined();
-    expect(names(p)).toEqual(['implementer', 'reviewer', 'simplifier'].filter((n) => n !== 'simplifier' || names(p).includes(n)));
+    expect(names(p)).toEqual(['implementer', 'simplifier', 'reviewer'].filter((n) => n !== 'simplifier' || names(p).includes(n)));
     expect(p.baseStages).toBe(STAGES);
   });
 

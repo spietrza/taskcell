@@ -14,7 +14,7 @@ Choose the model per stage with `model` (`'opus'`, `'sonnet'`, `'haiku'`, or a f
 
 Runs reuse the session and keep a stable prompt prefix to maximize Anthropic prompt caching; `RunResult.cacheEfficiency` reports the cached fraction of input tokens.
 
-The canonical pipeline is implement → review → simplify. The reviewer reviews for correctness **and** over-engineering (the ponytail minimalism lens — would less code do the job?), so the third simplify pass is often redundant. Pass `--no-simplify` (on `run`/`watch`) for a lean implement → review run that skips it.
+The canonical pipeline is implement → simplify → review. The reviewer reviews for correctness **and** over-engineering (the ponytail minimalism lens — would less code do the job?), so the third simplify pass is often redundant. Pass `--no-simplify` (on `run`/`watch`) for a lean implement → review run that skips it.
 
 An optional **conformance pass** can be appended after the reviewer with `--conformance` (on `run`/`watch`; opt-in, default off, GitHub/Linear only). It runs a fresh, report-only stage that checks the final diff against the spec's Acceptance Criteria for unmet criteria, scope drift, and silently dropped requirements; its findings post to the PR and gate the merge alongside the reviewer's. It is report-only — it never edits files (`copyBack:false`). `--conformance-model <m>` sets the model for that stage; it defaults to the implementer/`--provider-model` model, so **pass `--conformance-model opus` to run the check on a planner-tier model** (the headline use case).
 
@@ -28,7 +28,7 @@ Entry kinds: `files` (a path the diff must touch — **a doc under `docs/` is a 
 
 **`prBody` entries** cover an obligation the diff cannot carry at all — CI workflow YAML is the standard case, since copy-back drops those paths (see [CLAUDE.md](../CLAUDE.md)) — and so must reach the PR description for a human to apply by hand. `contains` is the exact text that must be supplied (a fenced `yaml` block, or a named heading); a blank `contains` never counts as satisfied. It is matched only against human-authored text, never the composed body, whose boilerplate, diff excerpts and checklist could otherwise satisfy it. The factory has no channel to write that text, so a missing required item is partial scope like any other gap: `Part of #N`, a draft PR, an unchecked checklist line, and a delimited **Required PR-body item missing** block for the human to paste the content into. Revise rounds carry that block forward verbatim, pasted content included. The pre-delivery repair loop skips the `prBody` half of the check, since the implementer cannot act on it.
 
-By default `run` uses the implement → review → simplify pipeline (the implementer plans inline). Pass `--plan` to prepend a dedicated planning stage (opus, high effort) that emits a `<plan>` for the implementer to follow — the plan → implement → review pipeline. Combine with `--review-model opus` to also review on the planner-tier model:
+By default `run` uses the implement → simplify → review pipeline (the implementer plans inline). Pass `--plan` to prepend a dedicated planning stage (opus, high effort) that emits a `<plan>` for the implementer to follow — the plan → implement → review pipeline. Combine with `--review-model opus` to also review on the planner-tier model:
 
 ```bash
 taskcell run --github o/r#1 --plan --review-model opus   # plan on opus, implement on sonnet, review on opus

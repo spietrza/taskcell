@@ -2132,10 +2132,10 @@ it('keeps an explicit --review-model when the reviewer stage falls back to the s
       fallbackModel: 'fallback-model', reviewModel: 'review-pin',
     });
     expect(result.dryRunOut).toBeDefined();
-    // Implementer and simplifier run on the primary (no model pinned); the reviewer's fallback lands
+    // Implementer and simplifier run on the primary (no model pinned); the reviewer's fallback (last) lands
     // there too, carrying --review-model rather than the codex-bound --fallback-model.
     expect(fallbackInputs).toHaveLength(0);
-    expect(primaryInputs.map((input) => input.model)).toEqual([undefined, 'review-pin', undefined]);
+    expect(primaryInputs.map((input) => input.model)).toEqual([undefined, undefined, 'review-pin']);
   } finally {
     spy.mockRestore();
   }

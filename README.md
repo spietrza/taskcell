@@ -44,7 +44,7 @@ Every task passes six stations:
 1. **Card.** A ticket on GitHub, GitLab or Linear gets a trigger label (`ready for spec` or `ready for agent`) or moves to a trigger state. A deterministic triage check parks vague tickets at `needs info` before any model is called.
 2. **Spec.** For `ready for spec`, a read-only planning pass researches the codebase and posts a `<tech_spec>` comment. No code is written.
 3. **Sealed cell.** The agent implements the change in a Docker sandbox: non-root, capabilities dropped, no repository token, and optionally no network beyond an allowlist.
-4. **Review.** A second model, optionally from another provider, reviews the diff in a fresh context and fixes what it finds, then a simplify pass tidies the change.
+4. **Simplify, then review.** A simplify pass tidies the change, then a second model, optionally from another provider, reviews the diff in a fresh context and fixes what it finds.
 5. **Gates.** The host runs your verify command (Proof of Work), an optional conformance check against the spec, and a secret scan of the outgoing diff. A red gate sends the change back for up to two repair rounds.
 6. **Pull request.** The host pushes the branch and opens the PR, ready for review when every gate passed and a draft otherwise. A human reviews and merges.
 
