@@ -333,11 +333,12 @@ exports[`--help output > review-pr help is unchanged 1`] = `
 exports[`--help output > revise-pr help is unchanged 1`] = `
 "taskcell revise-pr <PR ref> [options]
 
-  Apply human review feedback on a Taskcell draft PR and hand it back ready to merge.
+  Apply human review feedback on a Taskcell draft PR (or GitLab MR) and hand it back ready to merge.
 
   Options:
     --repo <path>                                             Repo checkout to work in (default: cwd)
     --github-repo <o/r>                                       GitHub repo slug (owner/repo)
+    --gitlab-project <g/p>                                    GitLab project path (group/project)
     --github <ref>                                            GitHub issue or PR ref: owner/repo#n, URL, or a bare number with --github-repo
     --feedback-authors <a,b>                                  Logins trusted beyond OWNER/MEMBER/COLLABORATOR
     --provider <claude|codex|cursor|zai|openrouter|meridian>  Provider that runs every stage (default: claude)
@@ -472,11 +473,11 @@ Commands:
   review-pr           Review an existing GitHub PR and post a non-blocking review comment.
   research            Research a GitHub issue and post the findings as a comment.
   spec                Write a tech spec for a GitHub issue and post it as an issue comment.
-  revise-pr           Apply human review feedback on a Taskcell draft PR and hand it back ready to merge.
+  revise-pr           Apply human review feedback on a Taskcell draft PR (or GitLab MR) and hand it back ready to merge.
   watch-prs           Poll GitHub PRs by label and run the non-blocking review loop.
   doctor-prs          Check whether watch-prs can run AFK before any PR is claimed.
   review-mr           Review an existing GitLab MR and post a non-blocking review comment.
-  watch-mrs           Poll GitLab MRs by label and run the non-blocking review loop.
+  watch-mrs           Poll GitLab MRs by label and run the non-blocking review loop; with --once also revises factory MRs whose pipeline failed or that conflict.
   doctor-mrs          Check whether watch-mrs can run AFK before any MR is claimed.
   stats               Aggregate .taskcell/runs/metrics.jsonl into a cost/token/time rollup (per task, stage, model, probe).
   metrics             metrics push: append this checkout's metrics.jsonl lines to the orphan metrics branch and push (idempotent).
@@ -721,11 +722,12 @@ taskcell spec <issue ref> [options]
 
 taskcell revise-pr <PR ref> [options]
 
-  Apply human review feedback on a Taskcell draft PR and hand it back ready to merge.
+  Apply human review feedback on a Taskcell draft PR (or GitLab MR) and hand it back ready to merge.
 
   Options:
     --repo <path>                                             Repo checkout to work in (default: cwd)
     --github-repo <o/r>                                       GitHub repo slug (owner/repo)
+    --gitlab-project <g/p>                                    GitLab project path (group/project)
     --github <ref>                                            GitHub issue or PR ref: owner/repo#n, URL, or a bare number with --github-repo
     --feedback-authors <a,b>                                  Logins trusted beyond OWNER/MEMBER/COLLABORATOR
     --provider <claude|codex|cursor|zai|openrouter|meridian>  Provider that runs every stage (default: claude)
@@ -802,7 +804,7 @@ taskcell review-mr [options]
 
 taskcell watch-mrs [options]
 
-  Poll GitLab MRs by label and run the non-blocking review loop.
+  Poll GitLab MRs by label and run the non-blocking review loop; with --once also revises factory MRs whose pipeline failed or that conflict.
 
   Options:
     --repo <path>                                             Repo checkout to work in (default: cwd)
@@ -821,6 +823,8 @@ taskcell watch-mrs [options]
     --concurrency <n>                                         Max items processed at once (default: 2)
     --interval <seconds>                                      Poll interval (default: 60)
     --once                                                    Do a single pass
+    --dry-run                                                 Report what the CI watch would comment on and change nothing there
+    --no-ci-watch                                             Do not revise factory MRs whose pipeline failed or that conflict with their target (default: on with --once)
     --help                                                    Print help for this command
 
 taskcell doctor-mrs [options]
@@ -1088,7 +1092,7 @@ exports[`--help output > watch help is unchanged 1`] = `
 exports[`--help output > watch-mrs help is unchanged 1`] = `
 "taskcell watch-mrs [options]
 
-  Poll GitLab MRs by label and run the non-blocking review loop.
+  Poll GitLab MRs by label and run the non-blocking review loop; with --once also revises factory MRs whose pipeline failed or that conflict.
 
   Options:
     --repo <path>                                             Repo checkout to work in (default: cwd)
@@ -1107,6 +1111,8 @@ exports[`--help output > watch-mrs help is unchanged 1`] = `
     --concurrency <n>                                         Max items processed at once (default: 2)
     --interval <seconds>                                      Poll interval (default: 60)
     --once                                                    Do a single pass
+    --dry-run                                                 Report what the CI watch would comment on and change nothing there
+    --no-ci-watch                                             Do not revise factory MRs whose pipeline failed or that conflict with their target (default: on with --once)
     --help                                                    Print help for this command"
 `;
 

@@ -100,3 +100,10 @@ describe('parseCli revise-pr', () => {
     }
   });
 });
+
+describe('revise-pr on a GitLab MR', () => {
+  it('carries --gitlab-project', async () => {
+    const { parseCli } = await import('./args.js');
+    expect(parseCli(['revise-pr', '3', '--gitlab-project', 'g/p'], '/work')).toMatchObject({ kind: 'revise-pr', prRef: '3', gitlabProject: 'g/p' });
+  });
+});

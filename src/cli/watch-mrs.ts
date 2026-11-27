@@ -1,5 +1,6 @@
 import { gitlabMergeRequestWatchPrimitives, watchMergeRequests } from '../runners/mr-watch.js';
 import { reviewMrCommand } from './review-mr.js';
+import { watchMrCiFailures } from '../runners/mr-ci-watch.js';
 import { formatPreflightReport, preflightFailed, runPreflight } from './preflight.js';
 import type { Command } from './args.js';
 import type { MergeRequestWatchPrimitives, MergeRequestWatchTick, WatchMergeRequestsLoopOptions } from '../runners/mr-watch.js';
@@ -65,6 +66,15 @@ export async function watchMrsCommand(cmd: WatchMrsCommand, deps: WatchMrsComman
     });
     // --once is the CI mode: a failed listing or review must fail the step, as in watch-prs.
     if (cmd.once && tick !== undefined && tick.failed.length > 0) process.exitCode = 1;
+    if (cmd.once && cmd.ciWatch !== false) {
+      const report = { ciFailed: [], conflicted: [], escalated: [], failed: [] };
+      await watchMrCiFailures({ project: cmd.project, dryRun: cmd.dryRun === true, log, report }).catch((error: unknown) => {
+        log(`watch-mrs ci-watch: failed -> ${error instanceof Error ? error.message : String(error)}`);
+        report.failed.push(cmd.project as never);
+      });
+      log(`watch-mrs ci-watch: ${report.ciFailed.length} ci-failed, ${report.conflicted.length} conflicted, ${report.escalated.length} escalated, ${report.failed.length} failed`);
+      if (report.failed.length > 0) process.exitCode = 1;
+    }
   } finally {
     process.off('SIGINT', stop);
     process.off('SIGTERM', stop);

@@ -79,8 +79,11 @@ type CommandKind =
   | {
       kind: 'revise-pr';
       feedbackAuthors?: string[];
+      /** A GitHub PR ref, or a GitLab MR (iid with `gitlabProject`, or its URL). */
       prRef: string;
       repoSlug?: string;
+      /** GitLab project for a bare MR iid; a GitLab MR URL needs none. */
+      gitlabProject?: string;
       repoPath: string;
       /** --skills dir, merged with the repo's .github/vanguard-skills/ (see skillRegistryForRun). */
       skillsDir?: string;
@@ -290,6 +293,9 @@ type CommandKind =
       concurrency: number;
       intervalMs: number;
       once: boolean;
+      /** With --once: also ask for a revision on factory MRs whose pipeline failed or that conflict (default: on). */
+      ciWatch?: boolean;
+      dryRun?: boolean;
       egress: boolean;
       llmProxy?: boolean;
       provider?: ProviderName;

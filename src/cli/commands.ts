@@ -165,7 +165,7 @@ export const COMMANDS = [
     out: { help: 'Write the spec to this local file instead of posting an issue comment (pairs with run --spec-file)' },
     base: { help: 'Branch the spec worktree is cut from (default: main)' },
   }, '<issue ref>'),
-  command('revise-pr', 'Apply human review feedback on a Taskcell draft PR and hand it back ready to merge.', ['repo', 'github-repo', 'github', 'feedback-authors', 'provider', 'fallback-provider', 'fallback-model', 'provider-model', 'review-model', 'usage-cap', 'egress', 'llm-proxy', 'skills', 'commit-author', 'out'], {
+  command('revise-pr', 'Apply human review feedback on a Taskcell draft PR (or GitLab MR) and hand it back ready to merge.', ['repo', 'github-repo', 'gitlab-project', 'github', 'feedback-authors', 'provider', 'fallback-provider', 'fallback-model', 'provider-model', 'review-model', 'usage-cap', 'egress', 'llm-proxy', 'skills', 'commit-author', 'out'], {
     'github-pr': str('<n>', 'PR number (or pass the PR as a positional)'),
     'max-rounds': str('<n>', 'Maximum revision rounds'),
   }, { out: { help: 'Dry-run: write the diff and proposed thread replies to this file; push and comment nothing' } }, '<PR ref>'),
@@ -175,7 +175,9 @@ export const COMMANDS = [
   }),
   command('doctor-prs', 'Check whether watch-prs can run AFK before any PR is claimed.', ['repo', 'github-repo', 'label', 'reviewing-label', 'reviewed-label', 'provider', 'llm-proxy']),
   command('review-mr', 'Review an existing GitLab MR and post a non-blocking review comment.', [...REVIEW_SHARED, 'gitlab-project'], { mr: str('<iid>', 'GitLab MR IID (integer)') }),
-  command('watch-mrs', 'Poll GitLab MRs by label and run the non-blocking review loop.', [...REVIEW_SHARED, 'gitlab-project', 'label', 'reviewing-label', 'reviewed-label', 'author', 'concurrency', 'interval', 'once']),
+  command('watch-mrs', 'Poll GitLab MRs by label and run the non-blocking review loop; with --once also revises factory MRs whose pipeline failed or that conflict.', [...REVIEW_SHARED, 'gitlab-project', 'label', 'reviewing-label', 'reviewed-label', 'author', 'concurrency', 'interval', 'once', 'dry-run'], {
+    'no-ci-watch': bool('Do not revise factory MRs whose pipeline failed or that conflict with their target (default: on with --once)'),
+  }, { 'dry-run': { help: 'Report what the CI watch would comment on and change nothing there' } }),
   command('doctor-mrs', 'Check whether watch-mrs can run AFK before any MR is claimed.', ['repo', 'gitlab-project', 'label', 'reviewing-label', 'reviewed-label', 'author', 'provider', 'review-model', 'llm-proxy']),
   command('stats', 'Aggregate .taskcell/runs/metrics.jsonl into a cost/token/time rollup (per task, stage, model, probe).', ['repo', 'branch', 'json', 'github-repo', 'feedback-authors', 'since'], {
     skills: bool('Per-skill rollup: review pass rate, repair rounds and cost with vs without each skill'),

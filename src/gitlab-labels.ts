@@ -18,3 +18,8 @@ export function gitlabFailureLabel(kind: ProofFailureKind): string {
 
 /** Marks an issue whose dependencies are unmet or whose `Start:` date is ahead; the trigger label stays, so a later poll starts it. */
 export const GITLAB_WAITING_LABEL = 'taskcell::waiting';
+
+/** In flight while a revision round runs on an MR; scoped, so it replaces the other `taskcell::` states. */
+export const GITLAB_REVISING_LABEL = 'taskcell::revising';
+/** Parks an MR whose revision round hit a provider rate limit. */
+export const GITLAB_RATE_LIMITED_LABEL = 'taskcell::rate-limited';

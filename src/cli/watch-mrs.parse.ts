@@ -35,6 +35,8 @@ function parseWatchMrsFlags(ctx: ParseCtx, commandKind: 'watch-mrs' | 'doctor-mr
     concurrency: Number.isFinite(concurrency) && concurrency >= 1 ? Math.floor(concurrency) : DEFAULT_CONCURRENCY,
     intervalMs: (Number.isFinite(interval) && interval > 0 ? interval : 60) * 1000,
     once: values.once === true,
+    ...(values['no-ci-watch'] === true ? { ciWatch: false } : {}),
+    ...(values['dry-run'] === true ? { dryRun: true } : {}),
     ...(maxTurns !== undefined ? { maxTurns } : {}),
   };
 }
