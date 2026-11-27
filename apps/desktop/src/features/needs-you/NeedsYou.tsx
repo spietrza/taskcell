@@ -8,7 +8,13 @@ import { gateProps, useCallerCapabilities } from '../../hooks';
 import { RepoFailures } from '../../RepoViews';
 import { needsYouAlert, needsYouCaption } from '../../../../../packages/hub-client/src/needs-you-caption';
 import { hub, isDemoLink } from '../../transport';
-import { ExternalLink } from '../../components/ExternalLink';
+
+/** The Board id of a question's card: a hub card is its own id, a tracker issue is `gh-N` / `gl-N` (see `mintBoardId`). */
+export function boardCardId(item: Pick<NeedsYouItem, 'kind' | 'id' | 'number' | 'url'>): string | undefined {
+  if (item.kind === 'card') return item.id;
+  if (item.kind !== 'issue') return undefined;
+  return `${item.url.includes('/-/issues/') ? 'gl' : 'gh'}-${item.number}`;
+}
 
 /** `placeholder` / `action` reword the box for a PR sent back ("Ask for changes"); the hub call is the same reply. */
 export function ReplyBox({ project, item, onReplied, placeholder = 'Answer the factory…', action = 'Reply' }: { project: string; item: NeedsYouItem; onReplied: () => void; placeholder?: string; action?: string }) {
@@ -148,6 +154,7 @@ export function NeedsYou({
   repoCount,
   onReload,
   onOpenBoard,
+  onOpenCard,
   context,
 }: {
   /** Where an item without its own repository is replied to. */
@@ -159,6 +166,8 @@ export function NeedsYou({
   onReload: () => void;
   /** Where the empty state sends the user to start work. */
   onOpenBoard?: () => void;
+  /** Opens a question's card on the Board (its title block is the link). */
+  onOpenCard?: (c: { id: string; title: string; repoPath?: string }) => void;
   /** Links shown above an opened item's question: where its context lives (the card, the run that asked). */
   context?: (item: NeedsYouItem & Partial<RepoStamp>) => ReactNode;
 }) {
@@ -210,29 +219,40 @@ export function NeedsYou({
               <li key={key} className="space-y-3 p-4">
                 <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
                   <span className={`caption w-36 shrink-0 max-md:w-full ${broken ? 'text-destructive-text' : 'text-warning-text'}`}>{needsYouCaption(item)}</span>
-                  <div className="min-w-0 flex-1 max-md:basis-full">
-                    {item.url && !isDemoLink(item.url) ? (
-                      <a href={item.url} target="_blank" rel="noreferrer" className="block break-words font-medium hover:underline">
-                        {item.title}
-                      </a>
-                    ) : (
-                      // No tracker page (a hub-board card): plain text, not a link that goes nowhere.
-                      <span className="block break-words font-medium">{item.title}</span>
-                    )}
-                    <div className="mt-0.5 flex flex-wrap items-center gap-x-2 text-xs text-muted-foreground">
-                      {item.repoName !== undefined && <span className="font-mono">{item.repoName}</span>}
-                      <span>
-                        {item.kind === 'card' ? (
-                          <span className="font-mono">{item.id}</span>
-                        ) : (
-                          <>
-                            {item.kind === 'pr' ? 'PR' : 'Card'} <span className="font-mono tabular-nums">#{item.number}</span>
-                          </>
-                        )}
-                      </span>
-                      {item.baseBranch && <span className="font-mono" title="target branch">→ {item.baseBranch}</span>}
-                    </div>
-                  </div>
+                  {(() => {
+                    const body = (
+                      <>
+                        <span className="block break-words font-medium group-hover:underline">{item.title}</span>
+                        <span className="mt-0.5 flex flex-wrap items-center gap-x-2 text-xs text-muted-foreground">
+                          {item.repoName !== undefined && <span className="font-mono">{item.repoName}</span>}
+                          <span>
+                            {item.kind === 'card' ? (
+                              <span className="font-mono">{item.id}</span>
+                            ) : (
+                              <>
+                                {item.kind === 'pr' ? 'PR' : 'Card'} <span className="font-mono tabular-nums">#{item.number}</span>
+                              </>
+                            )}
+                          </span>
+                          {item.baseBranch && <span className="font-mono" title="target branch">→ {item.baseBranch}</span>}
+                        </span>
+                      </>
+                    );
+                    const box = 'group min-w-0 flex-1 rounded text-left max-md:basis-full focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring';
+                    // A pull request is reviewed where it lives; a question opens its card here.
+                    if (item.kind === 'pr' && /^https?:\/\//i.test(item.url) && !isDemoLink(item.url)) {
+                      return <a href={item.url} target="_blank" rel="noreferrer" className={`${box} cursor-pointer`}>{body}</a>;
+                    }
+                    const cardId = boardCardId(item);
+                    if (item.kind !== 'pr' && onOpenCard && cardId !== undefined) {
+                      return (
+                        <button type="button" className={`${box} cursor-pointer`} onClick={() => onOpenCard({ id: cardId, title: item.title, ...(item.repoPath !== undefined ? { repoPath: item.repoPath } : {}) })}>
+                          {body}
+                        </button>
+                      );
+                    }
+                    return <div className={box}>{body}</div>;
+                  })()}
                   <div className="flex items-center gap-2 max-md:w-full">
                     <Button
                       variant={broken ? 'outlined' : 'contained'}
@@ -243,7 +263,6 @@ export function NeedsYou({
                     >
                       {action}
                     </Button>
-                    <ExternalLink href={item.url} label={`Open ${item.title} in GitHub`}>Open in GitHub</ExternalLink>
                   </div>
                 </div>
                 {context?.(item)}

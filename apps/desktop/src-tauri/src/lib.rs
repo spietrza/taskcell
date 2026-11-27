@@ -71,12 +71,35 @@ fn install_pending(pending: &PendingUpdate) {
     }
 }
 
+/// Builds the main window from `tauri.conf.json` (`create: false` there). WebKit ignores
+/// `target="_blank"`, so every link out of the hub UI asks for a new window: an http(s) one opens in
+/// the system browser, anything else is dropped. The webview never gets a second window.
+fn build_window(app: &tauri::App) -> tauri::Result<()> {
+    use tauri::webview::NewWindowResponse;
+    use tauri_plugin_opener::OpenerExt;
+    let config = app.config().app.windows.first().ok_or(tauri::Error::WindowNotFound)?;
+    let handle = app.handle().clone();
+    tauri::WebviewWindowBuilder::from_config(app.handle(), config)?
+        .on_new_window(move |url, _| {
+            if matches!(url.scheme(), "http" | "https") {
+                let _ = handle.opener().open_url(url.as_str(), None::<&str>);
+            }
+            NewWindowResponse::Deny
+        })
+        .build()?;
+    Ok(())
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     let hub = Arc::new(hub::Hub::default());
     #[cfg(desktop)]
     let pending: PendingUpdate = Arc::default();
-    let builder = tauri::Builder::default().plugin(tauri_plugin_dialog::init());
+    let builder = tauri::Builder::default().plugin(tauri_plugin_dialog::init()).plugin(
+        // Its injected click script would call `open_url` over IPC, which the hub's page may not use: the
+        // click is swallowed. Links reach `on_new_window` in `build_window` instead.
+        tauri_plugin_opener::Builder::new().open_js_links_on_click(false).build(),
+    );
     #[cfg(desktop)]
     let builder = builder.plugin(tauri_plugin_updater::Builder::new().build());
     builder
@@ -92,6 +115,7 @@ pub fn run() {
             #[cfg(desktop)]
             let pending = Arc::clone(&pending);
             move |app| {
+                build_window(app)?;
                 servers::grant_saved(app.handle());
                 // The way back to Local from any page — including one without the rail (a sign-in
                 // page, a proxy error), where the in-app switcher is not available.
