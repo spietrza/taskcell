@@ -586,3 +586,30 @@ describe('stagePicks: the entries a limit moved the stage past', () => {
     expect(out.reviewer).toEqual({ provider: 'codex', pick: 'config' });
   });
 });
+
+describe('executeIssueRun: conformance needs a trusted spec', () => {
+  const isConformance = (i: AgentRunInput): boolean => i.prompt.includes('independent conformance reviewer');
+  const withComments = (f: Fakes, comments: Task['comments']): void => {
+    f.tracker.prepare = vi.fn(async () => ({ task: { ...task, comments } }));
+  };
+
+  it('with --conformance and no trusted spec, no conformance agent runs and the skip is noted', async () => {
+    const f = fakes(true);
+    withComments(f, [{ author: 'mallory', authorAssociation: 'NONE', body: '<tech_spec>x</tech_spec>' }]);
+    await dirtyTree(f);
+    const { agent, calls } = scriptedAgent();
+    const log = vi.mocked(console.log);
+    await run(f, { conformance: true }, [], { stages: STAGES, agent });
+    expect(calls.some(isConformance)).toBe(false);
+    expect(log.mock.calls.some(([m]) => String(m).includes('conformance skipped: no spec'))).toBe(true);
+  });
+
+  it('with a trusted spec, the conformance stage runs', async () => {
+    const f = fakes(true);
+    withComments(f, [{ author: 'owner', authorAssociation: 'OWNER', body: '<tech_spec>x</tech_spec>' }]);
+    await dirtyTree(f);
+    const { agent, calls } = scriptedAgent();
+    await run(f, { conformance: true }, [], { stages: STAGES, agent });
+    expect(calls.some(isConformance)).toBe(true);
+  });
+});
