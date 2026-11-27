@@ -14,6 +14,7 @@ import { scanCommitClosingKeywords } from '../pipeline/conformance-gate.js';
 import type { SecretBlock } from '../core/secret-scan.js';
 import type { CommitClosingLeak } from '../pipeline/conformance-gate.js';
 import type { RunContext } from '../core/taskcell.js';
+import { renderGuidedReview, type Chapter } from './guided-review.js';
 import type { CommandRunner, PublishOptions } from '../pipeline/remote-branch.js';
 
 /**
@@ -41,6 +42,12 @@ export type DeliveryTarget =
       /** Built after the commit so it can carry the closing-keyword leaks found in the new commits. */
       body: (info: { commitLeaks: CommitClosingLeak[]; facts: DeliveredChangeFacts }) => string;
       draft?: boolean;
+      /**
+       * Chapters for the guided review, generated from the final diff once it has passed the secret scan.
+       * undefined (or a throw) ⇒ the PR opens without the section; it never fails the run. Rendered with
+       * the PR's own URL and appended to the body right after the PR opens.
+       */
+      guidedReview?: (diff: string) => Promise<Chapter[] | undefined>;
       cli?: PublishOptions['cli'];
       tokenProvider?: PublishOptions['tokenProvider'];
       /** Injected git/gh runner (tests). */
@@ -176,6 +183,11 @@ export async function deliverChange(ctx: RunContext, opts: DeliverChangeOptions)
     }
     return redacted;
   };
+  const guidedReview = opts.target.kind === 'new-pr' ? opts.target.guidedReview : undefined;
+  const chapters: Chapter[] | undefined = await guidedReview?.(outgoingDiff).catch((err: unknown) => {
+    console.error(`taskcell: guided review skipped for ${opts.taskId}:`, err instanceof Error ? err.message : String(err));
+    return undefined;
+  });
   const identity = opts.commitAuthor !== undefined ? { authorName: opts.commitAuthor.name, authorEmail: opts.commitAuthor.email } : {};
   const commit = await commitStage(ctx, { message: redact(opts.commitMessage, 'commit message'), ...identity });
   if (!commit.committed) return { kind: 'no-changes' };
@@ -193,6 +205,9 @@ export async function deliverChange(ctx: RunContext, opts: DeliverChangeOptions)
     const pr = await publishForReview(ctx, {
       title: redact(conventionalPrTitle(target.title, target), 'PR title'),
       body: redact(target.body({ commitLeaks, facts }), 'PR body'),
+      ...(chapters !== undefined && chapters.length > 0
+        ? { appendAfterOpen: (prUrl: string) => redact(renderGuidedReview(chapters, prUrl, target.cli ?? 'gh'), 'PR body') }
+        : {}),
       ...(target.draft !== undefined ? { draft: target.draft } : {}),
       ...(target.cli !== undefined ? { cli: target.cli } : {}),
       ...(target.tokenProvider !== undefined ? { tokenProvider: target.tokenProvider } : {}),

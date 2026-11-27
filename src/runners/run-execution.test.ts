@@ -102,6 +102,8 @@ function scriptedAgent(reply: (input: AgentRunInput, n: number) => Reply = () =>
   const agent: AgentProvider = {
     name: 'claude',
     async *run(input: AgentRunInput): AsyncGenerator<AgentTurn, AgentRunOutput, void> {
+      // The guided-review call (one extra model call at delivery) is not a pipeline stage: not recorded.
+      if (input.prompt.includes('writing a guided review')) return { finalText: 'no chapters', turns: 1 };
       const n = calls.push(input) - 1;
       const r = reply(input, n);
       if (r instanceof Error) throw r;

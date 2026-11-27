@@ -45,6 +45,11 @@ export interface PublishOptions {
    * glab: the token pushes the branch instead (GitLab CI's job token usually may not push).
    */
   tokenProvider?: () => Promise<string | undefined>;
+  /**
+   * A section that needs the PR's own URL (links into "Files changed"): appended to the body in a
+   * second step once the PR exists. Best-effort — a failed edit leaves the PR as opened, never fails the run.
+   */
+  appendAfterOpen?: (prUrl: string) => string | undefined;
   /** Injected for tests; defaults to running git/gh via execa. */
   runner?: CommandRunner;
 }
@@ -354,5 +359,28 @@ export async function publishForReview(ctx: RunContext, opts: PublishOptions): P
       .map((line) => line.trim())
       .filter((line) => line.startsWith('http'))
       .pop() ?? out.trim();
+  const extra = opts.appendAfterOpen?.(prUrl);
+  if (extra !== undefined && extra !== '') await appendToBody(run, tool, prUrl, `${body}\n\n${extra}`, ctx, opts);
   return { branch: ctx.branch, prUrl, ...(headSha !== '' ? { headSha } : {}) };
+}
+
+async function appendToBody(run: CommandRunner, tool: string, prUrl: string, body: string, ctx: RunContext, opts: PublishOptions): Promise<void> {
+  let token: string | undefined;
+  let dir: string | undefined;
+  try {
+    if (tool === 'gh') {
+      dir = await mkdtemp(join(tmpdir(), 'vg-pr-body-'));
+      const file = join(dir, 'body.md');
+      await writeFile(file, body);
+      token = await resolveToken(opts.tokenProvider, opts.prToken, () => undefined);
+      await run('gh', ['pr', 'edit', prUrl, '--body-file', file], ctx.worktreePath, token !== undefined && token !== '' ? { GH_TOKEN: token } : undefined);
+    } else {
+      await run('glab', ['mr', 'update', prUrl, '--description', neutralizeQuickActions(body)], ctx.worktreePath);
+    }
+  } catch (cause) {
+    ctx.log.warn({ branch: ctx.branch }, `publish: adding the guided review to the PR body failed, leaving the body as opened: ${errorMessage(cause)}`);
+  } finally {
+    if (dir !== undefined) await rm(dir, { recursive: true, force: true });
+    await releaseToken(token);
+  }
 }

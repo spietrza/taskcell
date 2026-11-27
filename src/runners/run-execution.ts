@@ -15,6 +15,7 @@ import type { StagePick } from './model-pool-routing.js';
 import { decisionDiffScorer } from '../evals/decision-judge.js';
 import { runStages, sandboxComplete, reviewFinalDiff, STAGE } from '../pipeline/pipeline.js';
 import { buildReviewerAttribution, hasBlockingFinding } from '../pipeline/review-publish.js';
+import { generateGuidedReview } from './guided-review.js';
 import { stripReviewMarkers } from './review-prompt.js';
 import { beginRun, persistDecisionProbe } from '../core/run-store.js';
 import type { RunSkills } from '../core/run-store.js';
@@ -658,6 +659,7 @@ export async function executeIssueRun(run: IssueRunExecution): Promise<RunIssueR
         ...(scope !== undefined ? { scope } : {}),
         // Ready for review only after verification, every configured proof and the review verdict
         // landed: an unavailable re-review ships as a draft too.
+        guidedReview: (diff) => generateGuidedReview(sandboxComplete(ctx, agents.agent, deps.signal), diff),
         draft: partial || verifyCmd === undefined || visualProofFailed || reviewUnavailable,
         body: ({ commitLeaks, facts: { configBlock } }) => {
           // The PR-body gap block carries no branding, so white-label keeps it like the gate-config block.
