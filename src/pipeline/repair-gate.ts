@@ -4,6 +4,7 @@ import { literalPrompt } from '../context/prompt-engine.js';
 import { AgentError, isProviderLimitError } from '../core/errors.js';
 import { redactForPublish } from '../core/secret-scan.js';
 import { enforceUsageCap } from '../core/usage-cap.js';
+import { roundUsd } from '../core/usd.js';
 import { DEFAULT_RUN_MAX_COST_USD, STAGE } from './pipeline.js';
 import type { RunContext } from '../core/taskcell.js';
 import type { AgentProvider } from '../agents/provider.js';
@@ -26,8 +27,10 @@ import type { PipelineStage, StageOutcome } from './pipeline.js';
  * - Each repair's cost, turns and tokens are merged into the implementer outcome (`mergeAttempts`), and an
  *   escalated repair re-labels the outcome's model, so `taskcell stats` attributes the final attempt to the
  *   model that actually closed the gate.
- * - The per-call budget is stageCostFraction × DEFAULT_RUN_MAX_COST_USD (floored at stageCostFloorUsd):
- *   these calls run outside runStages' accounting, where the stage budget is Infinity.
+ * - The per-call budget is stageCostFraction × the run budget (`maxCostUsd`, else DEFAULT_RUN_MAX_COST_USD),
+ *   floored at stageCostFloorUsd: these calls run outside runStages' accounting, where the stage budget is
+ *   Infinity. With an explicit `maxCostUsd` each call is also capped at what the run has left (the cost of
+ *   every outcome so far), and no repair starts once that is spent.
  */
 
 export interface GateResult {
@@ -47,6 +50,8 @@ export interface RepairGateOptions<G extends GateResult> {
   /** The pipeline the outcomes came from (turn cap and cost fraction of the implementer stage). */
   pipeline: readonly PipelineStage[];
   maxIterations: number;
+  /** The run's budget in USD (app.json `budgetUsd` on hub runs); unset = DEFAULT_RUN_MAX_COST_USD for the per-call cap and no run-wide cap. */
+  maxCostUsd?: number;
   /** Fleet-wide escalation model for the 2nd+ repair; ignored when `modelPinned`. */
   escalateModel?: string;
   /** A per-task label pinned the model: the human's own escalation call, never overridden. */
@@ -77,9 +82,13 @@ export async function repairUntilGreen<G extends GateResult>(ctx: RunContext, op
   // A resumed repair inherits the implementer's own turn cap — runAgent's default (6) is useless for
   // finishing work that already exhausted 30 turns.
   const maxTurns = stage?.maxTurns;
-  const budgetUsd = stage?.stageCostFraction !== undefined
-    ? Math.max(stage.stageCostFraction * DEFAULT_RUN_MAX_COST_USD, stage.stageCostFloorUsd ?? 0)
+  const perCallUsd = stage?.stageCostFraction !== undefined
+    ? Math.max(stage.stageCostFraction * (opts.maxCostUsd ?? DEFAULT_RUN_MAX_COST_USD), stage.stageCostFloorUsd ?? 0)
     : undefined;
+  // What the run has left: every outcome's cost so far (repairs are merged into the implementer's).
+  const remainingUsd = (): number | undefined => opts.maxCostUsd === undefined
+    ? undefined
+    : roundUsd(opts.maxCostUsd - opts.outcomes.reduce((sum, o) => sum + (o.result.costUsd ?? 0), 0));
 
   let iterations = 0;
   for (;;) {
@@ -87,6 +96,12 @@ export async function repairUntilGreen<G extends GateResult>(ctx: RunContext, op
     if (last.pass || iterations >= opts.maxIterations || resumeSessionId === undefined) {
       return { passed: last.pass, iterations, last };
     }
+    const remaining = remainingUsd();
+    if (remaining !== undefined && remaining <= 0) {
+      log(`taskcell: gate FAILED for ${opts.label} — run budget of $${opts.maxCostUsd} spent, no repair started`);
+      return { passed: false, iterations, last };
+    }
+    const budgetUsd = remaining === undefined ? perCallUsd : roundUsd(Math.min(perCallUsd ?? remaining, remaining));
     iterations += 1;
     const escalate = iterations >= 2 && opts.escalateModel !== undefined && opts.modelPinned !== true;
     log(`taskcell: gate FAILED for ${opts.label} (attempt ${iterations}/${opts.maxIterations}) — resuming implement session${escalate ? ` on ${opts.escalateModel}` : ''}`);

@@ -13,6 +13,7 @@ import { resolveAndRunVisualProof } from '../pipeline/visual-proof.js';
 import { loadRetrospectiveMemory } from '../core/retrospective-memory.js';
 import { pickRunOptions, runSourcedIssue as runWith, conventionalCommitMessage } from './source-adapter.js';
 import { runCredentialContext } from './agent-session.js';
+import { runHubTask } from './hub.js';
 import type { AgentAuth } from '../agents/auth.js';
 import type { RunIssueDeps, Tracker, ReviewHost } from './source-adapter.js';
 import { extractPrBodyItemsBlock } from '../pipeline/conformance-gate.js';
@@ -1508,5 +1509,52 @@ describe('runCredentialContext', () => {
 
   it('falls back to process.env outside the hub', () => {
     expect(runCredentialContext({}).env).toBe(process.env);
+  });
+});
+
+// The hub path end to end (runHubTask → runSourcedIssue): app.json's settings arrive as these deps (sidecar/deps.ts).
+describe('runHubTask with app.json run settings', () => {
+  const stored = { id: 'hub-7', title: 'Add a health endpoint', body: 'GET /healthz answers 200' };
+  beforeEach(async () => {
+    vi.clearAllMocks();
+    const actual = await vi.importActual<typeof import('../pipeline/verify.js')>('../pipeline/verify.js');
+    vi.mocked(resolveVerifyCommand).mockReset().mockImplementation(async (wt, opts) => (opts?.cmd !== undefined ? actual.resolveVerifyCommand(wt, opts) : 'auto-detected'));
+    vi.mocked(runVerification).mockReset().mockResolvedValue({ passed: true } as never);
+    vi.mocked(resolveAndRunVisualProof).mockReset().mockResolvedValue(undefined);
+    runStages.mockResolvedValue([stageOutcome('implementer', 'sess-1'), stageOutcome('reviewer')]);
+    commitStage.mockResolvedValue({ committed: true, branch: 'b', sha: 'abc1234' });
+    publishForReview.mockResolvedValue({ branch: 'b' });
+    wmDiff.mockResolvedValue('');
+    wmCommitMessages.mockResolvedValue([]);
+  });
+
+  it('the gate runs exactly the configured verifyCmd; the reviewer stage runs on the configured reviewProvider', async () => {
+    vi.mocked(selectAgents).mockReturnValueOnce({ agent: { name: 'claude' }, reviewAgent: { name: 'codex' }, secrets: {}, proxySecrets: {}, injectAnthropicAuth: false } as never);
+    await runHubTask(stored, { repoPath: '/repo', verifyCmd: 'make check', reviewProvider: 'codex' });
+    expect(resolveVerifyCommand).toHaveBeenCalledWith('/wt', expect.objectContaining({ cmd: 'make check' }));
+    expect(runVerification).toHaveBeenCalled();
+    for (const call of vi.mocked(runVerification).mock.calls) expect(call[1]).toBe('make check');
+    expect(selectAgents).toHaveBeenLastCalledWith(expect.objectContaining({ reviewProvider: 'codex' }), expect.anything(), expect.anything());
+    const reviewer = (runStages.mock.calls[0]?.[1] as PipelineStage[]).find((s) => s.name === 'reviewer');
+    expect(reviewer?.provider?.name).toBe('codex');
+  });
+
+  it('unset keeps verify auto-detection and the default reviewer', async () => {
+    await runHubTask(stored, { repoPath: '/repo' });
+    expect(vi.mocked(resolveVerifyCommand).mock.calls.every(([, opts]) => opts?.cmd === undefined)).toBe(true);
+    for (const call of vi.mocked(runVerification).mock.calls) expect(call[1]).toBe('auto-detected');
+    expect(vi.mocked(selectAgents).mock.calls.at(-1)?.[0]).not.toHaveProperty('reviewProvider');
+    const reviewer = (runStages.mock.calls[0]?.[1] as PipelineStage[]).find((s) => s.name === 'reviewer');
+    expect(reviewer?.provider).toBeUndefined();
+  });
+
+  it('the run budget reaches the stages and caps each gate repair', async () => {
+    vi.mocked(runVerification).mockResolvedValueOnce({ passed: false } as never).mockResolvedValue({ passed: true } as never);
+    runAgent.mockResolvedValue({ sessionId: 'sess-1', completed: true, exitReason: 'completed', turns: 1 } as never);
+    await runHubTask(stored, { repoPath: '/repo', verifyCmd: 'make check', maxCostUsd: 1 });
+    expect(runStages.mock.calls[0]?.[2]).toMatchObject({ maxCostUsd: 1 });
+    expect(runAgent).toHaveBeenCalled();
+    // 0.6 × $1 — not 0.6 × the $5 default.
+    expect(runAgent.mock.calls[0]?.[1]).toMatchObject({ maxBudgetUsd: 0.6 });
   });
 });

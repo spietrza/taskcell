@@ -49,6 +49,28 @@ export function configuredFlow(cfg: AppConfig): string | undefined {
   return typeof cfg.flow === 'string' && cfg.flow.trim() !== '' ? cfg.flow : undefined;
 }
 
+/** The app.json settings a hub-launched run uses (sidecar/deps.ts); each absent when unset or unusable. */
+export interface RunAppSettings {
+  verifyCmd?: string;
+  reviewProvider?: string;
+  /** From `budgetUsd`. */
+  maxCostUsd?: number;
+}
+
+/** Normalise the run settings: `verifyCmd` / `reviewProvider` count when a non-blank string (trimmed); `budgetUsd` when finite and
+ * > 0 — 0 is the editor's placeholder, so it falls back to the pipeline's default cap. */
+export function runAppSettings(cfg: AppConfig): RunAppSettings {
+  const text = (v: unknown): string | undefined => (typeof v === 'string' && v.trim() !== '' ? v.trim() : undefined);
+  const verifyCmd = text(cfg.verifyCmd);
+  const reviewProvider = text(cfg.reviewProvider);
+  const budget = cfg.budgetUsd;
+  return {
+    ...(verifyCmd !== undefined ? { verifyCmd } : {}),
+    ...(reviewProvider !== undefined ? { reviewProvider } : {}),
+    ...(typeof budget === 'number' && Number.isFinite(budget) && budget > 0 ? { maxCostUsd: budget } : {}),
+  };
+}
+
 function configPath(repoPath: string): string {
   return join(stateDir(repoPath), 'app.json');
 }
