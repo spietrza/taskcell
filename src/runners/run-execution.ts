@@ -27,6 +27,7 @@ import type { StepSummary, StepSummaryExit } from '../core/step-summary.js';
 import { loadLessonsForTask } from '../core/lessons.js';
 import { loadRetrospectiveMemory, refreshRetrospectiveMemory } from '../core/retrospective-memory.js';
 import { resolveVerifyCommand, runVerification, renderVerificationFeedback, proofBlock, verifySkippedBlock, baseRedBlock } from '../pipeline/verify.js';
+import { verifyInstruction, gateResultText } from '../pipeline/verify-prompt.js';
 import { resolveBaselineVerify } from '../pipeline/baseline-verify.js';
 import { resolveAndRunVisualProof, visualProofBlock } from '../pipeline/visual-proof.js';
 import { reviewRequestBody } from './review-body.js';
@@ -377,10 +378,14 @@ export async function executeIssueRun(run: IssueRunExecution): Promise<RunIssueR
     }
     // One set of prompt variables for the whole run: the final-diff re-review below renders the same
     // reviewer prompt, so it must see the same task.
-    const variables = {
+    const promptVerifyCmd = skipBaseline ? await resolveVerifyCommand(ctx.worktreePath, verifyOpts) : resolvedBase;
+    // Mutable: the gate refreshes the verify variables, so the reviewer (and the final re-review) see the host gate's result.
+    const variables: Record<string, string> = {
       ...taskToVariables(task, { allowedAuthors: deps.feedbackAuthors }),
       ...(tracker.variables?.(issueRef, task) ?? {}),
       RETROSPECTIVE_MEMORY: escapePromptTags(retrospectiveMemory),
+      VERIFY_INSTRUCTION: escapePromptTags(verifyInstruction(promptVerifyCmd)),
+      GATE_RESULT: gateResultText(undefined),
     };
     // Deterministic spec-manifest vs diff conformance gate, joined with the verify command into a
     // single shared-cap repair loop: either gate failing resumes the implementer's own session with a
@@ -423,6 +428,8 @@ export async function executeIssueRun(run: IssueRunExecution): Promise<RunIssueR
       conformance = checkConformance(manifest, gateDiff);
       gatedTree = await ctx.wm.outgoingDiff(ctx.worktreePath);
       verification = verifyCmd !== undefined ? await runVerification(ctx.sandbox, verifyCmd) : undefined;
+      variables.VERIFY_INSTRUCTION = escapePromptTags(verifyInstruction(verifyCmd));
+      variables.GATE_RESULT = escapePromptTags(gateResultText(verification));
       // Completion is part of the gate (dogfood #352): an implementer that hit its turn cap or timeout
       // mid-task can leave residue that still typechecks and tests green. Gate on `completed`, NOT on
       // exitReason === 'maxTurns': the SDK counts internal steps as turns while vanguard counts real

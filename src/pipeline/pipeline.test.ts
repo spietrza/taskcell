@@ -1622,3 +1622,17 @@ describe('usage cap', () => {
     await disposeContext(ctx);
   });
 });
+
+describe('canonical prompts', () => {
+  it('system prompt mentions no unregistered tools', () => {
+    expect(defaultSystemPrompt()).not.toMatch(/run_tests|when a tool is available/);
+  });
+  it('implementer uses VERIFY_INSTRUCTION; reviewer gets GATE_RESULT and no run-tests instruction', () => {
+    const stages = implementReviewSimplifyStages();
+    const impl = stages.find((s) => s.name === STAGE.IMPLEMENTER)!;
+    const rev = stages.find((s) => s.name === STAGE.REVIEWER)!;
+    expect(impl.promptTemplate).toContain('{{VERIFY_INSTRUCTION}}');
+    expect(rev.promptTemplate).toContain('{{GATE_RESULT}}');
+    expect(rev.promptTemplate).toContain('Do not run builds or tests');
+  });
+});
