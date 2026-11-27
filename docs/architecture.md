@@ -17,7 +17,7 @@ Taskcell treats autonomous coding as an engineering system, not a prompt-and-pra
 <p align="center">
   <picture>
     <source media="(prefers-color-scheme: dark)" srcset="diagrams/run-pipeline-dark.svg" />
-    <img src="diagrams/run-pipeline-light.svg" width="100%" alt="One Taskcell run: on the host (a CI job or a watch loop), claim and triage (no model call; too vague goes to needs info). In the Docker sandbox: implement, review (Codex, fresh context, fixes), simplify (fresh context), then verify with the repo's verify script (else its detected test scripts); red sends it to repair (at most 2, the second on a stronger model) and back to verify. Green, or repairs used up, goes back to the host: secret scan (a hit pushes nothing), then push and open a PR, or an MR on GitLab: ready for review when green, a draft with verify-failed when still red, and also a draft when no verify command ran or the visual proof failed." />
+    <img src="diagrams/run-pipeline-light.svg" width="100%" alt="One Taskcell run: on the host (a CI job or a watch loop), claim and triage (no model call; too vague goes to needs info). In the Docker sandbox: implement, simplify (fresh context), verify, then review (Codex, fresh context, fixes) with the repo's verify script (else its detected test scripts); red sends it to repair (at most 2, the second on a stronger model) and back to verify. Green, or repairs used up, goes back to the host: secret scan (a hit pushes nothing), then push and open a PR, or an MR on GitLab: ready for review when green, a draft with verify-failed when still red, and also a draft when no verify command ran or the visual proof failed." />
   </picture>
 </p>
 

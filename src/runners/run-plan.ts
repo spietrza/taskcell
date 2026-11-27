@@ -399,7 +399,7 @@ export function planRevision(input: RevisionPlanInput): RevisionPlan {
 }
 
 /**
- * The revision's stages: implement → review → simplify, with the review on its own provider, the
+ * The revision's stages: implement → simplify → review, with the review on its own provider, the
  * effective model and the review model applied, and the fallbacks wired.
  */
 export function planRevisionPipeline(

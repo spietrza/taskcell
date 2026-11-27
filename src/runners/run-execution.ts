@@ -519,7 +519,7 @@ export async function executeIssueRun(run: IssueRunExecution): Promise<RunIssueR
         // No reviewer stage: nothing to run the gate ahead of, so it runs on the final tree.
         gatePassed = (await repairUntilGreen(ctx, { ...repairOpts(), gate })).passed;
       } else if (await ctx.wm.outgoingDiff(ctx.worktreePath) !== gatedTree) {
-        // Reviewer fixes or the simplifier changed files after the first pass: verify the final tree,
+        // Reviewer-driven repairs changed files after the first pass: verify the final tree,
         // so the proof stamped into the PR body is the one for what ships.
         const final = await repairUntilGreen(ctx, { ...repairOpts(gateIterations), gate });
         gatePassed = final.passed;

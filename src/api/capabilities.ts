@@ -19,7 +19,7 @@ import type { Capabilities, FlowDoc } from '../wire.js';
  * Subsystem 2 populates HCL-loaded flows (A/B). Kept intentionally tiny — this is not the HCL loader.
  */
 export const FLOWS: Record<string, { label: string; build: () => PipelineStage[] }> = {
-  default: { label: 'Implement → review → simplify', build: implementReviewSimplifyStages },
+  default: { label: 'Implement → simplify → review', build: implementReviewSimplifyStages },
   plan: { label: 'Plan → implement → review', build: planImplementReviewStages },
   'flow-b': { label: 'Plan → implement → adversary → repair', build: planImplementAdversaryStages },
 };
