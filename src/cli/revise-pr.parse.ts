@@ -22,6 +22,7 @@ export function parseRevisePrCommand(ctx: ParseCtx): Command {
     ...(typeof values.skills === 'string' ? { skillsDir: values.skills } : {}),
     egress: values.egress === true,
     ...(values['llm-proxy'] === true ? { llmProxy: true } : {}),
+    ...(typeof values['gitlab-project'] === 'string' ? { gitlabProject: values['gitlab-project'] } : {}),
     ...(typeof values['github-repo'] === 'string' ? { repoSlug: values['github-repo'] } : {}),
     ...(builtinProvider !== undefined ? { provider: builtinProvider } : {}),
     ...(fallbackProvider !== undefined ? { fallbackProvider } : {}),

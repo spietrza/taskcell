@@ -3,6 +3,7 @@ import { customEgressHosts } from '../agents/registry.js';
 import { agentAuthFromEnv, refuseLlmProxyWithoutPrimarySidecar } from '../agents/auth.js';
 import { startSandboxContext } from '../sandbox/sandbox-context.js';
 import { runRevisePullRequest } from '../runners/revise-pr.js';
+import { runReviseMergeRequest } from '../runners/revise-mr.js';
 import { formatConflictFiles } from '../runners/base-merge.js';
 import type { ReviseGithubPrDeps, ReviseGithubPrResult } from '../runners/revise-pr.js';
 import type { Command } from './args.js';
@@ -18,7 +19,9 @@ export interface RevisePrCommandDeps {
 /** Read human review feedback on a bot PR, apply fixes, and hand it back ready to merge. */
 export async function revisePrCommand(cmd: RevisePrCommand, deps: RevisePrCommandDeps = {}): Promise<void> {
   const log = deps.log ?? console.log;
-  const runRevise = deps.revisePullRequest ?? runRevisePullRequest;
+  // A GitLab MR (a URL, or an iid with --gitlab-project) goes through the same round on the GitLab forge.
+  const gitlab = cmd.gitlabProject !== undefined || cmd.prRef.includes('/-/merge_requests/');
+  const runRevise: RevisePullRequestRunner = deps.revisePullRequest ?? (gitlab ? (ref, d) => runReviseMergeRequest(ref, { ...d, ...(cmd.gitlabProject !== undefined ? { project: cmd.gitlabProject } : {}) }) : runRevisePullRequest);
 
   // Ctrl-C during a repair resume aborts it (observed when the current agent exec ends), as in watch-prs.
   const controller = new AbortController();

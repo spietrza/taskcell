@@ -1,6 +1,6 @@
 import { hasReviewHeading } from '../core/labels.js';
 import { classifyAuthor, isBotLogin } from '../tasks/comment-trust.js';
-import { hasMarker, lastMarkerAt, revisionRounds, writeMarker } from '../core/comment-ledger.js';
+import { hasMarker, lastMarkerAt, parseMarkers, revisionRounds, writeMarker } from '../core/comment-ledger.js';
 import type { LedgerComment } from '../core/comment-ledger.js';
 import { hasPullRequestReviewIncompleteMarker, hasPullRequestReviewMarker, soleReviewMarkerSha } from './pr-review.js';
 import { extractFindings } from '../structured/findings.js';
@@ -46,6 +46,11 @@ export interface ActionableOptions {
   botLogins?: string[];
   /** Current PR head SHA — items with this SHA's marker in their body are skipped. */
   headRefOid: string;
+  /**
+   * GitLab: the login Taskcell's own notes carry. Its notes are never feedback except the CI watch's (CI-failure and
+   * base-conflict comments), which are trusted because the factory wrote them, and which a bot-named login does not drop.
+   */
+  ownLogin?: string;
   /**
    * Override for the watermark timestamp. Defaults to PullRequestFeedback.headCommittedDate.
    * Pass '' to skip the watermark filter entirely (rely on resolve-state alone).
@@ -214,7 +219,13 @@ export function partitionActionableFeedback(fb: PullRequestFeedback, opts: Actio
   const extraBots = opts.botLogins ?? [];
   const watermark = opts.headCommittedDate !== undefined ? opts.headCommittedDate : fb.headCommittedDate;
 
+  const own = opts.ownLogin?.toLowerCase();
   const actionable = fb.items.filter((item) => {
+    if (own !== undefined && item.author.toLowerCase() === own) {
+      // Own notes: only the CI watch's are asks; reviews, replies and notices are the factory talking.
+      if (!hasCiFailedMarker(item.body) && !hasConflictMarker(item.body)) return false;
+      return item.isResolved !== true && (watermark === '' || item.createdAt === '' || item.createdAt > watermark);
+    }
     if (isBotLogin(item.author, extraBots)) return false;
     if (hasPullRequestReviewMarker(item.body, opts.headRefOid)) return false;
     if (hasPullRequestReviewIncompleteMarker(item.body)) return false;
@@ -449,6 +460,12 @@ function proseBlockingFindings(body: string): string[] {
   return out;
 }
 
+/** The head SHA of a GitLab MR review note (`mr-review` marker) when it carries exactly one distinct one. */
+function soleMrReviewMarkerSha(body: string): string | undefined {
+  const shas = new Set(parseMarkers<string>('mr-review', body));
+  return shas.size === 1 ? [...shas][0] : undefined;
+}
+
 /** Blocking findings of a bot review: its structured (high/critical) findings, else those in its Markdown. */
 function reviewBlockingFindings(body: string): string[] {
   const blockingVerdict = extractCommentVerdict(body) === 'blocking';
@@ -477,7 +494,7 @@ export function buildRevisionChecklist(fb: PullRequestFeedback, actionable: read
   const reviews = fb.items
     // Exact bot logins only (classifyAuthor, not the substring isBotLogin): an outsider named `mallory-vanguard`
     // must not plant checklist items. Exactly one marker SHA, the head's (soleReviewMarkerSha, as in the approver).
-    .filter((i) => classifyAuthor(i.author, i.authorAssociation, { botLogins }) === 'bot' && hasReviewHeading(i.body) && soleReviewMarkerSha(i.body) === fb.headRefOid)
+    .filter((i) => classifyAuthor(i.author, i.authorAssociation, { botLogins }) === 'bot' && hasReviewHeading(i.body) && (soleReviewMarkerSha(i.body) ?? soleMrReviewMarkerSha(i.body)) === fb.headRefOid)
     .sort((a, b) => a.createdAt.localeCompare(b.createdAt));
   const latest = reviews[reviews.length - 1];
   const out: string[] = [];

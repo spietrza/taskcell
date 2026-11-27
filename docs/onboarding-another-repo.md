@@ -485,3 +485,7 @@ The research sandbox runs under the same egress allowlist as the spec and agent 
 - General search/fetch: your preferred search API endpoint
 
 `research.yml` does not offer `--web` as an input: widening egress is a deliberate, per-host decision, not a toggle.
+
+## GitLab: the CI watch
+
+On GitLab the scheduled review sweep from the CI template (`templates/gitlab/taskcell.yml`, hub "GitLab CI"; the job that runs `watch-mrs --once` in a pipeline with `TASKCELL_SWEEP=true`) is also the CI watch: after reviewing, it asks for a revision (`needs revision` plus a `## CI failed on <sha>` or `## Conflicts with <base> on <sha>` note) on factory MRs whose latest pipeline failed or that conflict with their target. Pass `--no-ci-watch` to turn it off and `--dry-run` to preview it. A revise job runs `taskcell revise-pr <iid> --gitlab-project "$CI_PROJECT_PATH" --feedback-authors "<login>"`; only the logins in `--feedback-authors` (and the CI watch's own notes) become change requests. See [cli.md](cli.md) ("CI watch") and [hub.md](hub.md#gitlab-ci). This repo's own `.gitlab-ci.yml` and `.gitlab/` are not touched.
