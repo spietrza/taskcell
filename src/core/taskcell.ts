@@ -15,6 +15,7 @@ import { acquireSandboxSlot, releaseSandboxSlot } from './concurrency.js';
 import { SandboxError, WorkflowGuardError, WorktreeError } from './errors.js';
 import { DEFAULT_BASE_BRANCH, assertSafeBaseBranch, redactGitError, resolveRemoteBaseRef } from './base-branch.js';
 import { exportWorkspace, isCiConfigPath } from '../sandbox/copy-back.js';
+import { overlaySandboxInstructions, snapshotSandboxInstructions } from './sandbox-instructions.js';
 import type { RunOptions, RunResult, ExitReason, ReasoningEffort } from './types.js';
 import type { IsolatedSandboxProvider } from '../sandbox/provider.js';
 import type { AgentProvider, AgentUsage } from '../agents/provider.js';
@@ -73,6 +74,10 @@ export interface RunContext {
   log: TaskcellLogger;
   /** CI config files the agent added or edited in the sandbox, which copy-back dropped. The PR/MR description or revision summary lists them. */
   droppedCiPaths?: Set<string>;
+  /** Trusted ref (the default branch) whose instruction files every stage's agent sees instead of the worktree's. Unset: the worktree's own. */
+  instructionRef?: string;
+  /** Instruction files in the sandbox right after provisioning (path -> hash): the only sandbox-only ones the overlay keeps. */
+  provisionedInstructions?: Map<string, string>;
 }
 
 export interface StageInput {
@@ -98,6 +103,12 @@ export interface StageInput {
    * back. The asymmetry is deliberate — do NOT add copyBack to RunOptions.
    */
   copyBack?: boolean;
+  /**
+   * Ref whose instruction files (CLAUDE.md, AGENTS.md, .claude/, .cursor/, …) the agent sees in the sandbox
+   * instead of the change's own; defaults to ctx.instructionRef. The worktree and the copied-back diff keep
+   * the change's files (plus the agent's own edits), never the overlay.
+   */
+  instructionRef?: string;
   /** Effective per-stage budget cap in USD (for metric logging only). */
   stageCapUsd?: number;
   /** Remaining global budget before this stage (for metric logging only). */
@@ -223,6 +234,8 @@ export async function prepareContext(opts: PrepareOptions, deps: RunDeps = {}): 
     await seedSandboxGit(opts.sandbox);
     const skills = typeof deps.skills === 'function' ? await deps.skills(wt.path) : (deps.skills ?? new SkillRegistry({}));
     await skills.injectAll(opts.sandbox, home, opts.agentName, opts.reviewAgentName, opts.fallbackAgentName);
+    // Unlistable: an empty snapshot, so the overlay drops every sandbox-only instruction file (fails closed).
+    const provisionedInstructions = await snapshotSandboxInstructions(opts.sandbox).catch(() => new Map<string, string>());
     const ctx: RunContext = {
       taskId: opts.taskId,
       sandbox: opts.sandbox,
@@ -234,6 +247,7 @@ export async function prepareContext(opts: PrepareOptions, deps: RunDeps = {}): 
       startRef,
       wm,
       log,
+      provisionedInstructions,
     };
     // The one place the start commit is announced: everything downstream reads ctx.startRef.
     ctx.log.info({ taskId: opts.taskId, baseBranch: opts.baseBranch, startRef }, 'run start');
@@ -380,6 +394,8 @@ export async function runAgent(ctx: RunContext, input: StageInput): Promise<RunR
 
     const prompt = await renderPrompt(input.promptTemplate, { variables: input.variables ?? {}, sandbox: ctx.sandbox });
 
+    const instructionRef = input.instructionRef ?? ctx.instructionRef;
+    const restoreInstructions = instructionRef !== undefined ? await overlaySandboxInstructions(ctx, instructionRef) : undefined;
     const gen = input.agent.run({
       prompt,
       sandbox: ctx.sandbox,
@@ -408,25 +424,30 @@ export async function runAgent(ctx: RunContext, input: StageInput): Promise<RunR
     let stopReason: string | undefined;
     let lastBlock: string | undefined;
 
-    for (;;) {
-      const next = await gen.next();
-      if (next.done) {
-        finalText = next.value.finalText;
-        turns = next.value.turns;
+    try {
+      for (;;) {
+        const next = await gen.next();
+        if (next.done) {
+          finalText = next.value.finalText;
+          turns = next.value.turns;
+          if (next.value.sessionId !== undefined) sessionId = safeSession(next.value.sessionId) ?? sessionId;
+          usage = next.value.usage;
+          costUsd = next.value.costUsd;
+          transcript = next.value.transcript;
+          if (next.value.model !== undefined) modelUsed = next.value.model;
+          cachedInInput = next.value.cachedInInput;
+          stopReason = next.value.stopReason;
+          lastBlock = next.value.lastBlock;
+          break;
+        }
         if (next.value.sessionId !== undefined) sessionId = safeSession(next.value.sessionId) ?? sessionId;
-        usage = next.value.usage;
-        costUsd = next.value.costUsd;
-        transcript = next.value.transcript;
-        if (next.value.model !== undefined) modelUsed = next.value.model;
-        cachedInInput = next.value.cachedInInput;
-        stopReason = next.value.stopReason;
-        lastBlock = next.value.lastBlock;
-        break;
+        // DEBUG-ONLY: this line logs raw model output (`text`) and may contain task content; it must
+        // stay at debug level. Never log prompts or secrets, and never raise this to info.
+        ctx.log.debug({ taskId: ctx.taskId, text: next.value.text }, 'agent turn');
       }
-      if (next.value.sessionId !== undefined) sessionId = safeSession(next.value.sessionId) ?? sessionId;
-      // DEBUG-ONLY: this line logs raw model output (`text`) and may contain task content; it must
-      // stay at debug level. Never log prompts or secrets, and never raise this to info.
-      ctx.log.debug({ taskId: ctx.taskId, text: next.value.text }, 'agent turn');
+    } finally {
+      // Before copy-back: the overlay must not reach the diff; the agent's own edits only do when the stage copies back.
+      await restoreInstructions?.(input.copyBack !== false);
     }
     // A gateway that predates the requested model can silently serve its own default instead of
     // erroring (live case: Meridian 1.43.0's bundled SDK answered claude-fable-5 requests with

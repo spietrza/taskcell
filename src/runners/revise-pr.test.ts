@@ -618,6 +618,7 @@ describe('runRevisePullRequest happy path', () => {
     await execa('git', ['remote', 'add', 'origin', repo], { cwd: repo });
     const featureSha = (await execa('git', ['rev-parse', 'feature-branch'], { cwd: repo })).stdout;
     const gh: GhRunner = async (args) => {
+      if (args[0] === 'repo' && args[1] === 'view') return JSON.stringify({ defaultBranchRef: { name: 'main' } });
       if (args[0] === 'pr' && args[1] === 'view') return makePrViewJson({ headRefOid: featureSha });
       if (args[0] === 'api' && args[1] === 'graphql') {
         const query = args.find((a) => a.startsWith('query=')) ?? '';
@@ -667,6 +668,7 @@ describe('runRevisePullRequest happy path', () => {
     const calls: string[][] = [];
     const gh: GhRunner = async (args) => {
       calls.push(args);
+      if (args[0] === 'repo' && args[1] === 'view') return JSON.stringify({ defaultBranchRef: { name: 'main' } });
       // headRefOid is not the sha of feature-branch: resolveStartRef refuses the fetched head.
       if (args[0] === 'pr' && args[1] === 'view') return makePrViewJson();
       if (args[0] === 'api' && args[1] === 'graphql') return makeFeedbackJson();
@@ -700,6 +702,7 @@ describe('runRevisePullRequest happy path', () => {
     await git(['checkout', 'main']);
     await git(['remote', 'add', 'origin', repo]);
     const gh: GhRunner = async (args) => {
+      if (args[0] === 'repo' && args[1] === 'view') return JSON.stringify({ defaultBranchRef: { name: 'main' } });
       if (args[0] === 'pr' && args[1] === 'view') return makePrViewJson({ headRefName: '+main', headRefOid: prHead });
       if (args[0] === 'api' && args[1] === 'graphql') {
         const query = args.find((a) => a.startsWith('query=')) ?? '';
@@ -3033,5 +3036,106 @@ describe('runRevisePullRequest blocking-item checklist', () => {
     const { ghCalls, result } = await run('1. DISPUTED: src/a.ts — already handled\n2. NOT FIXED: out of scope', { noChange: true });
     await expect(result).rejects.toThrow(/pushed nothing/);
     expect(reReview(ghCalls)).toBe(false);
+  });
+});
+
+describe('runRevisePullRequest instruction files', () => {
+  /** Sandbox that snapshots every copyIn (path -> content) and every exec command. */
+  function recordingSandbox(hashOutput = '', base64Output = ''): { sandbox: IsolatedSandboxProvider; copies: Map<string, string>[]; commands: string[] } {
+    const copies: Map<string, string>[] = [];
+    const commands: string[] = [];
+    const base = makeSandbox();
+    const sandbox = {
+      ...base,
+      exec: async (command: string): Promise<ExecResult> => {
+        commands.push(command);
+        if (command.includes('$HOME')) return { stdout: '/root', stderr: '', exitCode: 0 };
+        return { stdout: command.includes('hash-object') ? hashOutput : command.includes('base64') ? base64Output : '', stderr: '', exitCode: 0 };
+      },
+      copyIn: async (hostPath: string): Promise<void> => {
+        const files = new Map<string, string>();
+        for (const rel of (await readdir(hostPath, { recursive: true })).filter((p) => !p.startsWith('.git'))) {
+          const content = await readFile(join(hostPath, rel), 'utf8').catch(() => undefined);
+          if (content !== undefined) files.set(rel, content);
+        }
+        copies.push(files);
+      },
+    } as unknown as IsolatedSandboxProvider;
+    return { sandbox, copies, commands };
+  }
+
+  async function seedInstructions(): Promise<void> {
+    const git = (...args: string[]): Promise<unknown> => execa('git', ['-c', 'user.email=t@t', '-c', 'user.name=t', ...args], { cwd: repo });
+    await writeFile(join(repo, 'CLAUDE.md'), 'rule 1\nrule 2\nrule 3\n');
+    await git('add', '.');
+    await git('commit', '-m', 'base instructions');
+    await git('checkout', 'feature-branch');
+    await git('merge', 'main');
+    await writeFile(join(repo, 'CLAUDE.md'), 'head rule 1\nrule 2\nrule 3\n');
+    await mkdir(join(repo, '.claude'));
+    await writeFile(join(repo, '.claude', 'settings.json'), '{"hooks":"evil"}');
+    await git('add', '.');
+    await git('commit', '-m', 'head edits instructions');
+    await git('checkout', 'main');
+  }
+
+  const revise = (sandbox: IsolatedSandboxProvider, instructionRef: string | undefined): ReturnType<typeof runRevisePullRequest> =>
+    runRevisePullRequest('7', {
+      repoPath: repo, repoSlug: 'o/r', gh: makeGh(), _sandbox: sandbox, _agent: agentThatCompletes([]),
+      _worktrees: new WorktreeManager(repo), _pushRunner: async () => '', _baseBranch: 'feature-branch', provider: 'claude',
+      ...(instructionRef !== undefined ? { _instructionRef: instructionRef } : {}),
+    });
+
+  it("gives the agent the default branch's instruction files, then puts the head's back before copy-back", async () => {
+    await seedInstructions();
+    const { sandbox, copies, commands } = recordingSandbox();
+    await revise(sandbox, 'main');
+    const overlay = copies.find((c) => c.get('CLAUDE.md') === 'rule 1\nrule 2\nrule 3\n' && !c.has('README.md'));
+    expect(overlay).toBeDefined();
+    expect(overlay?.has('.claude/settings.json')).toBe(false);
+    expect(commands.some((c) => c.includes('rm -rf') && c.includes(".claude/settings.json'") && c.includes("'CLAUDE.md'"))).toBe(true);
+    // The head's own versions go back into the sandbox, so the pushed result keeps the PR's edits.
+    const last = copies[copies.length - 1]!;
+    expect(copies.filter((c) => c.get('CLAUDE.md') === 'head rule 1\nrule 2\nrule 3\n').length).toBeGreaterThan(1);
+    expect(last.get('CLAUDE.md')).toBe('head rule 1\nrule 2\nrule 3\n');
+    expect(last.get('.claude/settings.json')).toBe('{"hooks":"evil"}');
+  });
+
+  it("applies the agent's own edit onto the head's version, so the PR's edit to the same file is not lost", async () => {
+    await seedInstructions();
+    // .claude/settings.json untouched (MISSING, as the overlay left it); CLAUDE.md edited away from the base blob.
+    const agentFile = Buffer.from('rule 1\nrule 2\nrule 3 agent\n').toString('base64');
+    const { sandbox, copies } = recordingSandbox('MISSING\ndeadbeef\n', agentFile);
+    await revise(sandbox, 'main');
+    const merged = copies.find((c) => c.get('CLAUDE.md') === 'head rule 1\nrule 2\nrule 3 agent\n');
+    expect(merged).toBeDefined();
+    expect(merged?.get('.claude/settings.json')).toBe('{"hooks":"evil"}');
+  });
+
+  it('asks the forge for the default branch and overlays that, not the PR base', async () => {
+    const git = (...args: string[]): Promise<unknown> => execa('git', ['-c', 'user.email=t@t', '-c', 'user.name=t', ...args], { cwd: repo });
+    await git('checkout', '-b', 'trunk');
+    await writeFile(join(repo, 'CLAUDE.md'), 'trunk rules');
+    await git('add', '.');
+    await git('commit', '-m', 'trunk rules');
+    await git('checkout', 'feature-branch');
+    await writeFile(join(repo, 'CLAUDE.md'), 'head rules');
+    await git('add', '.');
+    await git('commit', '-m', 'head rules');
+    const headSha = (await execa('git', ['rev-parse', 'HEAD'], { cwd: repo })).stdout;
+    await git('checkout', 'main');
+    await git('remote', 'add', 'origin', repo);
+    const inner = makeGh();
+    const gh: GhRunner = async (args) => {
+      if (args[0] === 'repo' && args[1] === 'view') return JSON.stringify({ defaultBranchRef: { name: 'trunk' } });
+      if (args[0] === 'pr' && args[1] === 'view' && args.some((a) => a.includes('headRefName'))) return makePrViewJson({ headRefOid: headSha });
+      return inner(args);
+    };
+    const { sandbox, copies } = recordingSandbox();
+    await runRevisePullRequest('7', {
+      repoPath: repo, repoSlug: 'o/r', gh, _sandbox: sandbox, _agent: agentThatCompletes([]),
+      _worktrees: new WorktreeManager(repo), _pushRunner: async () => '', provider: 'claude',
+    });
+    expect(copies.some((c) => c.get('CLAUDE.md') === 'trunk rules' && !c.has('README.md'))).toBe(true);
   });
 });

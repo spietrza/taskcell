@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import { mkdtemp, rm, writeFile, mkdir } from 'node:fs/promises';
+import { mkdtemp, readFile, readlink, rm, symlink, writeFile, mkdir } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { execa } from 'execa';
@@ -7,6 +7,7 @@ import { prepareContext, disposeContext } from '../core/taskcell.js';
 import { DIFF_ESCAPING_NOTE, diffForPrompt } from '../context/escape.js';
 import {
   runStages,
+  reviewFinalDiff,
   runBudgetedStages,
   commitStage,
   generateEvaluateRepairStages,
@@ -1619,6 +1620,90 @@ describe('usage cap', () => {
     const ctx = await prepareContext({ taskId: 'cap3', localRepoPath: repo, baseBranch: 'main', start: 'base', sandbox: makeSandbox() }, { worktrees: new WorktreeManager(repo) });
     expect(await runStages(ctx, [{ name: 'implementer', promptTemplate: 'x' }], { agent: capped('p1') })).toHaveLength(1);
     expect(await runStages(ctx, [{ name: 'implementer', promptTemplate: 'x' }], { agent: capped('never-seen') })).toHaveLength(1);
+    await disposeContext(ctx);
+  });
+});
+
+describe('runStages instruction files', () => {
+  it("shows the review stages the base's instruction files, not the implementer's edit, and keeps the edit in the diff", async () => {
+    await writeFile(join(repo, 'CLAUDE.md'), 'base rules');
+    await execa('git', ['add', '.'], { cwd: repo });
+    await execa('git', ['-c', 'user.email=t@t', '-c', 'user.name=t', 'commit', '-m', 'rules'], { cwd: repo });
+    const copies: { stage: number; content: string | undefined }[] = [];
+    let stage = 0;
+    const sandbox = {
+      ...makeSandbox(),
+      copyIn: async (hostPath: string): Promise<void> => {
+        copies.push({ stage, content: await readFile(join(hostPath, 'CLAUDE.md'), 'utf8').catch(() => undefined) });
+      },
+      copyFileOut: async (sandboxPath: string, hostPath: string): Promise<void> => {
+        if (sandboxPath !== '/workspace') return;
+        await mkdir(hostPath, { recursive: true });
+        await writeFile(join(hostPath, 'CLAUDE.md'), 'implementer edit');
+      },
+    } as unknown as IsolatedSandboxProvider;
+    const agent: AgentProvider = {
+      name: 'rec',
+      async *run(): AsyncGenerator<AgentTurn, AgentRunOutput, void> {
+        stage += 1;
+        yield { text: 'working' };
+        return { finalText: 'done <promise>COMPLETE</promise>', turns: 1 };
+      },
+    };
+    const wm = new WorktreeManager(repo);
+    const ctx = await prepareContext({ taskId: 'instr', localRepoPath: repo, baseBranch: 'main', start: 'base', sandbox }, { worktrees: wm });
+    const outcomes = await runStages(
+      ctx,
+      [
+        { name: 'implementer', promptTemplate: 'do' },
+        { name: 'reviewer', promptTemplate: 'review:\n{{PREVIOUS_DIFF}}', copyBack: false },
+      ],
+      { agent },
+    );
+    // Provisioning copy (base rules, before any stage), then the reviewer's overlay (base rules), then the edit put back.
+    expect(copies.map((c) => c.content)).toEqual(['base rules', 'base rules', 'implementer edit']);
+    // The implementer's own stage ran with no overlay: nothing was copied in between provisioning and the review.
+    expect(copies.map((c) => c.stage)).toEqual([0, 1, 2]);
+    expect(outcomes[1]?.result.diff ?? '').not.toContain('base rules');
+    expect(await readFile(join(ctx.worktreePath, 'CLAUDE.md'), 'utf8')).toBe('implementer edit');
+    await disposeContext(ctx, { keep: true } as never).catch(() => undefined);
+  });
+});
+
+describe('review stages and instruction symlinks', () => {
+  /** A base whose CLAUDE.md is a symlink to AGENTS.md; every copyIn is recorded as the link target (or file content). */
+  async function symlinkedBase(): Promise<{ sandbox: IsolatedSandboxProvider; copies: string[] }> {
+    await writeFile(join(repo, 'AGENTS.md'), 'shared rules');
+    await symlink('AGENTS.md', join(repo, 'CLAUDE.md'));
+    await execa('git', ['add', '.'], { cwd: repo });
+    await execa('git', ['-c', 'user.email=t@t', '-c', 'user.name=t', 'commit', '-m', 'rules'], { cwd: repo });
+    const copies: string[] = [];
+    const sandbox = {
+      ...makeSandbox(),
+      copyIn: async (hostPath: string): Promise<void> => {
+        const link = await readlink(join(hostPath, 'CLAUDE.md')).catch(() => undefined);
+        copies.push(link !== undefined ? `link:${link}` : 'none');
+      },
+    } as unknown as IsolatedSandboxProvider;
+    return { sandbox, copies };
+  }
+  const reviewer: PipelineStage = { name: 'reviewer', promptTemplate: 'review', copyBack: false };
+
+  it('keeps a symlinked CLAUDE.md in the overlay instead of deleting it', async () => {
+    const { sandbox, copies } = await symlinkedBase();
+    const ctx = await prepareContext({ taskId: 'sym', localRepoPath: repo, baseBranch: 'main', start: 'base', sandbox }, { worktrees: new WorktreeManager(repo) });
+    await runStages(ctx, [{ name: 'implementer', promptTemplate: 'do' }, reviewer], { agent: recordingAgent([]) });
+    // Provisioning, overlay, restore: the link survives the overlay and the put-back, unresolved.
+    expect(copies.slice(1)).toEqual(['link:AGENTS.md', 'link:AGENTS.md']);
+    await disposeContext(ctx);
+  });
+
+  it('reviewFinalDiff (the re-review after repairs) also runs on the base instruction files', async () => {
+    const { sandbox, copies } = await symlinkedBase();
+    const ctx = await prepareContext({ taskId: 'refinal', localRepoPath: repo, baseBranch: 'main', start: 'base', sandbox }, { worktrees: new WorktreeManager(repo) });
+    const before = copies.length;
+    await reviewFinalDiff(ctx, reviewer, { agent: recordingAgent([]) });
+    expect(copies.length).toBeGreaterThan(before);
     await disposeContext(ctx);
   });
 });

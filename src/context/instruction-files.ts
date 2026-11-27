@@ -42,8 +42,17 @@ export interface OverlayInstructionFilesOptions {
   logger?: TaskcellLogger;
 }
 
+/** The commit the trusted instruction ref (default branch) resolves to, as origin has it. */
+export async function resolveInstructionSha(repoPath: string, ref: string, logger?: TaskcellLogger): Promise<string> {
+  assertSafeBaseBranch(ref);
+  const resolved = await resolveRemoteBaseRef(repoPath, ref, { label: 'instructions', keepLocalIfAhead: false, logger: logger ?? createLogger() });
+  const sha = (await execa('git', ['rev-parse', '--verify', '--quiet', `${resolved}^{commit}`], { cwd: repoPath, reject: false })).stdout.trim();
+  if (sha === '') throw new TaskcellError(`cannot resolve instruction ref ${ref} in ${repoPath}`);
+  return sha;
+}
+
 /** `git ls-tree -r -z --name-only <tree>` in `cwd`, split on NUL, filtered through instructionPaths(). */
-async function instructionPathsInTree(cwd: string, tree: string): Promise<string[]> {
+export async function instructionPathsInTree(cwd: string, tree: string): Promise<string[]> {
   const { stdout } = await execa('git', hostGitArgs(['ls-tree', '-r', '-z', '--name-only', '--end-of-options', tree]), { cwd });
   const paths = stdout.split('\0').filter((p) => p !== '');
   return instructionPaths(paths);
@@ -65,9 +74,7 @@ export async function overlayInstructionFiles(opts: OverlayInstructionFilesOptio
   const log = opts.logger ?? createLogger();
   assertSafeBaseBranch(opts.ref);
 
-  const resolved = await resolveRemoteBaseRef(repoPath, opts.ref, { label: 'instructions', keepLocalIfAhead: false, logger: log });
-  const sha = (await execa('git', ['rev-parse', '--verify', '--quiet', `${resolved}^{commit}`], { cwd: repoPath, reject: false })).stdout.trim();
-  if (sha === '') throw new TaskcellError(`cannot resolve instruction ref ${opts.ref} in ${repoPath}`);
+  const sha = await resolveInstructionSha(repoPath, opts.ref, log);
 
   const [defaultPaths, basePaths] = await Promise.all([
     instructionPathsInTree(repoPath, sha),
