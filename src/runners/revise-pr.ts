@@ -613,7 +613,8 @@ export async function runRevisePullRequest(prRef: string, deps: ReviseGithubPrDe
       // the diff, so it goes in as a variable and is never expanded as a template (see literalPrompt).
       // Lessons for the files the PR actually changes (the diff is known here), recorded on the run.
       const lessons = await loadLessonsForTask(deps.repoPath, '', { files: changedFilesOf(pr.diff) });
-      const { promptTemplate, variables } = literalPrompt(buildRevisionPrompt(pr, actionable, mergedBase, checklist, lessons.text));
+      const promptVerifyCmd = await resolveVerifyCommand(ctx.worktreePath, deps.verifyCmd !== undefined ? { cmd: deps.verifyCmd } : {});
+      const { promptTemplate, variables } = literalPrompt(buildRevisionPrompt(pr, actionable, mergedBase, checklist, lessons.text, promptVerifyCmd));
       pipeline = pipeline.map((stage) =>
         stage.name === STAGE.IMPLEMENTER ? { ...stage, promptTemplate } : stage,
       );

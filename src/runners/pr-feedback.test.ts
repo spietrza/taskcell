@@ -1542,3 +1542,14 @@ describe('buildRevisionChecklist — Markdown review', () => {
     expect(buildRevisionChecklist(fb, [])).toEqual([]);
   });
 });
+
+describe('buildRevisionPrompt verify command', () => {
+  const pr = { repoSlug: 'o/r', number: 1, headRefOid: 'sha', title: 't', diff: 'd' };
+  it('contains the exact resolved command', () => {
+    expect(buildRevisionPrompt(pr, [], undefined, [], '', 'pnpm typecheck && pnpm test')).toContain('`pnpm typecheck && pnpm test`');
+  });
+  it('has no run-tests instruction when no command resolved', () => {
+    const prompt = buildRevisionPrompt(pr, []);
+    expect(prompt).not.toMatch(/typecheck|run .*tests|After making changes, run/i);
+  });
+});

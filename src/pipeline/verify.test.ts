@@ -6,6 +6,7 @@ import { join } from 'node:path';
 import { createHash } from 'node:crypto';
 import type { IsolatedSandboxProvider, ExecResult } from '../sandbox/provider.js';
 import { CLEAN_INSTALL_SCRIPT, resolveVerifyCommand, runVerification, renderVerificationFeedback, proofBlock, extractFirstErrorLines, failingTaskName } from './verify.js';
+import { verifyInstruction, gateResultText } from './verify-prompt.js';
 
 // ---------------------------------------------------------------------------
 // Fake sandbox
@@ -452,5 +453,20 @@ describe('OOM evidence after a failed verify', () => {
       expect(r.oomKilled).toBeUndefined();
       expect(proofBlock(r)).not.toContain('OOM kill');
     }
+  });
+});
+
+describe('prompt verify variables', () => {
+  const base = { command: 'pnpm test', exitCode: 1, sha256: 'x', outputTail: 'tail', firstErrorLines: 'FAIL a.test.ts' };
+  it('instruction carries the exact command, empty when none resolved', () => {
+    expect(verifyInstruction('pnpm typecheck && pnpm test')).toContain('`pnpm typecheck && pnpm test`');
+    expect(verifyInstruction(undefined)).toBe('');
+  });
+  it('gate result reports pass, fail with first error lines, and not-run', () => {
+    expect(gateResultText({ ...base, exitCode: 0, passed: true })).toContain('PASSED');
+    const failed = gateResultText({ ...base, passed: false });
+    expect(failed).toContain('FAILED');
+    expect(failed).toContain('FAIL a.test.ts');
+    expect(gateResultText(undefined)).toContain('not run');
   });
 });

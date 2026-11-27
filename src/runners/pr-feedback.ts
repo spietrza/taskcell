@@ -259,6 +259,7 @@ export function buildRevisionPrompt(
   merge?: BaseResolution,
   checklist: readonly string[] = [],
   lessons = '',
+  verifyCmd?: string,
 ): string {
   const feedbackSection =
     actionable.length === 0
@@ -270,7 +271,8 @@ export function buildRevisionPrompt(
   return [
     '<task_instructions>',
     'Address the human review feedback in <review_feedback> on the pull request described in <pr_metadata>.',
-    'Apply the requested fixes in the repo. Keep changes minimal and scoped to the feedback. Run typecheck/tests after making changes.',
+    'Apply the requested fixes in the repo. Keep changes minimal and scoped to the feedback.',
+    ...(verifyCmd !== undefined ? [neutralizePromptTags(`After making changes, run \`${verifyCmd}\` to check your work; the host runs the same command before pushing.`)] : []),
     ...(merge !== undefined
       ? [
           neutralizePromptTags(`The branch is mid-${merge.rebased === true ? 'rebase onto' : 'merge with'} its base \`${merge.base}\` and these files carry git conflict markers: ${formatConflictFiles(merge.files)}.`),
