@@ -29,8 +29,8 @@ import type { PipelineStage, StageOutcome } from './pipeline.js';
  *   model that actually closed the gate.
  * - The per-call budget is stageCostFraction × the run budget (`maxCostUsd`, else DEFAULT_RUN_MAX_COST_USD),
  *   floored at stageCostFloorUsd: these calls run outside runStages' accounting, where the stage budget is
- *   Infinity. With an explicit `maxCostUsd` each call is also capped at what the run has left (the cost of
- *   every outcome so far), and no repair starts once that is spent.
+ *   Infinity unless `maxCostUsd` is set. With an explicit `maxCostUsd` each call is also capped at what the
+ *   run has left (the cost of every outcome so far), and no repair starts once that is spent.
  */
 
 export interface GateResult {

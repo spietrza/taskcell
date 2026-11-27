@@ -749,13 +749,14 @@ describe('createRun with a hub fallback chain', () => {
   });
 });
 
+async function repoCfg(dir: '.taskcell' | '.vanguard', cfg: unknown): Promise<string> {
+  const repo = await mkdtemp(join(tmpdir(), 'vg-deps-'));
+  await mkdir(join(repo, dir), { recursive: true });
+  await writeFile(join(repo, dir, 'app.json'), JSON.stringify(cfg));
+  return repo;
+}
+
 describe('createRun reads verifyCmd / reviewProvider / budgetUsd from app.json', () => {
-  async function repoCfg(dir: '.taskcell' | '.vanguard', cfg: unknown): Promise<string> {
-    const repo = await mkdtemp(join(tmpdir(), 'vg-deps-'));
-    await mkdir(join(repo, dir), { recursive: true });
-    await writeFile(join(repo, dir, 'app.json'), JSON.stringify(cfg));
-    return repo;
-  }
   const runOpts = async (repoPath: string): Promise<Record<string, unknown>> => {
     setEnv({ CLAUDE_CODE_OAUTH_TOKEN: 'sk-ant-oat01-x', ANTHROPIC_API_KEY: undefined, OPENAI_API_KEY: 'sk-x', CODEX_AUTH_JSON: undefined });
     await productionDeps().createRun({ issueRef: 'o/r#1', repoPath }, () => {});
@@ -778,15 +779,24 @@ describe('createRun reads verifyCmd / reviewProvider / budgetUsd from app.json',
       expect(opts).not.toHaveProperty('maxCostUsd');
     }
   });
+
+  it('an unknown reviewProvider fails the run as bad-request, naming .taskcell/app.json', async () => {
+    setEnv({ CLAUDE_CODE_OAUTH_TOKEN: 'sk-ant-oat01-x', ANTHROPIC_API_KEY: undefined });
+    const repoPath = await repoCfg('.taskcell', { reviewProvider: 'bogus' });
+    const run = productionDeps().createRun({ issueRef: 'o/r#1', repoPath }, () => {});
+    await expect(run).rejects.toBeInstanceOf(BadRequestError);
+    await expect(run).rejects.toThrow(/reviewProvider "bogus" is set in the project's \.taskcell\/app\.json/);
+    expect(beginRun).not.toHaveBeenCalled();
+    expect(runGithubIssue).not.toHaveBeenCalled();
+  });
 });
 
 describe('createRun budgetUsd 0', () => {
-  it('means no cap (the editor placeholder), not a zero budget', async () => {
-    const repo = await mkdtemp(join(tmpdir(), 'vg-deps-'));
-    await mkdir(join(repo, '.taskcell'), { recursive: true });
-    await writeFile(join(repo, '.taskcell', 'app.json'), JSON.stringify({ budgetUsd: 0 }));
+  it('falls back to the pipeline default cap (the editor placeholder), not a zero budget', async () => {
     setEnv({ CLAUDE_CODE_OAUTH_TOKEN: 'sk-ant-oat01-x', ANTHROPIC_API_KEY: undefined });
-    await productionDeps().createRun({ issueRef: 'o/r#1', repoPath: repo }, () => {});
-    expect(runGithubIssue.mock.calls[0]?.[1] ?? {}).not.toHaveProperty('maxCostUsd');
+    await productionDeps().createRun({ issueRef: 'o/r#1', repoPath: await repoCfg('.taskcell', { budgetUsd: 0 }) }, () => {});
+    // No maxCostUsd → the pipeline applies its default cap (DEFAULT_RUN_MAX_COST_USD for repairs, see run-execution).
+    expect(runGithubIssue).toHaveBeenCalledTimes(1);
+    expect(runGithubIssue.mock.calls[0]?.[1]).not.toHaveProperty('maxCostUsd');
   });
 });

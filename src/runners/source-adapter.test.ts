@@ -1557,4 +1557,13 @@ describe('runHubTask with app.json run settings', () => {
     // 0.6 × $1 — not 0.6 × the $5 default.
     expect(runAgent.mock.calls[0]?.[1]).toMatchObject({ maxBudgetUsd: 0.6 });
   });
+
+  it('no run budget (app.json budgetUsd unset or 0) leaves the stages uncapped and each repair on the default cap', async () => {
+    vi.mocked(runVerification).mockResolvedValueOnce({ passed: false } as never).mockResolvedValue({ passed: true } as never);
+    runAgent.mockResolvedValue({ sessionId: 'sess-1', completed: true, exitReason: 'completed', turns: 1 } as never);
+    await runHubTask(stored, { repoPath: '/repo', verifyCmd: 'make check' });
+    expect(runStages.mock.calls[0]?.[2]).not.toHaveProperty('maxCostUsd');
+    // 0.6 × the $5 DEFAULT_RUN_MAX_COST_USD.
+    expect(runAgent.mock.calls[0]?.[1]).toMatchObject({ maxBudgetUsd: 3 });
+  });
 });
