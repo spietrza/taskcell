@@ -111,6 +111,22 @@ describe('deliverChange', () => {
     expect(Object.values(seen[0] ?? {})).toContain(`AUTHORIZATION: basic ${Buffer.from('x-access-token:PROVIDED').toString('base64')}`);
   });
 
+  it('puts the Screens block in a new PR body, and a throwing capture only says unavailable', async () => {
+    const bodies: string[] = [];
+    const target = { kind: 'new-pr' as const, title: 't', body: ({ screensBlock }: { screensBlock?: string }) => screensBlock ?? 'none', runner: async (file: string, a: string[]) => { if (file === 'gh') bodies.push(await readFile(a[a.indexOf('--body-file') + 1]!, 'utf8')); return file === 'gh' ? 'https://github.com/o/r/pull/9' : ''; } };
+    await withWork('w', async (ctx) => {
+      const seen: string[][] = [];
+      await deliverChange(ctx, { taskId: 'S-1', commitMessage: 'feat: x', target, screens: async (files) => { seen.push(files); return '## Screens\n\nshots'; } });
+      expect(seen).toEqual([['feature.txt']]);
+    });
+    await withWork('w', async (ctx) => {
+      const r = await deliverChange(ctx, { taskId: 'S-2', commitMessage: 'feat: x', target, screens: async () => { throw new Error('boom'); } });
+      expect(r.kind).toBe('delivered-pr');
+    });
+    expect(bodies[0]).toBe('## Screens\n\nshots');
+    expect(bodies[1]).toBe('## Screens\n\nScreenshots unavailable: boom');
+  });
+
   it('computes the gate-config facts of the delivered change once with the repo globs, hands them to the body and returns them', async () => {
     let seen: unknown;
     await withWork('work', async (ctx) => {

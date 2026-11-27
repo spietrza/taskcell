@@ -9,7 +9,7 @@ Five steps, the same for every card:
 1. **Label**: label an issue on GitHub, GitLab or Linear, or move a card on a GitHub Projects board. A card too vague to build goes back as `needs info` before any model runs. A planner reads the code and writes a tech spec with acceptance criteria, posted on the issue.
 2. **Sealed cell**: the agent builds the card in its own Docker container: non-root, no new privileges, minimal capabilities, no repository token, one git worktree per card.
 3. **Gates**: your verify script runs and the host scans the diff for secrets. A red gate sends the card back for a repair, at most twice. Then a reviewer reads the diff in a fresh context and fixes what it finds.
-4. **Pull request**: the host pushes the branch and opens the PR, ready when every gate passed, a draft when one did not.
+4. **Pull request**: the host pushes the branch and opens the PR, ready when every gate passed, a draft when one did not. A PR that changes the interface also shows before and after screenshots of the changed screens (demo data only).
 5. **Review**: a second model (for example Codex on Claude's work) can review the open pull request read-only and post a verdict (`taskcell review-pr`, or the review workflow in CI). Review comments on GitHub go back for a revision. You merge.
 
 ## Setting it up for a user
