@@ -633,8 +633,27 @@ export const revisionMarker = (headRefOid: string, whiteLabel = false, mergeOnly
   return writeMarker('revision', { head: headRefOid, mergeOnly }, { whiteLabel });
 };
 
-/** Feedback that mentions a conflict. Wording only: it may let a round merge the base, never decide what the round did. */
-export const isConflictItem = (item: FeedbackItem): boolean => /\bconflict/i.test(item.body);
+const escapeRegExp = (s: string): string => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
+/**
+ * Feedback that asks for nothing but bringing the base in: after dropping hidden markers, every sentence is
+ * one of a closed set of merge/rebase/resolve-the-conflicts requests about the branch and its base (`base`,
+ * `main`, `master` or `baseName`), as in the CI watch's base-conflict notice (conflictMarker). Any other
+ * sentence ("This flag conflicts with `--verbose`, rename it.") makes it a code ask, never a merge-only one.
+ */
+export function isBaseMergeAsk(item: FeedbackItem, baseName = ''): boolean {
+  const base = `(?:the )?(?:base(?: branch)?|main|master${baseName === '' ? '' : `|\`?${escapeRegExp(baseName)}\`?`})`;
+  const branch = '(?:the |this )?(?:branch|pr|pull request)';
+  const resolve = '(?:fix|resolve) (?:the |all |any )?(?:merge )?conflicts?';
+  const sentences = [
+    `#+ conflicts with ${base} on [0-9a-f]{7,40}`,
+    `${branch} (?:has (?:merge )?conflicts with|conflicts with|is out of date with|is behind) ${base}`,
+    `(?:please )?(?:merge ${base}(?: into (?:it|${branch}))?|rebase (?:${branch} )?(?:on|onto) ${base})(?:,? and ${resolve})?`,
+    `(?:please )?${resolve}(?: with ${base})?`,
+  ].map((re) => new RegExp(`^(?:${re})[.!]?$`, 'i'));
+  const parts = item.body.replace(/<!--[\s\S]*?-->/g, '').split(/(?<=[.!])\s+|\n+/).map((s) => s.trim()).filter((s) => s !== '');
+  return parts.length > 0 && parts.every((part) => sentences.some((re) => re.test(part)));
+}
 
 const REFERENCE_KIND: Record<FeedbackItem['source'], string> = {
   review: 'review',

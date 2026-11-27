@@ -10,6 +10,7 @@ import {
   ciFailedMarker,
   ciWatchCapMarker,
   conflictMarker,
+  isBaseMergeAsk,
   revisionCapMarker,
   revisionMarker,
   hasRevisionMarker,
@@ -1540,5 +1541,26 @@ describe('buildRevisionChecklist — Markdown review', () => {
   it('lists nothing for a clean review', () => {
     const fb = makeFeedback({ items: [review('Verdict: NO BLOCKING FINDINGS\n\n- [non-blocking] style')] });
     expect(buildRevisionChecklist(fb, [])).toEqual([]);
+  });
+});
+
+describe('isBaseMergeAsk', () => {
+  const ask = (body: string, base?: string): boolean =>
+    isBaseMergeAsk({ source: 'comment', author: 'alice', authorAssociation: 'OWNER', body, createdAt: '' }, base);
+
+  it('accepts the CI watch base-conflict notice and plain merge/rebase asks', () => {
+    expect(ask(['## Conflicts with main on abc1234', '', 'This branch conflicts with main. Merge the base into it and resolve the conflicts.', '', conflictMarker('abc1234')].join('\n'))).toBe(true);
+    expect(ask('The branch conflicts with main. Rebase on main and resolve the conflicts.')).toBe(true);
+    expect(ask('Please merge `develop` and resolve the conflicts', 'develop')).toBe(true);
+    expect(ask('Resolve the merge conflicts.')).toBe(true);
+  });
+
+  it('rejects any code ask, even one that says "conflict"', () => {
+    expect(ask('This flag conflicts with `--verbose`, rename it.')).toBe(false);
+    expect(ask('The branch conflicts with main. Also rename the flag.')).toBe(false);
+    expect(ask('Resolve the conflict with main in a.ts')).toBe(false);
+    expect(ask('Merge `develop`.', 'main')).toBe(false);
+    expect(ask(conflictMarker('abc1234'))).toBe(false);
+    expect(ask('')).toBe(false);
   });
 });

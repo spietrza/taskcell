@@ -16,7 +16,7 @@ import {
   triedLines,
   revisionMarker,
   buildItemReply,
-  isConflictItem,
+  isBaseMergeAsk,
   buildRevisionSummary,
   buildRevisionChecklist,
   parseChecklistAnswers,
@@ -431,11 +431,12 @@ export async function runRevisePullRequest(prRef: string, deps: ReviseGithubPrDe
   // (automated or bot) leaves the cutoff undefined and the cap holds.
   const resetAt = revisionBudgetResetAt(fb, deps);
   const rounds = countRevisionRoundsFromFeedback(fb, deps, resetAt);
-  // A round asked for nothing but the conflict with the base (no checklist item) may still run at the cap and
-  // merges a base that git merges cleanly. Whether it WAS merge-only (uncounted, see revisionMarker) is decided
-  // below from what it changed, never from the wording of the feedback: the agent still gets every item.
+  // A round whose every item asks only to bring the base in (isBaseMergeAsk: a closed set of merge/rebase
+  // requests such as the CI watch's base-conflict notice, never a code ask that merely says "conflict"; no
+  // checklist item) may still run at the cap, and skips the agent when git merges the base cleanly. Whether
+  // it WAS merge-only (uncounted, see revisionMarker) is decided below from what it changed in git.
   const checklist = buildRevisionChecklist(fb, actionable, deps.botLogins);
-  const mergeOnlyAsk = checklist.length === 0 && actionable.every(isConflictItem);
+  const mergeOnlyAsk = checklist.length === 0 && actionable.every((item) => isBaseMergeAsk(item, pr.baseRefName));
   const atCap = rounds >= maxRounds;
   const refuseAtCap = async (): Promise<ReviseGithubPrResult> => {
     await handBackWithNotice(`cap -> ${rounds} rounds`,
@@ -609,19 +610,18 @@ export async function runRevisePullRequest(prRef: string, deps: ReviseGithubPrDe
         await refreshSandboxWorkspace(ctx);
       }
 
-      // Override the implementer's promptTemplate with the revision prompt. It holds review comments and
-      // the diff, so it goes in as a variable and is never expanded as a template (see literalPrompt).
-      // Lessons for the files the PR actually changes (the diff is known here), recorded on the run.
-      const lessons = await loadLessonsForTask(deps.repoPath, '', { files: changedFilesOf(pr.diff) });
-      const { promptTemplate, variables } = literalPrompt(buildRevisionPrompt(pr, actionable, mergedBase, checklist, lessons.text));
-      pipeline = pipeline.map((stage) =>
-        stage.name === STAGE.IMPLEMENTER ? { ...stage, promptTemplate } : stage,
-      );
-
       // Merge-only ask that git merged cleanly: nothing for the agent to do, so no model call (verify and push still run).
       if (mergeOnlyAsk && cleanMerged) {
         log(`revise-pr ${target.repoSlug}#${target.number}: merge-only round merged cleanly -> agent skipped`);
       } else {
+        // Override the implementer's promptTemplate with the revision prompt. It holds review comments and
+        // the diff, so it goes in as a variable and is never expanded as a template (see literalPrompt).
+        // Lessons for the files the PR actually changes (the diff is known here), recorded on the run.
+        const lessons = await loadLessonsForTask(deps.repoPath, '', { files: changedFilesOf(pr.diff) });
+        const { promptTemplate, variables } = literalPrompt(buildRevisionPrompt(pr, actionable, mergedBase, checklist, lessons.text));
+        pipeline = pipeline.map((stage) =>
+          stage.name === STAGE.IMPLEMENTER ? { ...stage, promptTemplate } : stage,
+        );
         log(`revise-pr ${target.repoSlug}#${target.number}: agent -> implementing`);
         if (lessons.ids.length > 0) revisionStageMeta.lessonIds = lessons.ids;
         outcomes = await runStages(ctx, pipeline, { agent: agents.agent, variables });

@@ -6,7 +6,7 @@ import { join } from 'node:path';
 import { execa } from 'execa';
 import { WorktreeManager } from '../worktree/manager.js';
 import { runRevisePullRequest } from './revise-pr.js';
-import { revisionCapMarker, revisionMarker } from './pr-feedback.js';
+import { conflictMarker, revisionCapMarker, revisionMarker } from './pr-feedback.js';
 import { githubPullRequestWatchPrimitives } from './pr-watch.js';
 import * as registry from '../agents/registry.js';
 import { selectAgents } from '../agents/registry.js';
@@ -2445,7 +2445,7 @@ describe('runRevisePullRequest base conflicts', () => {
     await execa('git', ['push', 'origin', 'main'], { cwd: repo });
   }
 
-  async function run(sandboxFiles: Record<string, string>, opts: { body?: string; noop?: boolean; only?: boolean; out?: string; headRef?: string; capped?: boolean } = {}): Promise<{
+  async function run(sandboxFiles: Record<string, string>, opts: { body?: string; notice?: string; noop?: boolean; only?: boolean; out?: string; headRef?: string; capped?: boolean } = {}): Promise<{
     result: Awaited<ReturnType<typeof runRevisePullRequest>>;
     ghCalls: string[][];
     pushed: string[];
@@ -2467,7 +2467,9 @@ describe('runRevisePullRequest base conflicts', () => {
       if (args[0] === 'pr' && args[1] === 'review') return '';
       if (opts.headRef !== undefined && args[0] === 'pr' && args[1] === 'view' && args.some((a) => a.includes('headRefName'))) return makePrViewJson({ headRefName: opts.headRef });
       if (args[0] === 'api' && opts.body !== undefined && (args.find((a) => a.startsWith('query=')) ?? '').includes('reviewThreads')) {
-        return (opts.capped === true ? makeFeedbackJsonWithRevisions() : makeFeedbackJson()).replace('Please rename this.', opts.body);
+        // `notice`: also a PR comment (the CI watch's base-conflict notice, posted with the push token's user).
+        const notice = opts.notice === undefined ? {} : { comments: { nodes: [{ author: { login: 'maintainer' }, authorAssociation: 'OWNER', body: opts.notice, createdAt: '2024-01-11T11:00:00Z' }] } };
+        return (opts.capped === true ? makeFeedbackJsonWithRevisions() : makeFeedbackJson(notice)).replace('Please rename this.', opts.body);
       }
       return base(args);
     };
@@ -2550,10 +2552,10 @@ describe('runRevisePullRequest base conflicts', () => {
     expect(await baseMerges()).toEqual([expect.objectContaining({ outcome: 'clean', conflictedFiles: [], round: 'merge-only' })]);
   });
 
-  // A code-change ask (no conflict wording) is an ordinary round: the agent works on it. A conflict-worded ask on a clean merge is merge-only and skips the agent.
-  const REAL_ASK = 'This flag is confusing next to `--verbose`, rename it.';
+  // Feedback that merely mentions a conflict and asks for a code change is an ordinary round.
+  const REAL_ASK = 'This flag conflicts with `--verbose`, rename it.';
 
-  it('feedback that asks for a code change is worked on, counted and re-reviewed', async () => {
+  it('feedback that mentions a conflict but asks for a change is worked on, counted and re-reviewed', async () => {
     await cleanFeature();
     const { result, ghCalls, prompt, tree } = await run({}, { body: REAL_ASK });
     expect(prompt).toContain(REAL_ASK);
@@ -2562,6 +2564,27 @@ describe('runRevisePullRequest base conflicts', () => {
     expect(comments(ghCalls)).not.toContain('Merge-only round');
     expect(comments(ghCalls)).not.toContain('merge-only');
     expect(comments(ghCalls)).toContain('<!-- taskcell-revision: deadbeef -->');
+    expect(reReviewed(ghCalls)).toBe(true);
+  });
+
+  // The CI watch's base-conflict notice (ci-watch.ts) as posted on the PR.
+  const NOTICE = ['## Conflicts with main on deadbee', '', 'This branch conflicts with main. Merge the base into it and resolve the conflicts.', '', conflictMarker('deadbeef')].join('\n');
+
+  it('the base-conflict notice next to a merge ask, on a clean merge: no agent call, merge-only', async () => {
+    await cleanFeature();
+    const { result, ghCalls, agentCalls } = await run({}, { body: CONFLICT_ITEM, notice: NOTICE, noop: true });
+    expect(agentCalls).toBe(0);
+    expect(result.pushed).toBe(true);
+    expect(comments(ghCalls)).toContain('Merge-only round');
+  });
+
+  it('the base-conflict notice next to a code ask that says "conflicts with": the agent runs on it', async () => {
+    await cleanFeature();
+    const { result, ghCalls, prompt, agentCalls } = await run({}, { body: REAL_ASK, notice: NOTICE });
+    expect(agentCalls).toBeGreaterThan(0);
+    expect(prompt).toContain(REAL_ASK);
+    expect(result.pushed).toBe(true);
+    expect(comments(ghCalls)).not.toContain('Merge-only round');
     expect(reReviewed(ghCalls)).toBe(true);
   });
 
